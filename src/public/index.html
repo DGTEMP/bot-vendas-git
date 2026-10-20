@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel de Vendas Automatizadas | Binance Pay + WhatsApp & Telegram</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <i class="fa-brands fa-bitcoin brand-icon"></i>
+        <div>
+          <h2>PayBot</h2>
+          <span>WhatsApp & Telegram</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <a href="#" class="nav-item active" data-tab="overview">
+          <i class="fa-solid fa-chart-pie"></i> Visão Geral
+        </a>
+        <a href="#" class="nav-item" data-tab="connections">
+          <i class="fa-solid fa-plug"></i> Conexões & QR
+        </a>
+        <a href="#" class="nav-item" data-tab="products">
+          <i class="fa-solid fa-box-open"></i> Produtos & VIP
+        </a>
+        <a href="#" class="nav-item" data-tab="keys">
+          <i class="fa-solid fa-key"></i> Estoque de Chaves
+        </a>
+        <a href="#" class="nav-item" data-tab="orders">
+          <i class="fa-solid fa-receipt"></i> Pedidos / Vendas
+        </a>
+        <a href="#" class="nav-item" data-tab="subscriptions">
+          <i class="fa-solid fa-crown"></i> Assinaturas Ativas
+        </a>
+        <a href="#" class="nav-item" data-tab="settings">
+          <i class="fa-solid fa-sliders"></i> Configurações
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-indicator">
+          <span class="dot live"></span>
+          <span>Binance Pay Integrada</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="topbar">
+        <h1 id="pageTitle">Visão Geral</h1>
+        <div class="topbar-actions">
+          <button class="btn btn-secondary" onclick="loadAllData()">
+            <i class="fa-solid fa-rotate"></i> Atualizar
+          </button>
+        </div>
+      </header>
+
+      <div class="content-body">
+        
+        <!-- TAB 1: VISÃO GERAL -->
+        <section id="tab-overview" class="tab-pane active">
+          <!-- Metric Cards -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon gold"><i class="fa-solid fa-dollar-sign"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Faturamento Total</span>
+                <h3 id="statRevenue">0.00 USDT</h3>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon green"><i class="fa-solid fa-circle-check"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Vendas Concluídas</span>
+                <h3 id="statPaidOrders">0</h3>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon purple"><i class="fa-solid fa-crown"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Assinaturas VIP Ativas</span>
+                <h3 id="statActiveSubs">0</h3>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon blue"><i class="fa-solid fa-cubes"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Produtos Cadastrados</span>
+                <h3 id="statProducts">0</h3>
+              </div>
+            </div>
+          </div>
+
+          <!-- Connection Quick Status -->
+          <div class="connections-summary">
+            <div class="conn-card">
+              <div class="conn-header">
+                <i class="fa-brands fa-whatsapp wpp-color"></i>
+                <div>
+                  <h4>WhatsApp Bot</h4>
+                  <span id="overviewWppStatus" class="badge">Verificando...</span>
+                </div>
+              </div>
+              <p>Conectado via Baileys Multi-Device. Escaneie o QR Code para parear seu celular.</p>
+              <button class="btn btn-sm btn-outline" onclick="switchTab('connections')">Ver QR Code</button>
+            </div>
+
+            <div class="conn-card">
+              <div class="conn-header">
+                <i class="fa-brands fa-telegram tg-color"></i>
+                <div>
+                  <h4>Telegram Bot</h4>
+                  <span id="overviewTgStatus" class="badge">Verificando...</span>
+                </div>
+              </div>
+              <p>Gerenciamento automático de grupos VIP, convites de uso único e kick de expirados.</p>
+              <button class="btn btn-sm btn-outline" onclick="switchTab('settings')">Configurar Token</button>
+            </div>
+          </div>
+
+          <!-- Recent Orders Table -->
+          <div class="card recent-orders-card">
+            <div class="card-header">
+              <h3>Últimos Pedidos</h3>
+              <button class="btn btn-sm btn-outline" onclick="switchTab('orders')">Ver Todos</button>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableOverviewOrders">
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Canal</th>
+                    <th>Item</th>
+                    <th>Valor</th>
+                    <th>Status</th>
+                    <th>Data</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="7" class="text-center">Carregando pedidos...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: CONEXÕES & QR CODE -->
+        <section id="tab-connections" class="tab-pane">
+          <div class="grid-2col">
+            <!-- WhatsApp Connection Card -->
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-brands fa-whatsapp wpp-color"></i> Conexão WhatsApp</h3>
+                <span id="wppBadge" class="badge">Desconectado</span>
+              </div>
+              <div class="card-body text-center">
+                <p id="wppStatusText">Iniciando serviço do WhatsApp...</p>
+                <div id="wppQrContainer" class="qr-box">
+                  <div class="spinner"></div>
+                  <span>Gerando QR Code...</span>
+                </div>
+                <div class="alert-info">
+                  <i class="fa-solid fa-mobile-screen"></i> No seu celular: Abra o <b>WhatsApp > Aparelhos Conectados > Conectar Aparelho</b> e aponte para o QR Code.
+                </div>
+              </div>
+            </div>
+
+            <!-- Telegram Connection Card -->
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-brands fa-telegram tg-color"></i> Conexão Telegram</h3>
+                <span id="tgBadge" class="badge">Desconectado</span>
+              </div>
+              <div class="card-body">
+                <p id="tgStatusText">Configuração do bot no Telegram.</p>
+                <div class="setup-steps">
+                  <div class="step">
+                    <b>1.</b> Crie um bot no <b>@BotFather</b> no Telegram e copie o token gerado.
+                  </div>
+                  <div class="step">
+                    <b>2.</b> Adicione seu bot como <b>Administrador</b> no seu Grupo ou Canal VIP com permissão para <i>Convidar Usuários</i> e <i>Banir Membros</i>.
+                  </div>
+                  <div class="step">
+                    <b>3.</b> Salve o Token e o Chat ID nas configurações deste painel.
+                  </div>
+                </div>
+                <button class="btn btn-primary mt-3" onclick="switchTab('settings')">
+                  <i class="fa-solid fa-gear"></i> Ir para Configurações
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: PRODUTOS & ASSINATURAS -->
+        <section id="tab-products" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>Catálogo de Produtos & Planos</h3>
+              <button class="btn btn-primary" onclick="openProductModal()">
+                <i class="fa-solid fa-plus"></i> Novo Produto / Plano
+              </button>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableProducts">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Nome</th>
+                    <th>Tipo</th>
+                    <th>Preço</th>
+                    <th>Duração / Estoque</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="7" class="text-center">Carregando produtos...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 4: ESTOQUE DE CHAVES -->
+        <section id="tab-keys" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>Estoque de Chaves / Licenças Digitais</h3>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label>Selecione o Produto (Tipo: Chave de Licença)</label>
+                  <select id="selectKeyProduct" class="form-control" onchange="loadProductKeys()">
+                    <option value="">Carregando produtos...</option>
+                  </select>
+                </div>
+                <div class="form-group flex-1">
+                  <label>Estoque Disponível:</label>
+                  <div id="keyStockCount" class="badge-stock">0 chaves prontas</div>
+                </div>
+              </div>
+
+              <div class="add-keys-box mt-3">
+                <label>Adicionar Novas Chaves em Lote (1 por linha):</label>
+                <textarea id="txtNewKeys" class="form-control" rows="4" placeholder="Exemplo:&#10;KEY-1234-5678-ABCD&#10;KEY-8765-4321-EFGH&#10;email:senha123"></textarea>
+                <button class="btn btn-secondary mt-2" onclick="submitKeys()">
+                  <i class="fa-solid fa-file-import"></i> Inserir Chaves no Estoque
+                </button>
+              </div>
+
+              <h4 class="mt-4">Chaves Cadastradas</h4>
+              <div class="table-responsive">
+                <table class="table" id="tableKeys">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Conteúdo da Chave</th>
+                      <th>Status</th>
+                      <th>Usada no Pedido</th>
+                      <th>Data de Criação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="5" class="text-center">Selecione um produto acima.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5: HISTÓRICO DE PEDIDOS -->
+        <section id="tab-orders" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>Histórico de Pedidos & Faturas Binance Pay</h3>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableOrders">
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Canal</th>
+                    <th>Usuário</th>
+                    <th>Produto</th>
+                    <th>Valor</th>
+                    <th>Status</th>
+                    <th>Data</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="8" class="text-center">Carregando pedidos...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 6: ASSINATURAS VIP -->
+        <section id="tab-subscriptions" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>Assinaturas VIP Ativas & Monitoramento</h3>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableSubs">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Usuário</th>
+                    <th>Plano</th>
+                    <th>Canal</th>
+                    <th>Início</th>
+                    <th>Vencimento</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="8" class="text-center">Carregando assinaturas...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 7: CONFIGURAÇÕES -->
+        <section id="tab-settings" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>Configurações do Sistema & APIs</h3>
+            </div>
+            <div class="card-body">
+              <form id="formSettings" onsubmit="saveSettings(event)">
+                
+                <h4 class="section-title"><i class="fa-brands fa-bitcoin gold"></i> Binance Pay Merchant</h4>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label>Binance Pay API Key</label>
+                    <input type="text" id="cfgBinanceApiKey" class="form-control" placeholder="Cole sua API Key do Binance Pay">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>Binance Pay Secret Key</label>
+                    <input type="password" id="cfgBinanceSecretKey" class="form-control" placeholder="Cole sua Secret Key do Binance Pay">
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="cfgSimulationMode">
+                    <span><b>Modo de Teste / Simulação Ativo</b> (Permite testar checkout e entrega sem transferir USDT real)</span>
+                  </label>
+                </div>
+
+                <h4 class="section-title mt-4"><i class="fa-brands fa-telegram tg-color"></i> Telegram Bot</h4>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label>Telegram Bot Token (do @BotFather)</label>
+                    <input type="text" id="cfgTelegramToken" class="form-control" placeholder="123456789:ABCdefGhIJKlmNoPQR">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>ID do Grupo / Canal VIP (ex: -1001234567890)</label>
+                    <input type="text" id="cfgTelegramChannelId" class="form-control" placeholder="-100xxxxxxxxxx">
+                  </div>
+                </div>
+
+                <h4 class="section-title mt-4"><i class="fa-solid fa-globe"></i> Webhook & URL Pública</h4>
+                <div class="form-group">
+                  <label>URL Pública do Servidor (para Webhooks Binance)</label>
+                  <input type="text" id="cfgPublicUrl" class="form-control" placeholder="http://localhost:3000 ou https://seu-dominio.com">
+                  <small class="hint">Endpoint do Webhook Binance: <code>/api/binance/webhook</code></small>
+                </div>
+
+                <button type="submit" class="btn btn-primary mt-3">
+                  <i class="fa-solid fa-floppy-disk"></i> Salvar Configurações
+                </button>
+                <span id="saveSettingsMsg" class="save-msg"></span>
+              </form>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Produto -->
+  <div id="modalProduct" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalProductTitle">Novo Produto / Assinatura</h3>
+        <button class="btn-close" onclick="closeProductModal()">&times;</button>
+      </div>
+      <form id="formProduct" onsubmit="saveProduct(event)">
+        <input type="hidden" id="prodId">
+        <div class="form-group">
+          <label>Nome do Produto / Plano *</label>
+          <input type="text" id="prodName" class="form-control" required placeholder="Ex: Curso de Cripto ou Acesso VIP">
+        </div>
+        <div class="form-group">
+          <label>Descrição Breve</label>
+          <textarea id="prodDesc" class="form-control" rows="2" placeholder="Ex: Acesso vitalício ao material completo"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Preço em USDT *</label>
+            <input type="number" step="0.01" min="0.01" id="prodPrice" class="form-control" required placeholder="10.00">
+          </div>
+          <div class="form-group flex-1">
+            <label>Tipo de Entrega *</label>
+            <select id="prodType" class="form-control" onchange="toggleProductTypeFields()">
+              <option value="digital_link">Link / Arquivo Digital</option>
+              <option value="license_key">Chave de Licença / Conta (Estoque)</option>
+              <option value="vip_subscription">Assinatura VIP (Canal Telegram)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="fieldContent" class="form-group">
+          <label>Link ou Conteúdo a ser Entregue</label>
+          <input type="text" id="prodContent" class="form-control" placeholder="https://drive.google.com/...">
+        </div>
+
+        <div id="fieldSubscription" class="form-row" style="display: none;">
+          <div class="form-group flex-1">
+            <label>Duração (em Dias)</label>
+            <input type="number" id="prodDuration" class="form-control" placeholder="30" value="30">
+          </div>
+          <div class="form-group flex-1">
+            <label>ID do Canal Telegram (Opcional se já no padrão)</label>
+            <input type="text" id="prodChannelId" class="form-control" placeholder="-100xxxxxxxx">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeProductModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Produto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
