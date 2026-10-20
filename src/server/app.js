@@ -70,6 +70,36 @@ function createServer() {
   });
 
   // ==========================================
+  // 1.1 WEBHOOK DA LIVEPIX (PIX)
+  // ==========================================
+  app.post('/api/livepix/webhook', async (req, res) => {
+    console.log('🔔 [LivePix Webhook Recebido]:', JSON.stringify(req.body));
+    try {
+      const payload = req.body;
+      const data = payload.data || payload;
+
+      // Procura a referência do pedido (ex: ORD_xxx) no reference, customId ou na mensagem enviada
+      let tradeNo = data.reference || data.customId;
+      if (!tradeNo && data.message) {
+        const match = data.message.match(/ORD_[A-Za-z0-9_]+/);
+        if (match) tradeNo = match[0];
+      }
+
+      if (tradeNo) {
+        console.log(`✅ [LivePix Webhook] Pagamento Pix confirmado para ${tradeNo}. Acionando entrega...`);
+        await fulfillment.fulfillOrder(tradeNo);
+      } else {
+        console.log('⚠️ [LivePix Webhook] Notificação recebida sem identificador ORD_ correspondente.');
+      }
+
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error('❌ [LivePix Webhook] Erro:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // 2. TELA E ROTA DE SIMULAÇÃO DE PAGAMENTO
   // ==========================================
   app.get('/simulated-pay', (req, res) => {
