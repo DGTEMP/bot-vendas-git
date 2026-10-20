@@ -1,4 +1,4 @@
-// PayBot Admin Dashboard Script
+// PayBot Admin Master Dashboard Script
 
 let currentProducts = [];
 let qrPollingInterval = null;
@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNav();
   loadAllData();
 
-  // Polling regular para métricas e status a cada 8s
+  // Polling regular a cada 8s
   setInterval(() => {
     loadMetrics();
     loadWhatsAppStatus();
@@ -50,6 +50,9 @@ function switchTab(tabName) {
   if (tabName === 'subscriptions') loadSubscriptions();
   if (tabName === 'keys') loadProductsForKeys();
   if (tabName === 'settings') loadSettings();
+  if (tabName === 'sellers') loadSellers();
+  if (tabName === 'affiliates') loadAffiliates();
+  if (tabName === 'commissions') loadCommissions();
 }
 
 // 2. CARREGAMENTO GERAL
@@ -60,7 +63,10 @@ async function loadAllData() {
     loadProducts(),
     loadOrders(),
     loadSubscriptions(),
-    loadSettings()
+    loadSettings(),
+    loadSellers(),
+    loadAffiliates(),
+    loadCommissions()
   ]);
 }
 
@@ -74,6 +80,12 @@ async function loadMetrics() {
     document.getElementById('statRevenueUSDT').innerText = `${data.totalRevenueUSDT.toFixed(2)} USDT`;
     document.getElementById('statPaidOrders').innerText = data.paidOrders;
     document.getElementById('statActiveSubs').innerText = data.activeSubs;
+    if (document.getElementById('statTotalSellers')) {
+      document.getElementById('statTotalSellers').innerText = data.totalSellers || 0;
+    }
+    if (document.getElementById('statTotalAffiliates')) {
+      document.getElementById('statTotalAffiliates').innerText = data.totalAffiliates || 0;
+    }
 
     const wppBadge = document.getElementById('overviewWppStatus');
     if (data.whatsapp?.connected) {
@@ -149,7 +161,299 @@ async function loadWhatsAppStatus() {
   }
 }
 
-// 5. PRODUTOS & PLANOS
+// ==========================================
+// 5. TIMES DE VENDEDORES (SELLERS)
+// ==========================================
+async function loadSellers() {
+  try {
+    const res = await fetch('/api/sellers');
+    const sellers = await res.json();
+
+    const tbody = document.querySelector('#tableSellers tbody');
+    if (!tbody) return;
+
+    if (sellers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center">Nenhum vendedor cadastrado ainda.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = sellers.map(s => `
+      <tr>
+        <td>#${s.id}</td>
+        <td><b>${s.name}</b><br><small style="color:var(--text-muted)">${s.email || ''}</small></td>
+        <td>${s.phone || '-'}</td>
+        <td>${s.telegram_username ? '@' + s.telegram_username.replace('@', '') : '-'}</td>
+        <td><span class="badge" style="background:#3b82f620; color:#3b82f6">${s.commission_rate}%</span></td>
+        <td><b>${s.total_sales_count}</b></td>
+        <td>R$ ${(s.total_revenue_brl || 0).toFixed(2)} | ${(s.total_revenue_usdt || 0).toFixed(2)} USDT</td>
+        <td>${s.active ? '<span class="badge badge-paid">Ativo</span>' : '<span class="badge badge-canceled">Inativo</span>'}</td>
+        <td>
+          <button class="btn btn-sm btn-danger" onclick="deleteSeller(${s.id})">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('Erro ao carregar vendedores:', err);
+  }
+}
+
+function openSellerModal() {
+  document.getElementById('formSeller').reset();
+  document.getElementById('sellerId').value = '';
+  document.getElementById('modalSeller').classList.add('active');
+}
+
+function closeSellerModal() {
+  document.getElementById('modalSeller').classList.remove('active');
+}
+
+async function saveSeller(e) {
+  e.preventDefault();
+  const payload = {
+    name: document.getElementById('sellerName').value,
+    phone: document.getElementById('sellerPhone').value,
+    email: document.getElementById('sellerEmail').value,
+    telegram_username: document.getElementById('sellerTgUser').value,
+    telegram_id: document.getElementById('sellerTgId').value,
+    commission_rate: parseFloat(document.getElementById('sellerCommission').value) || 0
+  };
+
+  try {
+    const res = await fetch('/api/sellers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      closeSellerModal();
+      loadSellers();
+      loadMetrics();
+    }
+  } catch (err) {
+    alert('Erro ao salvar vendedor: ' + err.message);
+  }
+}
+
+async function deleteSeller(id) {
+  if (!confirm('Deseja realmente excluir este vendedor?')) return;
+  try {
+    await fetch(`/api/sellers/${id}`, { method: 'DELETE' });
+    loadSellers();
+    loadMetrics();
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
+  }
+}
+
+// ==========================================
+// 6. SISTEMA DE AFILIADOS (AFFILIATES)
+// ==========================================
+async function loadAffiliates() {
+  try {
+    const res = await fetch('/api/affiliates');
+    const affiliates = await res.json();
+
+    const tbody = document.querySelector('#tableAffiliates tbody');
+    if (!tbody) return;
+
+    if (affiliates.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center">Nenhum afiliado cadastrado ainda.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = affiliates.map(a => `
+      <tr>
+        <td>#${a.id}</td>
+        <td><b>${a.name}</b><br><small style="color:var(--text-muted)">${a.telegram_username || a.phone || ''}</small></td>
+        <td><code style="background:var(--bg-main); padding:3px 8px; border-radius:4px; color:var(--primary-gold); font-weight:bold;">${a.ref_code}</code></td>
+        <td><span class="badge" style="background:#a855f720; color:#a855f7">${a.commission_rate}%</span></td>
+        <td><b style="color:var(--color-green)">R$ ${(a.balance_brl || 0).toFixed(2)}</b><br><small style="color:var(--primary-gold)">${(a.balance_usdt || 0).toFixed(2)} USDT</small></td>
+        <td><small>${a.pix_key || '-'}</small></td>
+        <td><small>${a.usdt_wallet ? a.usdt_wallet.slice(0, 10) + '...' : '-'}</small></td>
+        <td>${a.active ? '<span class="badge badge-paid">Ativo</span>' : '<span class="badge badge-canceled">Inativo</span>'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-sm btn-primary" onclick="viewAffiliateLinks(${a.id})">
+            <i class="fa-solid fa-link"></i> Links
+          </button>
+          <button class="btn btn-sm btn-danger" onclick="deleteAffiliate(${a.id})">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('Erro ao carregar afiliados:', err);
+  }
+}
+
+function openAffiliateModal() {
+  document.getElementById('formAffiliate').reset();
+  document.getElementById('affiliateId').value = '';
+  document.getElementById('modalAffiliate').classList.add('active');
+}
+
+function closeAffiliateModal() {
+  document.getElementById('modalAffiliate').classList.remove('active');
+}
+
+async function saveAffiliate(e) {
+  e.preventDefault();
+  const payload = {
+    name: document.getElementById('afilName').value,
+    ref_code: document.getElementById('afilRefCode').value,
+    commission_rate: parseFloat(document.getElementById('afilCommission').value) || 20.0,
+    phone: document.getElementById('afilPhone').value,
+    pix_key: document.getElementById('afilPixKey').value,
+    usdt_wallet: document.getElementById('afilUsdtWallet').value,
+    telegram_username: document.getElementById('afilTgUser').value,
+    telegram_id: document.getElementById('afilTgId').value
+  };
+
+  try {
+    const res = await fetch('/api/affiliates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok) {
+      closeAffiliateModal();
+      loadAffiliates();
+      loadMetrics();
+    } else {
+      alert('Erro: ' + (data.error || 'Falha ao salvar afiliado'));
+    }
+  } catch (err) {
+    alert('Erro ao salvar: ' + err.message);
+  }
+}
+
+async function deleteAffiliate(id) {
+  if (!confirm('Deseja realmente remover este afiliado?')) return;
+  try {
+    await fetch(`/api/affiliates/${id}`, { method: 'DELETE' });
+    loadAffiliates();
+    loadMetrics();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function viewAffiliateLinks(id) {
+  try {
+    const res = await fetch(`/api/affiliates/${id}/links`);
+    const data = await res.json();
+    if (data.links) {
+      document.getElementById('modalLinksTitle').innerText = `Links de Divulgação: ${data.affiliate.name} (#${data.affiliate.ref_code})`;
+      document.getElementById('linkTgAfil').value = data.links.telegram;
+      document.getElementById('linkWppAfil').value = data.links.whatsapp;
+      document.getElementById('modalAffiliateLinks').classList.add('active');
+    }
+  } catch (err) {
+    alert('Erro ao gerar links: ' + err.message);
+  }
+}
+
+function closeLinksModal() {
+  document.getElementById('modalAffiliateLinks').classList.remove('active');
+}
+
+function copyInput(inputId) {
+  const input = document.getElementById(inputId);
+  input.select();
+  navigator.clipboard.writeText(input.value);
+  alert('Link copiado para a área de transferência!');
+}
+
+// ==========================================
+// 7. COMISSÕES & REPASSES (COMMISSIONS)
+// ==========================================
+async function loadCommissions() {
+  try {
+    const res = await fetch('/api/commissions');
+    const commissions = await res.json();
+
+    const tbody = document.querySelector('#tableCommissions tbody');
+    if (!tbody) return;
+
+    if (commissions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center">Nenhuma comissão registrada ainda.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = commissions.map(c => {
+      const typeBadge = c.beneficiary_type === 'affiliate'
+        ? '<span class="badge" style="background:#a855f720; color:#a855f7">Afiliado</span>'
+        : '<span class="badge" style="background:#3b82f620; color:#3b82f6">Vendedor</span>';
+
+      const statusBadge = c.status === 'PAID'
+        ? '<span class="badge badge-paid">Pago</span>'
+        : '<span class="badge badge-pending">Pendente</span>';
+
+      const actionBtn = c.status === 'PENDING'
+        ? `<button class="btn btn-sm btn-primary" onclick="openPayCommissionModal(${c.id}, '${c.beneficiary_name}', '${c.amount.toFixed(2)} ${c.currency}', '${c.payment_destination || 'Não cadastrado'}')"><i class="fa-solid fa-check"></i> Marcar Pago</button>`
+        : `<small style="color:var(--text-muted)">Quitado</small>`;
+
+      return `
+        <tr>
+          <td>#${c.id}</td>
+          <td><code>${c.merchant_trade_no}</code></td>
+          <td><b>${c.beneficiary_name || 'Desconhecido'}</b></td>
+          <td>${typeBadge}</td>
+          <td>${c.product_name}</td>
+          <td><b style="color:var(--color-green)">${c.amount.toFixed(2)} ${c.currency}</b> <small>(${c.rate_percent}%)</small></td>
+          <td><code>${c.payment_destination || '-'}</code></td>
+          <td>${statusBadge}</td>
+          <td>${actionBtn}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar comissões:', err);
+  }
+}
+
+function openPayCommissionModal(id, name, amountStr, dest) {
+  document.getElementById('payCommId').value = id;
+  document.getElementById('payCommBeneficiary').value = name;
+  document.getElementById('payCommAmount').value = amountStr;
+  document.getElementById('payCommDestination').value = dest;
+  document.getElementById('payCommProof').value = '';
+  document.getElementById('modalPayCommission').classList.add('active');
+}
+
+function closePayCommissionModal() {
+  document.getElementById('modalPayCommission').classList.remove('active');
+}
+
+async function submitPayCommission(e) {
+  e.preventDefault();
+  const id = document.getElementById('payCommId').value;
+  const proofNote = document.getElementById('payCommProof').value;
+
+  try {
+    const res = await fetch(`/api/commissions/${id}/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proofNote })
+    });
+    if (res.ok) {
+      closePayCommissionModal();
+      loadCommissions();
+      loadAffiliates();
+      loadMetrics();
+      alert('Repasse confirmado e debitado com sucesso!');
+    }
+  } catch (err) {
+    alert('Erro ao confirmar repasse: ' + err.message);
+  }
+}
+
+// ==========================================
+// 8. PRODUTOS & PLANOS
+// ==========================================
 async function loadProducts() {
   try {
     const res = await fetch('/api/products');
@@ -285,7 +589,9 @@ async function deleteProduct(id) {
   }
 }
 
-// 6. ESTOQUE DE CHAVES
+// ==========================================
+// 9. ESTOQUE DE CHAVES
+// ==========================================
 async function loadProductsForKeys() {
   try {
     const res = await fetch('/api/products');
@@ -332,7 +638,7 @@ async function loadProductKeys() {
       </tr>
     `).join('');
   } catch (err) {
-    console.error('Erro ao carregar chaves:', err);
+    console.error('Erro ao carregar chaves do produto:', err);
   }
 }
 
@@ -362,7 +668,9 @@ async function submitKeys() {
   }
 }
 
-// 7. PEDIDOS / VENDAS
+// ==========================================
+// 10. PEDIDOS / VENDAS
+// ==========================================
 async function loadOrders() {
   try {
     const res = await fetch('/api/orders');
@@ -380,7 +688,7 @@ function renderOrdersTable(tableId, list) {
   if (!tbody) return;
 
   if (list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center">Nenhum pedido registrado ainda.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center">Nenhum pedido registrado ainda.</td></tr>';
     return;
   }
 
@@ -404,9 +712,27 @@ function renderOrdersTable(tableId, list) {
     const dateStr = new Date(o.created_at).toLocaleString('pt-BR');
     const valorStr = o.currency === 'BRL' ? `R$ ${o.amount.toFixed(2)}` : `${o.amount.toFixed(2)} USDT`;
 
+    const afilStr = o.affiliate_name ? `<span style="color:var(--color-purple); font-weight:600;">${o.affiliate_name}</span>` : '-';
+    const sellerStr = o.seller_name ? `<span style="color:var(--color-blue); font-weight:600;">${o.seller_name}</span>` : '-';
+
     const actionBtn = o.status === 'PENDING'
       ? `<button class="btn btn-sm btn-primary" onclick="simulatePayment('${o.merchant_trade_no}')"><i class="fa-solid fa-check"></i> Simular Pago</button>`
       : `<span style="font-size:12px; color:var(--text-muted)">Concluído</span>`;
+
+    if (tableId === 'tableOverviewOrders') {
+      return `
+        <tr>
+          <td><code>${o.merchant_trade_no}</code></td>
+          <td>${gatewayBadge}</td>
+          <td>${platformIcon}</td>
+          <td><b>${o.product_name}</b></td>
+          <td>${afilStr} / ${sellerStr}</td>
+          <td><b>${valorStr}</b></td>
+          <td>${statusBadge}</td>
+          <td>${actionBtn}</td>
+        </tr>
+      `;
+    }
 
     return `
       <tr>
@@ -415,9 +741,10 @@ function renderOrdersTable(tableId, list) {
         <td>${platformIcon}</td>
         <td>${o.platform_user_name || o.platform_user_id}</td>
         <td><b>${o.product_name}</b></td>
+        <td>${afilStr}</td>
+        <td>${sellerStr}</td>
         <td><b>${valorStr}</b></td>
         <td>${statusBadge}</td>
-        <td><small>${dateStr}</small></td>
         <td>${actionBtn}</td>
       </tr>
     `;
@@ -429,10 +756,12 @@ async function simulatePayment(tradeNo) {
     const res = await fetch(`/api/orders/simulate-pay/${tradeNo}`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      alert(`🎉 Pagamento confirmado para o pedido ${tradeNo}! A entrega foi realizada.`);
+      alert(`🎉 Pagamento confirmado para o pedido ${tradeNo}! A entrega e as comissões foram creditadas.`);
       loadOrders();
       loadMetrics();
       loadSubscriptions();
+      loadAffiliates();
+      loadCommissions();
     } else {
       alert('Erro: ' + (data.error || 'Falha ao processar'));
     }
@@ -441,7 +770,9 @@ async function simulatePayment(tradeNo) {
   }
 }
 
-// 8. ASSINATURAS VIP
+// ==========================================
+// 11. ASSINATURAS VIP
+// ==========================================
 async function loadSubscriptions() {
   try {
     const res = await fetch('/api/subscriptions');
@@ -494,7 +825,9 @@ async function revokeSubscription(id) {
   }
 }
 
-// 9. CONFIGURAÇÕES
+// ==========================================
+// 12. CENTRAL DE CONFIGURAÇÕES GERAIS
+// ==========================================
 async function loadSettings() {
   try {
     const res = await fetch('/api/settings');
@@ -504,26 +837,33 @@ async function loadSettings() {
     document.getElementById('cfgGatewayPix').checked = cfg.GATEWAY_PIX_ENABLED;
     document.getElementById('cfgGatewayBinance').checked = cfg.GATEWAY_BINANCE_ENABLED;
     document.getElementById('cfgGatewayLivepix').checked = cfg.GATEWAY_LIVEPIX_ENABLED;
-
-    // Badges no topo
     updateGatewayBadges(cfg);
 
     // Modo simulação
     document.getElementById('cfgSimulationMode').checked = cfg.BINANCE_SIMULATION_MODE === 'true' || cfg.PIX_SIMULATION_MODE === 'true';
 
-    // Mercado Pago
+    // Regras de Vendedores & Afiliados
+    document.getElementById('cfgGlobalAffiliateRate').value = cfg.GLOBAL_AFFILIATE_RATE || 20.0;
+    document.getElementById('cfgRoundRobinSellers').checked = cfg.ROUND_ROBIN_SELLERS;
+    document.getElementById('cfgNotifyAdminOnSale').checked = cfg.NOTIFY_ADMIN_ON_SALE;
+    document.getElementById('cfgAdminNotifyTelegram').value = cfg.ADMIN_NOTIFY_TELEGRAM_ID || '';
+    document.getElementById('cfgAdminNotifyWhatsapp').value = cfg.ADMIN_NOTIFY_WHATSAPP_PHONE || '';
+
+    // Textos do Bot
+    document.getElementById('cfgBotName').value = cfg.BOT_NAME || 'PayBot Vendas';
+    document.getElementById('cfgSupportContact').value = cfg.SUPPORT_CONTACT || '@suporte';
+    document.getElementById('cfgWelcomeMessage').value = cfg.WELCOME_MESSAGE || '';
+
+    // Gateways Keys
     document.getElementById('cfgMercadoPagoToken').value = cfg.MERCADO_PAGO_ACCESS_TOKEN || '';
-
-    // LivePix
     document.getElementById('cfgLivepixUsername').value = cfg.LIVEPIX_USERNAME || '';
-
-    // Binance Pay
     document.getElementById('cfgBinanceApiKey').value = cfg.BINANCE_API_KEY || '';
     document.getElementById('cfgBinanceSecretKey').value = cfg.BINANCE_SECRET_KEY || '';
 
     // Telegram
     document.getElementById('cfgTelegramToken').value = cfg.TELEGRAM_BOT_TOKEN || '';
     document.getElementById('cfgTelegramChannelId').value = cfg.TELEGRAM_VIP_CHANNEL_ID || '';
+    document.getElementById('cfgTelegramBotUsername').value = cfg.TELEGRAM_BOT_USERNAME || '';
 
     // URL Pública & Webhooks
     document.getElementById('cfgPublicUrl').value = cfg.PUBLIC_URL || '';
@@ -578,12 +918,24 @@ async function saveSettings(e) {
     GATEWAY_LIVEPIX_ENABLED: document.getElementById('cfgGatewayLivepix').checked,
     PIX_SIMULATION_MODE: isSim,
     BINANCE_SIMULATION_MODE: isSim,
+
+    GLOBAL_AFFILIATE_RATE: parseFloat(document.getElementById('cfgGlobalAffiliateRate').value) || 20.0,
+    ROUND_ROBIN_SELLERS: document.getElementById('cfgRoundRobinSellers').checked,
+    NOTIFY_ADMIN_ON_SALE: document.getElementById('cfgNotifyAdminOnSale').checked,
+    ADMIN_NOTIFY_TELEGRAM_ID: document.getElementById('cfgAdminNotifyTelegram').value,
+    ADMIN_NOTIFY_WHATSAPP_PHONE: document.getElementById('cfgAdminNotifyWhatsapp').value,
+
+    BOT_NAME: document.getElementById('cfgBotName').value,
+    WELCOME_MESSAGE: document.getElementById('cfgWelcomeMessage').value,
+    SUPPORT_CONTACT: document.getElementById('cfgSupportContact').value,
+
     MERCADO_PAGO_ACCESS_TOKEN: document.getElementById('cfgMercadoPagoToken').value,
     LIVEPIX_USERNAME: document.getElementById('cfgLivepixUsername').value,
     BINANCE_API_KEY: document.getElementById('cfgBinanceApiKey').value,
     BINANCE_SECRET_KEY: document.getElementById('cfgBinanceSecretKey').value,
     TELEGRAM_BOT_TOKEN: document.getElementById('cfgTelegramToken').value,
     TELEGRAM_VIP_CHANNEL_ID: document.getElementById('cfgTelegramChannelId').value,
+    TELEGRAM_BOT_USERNAME: document.getElementById('cfgTelegramBotUsername').value,
     PUBLIC_URL: document.getElementById('cfgPublicUrl').value
   };
 
@@ -595,7 +947,7 @@ async function saveSettings(e) {
     });
     const data = await res.json();
     const msg = document.getElementById('saveSettingsMsg');
-    msg.innerText = '✅ Configurações salvas com sucesso!';
+    msg.innerText = '✅ Todas as configurações foram salvas com sucesso!';
     setTimeout(() => { msg.innerText = ''; }, 3500);
     loadSettings();
     loadMetrics();

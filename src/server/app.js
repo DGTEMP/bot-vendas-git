@@ -328,6 +328,101 @@ function createServer() {
   });
 
   // ==========================================
+  // TIMES DE VENDEDORES (SELLERS API)
+  // ==========================================
+  app.get('/api/sellers', (req, res) => {
+    const sellers = models.getSellers(false);
+    res.json(sellers);
+  });
+
+  app.post('/api/sellers', (req, res) => {
+    const { name, email, phone, telegram_id, telegram_username, commission_rate } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome do vendedor é obrigatório' });
+    const seller = models.createSeller({ name, email, phone, telegram_id, telegram_username, commission_rate });
+    res.json(seller);
+  });
+
+  app.put('/api/sellers/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const updated = models.updateSeller(id, req.body);
+    res.json(updated);
+  });
+
+  app.delete('/api/sellers/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    models.deleteSeller(id);
+    res.json({ success: true });
+  });
+
+  // ==========================================
+  // SISTEMA DE AFILIADOS (AFFILIATES API)
+  // ==========================================
+  app.get('/api/affiliates', (req, res) => {
+    const affiliates = models.getAffiliates(false);
+    res.json(affiliates);
+  });
+
+  app.post('/api/affiliates', (req, res) => {
+    const { name, email, phone, telegram_id, telegram_username, ref_code, commission_rate, pix_key, usdt_wallet } = req.body;
+    if (!name || !ref_code) return res.status(400).json({ error: 'Nome e Código de Referência são obrigatórios' });
+
+    try {
+      const affiliate = models.createAffiliate({ name, email, phone, telegram_id, telegram_username, ref_code, commission_rate, pix_key, usdt_wallet });
+      res.json(affiliate);
+    } catch (e) {
+      res.status(400).json({ error: 'Código de referência já em uso por outro afiliado.' });
+    }
+  });
+
+  app.put('/api/affiliates/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const updated = models.updateAffiliate(id, req.body);
+    res.json(updated);
+  });
+
+  app.delete('/api/affiliates/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    models.deleteAffiliate(id);
+    res.json({ success: true });
+  });
+
+  // Gerador de links promocionais para afiliados
+  app.get('/api/affiliates/:id/links', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const affiliate = models.getAffiliateById(id);
+    if (!affiliate) return res.status(404).json({ error: 'Afiliado não encontrado' });
+
+    const tgUsername = (models.getSetting('TELEGRAM_BOT_USERNAME') || 'seu_bot').replace('@', '');
+    const wppNumber = (models.getSetting('WHATSAPP_PHONE_NUMBER') || '5511999999999').replace(/[^0-9]/g, '');
+
+    const telegramLink = `https://t.me/${tgUsername}?start=ref_${affiliate.ref_code}`;
+    const whatsappLink = `https://wa.me/${wppNumber}?text=${encodeURIComponent(`Olá! Vim pelo link de indicação ref_${affiliate.ref_code}`)}`;
+
+    res.json({
+      affiliate,
+      links: {
+        telegram: telegramLink,
+        whatsapp: whatsappLink
+      }
+    });
+  });
+
+  // ==========================================
+  // COMISSÕES & PAGAMENTOS (COMMISSIONS API)
+  // ==========================================
+  app.get('/api/commissions', (req, res) => {
+    const commissions = models.getAllCommissions(100);
+    res.json(commissions);
+  });
+
+  app.post('/api/commissions/:id/pay', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { proofNote } = req.body;
+    const paid = models.markCommissionPaid(id, proofNote || 'Pago pelo Painel Admin');
+    res.json({ success: true, commission: paid });
+  });
+
+  // ==========================================
   // CONFIGURAÇÕES GERAIS (PAINEL ADMIN)
   // ==========================================
   app.get('/api/settings', (req, res) => {
@@ -365,6 +460,17 @@ function createServer() {
       TELEGRAM_BOT_TOKEN: tgToken ? (tgToken.slice(0, 6) + '...' + tgToken.slice(-4)) : '',
       hasTelegramToken: Boolean(tgToken),
       TELEGRAM_VIP_CHANNEL_ID: tgChannel,
+      TELEGRAM_BOT_USERNAME: current.TELEGRAM_BOT_USERNAME || '',
+
+      // Regras de Negócio & Equipe
+      GLOBAL_AFFILIATE_RATE: Number(current.GLOBAL_AFFILIATE_RATE || 20.0),
+      ROUND_ROBIN_SELLERS: current.ROUND_ROBIN_SELLERS !== 'false',
+      NOTIFY_ADMIN_ON_SALE: current.NOTIFY_ADMIN_ON_SALE !== 'false',
+      ADMIN_NOTIFY_TELEGRAM_ID: current.ADMIN_NOTIFY_TELEGRAM_ID || '',
+      ADMIN_NOTIFY_WHATSAPP_PHONE: current.ADMIN_NOTIFY_WHATSAPP_PHONE || '',
+      BOT_NAME: current.BOT_NAME || 'PayBot Vendas',
+      WELCOME_MESSAGE: current.WELCOME_MESSAGE || '👋 Olá! Seja muito bem-vindo.',
+      SUPPORT_CONTACT: current.SUPPORT_CONTACT || '@suporte',
 
       // Servidor & Webhooks
       PUBLIC_URL: pubUrl,
@@ -421,6 +527,35 @@ function createServer() {
     }
     if (body.TELEGRAM_VIP_CHANNEL_ID !== undefined) {
       models.setSetting('TELEGRAM_VIP_CHANNEL_ID', body.TELEGRAM_VIP_CHANNEL_ID.trim());
+    }
+    if (body.TELEGRAM_BOT_USERNAME !== undefined) {
+      models.setSetting('TELEGRAM_BOT_USERNAME', body.TELEGRAM_BOT_USERNAME.trim().replace('@', ''));
+    }
+
+    // Regras de Negócio e Notificações
+    if (body.GLOBAL_AFFILIATE_RATE !== undefined) {
+      models.setSetting('GLOBAL_AFFILIATE_RATE', String(body.GLOBAL_AFFILIATE_RATE));
+    }
+    if (body.ROUND_ROBIN_SELLERS !== undefined) {
+      models.setSetting('ROUND_ROBIN_SELLERS', String(body.ROUND_ROBIN_SELLERS));
+    }
+    if (body.NOTIFY_ADMIN_ON_SALE !== undefined) {
+      models.setSetting('NOTIFY_ADMIN_ON_SALE', String(body.NOTIFY_ADMIN_ON_SALE));
+    }
+    if (body.ADMIN_NOTIFY_TELEGRAM_ID !== undefined) {
+      models.setSetting('ADMIN_NOTIFY_TELEGRAM_ID', body.ADMIN_NOTIFY_TELEGRAM_ID.trim());
+    }
+    if (body.ADMIN_NOTIFY_WHATSAPP_PHONE !== undefined) {
+      models.setSetting('ADMIN_NOTIFY_WHATSAPP_PHONE', body.ADMIN_NOTIFY_WHATSAPP_PHONE.trim());
+    }
+    if (body.BOT_NAME !== undefined) {
+      models.setSetting('BOT_NAME', body.BOT_NAME.trim());
+    }
+    if (body.WELCOME_MESSAGE !== undefined) {
+      models.setSetting('WELCOME_MESSAGE', body.WELCOME_MESSAGE.trim());
+    }
+    if (body.SUPPORT_CONTACT !== undefined) {
+      models.setSetting('SUPPORT_CONTACT', body.SUPPORT_CONTACT.trim());
     }
 
     // URL Pública

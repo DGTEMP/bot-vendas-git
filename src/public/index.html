@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PayBot | Painel de Vendas Automatizadas & Assinaturas VIP</title>
+  <title>PayBot | Painel de Controle Total - Vendas, Afiliados & Equipe</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -17,8 +17,8 @@
           <i class="fa-brands fa-bitcoin brand-crypto"></i>
         </div>
         <div>
-          <h2>PayBot Admin</h2>
-          <span>WhatsApp & Telegram</span>
+          <h2>PayBot Total</h2>
+          <span>Admin Master</span>
         </div>
       </div>
 
@@ -29,8 +29,14 @@
         <a href="#" class="nav-item" data-tab="settings">
           <i class="fa-solid fa-sliders"></i> Central de Configurações
         </a>
-        <a href="#" class="nav-item" data-tab="connections">
-          <i class="fa-solid fa-plug"></i> Conexões & QR
+        <a href="#" class="nav-item" data-tab="sellers">
+          <i class="fa-solid fa-users-gear"></i> Times de Vendedores
+        </a>
+        <a href="#" class="nav-item" data-tab="affiliates">
+          <i class="fa-solid fa-handshake"></i> Sistema de Afiliados
+        </a>
+        <a href="#" class="nav-item" data-tab="commissions">
+          <i class="fa-solid fa-money-bill-transfer"></i> Comissões & Repasses
         </a>
         <a href="#" class="nav-item" data-tab="products">
           <i class="fa-solid fa-box-open"></i> Produtos & VIP
@@ -43,6 +49,9 @@
         </a>
         <a href="#" class="nav-item" data-tab="subscriptions">
           <i class="fa-solid fa-crown"></i> Assinaturas Ativas
+        </a>
+        <a href="#" class="nav-item" data-tab="connections">
+          <i class="fa-solid fa-plug"></i> Conexões & QR
         </a>
       </nav>
 
@@ -82,7 +91,7 @@
             <div class="stat-card">
               <div class="stat-icon gold"><i class="fa-solid fa-dollar-sign"></i></div>
               <div class="stat-info">
-                <span class="stat-label">Faturamento Binance (USDT)</span>
+                <span class="stat-label">Faturamento USDT</span>
                 <h3 id="statRevenueUSDT">0.00 USDT</h3>
               </div>
             </div>
@@ -102,16 +111,32 @@
                 <h3 id="statActiveSubs">0</h3>
               </div>
             </div>
+
+            <div class="stat-card">
+              <div class="stat-icon blue"><i class="fa-solid fa-users"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Vendedores Ativos</span>
+                <h3 id="statTotalSellers">0</h3>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon orange"><i class="fa-solid fa-handshake"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Afiliados Ativos</span>
+                <h3 id="statTotalAffiliates">0</h3>
+              </div>
+            </div>
           </div>
 
           <!-- Quick Gateway Banner -->
           <div class="gateway-status-bar">
-            <span><b>Métodos de Pagamento Ativos:</b></span>
+            <span><b>Status dos Gateways:</b></span>
             <span id="badgePixStatus" class="badge badge-paid">🟢 PIX Ativo</span>
             <span id="badgeBinanceStatus" class="badge badge-paid">🟡 Binance Pay Ativo</span>
             <span id="badgeLivepixStatus" class="badge badge-expired">💜 LivePix Inativo</span>
             <button class="btn btn-sm btn-outline ml-auto" onclick="switchTab('settings')">
-              <i class="fa-solid fa-gear"></i> Gerenciar Gateways
+              <i class="fa-solid fa-gear"></i> Painel de Ajustes
             </button>
           </div>
 
@@ -125,7 +150,7 @@
                   <span id="overviewWppStatus" class="badge">Verificando...</span>
                 </div>
               </div>
-              <p>Envio de QR Code Pix e Binance, código Copia e Cola instantâneo e entrega automática.</p>
+              <p>Atendimento automático, captura de afiliados e distribuição para vendedores.</p>
               <button class="btn btn-sm btn-outline" onclick="switchTab('connections')">Ver QR Code</button>
             </div>
 
@@ -137,7 +162,7 @@
                   <span id="overviewTgStatus" class="badge">Verificando...</span>
                 </div>
               </div>
-              <p>Botões interativos, links de convite de uso único para canais VIP e expulsão automática de expirados.</p>
+              <p>Rastreamento de deep-linking (`?start=ref_CODIGO`), convite VIP e auto-kick.</p>
               <button class="btn btn-sm btn-outline" onclick="switchTab('settings')">Configurar Token</button>
             </div>
           </div>
@@ -156,9 +181,9 @@
                     <th>Método</th>
                     <th>Canal</th>
                     <th>Item</th>
+                    <th>Afiliado / Vendedor</th>
                     <th>Valor</th>
                     <th>Status</th>
-                    <th>Data</th>
                     <th>Ação</th>
                   </tr>
                 </thead>
@@ -170,11 +195,11 @@
           </div>
         </section>
 
-        <!-- TAB 2: CENTRAL DE CONFIGURAÇÕES (O CORAÇÃO DO SISTEMA) -->
+        <!-- TAB 2: CENTRAL DE CONFIGURAÇÕES -->
         <section id="tab-settings" class="tab-pane">
           <div class="card">
             <div class="card-header">
-              <h3><i class="fa-solid fa-sliders gold"></i> Painel de Configurações Gerais</h3>
+              <h3><i class="fa-solid fa-sliders gold"></i> Central de Configuração Geral (Admin Master)</h3>
               <span class="badge badge-paid">Configuração em Tempo Real</span>
             </div>
             <div class="card-body">
@@ -182,15 +207,15 @@
                 
                 <!-- 1. GESTÃO DOS GATEWAYS DE PAGAMENTO -->
                 <div class="config-section">
-                  <h4 class="section-title"><i class="fa-solid fa-wallet"></i> 1. Formas de Pagamento Aceitas</h4>
-                  <p class="section-desc">Ative ou desative cada método de pagamento com 1 clique. O robô se adapta automaticamente no WhatsApp e Telegram.</p>
+                  <h4 class="section-title"><i class="fa-solid fa-wallet"></i> 1. Formas de Pagamento & Cobrança</h4>
+                  <p class="section-desc">Ative ou desative cada método de pagamento com 1 clique. Os bots adaptam os botões e opções automaticamente.</p>
 
                   <div class="gateway-toggles">
                     <label class="toggle-card">
                       <input type="checkbox" id="cfgGatewayPix">
                       <div class="toggle-content">
                         <span class="toggle-title"><i class="fa-brands fa-pix text-pix"></i> PIX Dinâmico (Mercado Pago)</span>
-                        <span class="toggle-desc">Gera QR Code + Pix Copia e Cola direto no chat com baixa taxa.</span>
+                        <span class="toggle-desc">Gera QR Code + Pix Copia e Cola direto no chat com taxa reduzida.</span>
                       </div>
                     </label>
 
@@ -198,7 +223,7 @@
                       <input type="checkbox" id="cfgGatewayBinance">
                       <div class="toggle-content">
                         <span class="toggle-title"><i class="fa-brands fa-bitcoin gold"></i> Binance Pay (Criptomoedas / USDT)</span>
-                        <span class="toggle-desc">Cobranças globais em USDT, BTC e BNB pelo app da Binance.</span>
+                        <span class="toggle-desc">Cobranças globais em USDT pelo app oficial da Binance.</span>
                       </div>
                     </label>
 
@@ -214,54 +239,103 @@
                   <div class="mt-3">
                     <label class="checkbox-label highlight-box">
                       <input type="checkbox" id="cfgSimulationMode">
-                      <span>🧪 <b>Modo de Teste / Simulação Ativo</b> (Permite testar o fluxo de compra, geração de QR e entrega no WhatsApp/Telegram sem gastar dinheiro real)</span>
+                      <span>🧪 <b>Modo de Teste / Simulação Ativo</b> (Permite testar checkout, entrega e comissões sem transferir dinheiro real)</span>
                     </label>
                   </div>
                 </div>
 
-                <!-- 2. CONFIGURAÇÃO PIX (MERCADO PAGO) -->
+                <!-- 2. REGRAS DE EQUIPE & AFILIADOS -->
                 <div class="config-section mt-4">
-                  <h4 class="section-title"><i class="fa-brands fa-pix text-pix"></i> 2. Credenciais PIX (Mercado Pago)</h4>
-                  <p class="section-desc">Gera o Pix Copia e Cola instantâneo e notifica o bot em 2 segundos quando o cliente paga.</p>
+                  <h4 class="section-title"><i class="fa-solid fa-users-gear text-pix"></i> 2. Regras de Vendedores & Afiliados</h4>
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label>Comissão Padrão de Afiliados (%)</label>
+                      <input type="number" step="0.5" id="cfgGlobalAffiliateRate" class="form-control" placeholder="20.0">
+                      <small class="hint">Usado como padrão ao cadastrar novos afiliados.</small>
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>Distribuição de Leads (Roleta de Vendedores)</label>
+                      <label class="checkbox-label mt-2">
+                        <input type="checkbox" id="cfgRoundRobinSellers">
+                        <span><b>Ativar Roleta Automática</b> (Distribui novos clientes igualmente entre os vendedores ativos)</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 3. NOTIFICAÇÕES DO ADMINISTRADOR -->
+                <div class="config-section mt-4">
+                  <h4 class="section-title"><i class="fa-solid fa-bell gold"></i> 3. Notificações do Administrador</h4>
+                  <p class="section-desc">Receba um alerta no seu celular toda vez que uma venda for confirmada.</p>
                   
                   <div class="form-group">
-                    <label>Mercado Pago Access Token (Produção ou Teste)</label>
-                    <input type="password" id="cfgMercadoPagoToken" class="form-control" placeholder="APP_USR-xxxxxxxxxxxxxxxx">
-                    <small class="hint">
-                      Onde pegar: Acesse <a href="https://www.mercadopago.com.br/developers/panel/app" target="_blank" style="color:var(--primary-gold)">Mercado Pago Developers</a> > Suas Aplicações > Credenciais de Produção > Access Token.
-                    </small>
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="cfgNotifyAdminOnSale">
+                      <span><b>Notificar Administrador a Cada Venda Concluída</b></span>
+                    </label>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label>Seu Telegram Chat ID para Alertas</label>
+                      <input type="text" id="cfgAdminNotifyTelegram" class="form-control" placeholder="Ex: 123456789 (seu ID do Telegram)">
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>Seu WhatsApp para Alertas (com DDI + DDD)</label>
+                      <input type="text" id="cfgAdminNotifyWhatsapp" class="form-control" placeholder="Ex: 5511999998888">
+                    </div>
                   </div>
                 </div>
 
-                <!-- 3. CONFIGURAÇÃO LIVEPIX -->
+                <!-- 4. TEXTOS & IDENTIDADE DOS BOTS -->
                 <div class="config-section mt-4">
-                  <h4 class="section-title"><i class="fa-solid fa-heart" style="color:#a855f7"></i> 3. Configuração LivePix</h4>
+                  <h4 class="section-title"><i class="fa-solid fa-message blue"></i> 4. Textos e Mensagens dos Robôs</h4>
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label>Nome do Bot / Loja</label>
+                      <input type="text" id="cfgBotName" class="form-control" placeholder="PayBot Vendas">
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>Contato de Suporte / Helpdesk</label>
+                      <input type="text" id="cfgSupportContact" class="form-control" placeholder="@suporte ou (11) 99999-9999">
+                    </div>
+                  </div>
+
                   <div class="form-group">
-                    <label>Seu Nome de Usuário no LivePix (sem @)</label>
-                    <input type="text" id="cfgLivepixUsername" class="form-control" placeholder="ex: seunome">
-                    <small class="hint">O bot direcionará o cliente para <code>https://livepix.gg/seunome</code> com o código do pedido.</small>
+                    <label>Mensagem de Boas-vindas (WhatsApp & Telegram)</label>
+                    <textarea id="cfgWelcomeMessage" class="form-control" rows="2" placeholder="👋 Olá! Bem-vindo à nossa loja automatizada."></textarea>
                   </div>
                 </div>
 
-                <!-- 4. CONFIGURAÇÃO BINANCE PAY -->
+                <!-- 5. CREDENCIAIS DOS GATEWAYS -->
                 <div class="config-section mt-4">
-                  <h4 class="section-title"><i class="fa-brands fa-bitcoin gold"></i> 4. Credenciais Binance Pay Oficial</h4>
+                  <h4 class="section-title"><i class="fa-solid fa-key"></i> 5. Chaves de API & Gateways</h4>
+                  
+                  <div class="form-group">
+                    <label>Mercado Pago Access Token (PIX)</label>
+                    <input type="password" id="cfgMercadoPagoToken" class="form-control" placeholder="APP_USR-xxxxxxxxxxxxxxxx">
+                  </div>
+
                   <div class="form-row">
                     <div class="form-group flex-1">
                       <label>Binance Pay API Key</label>
-                      <input type="text" id="cfgBinanceApiKey" class="form-control" placeholder="Sua API Key do portal Merchant">
+                      <input type="text" id="cfgBinanceApiKey" class="form-control" placeholder="Binance API Key">
                     </div>
                     <div class="form-group flex-1">
                       <label>Binance Pay Secret Key</label>
-                      <input type="password" id="cfgBinanceSecretKey" class="form-control" placeholder="Sua Secret Key da Binance Pay">
+                      <input type="password" id="cfgBinanceSecretKey" class="form-control" placeholder="Binance Secret Key">
                     </div>
                   </div>
-                  <small class="hint">Obtenha sua chave no <a href="https://merchant.binance.com/" target="_blank" style="color:var(--primary-gold)">Portal Binance Merchant</a>.</small>
+
+                  <div class="form-group">
+                    <label>Nome de Usuário LivePix (sem @)</label>
+                    <input type="text" id="cfgLivepixUsername" class="form-control" placeholder="ex: seu_canal">
+                  </div>
                 </div>
 
-                <!-- 5. CONFIGURAÇÃO TELEGRAM -->
+                <!-- 6. CONFIGURAÇÃO TELEGRAM -->
                 <div class="config-section mt-4">
-                  <h4 class="section-title"><i class="fa-brands fa-telegram tg-color"></i> 5. Robô do Telegram & Grupo VIP</h4>
+                  <h4 class="section-title"><i class="fa-brands fa-telegram tg-color"></i> 6. Conexão Telegram & Grupo VIP</h4>
                   <div class="form-row">
                     <div class="form-group flex-1">
                       <label>Telegram Bot Token (do @BotFather)</label>
@@ -272,13 +346,18 @@
                       <input type="text" id="cfgTelegramChannelId" class="form-control" placeholder="-100xxxxxxxxxx">
                     </div>
                   </div>
+                  <div class="form-group">
+                    <label>Username do Bot no Telegram (sem @)</label>
+                    <input type="text" id="cfgTelegramBotUsername" class="form-control" placeholder="ex: meubot_vendas_bot">
+                    <small class="hint">Necessário para gerar os links de afiliados automáticos.</small>
+                  </div>
                 </div>
 
-                <!-- 6. WEBHOOKS & URL PÚBLICA -->
+                <!-- 7. WEBHOOKS & URL PÚBLICA -->
                 <div class="config-section mt-4">
-                  <h4 class="section-title"><i class="fa-solid fa-network-wired"></i> 6. Endpoints de Webhook (Para Notificações Automáticas)</h4>
+                  <h4 class="section-title"><i class="fa-solid fa-network-wired"></i> 7. Endpoints de Webhook</h4>
                   <div class="form-group">
-                    <label>URL Pública do Servidor (ex: seu domínio VPS ou ngrok)</label>
+                    <label>URL Pública do Servidor</label>
                     <input type="text" id="cfgPublicUrl" class="form-control" placeholder="http://localhost:3000 ou https://seusite.com">
                   </div>
 
@@ -309,55 +388,112 @@
           </div>
         </section>
 
-        <!-- TAB 3: CONEXÕES & QR CODE -->
-        <section id="tab-connections" class="tab-pane">
-          <div class="grid-2col">
-            <!-- WhatsApp Connection Card -->
-            <div class="card">
-              <div class="card-header">
-                <h3><i class="fa-brands fa-whatsapp wpp-color"></i> Conexão WhatsApp</h3>
-                <span id="wppBadge" class="badge">Desconectado</span>
-              </div>
-              <div class="card-body text-center">
-                <p id="wppStatusText">Iniciando serviço do WhatsApp...</p>
-                <div id="wppQrContainer" class="qr-box">
-                  <div class="spinner"></div>
-                  <span>Gerando QR Code...</span>
-                </div>
-                <div class="alert-info">
-                  <i class="fa-solid fa-mobile-screen"></i> No seu celular: Abra o <b>WhatsApp > Aparelhos Conectados > Conectar Aparelho</b> e aponte para o QR Code.
-                </div>
-              </div>
+        <!-- TAB 3: TIMES DE VENDEDORES -->
+        <section id="tab-sellers" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-users-gear blue"></i> Equipe de Vendedores</h3>
+              <button class="btn btn-primary" onclick="openSellerModal()">
+                <i class="fa-solid fa-user-plus"></i> Novo Vendedor
+              </button>
             </div>
-
-            <!-- Telegram Connection Card -->
-            <div class="card">
-              <div class="card-header">
-                <h3><i class="fa-brands fa-telegram tg-color"></i> Conexão Telegram</h3>
-                <span id="tgBadge" class="badge">Desconectado</span>
-              </div>
-              <div class="card-body">
-                <p id="tgStatusText">Configuração do bot no Telegram.</p>
-                <div class="setup-steps">
-                  <div class="step">
-                    <b>1.</b> Crie um bot no <b>@BotFather</b> no Telegram e copie o token gerado.
-                  </div>
-                  <div class="step">
-                    <b>2.</b> Adicione seu bot como <b>Administrador</b> no seu Grupo ou Canal VIP com permissão para <i>Convidar Usuários</i> e <i>Banir Membros</i>.
-                  </div>
-                  <div class="step">
-                    <b>3.</b> Salve o Token e o Chat ID na aba Central de Configurações deste painel.
-                  </div>
-                </div>
-                <button class="btn btn-primary mt-3" onclick="switchTab('settings')">
-                  <i class="fa-solid fa-gear"></i> Ir para Central de Configurações
-                </button>
+            <div class="card-body">
+              <p class="section-desc">Gerencie sua equipe de vendas. Se a <b>Roleta de Vendedores</b> estiver ativa na Central de Configurações, os novos clientes serão distribuídos automaticamente entre os vendedores ativos.</p>
+              
+              <div class="table-responsive">
+                <table class="table" id="tableSellers">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Nome</th>
+                      <th>WhatsApp</th>
+                      <th>Telegram</th>
+                      <th>Comissão %</th>
+                      <th>Vendas Feitas</th>
+                      <th>Receita Gerada</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="9" class="text-center">Carregando vendedores...</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- TAB 4: PRODUTOS & ASSINATURAS -->
+        <!-- TAB 4: SISTEMA DE AFILIADOS -->
+        <section id="tab-affiliates" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-handshake orange"></i> Gestão de Afiliados & Links de Indicação</h3>
+              <button class="btn btn-primary" onclick="openAffiliateModal()">
+                <i class="fa-solid fa-plus"></i> Novo Afiliado
+              </button>
+            </div>
+            <div class="card-body">
+              <p class="section-desc">Crie afiliados com códigos de rastreamento únicos. O sistema monitora vendas pelo Telegram e WhatsApp, credita o saldo e notifica o afiliado automaticamente.</p>
+              
+              <div class="table-responsive">
+                <table class="table" id="tableAffiliates">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Nome</th>
+                      <th>Código (Ref)</th>
+                      <th>Comissão %</th>
+                      <th>Saldo a Pagar</th>
+                      <th>Chave PIX</th>
+                      <th>Carteira USDT</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="9" class="text-center">Carregando afiliados...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5: COMISSÕES & REPASSES -->
+        <section id="tab-commissions" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-money-bill-transfer green"></i> Histórico de Comissões & Repasses</h3>
+            </div>
+            <div class="card-body">
+              <p class="section-desc">Todas as comissões geradas por vendas de afiliados e vendedores. Quando você fizer a transferência (PIX ou USDT), clique em <b>Marcar como Pago</b> para debitar o saldo.</p>
+
+              <div class="table-responsive">
+                <table class="table" id="tableCommissions">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Pedido</th>
+                      <th>Beneficiário</th>
+                      <th>Tipo</th>
+                      <th>Produto</th>
+                      <th>Comissão</th>
+                      <th>Destino (PIX / Carteira)</th>
+                      <th>Status</th>
+                      <th>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="9" class="text-center">Carregando comissões...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 6: PRODUTOS & ASSINATURAS -->
         <section id="tab-products" class="tab-pane">
           <div class="card">
             <div class="card-header">
@@ -388,7 +524,7 @@
           </div>
         </section>
 
-        <!-- TAB 5: ESTOQUE DE CHAVES -->
+        <!-- TAB 7: ESTOQUE DE CHAVES -->
         <section id="tab-keys" class="tab-pane">
           <div class="card">
             <div class="card-header">
@@ -437,7 +573,7 @@
           </div>
         </section>
 
-        <!-- TAB 6: HISTÓRICO DE PEDIDOS -->
+        <!-- TAB 8: HISTÓRICO DE PEDIDOS -->
         <section id="tab-orders" class="tab-pane">
           <div class="card">
             <div class="card-header">
@@ -452,21 +588,22 @@
                     <th>Canal</th>
                     <th>Usuário</th>
                     <th>Produto</th>
+                    <th>Afiliado</th>
+                    <th>Vendedor</th>
                     <th>Valor</th>
                     <th>Status</th>
-                    <th>Data</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colspan="9" class="text-center">Carregando pedidos...</td></tr>
+                  <tr><td colspan="10" class="text-center">Carregando pedidos...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- TAB 7: ASSINATURAS VIP -->
+        <!-- TAB 9: ASSINATURAS VIP -->
         <section id="tab-subscriptions" class="tab-pane">
           <div class="card">
             <div class="card-header">
@@ -494,11 +631,57 @@
           </div>
         </section>
 
+        <!-- TAB 10: CONEXÕES & QR CODE -->
+        <section id="tab-connections" class="tab-pane">
+          <div class="grid-2col">
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-brands fa-whatsapp wpp-color"></i> Conexão WhatsApp</h3>
+                <span id="wppBadge" class="badge">Desconectado</span>
+              </div>
+              <div class="card-body text-center">
+                <p id="wppStatusText">Iniciando serviço do WhatsApp...</p>
+                <div id="wppQrContainer" class="qr-box">
+                  <div class="spinner"></div>
+                  <span>Gerando QR Code...</span>
+                </div>
+                <div class="alert-info">
+                  <i class="fa-solid fa-mobile-screen"></i> No seu celular: Abra o <b>WhatsApp > Aparelhos Conectados > Conectar Aparelho</b> e aponte para o QR Code.
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-brands fa-telegram tg-color"></i> Conexão Telegram</h3>
+                <span id="tgBadge" class="badge">Desconectado</span>
+              </div>
+              <div class="card-body">
+                <p id="tgStatusText">Configuração do bot no Telegram.</p>
+                <div class="setup-steps">
+                  <div class="step">
+                    <b>1.</b> Crie um bot no <b>@BotFather</b> no Telegram e copie o token gerado.
+                  </div>
+                  <div class="step">
+                    <b>2.</b> Adicione seu bot como <b>Administrador</b> no seu Grupo ou Canal VIP com permissão para <i>Convidar Usuários</i> e <i>Banir Membros</i>.
+                  </div>
+                  <div class="step">
+                    <b>3.</b> Salve o Token e o Chat ID na aba Central de Configurações deste painel.
+                  </div>
+                </div>
+                <button class="btn btn-primary mt-3" onclick="switchTab('settings')">
+                  <i class="fa-solid fa-gear"></i> Ir para Central de Configurações
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
       </div>
     </main>
   </div>
 
-  <!-- Modal Produto -->
+  <!-- MODAL PRODUTO -->
   <div id="modalProduct" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -554,6 +737,174 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeProductModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary">Salvar Produto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL VENDEDOR -->
+  <div id="modalSeller" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalSellerTitle">Novo Vendedor</h3>
+        <button class="btn-close" onclick="closeSellerModal()">&times;</button>
+      </div>
+      <form id="formSeller" onsubmit="saveSeller(event)">
+        <input type="hidden" id="sellerId">
+        <div class="form-group">
+          <label>Nome Completo do Vendedor *</label>
+          <input type="text" id="sellerName" class="form-control" required placeholder="Ex: Rodrigo Vendas">
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>WhatsApp (com DDI + DDD)</label>
+            <input type="text" id="sellerPhone" class="form-control" placeholder="5511999990001">
+          </div>
+          <div class="form-group flex-1">
+            <label>Email</label>
+            <input type="email" id="sellerEmail" class="form-control" placeholder="vendedor@email.com">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Telegram Username (sem @)</label>
+            <input type="text" id="sellerTgUser" class="form-control" placeholder="rodrigo_vendas">
+          </div>
+          <div class="form-group flex-1">
+            <label>Telegram Chat ID (opcional)</label>
+            <input type="text" id="sellerTgId" class="form-control" placeholder="123456789">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Comissão por Venda (%)</label>
+          <input type="number" step="0.5" id="sellerCommission" class="form-control" value="10.0" placeholder="10.0">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeSellerModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Vendedor</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL AFILIADO -->
+  <div id="modalAffiliate" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalAffiliateTitle">Novo Afiliado</h3>
+        <button class="btn-close" onclick="closeAffiliateModal()">&times;</button>
+      </div>
+      <form id="formAffiliate" onsubmit="saveAffiliate(event)">
+        <input type="hidden" id="affiliateId">
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Nome do Afiliado *</label>
+            <input type="text" id="afilName" class="form-control" required placeholder="Ex: Lucas Cripto">
+          </div>
+          <div class="form-group flex-1">
+            <label>Código Único (Ref Code) *</label>
+            <input type="text" id="afilRefCode" class="form-control" required placeholder="Ex: LUCAS10" style="text-transform:uppercase;">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Comissão (%) *</label>
+            <input type="number" step="0.5" id="afilCommission" class="form-control" required value="20.0" placeholder="20.0">
+          </div>
+          <div class="form-group flex-1">
+            <label>WhatsApp</label>
+            <input type="text" id="afilPhone" class="form-control" placeholder="5511999990002">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Chave PIX (para repasses)</label>
+            <input type="text" id="afilPixKey" class="form-control" placeholder="CPF, Email, Telefone ou Aleatória">
+          </div>
+          <div class="form-group flex-1">
+            <label>Carteira USDT (TRC20 / BEP20)</label>
+            <input type="text" id="afilUsdtWallet" class="form-control" placeholder="0x... ou T...">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Telegram Username (sem @)</label>
+            <input type="text" id="afilTgUser" class="form-control" placeholder="lucas_cripto">
+          </div>
+          <div class="form-group flex-1">
+            <label>Telegram ID (para notificações)</label>
+            <input type="text" id="afilTgId" class="form-control" placeholder="987654321">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeAffiliateModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Afiliado</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL LINKS DE DIVULGAÇÃO DO AFILIADO -->
+  <div id="modalAffiliateLinks" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalLinksTitle">Links de Indicação do Afiliado</h3>
+        <button class="btn-close" onclick="closeLinksModal()">&times;</button>
+      </div>
+      <div class="card-body">
+        <p class="section-desc">Envie estes links para o afiliado divulgar. Quando o cliente acessar por eles, todas as vendas serão atribuídas automaticamente.</p>
+        
+        <div class="form-group">
+          <label><i class="fa-brands fa-telegram tg-color"></i> Link para Telegram Bot (Deep-Link):</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="linkTgAfil" class="form-control" readonly>
+            <button class="btn btn-primary btn-sm" onclick="copyInput('linkTgAfil')">Copiar</button>
+          </div>
+        </div>
+
+        <div class="form-group mt-3">
+          <label><i class="fa-brands fa-whatsapp wpp-color"></i> Link para WhatsApp Bot:</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="linkWppAfil" class="form-control" readonly>
+            <button class="btn btn-primary btn-sm" onclick="copyInput('linkWppAfil')">Copiar</button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeLinksModal()">Fechar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL PAGAMENTO DE COMISSÃO -->
+  <div id="modalPayCommission" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Confirmar Repasse de Comissão</h3>
+        <button class="btn-close" onclick="closePayCommissionModal()">&times;</button>
+      </div>
+      <form id="formPayCommission" onsubmit="submitPayCommission(event)">
+        <input type="hidden" id="payCommId">
+        <div class="form-group">
+          <label>Beneficiário:</label>
+          <input type="text" id="payCommBeneficiary" class="form-control" readonly>
+        </div>
+        <div class="form-group">
+          <label>Valor a Pagar:</label>
+          <input type="text" id="payCommAmount" class="form-control" readonly>
+        </div>
+        <div class="form-group">
+          <label>Destino de Pagamento (Chave PIX / Carteira USDT):</label>
+          <input type="text" id="payCommDestination" class="form-control" readonly style="color:var(--primary-gold); font-weight:bold;">
+        </div>
+        <div class="form-group">
+          <label>Comprovante / Hash / TXID da Transferência (opcional):</label>
+          <input type="text" id="payCommProof" class="form-control" placeholder="Ex: PIX E123456789... ou TXID da blockchain">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closePayCommissionModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar Repasse</button>
         </div>
       </form>
     </div>

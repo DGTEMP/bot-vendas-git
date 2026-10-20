@@ -18,7 +18,8 @@ class WhatsAppBotService {
     this.currentQrDataUrl = null;
     this.statusMessage = 'Iniciando...';
     this.authFolder = config.whatsapp.authFolder;
-    this.userSessions = new Map(); // Armazena estado temporário de compra por jid
+    this.userSessions = new Map();
+    this.userReferrals = new Map(); // Armazena affiliate_id e ref_code por jid
   }
 
   async start() {
@@ -126,6 +127,20 @@ class WhatsAppBotService {
 
     if (!text) return;
     const lower = text.toLowerCase();
+
+    // 0. Detecta indicação de afiliado via link ou mensagem (ex: ref_TOPVIP ou cupom TOPVIP)
+    const refMatch = text.match(/(?:ref_|afiliado[:\s]+|cupom[:\s]+)([a-zA-Z0-9_-]+)/i);
+    if (refMatch) {
+      const code = refMatch[1].toUpperCase();
+      const affiliate = models.getAffiliateByCode(code);
+      if (affiliate) {
+        this.userReferrals.set(from, {
+          affiliate_id: affiliate.id,
+          ref_code: affiliate.ref_code
+        });
+        console.log(`[WhatsApp 🤝] Lead ${from} (${senderName}) vinculado ao afiliado ${affiliate.name} (#${affiliate.ref_code})`);
+      }
+    }
 
     // Comandos de menu
     if (['oi', 'ola', 'olá', 'menu', 'inicio', 'início', 'comprar', 'produtos', 'planos'].some(cmd => lower === cmd) || lower.startsWith('!menu')) {
@@ -252,6 +267,14 @@ class WhatsAppBotService {
 
     const { pixCode, qrBuffer, checkoutUrl, paymentId } = pixRes.data;
 
+    // Afiliado e Vendedor
+    const refInfo = this.userReferrals.get(to) || {};
+    let sellerId = null;
+    if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+      const nextSeller = models.getNextRoundRobinSeller();
+      if (nextSeller) sellerId = nextSeller.id;
+    }
+
     // Salva no banco
     models.createOrder({
       merchant_trade_no: tradeNo,
@@ -264,7 +287,10 @@ class WhatsAppBotService {
       currency: 'BRL',
       prepay_id: paymentId,
       checkout_url: checkoutUrl,
-      pix_code: pixCode
+      pix_code: pixCode,
+      affiliate_id: refInfo.affiliate_id || null,
+      seller_id: sellerId,
+      ref_code: refInfo.ref_code || null
     });
 
     try {
@@ -326,6 +352,13 @@ class WhatsAppBotService {
 
     const payData = binanceRes.data;
 
+    const refInfo = this.userReferrals.get(to) || {};
+    let sellerId = null;
+    if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+      const nextSeller = models.getNextRoundRobinSeller();
+      if (nextSeller) sellerId = nextSeller.id;
+    }
+
     models.createOrder({
       merchant_trade_no: tradeNo,
       platform: 'whatsapp',
@@ -337,7 +370,10 @@ class WhatsAppBotService {
       currency: 'USDT',
       prepay_id: payData.prepayId,
       checkout_url: payData.checkoutUrl,
-      qr_content: payData.qrContent
+      qr_content: payData.qrContent,
+      affiliate_id: refInfo.affiliate_id || null,
+      seller_id: sellerId,
+      ref_code: refInfo.ref_code || null
     });
 
     try {

@@ -1,7 +1,9 @@
 const db = require('./database');
 
 const models = {
-  // --- PRODUTOS ---
+  // ==========================================
+  // 1. PRODUTOS
+  // ==========================================
   getProducts(activeOnly = true) {
     const sql = activeOnly 
       ? 'SELECT * FROM products WHERE active = 1 ORDER BY id ASC'
@@ -41,7 +43,9 @@ const models = {
     return db.prepare('DELETE FROM products WHERE id = ?').run(id);
   },
 
-  // --- ESTOQUE DE CHAVES / LICENÇAS ---
+  // ==========================================
+  // 2. ESTOQUE DE CHAVES / LICENÇAS
+  // ==========================================
   getKeysByProductId(productId) {
     return db.prepare('SELECT * FROM inventory_keys WHERE product_id = ? ORDER BY id DESC').all(productId);
   },
@@ -71,11 +75,211 @@ const models = {
     return key.key_content;
   },
 
-  // --- PEDIDOS ---
-  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null }) {
+  // ==========================================
+  // 3. TIMES DE VENDEDORES (SELLERS)
+  // ==========================================
+  getSellers(activeOnly = false) {
+    const sql = activeOnly
+      ? 'SELECT * FROM sellers WHERE active = 1 ORDER BY id ASC'
+      : 'SELECT * FROM sellers ORDER BY id ASC';
+    return db.prepare(sql).all();
+  },
+
+  getSellerById(id) {
+    return db.prepare('SELECT * FROM sellers WHERE id = ?').get(id);
+  },
+
+  createSeller({ name, email, phone, telegram_id, telegram_username, commission_rate = 10.0 }) {
     const stmt = db.prepare(`
-      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sellers (name, email, phone, telegram_id, telegram_username, commission_rate)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(name, email || null, phone || null, telegram_id || null, telegram_username || null, Number(commission_rate));
+    return models.getSellerById(Number(res.lastInsertRowid));
+  },
+
+  updateSeller(id, { name, email, phone, telegram_id, telegram_username, commission_rate, active = 1 }) {
+    db.prepare(`
+      UPDATE sellers
+      SET name = ?, email = ?, phone = ?, telegram_id = ?, telegram_username = ?, commission_rate = ?, active = ?
+      WHERE id = ?
+    `).run(name, email || null, phone || null, telegram_id || null, telegram_username || null, Number(commission_rate), active ? 1 : 0, id);
+    return models.getSellerById(id);
+  },
+
+  deleteSeller(id) {
+    return db.prepare('DELETE FROM sellers WHERE id = ?').run(id);
+  },
+
+  // Roleta de distribuição de leads/vendas entre vendedores ativos (Round-Robin)
+  getNextRoundRobinSeller() {
+    const sellers = models.getSellers(true);
+    if (sellers.length === 0) return null;
+
+    // Seleciona o vendedor que tiver o menor número de vendas atribuídas
+    const sorted = [...sellers].sort((a, b) => a.total_sales_count - b.total_sales_count);
+    return sorted[0];
+  },
+
+  addSellerSale(sellerId, amount, currency) {
+    const seller = models.getSellerById(sellerId);
+    if (!seller) return;
+
+    if (currency === 'USDT') {
+      db.prepare(`
+        UPDATE sellers 
+        SET total_sales_count = total_sales_count + 1, total_revenue_usdt = total_revenue_usdt + ?
+        WHERE id = ?
+      `).run(Number(amount), sellerId);
+    } else {
+      db.prepare(`
+        UPDATE sellers 
+        SET total_sales_count = total_sales_count + 1, total_revenue_brl = total_revenue_brl + ?
+        WHERE id = ?
+      `).run(Number(amount), sellerId);
+    }
+  },
+
+  // ==========================================
+  // 4. SISTEMA DE AFILIADOS (AFFILIATES)
+  // ==========================================
+  getAffiliates(activeOnly = false) {
+    const sql = activeOnly
+      ? 'SELECT * FROM affiliates WHERE active = 1 ORDER BY id DESC'
+      : 'SELECT * FROM affiliates ORDER BY id DESC';
+    return db.prepare(sql).all();
+  },
+
+  getAffiliateById(id) {
+    return db.prepare('SELECT * FROM affiliates WHERE id = ?').get(id);
+  },
+
+  getAffiliateByCode(refCode) {
+    if (!refCode) return null;
+    const clean = refCode.trim().toUpperCase().replace(/^REF_/, '');
+    return db.prepare('SELECT * FROM affiliates WHERE UPPER(ref_code) = ? AND active = 1').get(clean);
+  },
+
+  createAffiliate({ name, email, phone, telegram_id, telegram_username, ref_code, commission_rate = 20.0, pix_key, usdt_wallet }) {
+    const cleanRef = ref_code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+    const stmt = db.prepare(`
+      INSERT INTO affiliates (name, email, phone, telegram_id, telegram_username, ref_code, commission_rate, pix_key, usdt_wallet)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(
+      name, 
+      email || null, 
+      phone || null, 
+      telegram_id || null, 
+      telegram_username || null, 
+      cleanRef, 
+      Number(commission_rate), 
+      pix_key || null, 
+      usdt_wallet || null
+    );
+    return models.getAffiliateById(Number(res.lastInsertRowid));
+  },
+
+  updateAffiliate(id, { name, email, phone, telegram_id, telegram_username, ref_code, commission_rate, pix_key, usdt_wallet, active = 1 }) {
+    const cleanRef = ref_code ? ref_code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '') : null;
+    db.prepare(`
+      UPDATE affiliates
+      SET name = ?, email = ?, phone = ?, telegram_id = ?, telegram_username = ?, ref_code = COALESCE(?, ref_code), commission_rate = ?, pix_key = ?, usdt_wallet = ?, active = ?
+      WHERE id = ?
+    `).run(name, email || null, phone || null, telegram_id || null, telegram_username || null, cleanRef, Number(commission_rate), pix_key || null, usdt_wallet || null, active ? 1 : 0, id);
+    return models.getAffiliateById(id);
+  },
+
+  deleteAffiliate(id) {
+    return db.prepare('DELETE FROM affiliates WHERE id = ?').run(id);
+  },
+
+  creditAffiliateBalance(affiliateId, amount, currency) {
+    if (currency === 'USDT') {
+      db.prepare('UPDATE affiliates SET balance_usdt = balance_usdt + ? WHERE id = ?').run(Number(amount), affiliateId);
+    } else {
+      db.prepare('UPDATE affiliates SET balance_brl = balance_brl + ? WHERE id = ?').run(Number(amount), affiliateId);
+    }
+  },
+
+  payoutAffiliate(affiliateId, amount, currency, proof = null) {
+    if (currency === 'USDT') {
+      db.prepare(`
+        UPDATE affiliates 
+        SET balance_usdt = MAX(0, balance_usdt - ?), total_paid_usdt = total_paid_usdt + ?
+        WHERE id = ?
+      `).run(Number(amount), Number(amount), affiliateId);
+    } else {
+      db.prepare(`
+        UPDATE affiliates 
+        SET balance_brl = MAX(0, balance_brl - ?), total_paid_brl = total_paid_brl + ?
+        WHERE id = ?
+      `).run(Number(amount), Number(amount), affiliateId);
+    }
+  },
+
+  // ==========================================
+  // 5. COMISSÕES (COMMISSIONS)
+  // ==========================================
+  createCommission({ order_id, beneficiary_type, beneficiary_id, amount, currency, rate_percent }) {
+    const stmt = db.prepare(`
+      INSERT INTO commissions (order_id, beneficiary_type, beneficiary_id, amount, currency, rate_percent, status)
+      VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
+    `);
+    const res = stmt.run(order_id, beneficiary_type, beneficiary_id, Number(amount), currency, Number(rate_percent));
+    return db.prepare('SELECT * FROM commissions WHERE id = ?').get(Number(res.lastInsertRowid));
+  },
+
+  getAllCommissions(limit = 100) {
+    return db.prepare(`
+      SELECT c.*, o.merchant_trade_no, o.amount as order_amount, p.name as product_name,
+        CASE 
+          WHEN c.beneficiary_type = 'affiliate' THEN a.name 
+          ELSE s.name 
+        END as beneficiary_name,
+        CASE 
+          WHEN c.beneficiary_type = 'affiliate' THEN a.ref_code 
+          ELSE 'Vendedor' 
+        END as beneficiary_code,
+        CASE
+          WHEN c.beneficiary_type = 'affiliate' THEN a.pix_key
+          ELSE s.phone
+        END as payment_destination
+      FROM commissions c
+      JOIN orders o ON c.order_id = o.id
+      JOIN products p ON o.product_id = p.id
+      LEFT JOIN affiliates a ON c.beneficiary_type = 'affiliate' AND c.beneficiary_id = a.id
+      LEFT JOIN sellers s ON c.beneficiary_type = 'seller' AND c.beneficiary_id = s.id
+      ORDER BY c.id DESC
+      LIMIT ?
+    `).all(limit);
+  },
+
+  markCommissionPaid(commissionId, proofNote = null) {
+    const comm = db.prepare('SELECT * FROM commissions WHERE id = ?').get(commissionId);
+    if (!comm || comm.status === 'PAID') return comm;
+
+    db.prepare(`
+      UPDATE commissions 
+      SET status = 'PAID', paid_at = ?, payment_proof = ?
+      WHERE id = ?
+    `).run(new Date().toISOString(), proofNote, commissionId);
+
+    // Deduz do saldo do afiliado
+    if (comm.beneficiary_type === 'affiliate') {
+      models.payoutAffiliate(comm.beneficiary_id, comm.amount, comm.currency, proofNote);
+    }
+
+    return db.prepare('SELECT * FROM commissions WHERE id = ?').get(commissionId);
+  },
+
+  // ==========================================
+  // 6. PEDIDOS (ORDERS)
+  // ==========================================
+  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null, affiliate_id = null, seller_id = null, ref_code = null }) {
+    const stmt = db.prepare(`
+      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code, affiliate_id, seller_id, ref_code)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       merchant_trade_no, 
@@ -89,25 +293,36 @@ const models = {
       prepay_id, 
       checkout_url, 
       qr_content,
-      pix_code
+      pix_code,
+      affiliate_id ? Number(affiliate_id) : null,
+      seller_id ? Number(seller_id) : null,
+      ref_code || null
     );
     return models.getOrderByTradeNo(merchant_trade_no);
   },
 
   getOrderByTradeNo(tradeNo) {
     return db.prepare(`
-      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id
+      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id,
+        a.name as affiliate_name, a.ref_code as affiliate_code,
+        s.name as seller_name
       FROM orders o
       JOIN products p ON o.product_id = p.id
+      LEFT JOIN affiliates a ON o.affiliate_id = a.id
+      LEFT JOIN sellers s ON o.seller_id = s.id
       WHERE o.merchant_trade_no = ?
     `).get(tradeNo);
   },
 
   getOrderById(id) {
     return db.prepare(`
-      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id
+      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id,
+        a.name as affiliate_name, a.ref_code as affiliate_code,
+        s.name as seller_name
       FROM orders o
       JOIN products p ON o.product_id = p.id
+      LEFT JOIN affiliates a ON o.affiliate_id = a.id
+      LEFT JOIN sellers s ON o.seller_id = s.id
       WHERE o.id = ?
     `).get(id);
   },
@@ -142,15 +357,21 @@ const models = {
 
   getAllOrders(limit = 100) {
     return db.prepare(`
-      SELECT o.*, p.name as product_name, p.type as product_type
+      SELECT o.*, p.name as product_name, p.type as product_type,
+        a.name as affiliate_name, a.ref_code as affiliate_code,
+        s.name as seller_name
       FROM orders o
       JOIN products p ON o.product_id = p.id
+      LEFT JOIN affiliates a ON o.affiliate_id = a.id
+      LEFT JOIN sellers s ON o.seller_id = s.id
       ORDER BY o.id DESC
       LIMIT ?
     `).all(limit);
   },
 
-  // --- ASSINATURAS VIP ---
+  // ==========================================
+  // 7. ASSINATURAS VIP (SUBSCRIPTIONS)
+  // ==========================================
   createSubscription({ order_id, platform, platform_user_id, platform_user_name, product_id, telegram_channel_id, duration_days }) {
     const startDate = new Date();
     const endDate = new Date(startDate.getTime() + (duration_days * 24 * 60 * 60 * 1000));
@@ -215,7 +436,9 @@ const models = {
     return db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id);
   },
 
-  // --- CONFIGURAÇÕES DINÂMICAS ---
+  // ==========================================
+  // 8. CONFIGURAÇÕES DINÂMICAS (SETTINGS)
+  // ==========================================
   getSetting(key, defaultValue = null) {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
     return row ? row.value : defaultValue;
@@ -234,7 +457,9 @@ const models = {
     return map;
   },
 
-  // --- MÉTRICAS & RESUMO ---
+  // ==========================================
+  // 9. MÉTRICAS E RESUMO GERAL
+  // ==========================================
   getMetrics() {
     const paidOrders = db.prepare("SELECT * FROM orders WHERE status = 'PAID'").all();
     let totalBRL = 0;
@@ -251,14 +476,29 @@ const models = {
     const totalOrders = db.prepare("SELECT COUNT(*) as count FROM orders").get().count;
     const activeSubs = db.prepare("SELECT COUNT(*) as count FROM subscriptions WHERE status = 'ACTIVE'").get().count;
     const totalProducts = db.prepare("SELECT COUNT(*) as count FROM products WHERE active = 1").get().count;
+    const totalSellers = db.prepare("SELECT COUNT(*) as count FROM sellers WHERE active = 1").get().count;
+    const totalAffiliates = db.prepare("SELECT COUNT(*) as count FROM affiliates WHERE active = 1").get().count;
     
+    // Comissões pendentes
+    const pendingComms = db.prepare("SELECT SUM(amount) as total, currency FROM commissions WHERE status = 'PENDING' GROUP BY currency").all();
+    let pendingBRL = 0;
+    let pendingUSDT = 0;
+    for (const pc of pendingComms) {
+      if (pc.currency === 'USDT') pendingUSDT = pc.total || 0;
+      else pendingBRL = pc.total || 0;
+    }
+
     return {
       totalRevenueBRL: Number(totalBRL.toFixed(2)),
       totalRevenueUSDT: Number(totalUSDT.toFixed(2)),
       totalOrders,
       paidOrders: paidOrders.length,
       activeSubs,
-      totalProducts
+      totalProducts,
+      totalSellers,
+      totalAffiliates,
+      pendingCommissionsBRL: Number(pendingBRL.toFixed(2)),
+      pendingCommissionsUSDT: Number(pendingUSDT.toFixed(2))
     };
   }
 };

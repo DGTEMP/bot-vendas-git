@@ -10,6 +10,7 @@ class TelegramBotService {
   constructor() {
     this.bot = null;
     this.isRunning = false;
+    this.userReferrals = new Map(); // Armazena affiliate_id e ref_code por user_id
   }
 
   async start() {
@@ -48,10 +49,28 @@ class TelegramBotService {
   }
 
   setupHandlers() {
-    // /start
+    // /start com suporte a Links de Afiliados (Deep-Linking: /start ref_CODIGO)
     this.bot.start(async (ctx) => {
       const userName = ctx.from.first_name || 'Cliente';
-      const welcomeText = `👋 Olá, *${userName}*! Seja muito bem-vindo.\n\n` +
+      const userId = String(ctx.from.id);
+
+      // Captura código de afiliado se presente no link
+      if (ctx.startPayload) {
+        const cleanCode = ctx.startPayload.replace(/^ref_/, '').toUpperCase();
+        const affiliate = models.getAffiliateByCode(cleanCode);
+        if (affiliate) {
+          this.userReferrals.set(userId, {
+            affiliate_id: affiliate.id,
+            ref_code: affiliate.ref_code
+          });
+          console.log(`[Telegram 🤝] Usuário ${userId} (${userName}) vinculado ao afiliado ${affiliate.name} (#${affiliate.ref_code})`);
+        }
+      }
+
+      const botName = models.getSetting('BOT_NAME', 'PayBot');
+      const welcomeCustom = models.getSetting('WELCOME_MESSAGE', '👋 Olá! Seja muito bem-vindo.');
+
+      const welcomeText = `${welcomeCustom}\n\n` +
         `Aqui você pode adquirir nossos produtos digitais e assinaturas VIP com cobrança automática via *PIX* ou *Binance Pay* (USDT).\n\n` +
         `Escolha uma das opções abaixo:`;
 
@@ -175,6 +194,14 @@ class TelegramBotService {
 
       const { pixCode, qrBuffer, checkoutUrl, paymentId } = pixRes.data;
 
+      // Obtém afiliado e vendedor para comissão
+      const refInfo = this.userReferrals.get(userId) || {};
+      let sellerId = null;
+      if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+        const nextSeller = models.getNextRoundRobinSeller();
+        if (nextSeller) sellerId = nextSeller.id;
+      }
+
       // Salva no banco
       models.createOrder({
         merchant_trade_no: tradeNo,
@@ -187,7 +214,10 @@ class TelegramBotService {
         currency: 'BRL',
         prepay_id: paymentId,
         checkout_url: checkoutUrl,
-        pix_code: pixCode
+        pix_code: pixCode,
+        affiliate_id: refInfo.affiliate_id || null,
+        seller_id: sellerId,
+        ref_code: refInfo.ref_code || null
       });
 
       const captionText = `🟢 *PAGAMENTO VIA PIX GERADO!*\n\n` +
@@ -244,6 +274,13 @@ class TelegramBotService {
 
       const payData = binanceRes.data;
 
+      const refInfo = this.userReferrals.get(userId) || {};
+      let sellerId = null;
+      if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+        const nextSeller = models.getNextRoundRobinSeller();
+        if (nextSeller) sellerId = nextSeller.id;
+      }
+
       models.createOrder({
         merchant_trade_no: tradeNo,
         platform: 'telegram',
@@ -255,7 +292,10 @@ class TelegramBotService {
         currency: 'USDT',
         prepay_id: payData.prepayId,
         checkout_url: payData.checkoutUrl,
-        qr_content: payData.qrContent
+        qr_content: payData.qrContent,
+        affiliate_id: refInfo.affiliate_id || null,
+        seller_id: sellerId,
+        ref_code: refInfo.ref_code || null
       });
 
       const qrBuffer = await QRCode.toBuffer(payData.qrContent || payData.checkoutUrl, { width: 360, margin: 2 });
@@ -300,6 +340,13 @@ class TelegramBotService {
       const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
       const amount = product.price_brl || product.price;
 
+      const refInfo = this.userReferrals.get(userId) || {};
+      let sellerId = null;
+      if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+        const nextSeller = models.getNextRoundRobinSeller();
+        if (nextSeller) sellerId = nextSeller.id;
+      }
+
       models.createOrder({
         merchant_trade_no: tradeNo,
         platform: 'telegram',
@@ -309,7 +356,10 @@ class TelegramBotService {
         gateway: 'livepix',
         amount,
         currency: 'BRL',
-        checkout_url: `https://livepix.gg/${username}`
+        checkout_url: `https://livepix.gg/${username}`,
+        affiliate_id: refInfo.affiliate_id || null,
+        seller_id: sellerId,
+        ref_code: refInfo.ref_code || null
       });
 
       const livepixUrl = `https://livepix.gg/${username}`;

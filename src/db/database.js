@@ -11,7 +11,7 @@ if (!fs.existsSync(dbDir)) {
 
 const db = new DatabaseSync(config.dbPath);
 
-// Ativa WAL mode para concorrência e alta performance
+// Ativa WAL mode para alta concorrência
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
 
@@ -24,7 +24,47 @@ function initDatabase() {
     );
   `);
 
-  // 2. Tabela de Produtos / Assinaturas
+  // 2. Tabela de Vendedores (Equipe de Vendas)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sellers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      telegram_id TEXT,
+      telegram_username TEXT,
+      commission_rate REAL DEFAULT 10.0,
+      active INTEGER DEFAULT 1,
+      total_sales_count INTEGER DEFAULT 0,
+      total_revenue_brl REAL DEFAULT 0,
+      total_revenue_usdt REAL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 3. Tabela de Afiliados
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS affiliates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      telegram_id TEXT,
+      telegram_username TEXT,
+      ref_code TEXT UNIQUE NOT NULL,
+      commission_rate REAL DEFAULT 20.0,
+      pix_key TEXT,
+      usdt_wallet TEXT,
+      balance_brl REAL DEFAULT 0,
+      balance_usdt REAL DEFAULT 0,
+      total_paid_brl REAL DEFAULT 0,
+      total_paid_usdt REAL DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 4. Tabela de Produtos / Assinaturas
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +83,7 @@ function initDatabase() {
     );
   `);
 
-  // 3. Tabela de Chaves / Contas em Estoque (para produtos tipo 'license_key')
+  // 5. Tabela de Chaves / Estoque
   db.exec(`
     CREATE TABLE IF NOT EXISTS inventory_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +96,7 @@ function initDatabase() {
     );
   `);
 
-  // 4. Tabela de Pedidos
+  // 6. Tabela de Pedidos
   db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,25 +114,48 @@ function initDatabase() {
       qr_content TEXT,
       pix_code TEXT,
       delivered_content TEXT,
+      affiliate_id INTEGER,
+      seller_id INTEGER,
+      ref_code TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       paid_at TEXT,
-      FOREIGN KEY (product_id) REFERENCES products(id)
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (affiliate_id) REFERENCES affiliates(id),
+      FOREIGN KEY (seller_id) REFERENCES sellers(id)
     );
   `);
 
-  // 5. Tabela de Assinaturas Ativas
+  // 7. Tabela de Comissões (Afiliados e Vendedores)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS commissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL,
+      beneficiary_type TEXT NOT NULL, -- 'affiliate' | 'seller'
+      beneficiary_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL, -- 'BRL' | 'USDT'
+      rate_percent REAL NOT NULL,
+      status TEXT DEFAULT 'PENDING', -- 'PENDING', 'PAID', 'CANCELLED'
+      paid_at TEXT,
+      payment_proof TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (order_id) REFERENCES orders(id)
+    );
+  `);
+
+  // 8. Tabela de Assinaturas Ativas
   db.exec(`
     CREATE TABLE IF NOT EXISTS subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER,
-      platform TEXT NOT NULL, -- 'telegram' | 'whatsapp'
+      platform TEXT NOT NULL,
       platform_user_id TEXT NOT NULL,
       platform_user_name TEXT,
       product_id INTEGER NOT NULL,
       telegram_channel_id TEXT,
       start_date TEXT NOT NULL,
       end_date TEXT NOT NULL,
-      status TEXT DEFAULT 'ACTIVE', -- 'ACTIVE', 'EXPIRED', 'REVOKED'
+      status TEXT DEFAULT 'ACTIVE',
       reminder_sent INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id),
@@ -100,8 +163,11 @@ function initDatabase() {
     );
   `);
 
-  // Migrações seguras de colunas em bancos existentes
+  // Migrações seguras
   const migrations = [
+    'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
+    'ALTER TABLE orders ADD COLUMN seller_id INTEGER;',
+    'ALTER TABLE orders ADD COLUMN ref_code TEXT;',
     'ALTER TABLE products ADD COLUMN price_brl REAL DEFAULT 0;',
     'ALTER TABLE products ADD COLUMN price_usdt REAL DEFAULT 0;',
     'ALTER TABLE orders ADD COLUMN gateway TEXT DEFAULT "binancepay";',
@@ -111,26 +177,24 @@ function initDatabase() {
   for (const m of migrations) {
     try {
       db.exec(m);
-    } catch (e) {
-      // Ignora se coluna já existe
-    }
+    } catch (e) {}
   }
 
-  // Atualiza preços BRL e USDT nos produtos existentes caso estejam zerados
-  db.exec(`
-    UPDATE products 
-    SET price_brl = CASE WHEN price_brl = 0 THEN ROUND(price * 5.5, 2) ELSE price_brl END,
-        price_usdt = CASE WHEN price_usdt = 0 THEN price ELSE price_usdt END
-    WHERE price_brl = 0 OR price_usdt = 0;
-  `);
-
-  // Configurações padrão se ainda não existirem
+  // Configurações padrão
   const defaultSettings = [
     ['GATEWAY_PIX_ENABLED', 'true'],
     ['GATEWAY_BINANCE_ENABLED', 'true'],
     ['GATEWAY_LIVEPIX_ENABLED', 'false'],
     ['BINANCE_SIMULATION_MODE', 'true'],
-    ['PIX_SIMULATION_MODE', 'true']
+    ['PIX_SIMULATION_MODE', 'true'],
+    ['GLOBAL_AFFILIATE_RATE', '20.0'],
+    ['ROUND_ROBIN_SELLERS', 'true'],
+    ['NOTIFY_ADMIN_ON_SALE', 'true'],
+    ['ADMIN_NOTIFY_TELEGRAM_ID', ''],
+    ['ADMIN_NOTIFY_WHATSAPP_PHONE', ''],
+    ['BOT_NAME', 'PayBot Vendas'],
+    ['WELCOME_MESSAGE', '👋 Olá! Seja muito bem-vindo à nossa loja automatizada.'],
+    ['SUPPORT_CONTACT', '@suporte']
   ];
 
   for (const [k, v] of defaultSettings) {
@@ -140,64 +204,24 @@ function initDatabase() {
     }
   }
 
-  // Semeia produtos de exemplo se vazio
-  const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get().count;
-  if (productCount === 0) {
-    console.log('📦 Inicializando banco com produtos e assinaturas de exemplo...');
-
-    const insertProd = db.prepare(`
-      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    // 1. E-book / Conteúdo Digital com Link
-    insertProd.run(
-      'Curso Completo de Cripto & Finanças (PDF + Aulas)',
-      'Acesso vitalício ao material completo, planilhas e guias práticos.',
-      25.00,
-      25.00,
-      5.00,
-      'BRL',
-      'digital_link',
-      0,
-      'https://drive.google.com/drive/folders/exemplo-acesso-curso-cripto',
-      null
-    );
-
-    // 2. Chave de Ativação / Licença
-    const prod2 = insertProd.run(
-      'Licença de Software Premium (30 Dias)',
-      'Chave de ativação individual entregue imediatamente.',
-      49.90,
-      49.90,
-      10.00,
-      'BRL',
-      'license_key',
-      0,
-      null,
-      null
-    );
-
-    const insertKey = db.prepare('INSERT INTO inventory_keys (product_id, key_content) VALUES (?, ?)');
-    insertKey.run(Number(prod2.lastInsertRowid), 'KEY-PREMIUM-ABCD-1234-XYZ');
-    insertKey.run(Number(prod2.lastInsertRowid), 'KEY-PREMIUM-EFGH-5678-WUV');
-
-    // 3. Assinatura VIP Grupo Telegram Mensal (30 dias)
-    insertProd.run(
-      'Grupo VIP Sinais & Networking (30 Dias)',
-      'Acesso exclusivo de 30 dias com remoção automática ao expirar.',
-      75.00,
-      75.00,
-      15.00,
-      'BRL',
-      'vip_subscription',
-      30,
-      null,
-      config.telegram.vipChannelId || null
-    );
-
-    console.log('✅ Banco inicializado com sucesso!');
+  // Semeia vendedor e afiliado de exemplo se vazios
+  const sellersCount = db.prepare('SELECT COUNT(*) as count FROM sellers').get().count;
+  if (sellersCount === 0) {
+    db.prepare(`
+      INSERT INTO sellers (name, email, phone, telegram_username, commission_rate)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('Vendedor Oficial (Matriz)', 'vendas@paybot.com', '5511999990001', '@vendas_paybot', 10.0);
   }
+
+  const affiliatesCount = db.prepare('SELECT COUNT(*) as count FROM affiliates').get().count;
+  if (affiliatesCount === 0) {
+    db.prepare(`
+      INSERT INTO affiliates (name, email, phone, telegram_username, ref_code, commission_rate, pix_key, usdt_wallet)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('Afiliado Top VIP', 'afiliado@demo.com', '5511999990002', '@afiliado_vip', 'TOPVIP', 25.0, 'pix@afiliado.com', '0x1234567890abcdef');
+  }
+
+  console.log('✅ Banco de dados atualizado com Times de Vendedores e Afiliados!');
 }
 
 initDatabase();

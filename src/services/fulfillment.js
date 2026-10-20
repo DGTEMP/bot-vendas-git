@@ -8,7 +8,6 @@ class FulfillmentService {
     this.removeTelegramMember = null;
   }
 
-  // Registra as funções de envio dos bots
   registerTelegramBot({ sendMessage, createInviteLink, removeMember }) {
     this.sendTelegramMessage = sendMessage;
     this.createTelegramInviteLink = createInviteLink;
@@ -105,6 +104,109 @@ class FulfillmentService {
 
     // Atualiza o pedido no banco
     const updatedOrder = models.updateOrderStatus(merchantTradeNo, 'PAID', deliveredContent);
+
+    // ==========================================
+    // 4. ATRIBUIÇÃO E CRÉDITO DE COMISSÃO DE AFILIADO
+    // ==========================================
+    let affiliateNotice = null;
+    if (order.affiliate_id) {
+      const affiliate = models.getAffiliateById(order.affiliate_id);
+      if (affiliate && affiliate.active) {
+        const rate = affiliate.commission_rate || 20.0;
+        const commAmount = Number(((order.amount * rate) / 100).toFixed(2));
+
+        models.createCommission({
+          order_id: order.id,
+          beneficiary_type: 'affiliate',
+          beneficiary_id: affiliate.id,
+          amount: commAmount,
+          currency: order.currency,
+          rate_percent: rate
+        });
+
+        models.creditAffiliateBalance(affiliate.id, commAmount, order.currency);
+        console.log(`[Fulfillment 🤝] Afiliado ${affiliate.name} (${affiliate.ref_code}) creditado: ${commAmount} ${order.currency}`);
+
+        affiliateNotice = `${affiliate.name} (${affiliate.ref_code}) - Comissão: ${commAmount} ${order.currency}`;
+
+        // Notifica o Afiliado se configurado
+        const afilMsg = `🎉 *PARABÉNS! VOCÊ FEZ UMA VENDA!* 💰\n\n` +
+          `📦 *Item:* ${product.name}\n` +
+          `💵 *Valor da Venda:* ${order.amount} ${order.currency}\n` +
+          `⭐ *Sua Comissão (${rate}%):* ${commAmount} ${order.currency}\n\n` +
+          `Seu saldo já foi atualizado!`;
+
+        if (affiliate.telegram_id && this.sendTelegramMessage) {
+          this.sendTelegramMessage(affiliate.telegram_id, afilMsg).catch(() => {});
+        } else if (affiliate.phone && this.sendWhatsAppMessage) {
+          const wppPhone = affiliate.phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+          this.sendWhatsAppMessage(wppPhone, afilMsg).catch(() => {});
+        }
+      }
+    }
+
+    // ==========================================
+    // 5. ATRIBUIÇÃO DE VENDEDOR
+    // ==========================================
+    let sellerNotice = null;
+    if (order.seller_id) {
+      const seller = models.getSellerById(order.seller_id);
+      if (seller && seller.active) {
+        models.addSellerSale(seller.id, order.amount, order.currency);
+
+        if (seller.commission_rate > 0) {
+          const sellerComm = Number(((order.amount * seller.commission_rate) / 100).toFixed(2));
+          models.createCommission({
+            order_id: order.id,
+            beneficiary_type: 'seller',
+            beneficiary_id: seller.id,
+            amount: sellerComm,
+            currency: order.currency,
+            rate_percent: seller.commission_rate
+          });
+        }
+
+        sellerNotice = `${seller.name}`;
+
+        const sellerMsg = `💼 *NOVA VENDA CONCLUÍDA NO SEU ATENDIMENTO!*\n\n` +
+          `📦 *Produto:* ${product.name}\n` +
+          `💰 *Valor:* ${order.amount} ${order.currency}\n` +
+          `👤 *Cliente:* ${order.platform_user_name || order.platform_user_id} (${order.platform.toUpperCase()})\n` +
+          `🆔 *Pedido:* \`${order.merchant_trade_no}\``;
+
+        if (seller.telegram_id && this.sendTelegramMessage) {
+          this.sendTelegramMessage(seller.telegram_id, sellerMsg).catch(() => {});
+        } else if (seller.phone && this.sendWhatsAppMessage) {
+          const wppPhone = seller.phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+          this.sendWhatsAppMessage(wppPhone, sellerMsg).catch(() => {});
+        }
+      }
+    }
+
+    // ==========================================
+    // 6. NOTIFICAÇÃO DO ADMINISTRADOR
+    // ==========================================
+    const notifyAdmin = models.getSetting('NOTIFY_ADMIN_ON_SALE', 'true') === 'true';
+    if (notifyAdmin) {
+      const adminTg = models.getSetting('ADMIN_NOTIFY_TELEGRAM_ID');
+      const adminWpp = models.getSetting('ADMIN_NOTIFY_WHATSAPP_PHONE');
+
+      const adminAlert = `🚨 *NOVA VENDA REALIZADA!* 💰\n\n` +
+        `📦 *Produto:* ${product.name}\n` +
+        `💵 *Valor:* ${order.amount} ${order.currency} (${(order.gateway || 'Pix').toUpperCase()})\n` +
+        `👤 *Cliente:* ${order.platform_user_name || order.platform_user_id} via ${order.platform.toUpperCase()}\n` +
+        (affiliateNotice ? `🤝 *Afiliado:* ${affiliateNotice}\n` : '') +
+        (sellerNotice ? `👔 *Vendedor:* ${sellerNotice}\n` : '') +
+        `🆔 *Pedido:* \`${order.merchant_trade_no}\``;
+
+      if (adminTg && this.sendTelegramMessage) {
+        this.sendTelegramMessage(adminTg, adminAlert).catch(() => {});
+      }
+      if (adminWpp && this.sendWhatsAppMessage) {
+        const cleanWpp = adminWpp.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+        this.sendWhatsAppMessage(cleanWpp, adminAlert).catch(() => {});
+      }
+    }
 
     // Envia mensagem ao cliente
     try {
