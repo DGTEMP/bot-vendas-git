@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Painel de Vendas Automatizadas | Binance Pay + WhatsApp & Telegram</title>
+  <title>PayBot | Painel de Vendas Automatizadas & Assinaturas VIP</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -12,9 +12,12 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="brand">
-        <i class="fa-brands fa-bitcoin brand-icon"></i>
+        <div class="brand-icons">
+          <i class="fa-brands fa-pix brand-pix"></i>
+          <i class="fa-brands fa-bitcoin brand-crypto"></i>
+        </div>
         <div>
-          <h2>PayBot</h2>
+          <h2>PayBot Admin</h2>
           <span>WhatsApp & Telegram</span>
         </div>
       </div>
@@ -22,6 +25,9 @@
       <nav class="nav-menu">
         <a href="#" class="nav-item active" data-tab="overview">
           <i class="fa-solid fa-chart-pie"></i> Visão Geral
+        </a>
+        <a href="#" class="nav-item" data-tab="settings">
+          <i class="fa-solid fa-sliders"></i> Central de Configurações
         </a>
         <a href="#" class="nav-item" data-tab="connections">
           <i class="fa-solid fa-plug"></i> Conexões & QR
@@ -38,15 +44,12 @@
         <a href="#" class="nav-item" data-tab="subscriptions">
           <i class="fa-solid fa-crown"></i> Assinaturas Ativas
         </a>
-        <a href="#" class="nav-item" data-tab="settings">
-          <i class="fa-solid fa-sliders"></i> Configurações
-        </a>
       </nav>
 
       <div class="sidebar-footer">
         <div class="status-indicator">
           <span class="dot live"></span>
-          <span>Binance Pay Integrada</span>
+          <span>PIX + Binance Pay Ativos</span>
         </div>
       </div>
     </aside>
@@ -57,7 +60,7 @@
         <h1 id="pageTitle">Visão Geral</h1>
         <div class="topbar-actions">
           <button class="btn btn-secondary" onclick="loadAllData()">
-            <i class="fa-solid fa-rotate"></i> Atualizar
+            <i class="fa-solid fa-rotate"></i> Atualizar Dados
           </button>
         </div>
       </header>
@@ -69,10 +72,18 @@
           <!-- Metric Cards -->
           <div class="stats-grid">
             <div class="stat-card">
+              <div class="stat-icon pix-bg"><i class="fa-brands fa-pix"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Faturamento PIX</span>
+                <h3 id="statRevenueBRL">R$ 0,00</h3>
+              </div>
+            </div>
+
+            <div class="stat-card">
               <div class="stat-icon gold"><i class="fa-solid fa-dollar-sign"></i></div>
               <div class="stat-info">
-                <span class="stat-label">Faturamento Total</span>
-                <h3 id="statRevenue">0.00 USDT</h3>
+                <span class="stat-label">Faturamento Binance (USDT)</span>
+                <h3 id="statRevenueUSDT">0.00 USDT</h3>
               </div>
             </div>
 
@@ -91,14 +102,17 @@
                 <h3 id="statActiveSubs">0</h3>
               </div>
             </div>
+          </div>
 
-            <div class="stat-card">
-              <div class="stat-icon blue"><i class="fa-solid fa-cubes"></i></div>
-              <div class="stat-info">
-                <span class="stat-label">Produtos Cadastrados</span>
-                <h3 id="statProducts">0</h3>
-              </div>
-            </div>
+          <!-- Quick Gateway Banner -->
+          <div class="gateway-status-bar">
+            <span><b>Métodos de Pagamento Ativos:</b></span>
+            <span id="badgePixStatus" class="badge badge-paid">🟢 PIX Ativo</span>
+            <span id="badgeBinanceStatus" class="badge badge-paid">🟡 Binance Pay Ativo</span>
+            <span id="badgeLivepixStatus" class="badge badge-expired">💜 LivePix Inativo</span>
+            <button class="btn btn-sm btn-outline ml-auto" onclick="switchTab('settings')">
+              <i class="fa-solid fa-gear"></i> Gerenciar Gateways
+            </button>
           </div>
 
           <!-- Connection Quick Status -->
@@ -111,7 +125,7 @@
                   <span id="overviewWppStatus" class="badge">Verificando...</span>
                 </div>
               </div>
-              <p>Conectado via Baileys Multi-Device. Escaneie o QR Code para parear seu celular.</p>
+              <p>Envio de QR Code Pix e Binance, código Copia e Cola instantâneo e entrega automática.</p>
               <button class="btn btn-sm btn-outline" onclick="switchTab('connections')">Ver QR Code</button>
             </div>
 
@@ -123,7 +137,7 @@
                   <span id="overviewTgStatus" class="badge">Verificando...</span>
                 </div>
               </div>
-              <p>Gerenciamento automático de grupos VIP, convites de uso único e kick de expirados.</p>
+              <p>Botões interativos, links de convite de uso único para canais VIP e expulsão automática de expirados.</p>
               <button class="btn btn-sm btn-outline" onclick="switchTab('settings')">Configurar Token</button>
             </div>
           </div>
@@ -139,6 +153,7 @@
                 <thead>
                   <tr>
                     <th>Pedido</th>
+                    <th>Método</th>
                     <th>Canal</th>
                     <th>Item</th>
                     <th>Valor</th>
@@ -148,14 +163,153 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colspan="7" class="text-center">Carregando pedidos...</td></tr>
+                  <tr><td colspan="8" class="text-center">Carregando pedidos...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- TAB 2: CONEXÕES & QR CODE -->
+        <!-- TAB 2: CENTRAL DE CONFIGURAÇÕES (O CORAÇÃO DO SISTEMA) -->
+        <section id="tab-settings" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-sliders gold"></i> Painel de Configurações Gerais</h3>
+              <span class="badge badge-paid">Configuração em Tempo Real</span>
+            </div>
+            <div class="card-body">
+              <form id="formSettings" onsubmit="saveSettings(event)">
+                
+                <!-- 1. GESTÃO DOS GATEWAYS DE PAGAMENTO -->
+                <div class="config-section">
+                  <h4 class="section-title"><i class="fa-solid fa-wallet"></i> 1. Formas de Pagamento Aceitas</h4>
+                  <p class="section-desc">Ative ou desative cada método de pagamento com 1 clique. O robô se adapta automaticamente no WhatsApp e Telegram.</p>
+
+                  <div class="gateway-toggles">
+                    <label class="toggle-card">
+                      <input type="checkbox" id="cfgGatewayPix">
+                      <div class="toggle-content">
+                        <span class="toggle-title"><i class="fa-brands fa-pix text-pix"></i> PIX Dinâmico (Mercado Pago)</span>
+                        <span class="toggle-desc">Gera QR Code + Pix Copia e Cola direto no chat com baixa taxa.</span>
+                      </div>
+                    </label>
+
+                    <label class="toggle-card">
+                      <input type="checkbox" id="cfgGatewayBinance">
+                      <div class="toggle-content">
+                        <span class="toggle-title"><i class="fa-brands fa-bitcoin gold"></i> Binance Pay (Criptomoedas / USDT)</span>
+                        <span class="toggle-desc">Cobranças globais em USDT, BTC e BNB pelo app da Binance.</span>
+                      </div>
+                    </label>
+
+                    <label class="toggle-card">
+                      <input type="checkbox" id="cfgGatewayLivepix">
+                      <div class="toggle-content">
+                        <span class="toggle-title"><i class="fa-solid fa-heart" style="color:#a855f7"></i> LivePix (Página de Apoiador)</span>
+                        <span class="toggle-desc">Envia o link do seu perfil LivePix com código de referência.</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div class="mt-3">
+                    <label class="checkbox-label highlight-box">
+                      <input type="checkbox" id="cfgSimulationMode">
+                      <span>🧪 <b>Modo de Teste / Simulação Ativo</b> (Permite testar o fluxo de compra, geração de QR e entrega no WhatsApp/Telegram sem gastar dinheiro real)</span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- 2. CONFIGURAÇÃO PIX (MERCADO PAGO) -->
+                <div class="config-section mt-4">
+                  <h4 class="section-title"><i class="fa-brands fa-pix text-pix"></i> 2. Credenciais PIX (Mercado Pago)</h4>
+                  <p class="section-desc">Gera o Pix Copia e Cola instantâneo e notifica o bot em 2 segundos quando o cliente paga.</p>
+                  
+                  <div class="form-group">
+                    <label>Mercado Pago Access Token (Produção ou Teste)</label>
+                    <input type="password" id="cfgMercadoPagoToken" class="form-control" placeholder="APP_USR-xxxxxxxxxxxxxxxx">
+                    <small class="hint">
+                      Onde pegar: Acesse <a href="https://www.mercadopago.com.br/developers/panel/app" target="_blank" style="color:var(--primary-gold)">Mercado Pago Developers</a> > Suas Aplicações > Credenciais de Produção > Access Token.
+                    </small>
+                  </div>
+                </div>
+
+                <!-- 3. CONFIGURAÇÃO LIVEPIX -->
+                <div class="config-section mt-4">
+                  <h4 class="section-title"><i class="fa-solid fa-heart" style="color:#a855f7"></i> 3. Configuração LivePix</h4>
+                  <div class="form-group">
+                    <label>Seu Nome de Usuário no LivePix (sem @)</label>
+                    <input type="text" id="cfgLivepixUsername" class="form-control" placeholder="ex: seunome">
+                    <small class="hint">O bot direcionará o cliente para <code>https://livepix.gg/seunome</code> com o código do pedido.</small>
+                  </div>
+                </div>
+
+                <!-- 4. CONFIGURAÇÃO BINANCE PAY -->
+                <div class="config-section mt-4">
+                  <h4 class="section-title"><i class="fa-brands fa-bitcoin gold"></i> 4. Credenciais Binance Pay Oficial</h4>
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label>Binance Pay API Key</label>
+                      <input type="text" id="cfgBinanceApiKey" class="form-control" placeholder="Sua API Key do portal Merchant">
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>Binance Pay Secret Key</label>
+                      <input type="password" id="cfgBinanceSecretKey" class="form-control" placeholder="Sua Secret Key da Binance Pay">
+                    </div>
+                  </div>
+                  <small class="hint">Obtenha sua chave no <a href="https://merchant.binance.com/" target="_blank" style="color:var(--primary-gold)">Portal Binance Merchant</a>.</small>
+                </div>
+
+                <!-- 5. CONFIGURAÇÃO TELEGRAM -->
+                <div class="config-section mt-4">
+                  <h4 class="section-title"><i class="fa-brands fa-telegram tg-color"></i> 5. Robô do Telegram & Grupo VIP</h4>
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label>Telegram Bot Token (do @BotFather)</label>
+                      <input type="text" id="cfgTelegramToken" class="form-control" placeholder="123456789:ABCdefGhIJKlmNoPQR">
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>ID do Grupo / Canal VIP (ex: -1001234567890)</label>
+                      <input type="text" id="cfgTelegramChannelId" class="form-control" placeholder="-100xxxxxxxxxx">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 6. WEBHOOKS & URL PÚBLICA -->
+                <div class="config-section mt-4">
+                  <h4 class="section-title"><i class="fa-solid fa-network-wired"></i> 6. Endpoints de Webhook (Para Notificações Automáticas)</h4>
+                  <div class="form-group">
+                    <label>URL Pública do Servidor (ex: seu domínio VPS ou ngrok)</label>
+                    <input type="text" id="cfgPublicUrl" class="form-control" placeholder="http://localhost:3000 ou https://seusite.com">
+                  </div>
+
+                  <div class="webhooks-box">
+                    <div class="webhook-item">
+                      <span>Webhook Mercado Pago (Pix):</span>
+                      <code id="whMercadopago">http://localhost:3000/api/mercadopago/webhook</code>
+                    </div>
+                    <div class="webhook-item">
+                      <span>Webhook Binance Pay:</span>
+                      <code id="whBinance">http://localhost:3000/api/binance/webhook</code>
+                    </div>
+                    <div class="webhook-item">
+                      <span>Webhook LivePix:</span>
+                      <code id="whLivepix">http://localhost:3000/api/livepix/webhook</code>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-actions mt-4">
+                  <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="fa-solid fa-floppy-disk"></i> Salvar Todas as Configurações
+                  </button>
+                  <span id="saveSettingsMsg" class="save-msg"></span>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: CONEXÕES & QR CODE -->
         <section id="tab-connections" class="tab-pane">
           <div class="grid-2col">
             <!-- WhatsApp Connection Card -->
@@ -192,18 +346,18 @@
                     <b>2.</b> Adicione seu bot como <b>Administrador</b> no seu Grupo ou Canal VIP com permissão para <i>Convidar Usuários</i> e <i>Banir Membros</i>.
                   </div>
                   <div class="step">
-                    <b>3.</b> Salve o Token e o Chat ID nas configurações deste painel.
+                    <b>3.</b> Salve o Token e o Chat ID na aba Central de Configurações deste painel.
                   </div>
                 </div>
                 <button class="btn btn-primary mt-3" onclick="switchTab('settings')">
-                  <i class="fa-solid fa-gear"></i> Ir para Configurações
+                  <i class="fa-solid fa-gear"></i> Ir para Central de Configurações
                 </button>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- TAB 3: PRODUTOS & ASSINATURAS -->
+        <!-- TAB 4: PRODUTOS & ASSINATURAS -->
         <section id="tab-products" class="tab-pane">
           <div class="card">
             <div class="card-header">
@@ -219,21 +373,22 @@
                     <th>ID</th>
                     <th>Nome</th>
                     <th>Tipo</th>
-                    <th>Preço</th>
+                    <th>Preço (PIX)</th>
+                    <th>Preço (USDT)</th>
                     <th>Duração / Estoque</th>
                     <th>Status</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colspan="7" class="text-center">Carregando produtos...</td></tr>
+                  <tr><td colspan="8" class="text-center">Carregando produtos...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- TAB 4: ESTOQUE DE CHAVES -->
+        <!-- TAB 5: ESTOQUE DE CHAVES -->
         <section id="tab-keys" class="tab-pane">
           <div class="card">
             <div class="card-header">
@@ -282,17 +437,18 @@
           </div>
         </section>
 
-        <!-- TAB 5: HISTÓRICO DE PEDIDOS -->
+        <!-- TAB 6: HISTÓRICO DE PEDIDOS -->
         <section id="tab-orders" class="tab-pane">
           <div class="card">
             <div class="card-header">
-              <h3>Histórico de Pedidos & Faturas Binance Pay</h3>
+              <h3>Histórico de Pedidos & Faturas</h3>
             </div>
             <div class="table-responsive">
               <table class="table" id="tableOrders">
                 <thead>
                   <tr>
                     <th>Pedido</th>
+                    <th>Método</th>
                     <th>Canal</th>
                     <th>Usuário</th>
                     <th>Produto</th>
@@ -303,14 +459,14 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colspan="8" class="text-center">Carregando pedidos...</td></tr>
+                  <tr><td colspan="9" class="text-center">Carregando pedidos...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- TAB 6: ASSINATURAS VIP -->
+        <!-- TAB 7: ASSINATURAS VIP -->
         <section id="tab-subscriptions" class="tab-pane">
           <div class="card">
             <div class="card-header">
@@ -338,62 +494,6 @@
           </div>
         </section>
 
-        <!-- TAB 7: CONFIGURAÇÕES -->
-        <section id="tab-settings" class="tab-pane">
-          <div class="card">
-            <div class="card-header">
-              <h3>Configurações do Sistema & APIs</h3>
-            </div>
-            <div class="card-body">
-              <form id="formSettings" onsubmit="saveSettings(event)">
-                
-                <h4 class="section-title"><i class="fa-brands fa-bitcoin gold"></i> Binance Pay Merchant</h4>
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label>Binance Pay API Key</label>
-                    <input type="text" id="cfgBinanceApiKey" class="form-control" placeholder="Cole sua API Key do Binance Pay">
-                  </div>
-                  <div class="form-group flex-1">
-                    <label>Binance Pay Secret Key</label>
-                    <input type="password" id="cfgBinanceSecretKey" class="form-control" placeholder="Cole sua Secret Key do Binance Pay">
-                  </div>
-                </div>
-
-                <div class="form-group">
-                  <label class="checkbox-label">
-                    <input type="checkbox" id="cfgSimulationMode">
-                    <span><b>Modo de Teste / Simulação Ativo</b> (Permite testar checkout e entrega sem transferir USDT real)</span>
-                  </label>
-                </div>
-
-                <h4 class="section-title mt-4"><i class="fa-brands fa-telegram tg-color"></i> Telegram Bot</h4>
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label>Telegram Bot Token (do @BotFather)</label>
-                    <input type="text" id="cfgTelegramToken" class="form-control" placeholder="123456789:ABCdefGhIJKlmNoPQR">
-                  </div>
-                  <div class="form-group flex-1">
-                    <label>ID do Grupo / Canal VIP (ex: -1001234567890)</label>
-                    <input type="text" id="cfgTelegramChannelId" class="form-control" placeholder="-100xxxxxxxxxx">
-                  </div>
-                </div>
-
-                <h4 class="section-title mt-4"><i class="fa-solid fa-globe"></i> Webhook & URL Pública</h4>
-                <div class="form-group">
-                  <label>URL Pública do Servidor (para Webhooks Binance)</label>
-                  <input type="text" id="cfgPublicUrl" class="form-control" placeholder="http://localhost:3000 ou https://seu-dominio.com">
-                  <small class="hint">Endpoint do Webhook Binance: <code>/api/binance/webhook</code></small>
-                </div>
-
-                <button type="submit" class="btn btn-primary mt-3">
-                  <i class="fa-solid fa-floppy-disk"></i> Salvar Configurações
-                </button>
-                <span id="saveSettingsMsg" class="save-msg"></span>
-              </form>
-            </div>
-          </div>
-        </section>
-
       </div>
     </main>
   </div>
@@ -417,17 +517,22 @@
         </div>
         <div class="form-row">
           <div class="form-group flex-1">
-            <label>Preço em USDT *</label>
-            <input type="number" step="0.01" min="0.01" id="prodPrice" class="form-control" required placeholder="10.00">
+            <label>Preço em R$ (PIX) *</label>
+            <input type="number" step="0.01" min="0.01" id="prodPriceBRL" class="form-control" required placeholder="25.00">
           </div>
           <div class="form-group flex-1">
-            <label>Tipo de Entrega *</label>
-            <select id="prodType" class="form-control" onchange="toggleProductTypeFields()">
-              <option value="digital_link">Link / Arquivo Digital</option>
-              <option value="license_key">Chave de Licença / Conta (Estoque)</option>
-              <option value="vip_subscription">Assinatura VIP (Canal Telegram)</option>
-            </select>
+            <label>Preço em USDT (Binance) *</label>
+            <input type="number" step="0.01" min="0.01" id="prodPriceUSDT" class="form-control" required placeholder="5.00">
           </div>
+        </div>
+
+        <div class="form-group">
+          <label>Tipo de Entrega *</label>
+          <select id="prodType" class="form-control" onchange="toggleProductTypeFields()">
+            <option value="digital_link">Link / Arquivo Digital</option>
+            <option value="license_key">Chave de Licença / Conta (Estoque)</option>
+            <option value="vip_subscription">Assinatura VIP (Canal Telegram)</option>
+          </select>
         </div>
 
         <div id="fieldContent" class="form-group">

@@ -7,6 +7,7 @@ const path = require('path');
 const config = require('../config');
 const models = require('../db/models');
 const binancePay = require('../services/binancePay');
+const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
 
 class WhatsAppBotService {
@@ -17,6 +18,7 @@ class WhatsAppBotService {
     this.currentQrDataUrl = null;
     this.statusMessage = 'Iniciando...';
     this.authFolder = config.whatsapp.authFolder;
+    this.userSessions = new Map(); // Armazena estado temporário de compra por jid
   }
 
   async start() {
@@ -25,7 +27,6 @@ class WhatsAppBotService {
       return;
     }
 
-    // Registra envio no fulfillment
     fulfillment.registerWhatsAppBot({
       sendMessage: (jid, text) => this.sendMessage(jid, text)
     });
@@ -43,9 +44,9 @@ class WhatsAppBotService {
       this.sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: false, // Geramos manualmente para capturar o DataURL também
+        printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ['BinancePay Bot', 'Chrome', '1.0.0']
+        browser: ['PayBot Vendas', 'Chrome', '1.0.0']
       });
 
       this.sock.ev.on('creds.update', saveCreds);
@@ -83,13 +84,11 @@ class WhatsAppBotService {
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
           this.statusMessage = `Desconectado (código ${statusCode}). Tentando reconectar...`;
-          console.log(`⚠️ [WhatsApp] Conexão encerrada. Reconectar? ${shouldReconnect}`);
 
           if (shouldReconnect) {
             setTimeout(() => this.start(), 4000);
           } else {
             console.log('🛑 [WhatsApp] Desconectado por logout. Novo QR Code será gerado.');
-            // Limpa credenciais antigas para novo login
             try {
               fs.rmSync(this.authFolder, { recursive: true, force: true });
             } catch (err) {}
@@ -98,15 +97,12 @@ class WhatsAppBotService {
         }
       });
 
-      // Manipulação de Mensagens Recebidas
       this.sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
         for (const msg of messages) {
           if (!msg.message || msg.key.fromMe) continue;
-
-          // Ignora mensagens de grupos de bate-papo públicos para não poluir
-          if (msg.key.remoteJid.endsWith('@g.us')) continue;
+          if (msg.key.remoteJid.endsWith('@g.us')) continue; // ignora grupos
 
           await this.handleIncomingMessage(msg);
         }
@@ -122,7 +118,6 @@ class WhatsAppBotService {
     const from = msg.key.remoteJid;
     const senderName = msg.pushName || 'Cliente';
     
-    // Extrai texto da mensagem
     const text = (
       msg.message.conversation ||
       msg.message.extendedTextMessage?.text ||
@@ -130,37 +125,72 @@ class WhatsAppBotService {
     ).trim();
 
     if (!text) return;
-
     const lower = text.toLowerCase();
 
-    // 1. Mensagem de Boas-vindas / Menu
+    // Comandos de menu
     if (['oi', 'ola', 'olá', 'menu', 'inicio', 'início', 'comprar', 'produtos', 'planos'].some(cmd => lower === cmd) || lower.startsWith('!menu')) {
       return this.sendMenu(from, senderName);
     }
 
-    // 2. Ajuda
     if (lower === 'ajuda' || lower === 'suporte' || lower.startsWith('!ajuda')) {
       return this.sendHelp(from);
     }
 
-    // 3. Status de Pedidos
     if (lower === 'status' || lower.startsWith('!status')) {
       return this.sendOrderStatus(from);
     }
 
-    // 4. Seleção de produto por número (Ex: "1", "2", "3")
+    // Atalhos diretos de pagamento: Ex "P1" (Pix produto 1) ou "C1" (Cripto produto 1)
+    const pixMatch = lower.match(/^p(\d+)$/);
+    if (pixMatch) {
+      const idx = parseInt(pixMatch[1], 10);
+      const products = models.getProducts(true);
+      if (idx > 0 && idx <= products.length) {
+        return this.processPixPurchase(from, senderName, products[idx - 1]);
+      }
+    }
+
+    const bpayMatch = lower.match(/^c(\d+)$/);
+    if (bpayMatch) {
+      const idx = parseInt(bpayMatch[1], 10);
+      const products = models.getProducts(true);
+      if (idx > 0 && idx <= products.length) {
+        return this.processBinancePurchase(from, senderName, products[idx - 1]);
+      }
+    }
+
+    // Seleção de produto apenas com número (Ex: "1", "2")
     const num = parseInt(text, 10);
     if (!isNaN(num) && num > 0) {
       const products = models.getProducts(true);
       if (num <= products.length) {
-        const selectedProduct = products[num - 1];
-        return this.processPurchase(from, senderName, selectedProduct);
+        const product = products[num - 1];
+        
+        const isPix = models.getSetting('GATEWAY_PIX_ENABLED', 'true') === 'true';
+        const isBinance = models.getSetting('GATEWAY_BINANCE_ENABLED', 'true') === 'true';
+
+        // Se ambos os gateways estão ativos, pergunta a forma de pagamento
+        if (isPix && isBinance) {
+          const brl = (product.price_brl || product.price).toFixed(2);
+          const usdt = (product.price_usdt || (product.price / 5.5)).toFixed(2);
+
+          const choiceMsg = `📦 *${product.name}*\n\n` +
+            `Como você prefere pagar?\n\n` +
+            `🟢 Digite *P${num}* para pagar via *PIX* (R$ ${brl})\n` +
+            `🟡 Digite *C${num}* para pagar via *Cripto / USDT* (${usdt} USDT)\n\n` +
+            `_Exemplo: responda *P${num}* para receber o código Copia e Cola instantâneo._`;
+          return this.sendMessage(from, choiceMsg);
+        } else if (isPix) {
+          return this.processPixPurchase(from, senderName, product);
+        } else {
+          return this.processBinancePurchase(from, senderName, product);
+        }
       }
     }
 
-    // Mensagem padrão caso não reconheça comando
+    // Fallback
     const fallbackText = `Olá, *${senderName}*! 👋\n\n` +
-      `Para ver nosso catálogo de produtos digitais e planos VIP com pagamento em Binance Pay, envie *MENU*.\n\n` +
+      `Para ver nossos produtos e assinaturas com pagamento automático via *PIX* ou *Cripto (USDT)*, envie *MENU*.\n\n` +
       `Se precisar de suporte, envie *AJUDA*.`;
     await this.sendMessage(from, fallbackText);
   }
@@ -173,40 +203,118 @@ class WhatsAppBotService {
     }
 
     let menu = `👋 Olá, *${senderName}*!\n` +
-      `Bem-vindo à nossa loja automatizada com pagamentos via *Binance Pay* (USDT).\n\n` +
-      `📌 *CATÁLOGO DE PRODUTOS E ASSINATURAS:*\n\n`;
+      `Bem-vindo à nossa loja automatizada com pagamentos via *PIX* e *Binance Pay* (USDT).\n\n` +
+      `📌 *PRODUTOS & ASSINATURAS:*\n\n`;
 
     products.forEach((p, idx) => {
       const typeTag = p.type === 'vip_subscription' ? `⭐ [VIP ${p.duration_days} dias]` : '📦 [Digital]';
+      const brl = (p.price_brl || p.price).toFixed(2);
+      const usdt = (p.price_usdt || (p.price / 5.5)).toFixed(2);
+
       menu += `*${idx + 1}* - ${p.name} ${typeTag}\n` +
-        `    💰 *${p.price.toFixed(2)} ${p.currency}*\n` +
+        `    💰 *R$ ${brl}* ou *${usdt} USDT*\n` +
         (p.description ? `    _${p.description}_\n\n` : '\n');
     });
 
     menu += `👉 *COMO COMPRAR:*\n` +
-      `Basta digitar o *NÚMERO* da opção desejada (Exemplo: *1* ou *2*).\n\n` +
-      `O sistema gerará instantaneamente seu QR Code e link oficial de pagamento da Binance.`;
+      `Digite o *NÚMERO* do item desejado (Exemplo: *1* ou *2*).\n\n` +
+      `💡 Ou escolha direto:\n` +
+      `• Para pagar com *PIX*: envie *P1*, *P2*, etc.\n` +
+      `• Para pagar com *Cripto*: envie *C1*, *C2*, etc.`;
 
     await this.sendMessage(to, menu);
   }
 
-  async processPurchase(to, senderName, product) {
-    // Verifica estoque se for chave
+  // 1. Processa Compra via PIX
+  async processPixPurchase(to, senderName, product) {
     if (product.type === 'license_key') {
       const available = models.getAvailableKeyCount(product.id);
       if (available <= 0) {
-        return this.sendMessage(to, `⚠️ Desculpe, o produto *${product.name}* está esgotado no momento. Por favor escolha outra opção.`);
+        return this.sendMessage(to, `⚠️ Desculpe, o item *${product.name}* está esgotado no momento.`);
+      }
+    }
+
+    await this.sendMessage(to, `⏳ Gerando seu código *PIX* para *${product.name}*...`);
+
+    const tradeNo = `ORD_WPIX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const amount = product.price_brl || product.price;
+
+    const pixRes = await pixPayment.createPixCharge({
+      merchantTradeNo: tradeNo,
+      amount,
+      goodsName: product.name,
+      payerName: senderName
+    });
+
+    if (!pixRes.success) {
+      return this.sendMessage(to, `❌ Não foi possível gerar o PIX:\n${pixRes.errorMessage}`);
+    }
+
+    const { pixCode, qrBuffer, checkoutUrl, paymentId } = pixRes.data;
+
+    // Salva no banco
+    models.createOrder({
+      merchant_trade_no: tradeNo,
+      platform: 'whatsapp',
+      platform_user_id: to,
+      platform_user_name: senderName,
+      product_id: product.id,
+      gateway: 'mercadopago',
+      amount,
+      currency: 'BRL',
+      prepay_id: paymentId,
+      checkout_url: checkoutUrl,
+      pix_code: pixCode
+    });
+
+    try {
+      let caption = `🟢 *COBRANÇA PIX GERADA!*\n\n` +
+        `📦 *Item:* ${product.name}\n` +
+        `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*\n` +
+        `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
+        `📲 *Como Pagar:*\n` +
+        `1. Aponte a câmera do aplicativo do seu banco para o QR Code acima.\n` +
+        `2. Ou copie o código *PIX Copia e Cola* que enviamos na próxima mensagem.\n\n` +
+        `⚡ *Identificação Automática:* Assim que você efetuar o Pix, nosso sistema liberará seu acesso aqui imediatamente!`;
+
+      if (pixRes.isSimulated) {
+        caption += `\n\n🧪 *[MODO DE TESTE]*\nSimule o pagamento em:\n${checkoutUrl}`;
+      }
+
+      // Envia Imagem do QR Code
+      await this.sock.sendMessage(to, {
+        image: qrBuffer,
+        caption: caption
+      });
+
+      // Envia uma mensagem contendo apenas o Copia e Cola para facilitar cópia com 1 clique no celular
+      await this.sendMessage(to, `👇 *PIX COPIA E COLA (Toque para copiar):*`);
+      await this.sendMessage(to, `${pixCode}`);
+
+    } catch (err) {
+      console.error('[WhatsApp ❌ Erro ao enviar PIX]:', err.message);
+      await this.sendMessage(to, `Pix gerado! Código Copia e Cola:\n\n${pixCode}`);
+    }
+  }
+
+  // 2. Processa Compra via Binance Pay
+  async processBinancePurchase(to, senderName, product) {
+    if (product.type === 'license_key') {
+      const available = models.getAvailableKeyCount(product.id);
+      if (available <= 0) {
+        return this.sendMessage(to, `⚠️ Desculpe, o item *${product.name}* está esgotado no momento.`);
       }
     }
 
     await this.sendMessage(to, `⏳ Gerando sua fatura na *Binance Pay* para *${product.name}*...`);
 
-    const tradeNo = `ORD_WPP_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const tradeNo = `ORD_WBNB_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const amount = product.price_usdt || (product.price / 5.5).toFixed(2);
 
     const binanceRes = await binancePay.createOrder({
       merchantTradeNo: tradeNo,
-      amount: product.price,
-      currency: product.currency || 'USDT',
+      amount,
+      currency: 'USDT',
       goodsName: product.name,
       goodsDetail: product.description,
       productId: product.id
@@ -218,40 +326,38 @@ class WhatsAppBotService {
 
     const payData = binanceRes.data;
 
-    // Registra pedido no banco
     models.createOrder({
       merchant_trade_no: tradeNo,
       platform: 'whatsapp',
       platform_user_id: to,
       platform_user_name: senderName,
       product_id: product.id,
-      amount: product.price,
-      currency: product.currency,
+      gateway: 'binancepay',
+      amount,
+      currency: 'USDT',
       prepay_id: payData.prepayId,
       checkout_url: payData.checkoutUrl,
       qr_content: payData.qrContent
     });
 
-    // Gera imagem do QR Code
     try {
       const qrBuffer = await QRCode.toBuffer(payData.qrContent || payData.checkoutUrl, {
         width: 360,
         margin: 2
       });
 
-      let caption = `🧾 *FATURA BINANCE PAY GERADA!*\n\n` +
+      let caption = `⚡ *FATURA BINANCE PAY (USDT)!*\n\n` +
         `📦 *Item:* ${product.name}\n` +
-        `💰 *Valor:* *${product.price.toFixed(2)} ${product.currency}*\n` +
+        `💰 *Valor:* *${Number(amount).toFixed(2)} USDT*\n` +
         `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
-        `📲 *FORMAS DE PAGAMENTO:*\n` +
-        `1️⃣ Abra o aplicativo da *Binance*, selecione *Pay* e escaneie o QR Code acima.\n\n` +
-        `2️⃣ Ou clique no link oficial de checkout:\n${payData.checkoutUrl}\n\n`;
+        `📲 *Como Pagar:*\n` +
+        `1. Abra o app da *Binance*, vá em *Pay* e escaneie o QR Code acima.\n` +
+        `2. Ou clique no link oficial de checkout:\n${payData.checkoutUrl}\n\n` +
+        `⚡ *A entrega é instantânea após o pagamento!*`;
 
       if (binanceRes.isSimulated) {
-        caption += `🟡 *[MODO DE TESTE ATIVO]*\nPara simular o pagamento sem gastar cripto, acesse o link acima e clique em "Simular Pagamento".\n\n`;
+        caption += `\n\n🧪 *[MODO DE TESTE]*\nSimule o pagamento em:\n${payData.checkoutUrl}`;
       }
-
-      caption += `⚡ *Identificação Automática:* Assim que você transferir, o sistema entregará seu produto ou link VIP automaticamente aqui!`;
 
       await this.sock.sendMessage(to, {
         image: qrBuffer,
@@ -259,8 +365,8 @@ class WhatsAppBotService {
       });
 
     } catch (err) {
-      console.error('[WhatsApp ❌ Erro ao enviar imagem QR]:', err.message);
-      await this.sendMessage(to, `Pedido criado!\nLink para pagamento: ${payData.checkoutUrl}`);
+      console.error('[WhatsApp ❌ Erro ao enviar imagem Binance]:', err.message);
+      await this.sendMessage(to, `Pedido criado! Link para pagamento: ${payData.checkoutUrl}`);
     }
   }
 
@@ -272,22 +378,22 @@ class WhatsAppBotService {
 
     let text = '📦 *SEUS ÚLTIMOS PEDIDOS:*\n\n';
     orders.slice(0, 5).forEach(o => {
-      const statusText = o.status === 'PAID' ? '✅ Pago & Entregue' : o.status === 'PENDING' ? '⏳ Aguardando Pagamento' : '❌ Cancelado';
+      const statusText = o.status === 'PAID' ? '✅ Pago & Entregue' : o.status === 'PENDING' ? '⏳ Aguardando' : '❌ Cancelado';
+      const valorStr = o.currency === 'BRL' ? `R$ ${o.amount.toFixed(2)}` : `${o.amount.toFixed(2)} USDT`;
       text += `• *#${o.merchant_trade_no}*\n` +
         `  Item: ${o.product_name}\n` +
-        `  Valor: ${o.amount} ${o.currency}\n` +
-        `  Status: ${statusText}\n\n`;
+        `  Valor: ${valorStr} | Status: ${statusText}\n\n`;
     });
 
     await this.sendMessage(to, text);
   }
 
   async sendHelp(to) {
-    const help = `ℹ️ *AJUDA & SUPORTE*\n\n` +
-      `• *Como Comprar:* Envie *MENU*, digite o número do produto desejado e pague o QR Code pelo aplicativo da Binance.\n` +
-      `• *Moeda aceita:* USDT (ou qualquer cripto configurada na sua carteira Binance Pay).\n` +
-      `• *Prazo de Entrega:* Instantâneo. Nosso servidor verifica o recebimento do pagamento em segundos.\n` +
-      `• *Assinaturas VIP:* Você receberá um link de convite exclusivo para ingressar no grupo. O robô monitora sua vigência e gerencia os acessos.`;
+    const help = `ℹ️ *AJUDA & FORMAS DE PAGAMENTO*\n\n` +
+      `• *PIX:* Você recebe o QR Code e o código Copia e Cola na hora no chat.\n` +
+      `• *Criptomoedas (Binance Pay):* Pagamento rápido em USDT pelo app oficial da Binance.\n` +
+      `• *Entrega Instantânea:* Nossos servidores monitoram confirmações de bancos e blockchains a cada poucos segundos.\n` +
+      `• *Assinaturas VIP:* Link exclusivo gerado para acesso ao canal VIP com controle automático de validade.`;
     await this.sendMessage(to, help);
   }
 

@@ -25,14 +25,15 @@ function initDatabase() {
   `);
 
   // 2. Tabela de Produtos / Assinaturas
-  // type: 'digital_link' (envia link/arquivo), 'license_key' (retira 1 chave do estoque), 'vip_subscription' (gera link de convite VIP telegram)
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       description TEXT,
       price REAL NOT NULL,
-      currency TEXT DEFAULT 'USDT',
+      price_brl REAL DEFAULT 0,
+      price_usdt REAL DEFAULT 0,
+      currency TEXT DEFAULT 'BRL',
       type TEXT NOT NULL, 
       duration_days INTEGER DEFAULT 0,
       content TEXT,
@@ -64,12 +65,14 @@ function initDatabase() {
       platform_user_id TEXT NOT NULL,
       platform_user_name TEXT,
       product_id INTEGER NOT NULL,
+      gateway TEXT DEFAULT 'binancepay', -- 'mercadopago', 'binancepay', 'livepix'
       amount REAL NOT NULL,
-      currency TEXT DEFAULT 'USDT',
+      currency TEXT DEFAULT 'BRL',
       status TEXT DEFAULT 'PENDING', -- 'PENDING', 'PAID', 'EXPIRED', 'CANCELED'
       prepay_id TEXT,
       checkout_url TEXT,
       qr_content TEXT,
+      pix_code TEXT,
       delivered_content TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       paid_at TEXT,
@@ -97,22 +100,64 @@ function initDatabase() {
     );
   `);
 
-  // Semeia produtos de exemplo se a tabela estiver vazia
+  // Migrações seguras de colunas em bancos existentes
+  const migrations = [
+    'ALTER TABLE products ADD COLUMN price_brl REAL DEFAULT 0;',
+    'ALTER TABLE products ADD COLUMN price_usdt REAL DEFAULT 0;',
+    'ALTER TABLE orders ADD COLUMN gateway TEXT DEFAULT "binancepay";',
+    'ALTER TABLE orders ADD COLUMN pix_code TEXT;'
+  ];
+
+  for (const m of migrations) {
+    try {
+      db.exec(m);
+    } catch (e) {
+      // Ignora se coluna já existe
+    }
+  }
+
+  // Atualiza preços BRL e USDT nos produtos existentes caso estejam zerados
+  db.exec(`
+    UPDATE products 
+    SET price_brl = CASE WHEN price_brl = 0 THEN ROUND(price * 5.5, 2) ELSE price_brl END,
+        price_usdt = CASE WHEN price_usdt = 0 THEN price ELSE price_usdt END
+    WHERE price_brl = 0 OR price_usdt = 0;
+  `);
+
+  // Configurações padrão se ainda não existirem
+  const defaultSettings = [
+    ['GATEWAY_PIX_ENABLED', 'true'],
+    ['GATEWAY_BINANCE_ENABLED', 'true'],
+    ['GATEWAY_LIVEPIX_ENABLED', 'false'],
+    ['BINANCE_SIMULATION_MODE', 'true'],
+    ['PIX_SIMULATION_MODE', 'true']
+  ];
+
+  for (const [k, v] of defaultSettings) {
+    const exists = db.prepare('SELECT value FROM settings WHERE key = ?').get(k);
+    if (!exists) {
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(k, v);
+    }
+  }
+
+  // Semeia produtos de exemplo se vazio
   const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get().count;
   if (productCount === 0) {
     console.log('📦 Inicializando banco com produtos e assinaturas de exemplo...');
 
     const insertProd = db.prepare(`
-      INSERT INTO products (name, description, price, currency, type, duration_days, content, telegram_channel_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     // 1. E-book / Conteúdo Digital com Link
-    const prod1 = insertProd.run(
-      'Curso Completo de Cripto & DeFi (PDF + Aulas)',
+    insertProd.run(
+      'Curso Completo de Cripto & Finanças (PDF + Aulas)',
       'Acesso vitalício ao material completo, planilhas e guias práticos.',
+      25.00,
+      25.00,
       5.00,
-      'USDT',
+      'BRL',
       'digital_link',
       0,
       'https://drive.google.com/drive/folders/exemplo-acesso-curso-cripto',
@@ -123,40 +168,30 @@ function initDatabase() {
     const prod2 = insertProd.run(
       'Licença de Software Premium (30 Dias)',
       'Chave de ativação individual entregue imediatamente.',
+      49.90,
+      49.90,
       10.00,
-      'USDT',
+      'BRL',
       'license_key',
       0,
       null,
       null
     );
 
-    // Adiciona algumas chaves no estoque para o produto 2
     const insertKey = db.prepare('INSERT INTO inventory_keys (product_id, key_content) VALUES (?, ?)');
     insertKey.run(Number(prod2.lastInsertRowid), 'KEY-PREMIUM-ABCD-1234-XYZ');
     insertKey.run(Number(prod2.lastInsertRowid), 'KEY-PREMIUM-EFGH-5678-WUV');
-    insertKey.run(Number(prod2.lastInsertRowid), 'KEY-PREMIUM-IJKL-9012-QRS');
 
     // 3. Assinatura VIP Grupo Telegram Mensal (30 dias)
     insertProd.run(
       'Grupo VIP Sinais & Networking (30 Dias)',
       'Acesso exclusivo de 30 dias com remoção automática ao expirar.',
+      75.00,
+      75.00,
       15.00,
-      'USDT',
+      'BRL',
       'vip_subscription',
       30,
-      null,
-      config.telegram.vipChannelId || null
-    );
-
-    // 4. Assinatura VIP Grupo Telegram Trimestral (90 dias)
-    insertProd.run(
-      'Grupo VIP Sinais & Networking (90 Dias)',
-      'Acesso de 90 dias com desconto especial.',
-      35.00,
-      'USDT',
-      'vip_subscription',
-      90,
       null,
       config.telegram.vipChannelId || null
     );

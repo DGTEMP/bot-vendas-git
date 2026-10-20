@@ -4,6 +4,7 @@ const path = require('path');
 const config = require('../config');
 const models = require('../db/models');
 const binancePay = require('../services/binancePay');
+const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
 const whatsappBot = require('../bots/whatsappBot');
 const telegramBot = require('../bots/telegramBot');
@@ -27,7 +28,6 @@ function createServer() {
       let tradeNo = null;
       let status = null;
 
-      // Binance Pay envia os dados do pedido dentro de "data" (frequentemente string JSON)
       if (payload.data) {
         let orderData = payload.data;
         if (typeof orderData === 'string') {
@@ -41,11 +41,7 @@ function createServer() {
         status = orderData.status;
       }
 
-      // Fallback para campos diretos
-      if (!tradeNo && payload.bizId) {
-        tradeNo = payload.bizId;
-      }
-
+      if (!tradeNo && payload.bizId) tradeNo = payload.bizId;
       if (!status && payload.bizStatus) {
         status = payload.bizStatus === 'PAY_SUCCESS' ? 'PAID' : payload.bizStatus;
       }
@@ -55,22 +51,45 @@ function createServer() {
         await fulfillment.fulfillOrder(tradeNo);
       }
 
-      // Binance Pay exige retorno específico para confirmar recebimento
-      return res.status(200).json({
-        returnCode: 'SUCCESS',
-        returnMessage: null
-      });
+      return res.status(200).json({ returnCode: 'SUCCESS', returnMessage: null });
     } catch (err) {
       console.error('❌ [Binance Webhook] Erro no processamento:', err.message);
-      return res.status(500).json({
-        returnCode: 'FAIL',
-        returnMessage: err.message
-      });
+      return res.status(500).json({ returnCode: 'FAIL', returnMessage: err.message });
     }
   });
 
   // ==========================================
-  // 1.1 WEBHOOK DA LIVEPIX (PIX)
+  // 2. WEBHOOK DO MERCADO PAGO (PIX DINÂMICO)
+  // ==========================================
+  app.post('/api/mercadopago/webhook', async (req, res) => {
+    console.log('🔔 [Mercado Pago Webhook Recebido]:', JSON.stringify(req.body), req.query);
+
+    try {
+      const body = req.body || {};
+      const query = req.query || {};
+
+      // ID do pagamento pode vir em body.data.id ou query.id ou query['data.id']
+      const paymentId = body.data?.id || body.id || query['data.id'] || query.id;
+
+      if (paymentId) {
+        console.log(`🔍 [Mercado Pago Webhook] Consultando pagamento ID: ${paymentId}`);
+        const result = await pixPayment.queryPixPayment(paymentId);
+
+        if (result.success && result.status === 'PAID' && result.externalReference) {
+          console.log(`✅ [Mercado Pago] Pagamento aprovado para pedido ${result.externalReference}!`);
+          await fulfillment.fulfillOrder(result.externalReference);
+        }
+      }
+
+      return res.status(200).json({ received: true });
+    } catch (err) {
+      console.error('❌ [Mercado Pago Webhook] Erro:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // 3. WEBHOOK DO LIVEPIX (APOIADOR)
   // ==========================================
   app.post('/api/livepix/webhook', async (req, res) => {
     console.log('🔔 [LivePix Webhook Recebido]:', JSON.stringify(req.body));
@@ -78,7 +97,6 @@ function createServer() {
       const payload = req.body;
       const data = payload.data || payload;
 
-      // Procura a referência do pedido (ex: ORD_xxx) no reference, customId ou na mensagem enviada
       let tradeNo = data.reference || data.customId;
       if (!tradeNo && data.message) {
         const match = data.message.match(/ORD_[A-Za-z0-9_]+/);
@@ -88,8 +106,6 @@ function createServer() {
       if (tradeNo) {
         console.log(`✅ [LivePix Webhook] Pagamento Pix confirmado para ${tradeNo}. Acionando entrega...`);
         await fulfillment.fulfillOrder(tradeNo);
-      } else {
-        console.log('⚠️ [LivePix Webhook] Notificação recebida sem identificador ORD_ correspondente.');
       }
 
       return res.status(200).json({ success: true });
@@ -100,7 +116,7 @@ function createServer() {
   });
 
   // ==========================================
-  // 2. TELA E ROTA DE SIMULAÇÃO DE PAGAMENTO
+  // 4. SIMULADOR DE CHECKOUT
   // ==========================================
   app.get('/simulated-pay', (req, res) => {
     const tradeNo = req.query.tradeNo;
@@ -110,38 +126,42 @@ function createServer() {
       return res.status(404).send('<h3>Pedido não encontrado para simulação.</h3>');
     }
 
+    const isPix = order.gateway === 'mercadopago' || order.currency === 'BRL';
+    const logoTitle = isPix ? '🟢 PIX <span>PAGAMENTOS</span>' : '⚡ BINANCE <span>PAY</span>';
+    const amountFormatted = isPix ? `R$ ${order.amount.toFixed(2)}` : `${order.amount.toFixed(2)} USDT`;
+
     const html = `
       <!DOCTYPE html>
       <html lang="pt-BR">
       <head>
         <meta charset="UTF-8">
-        <title>Binance Pay - Simulador de Checkout</title>
+        <title>Checkout - Simulador de Pagamento</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
           * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
           body { background: #0b0e14; color: #eaecef; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
           .card { background: #1e2329; border: 1px solid #2b313a; border-radius: 12px; width: 100%; max-width: 440px; padding: 28px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-          .logo { font-size: 26px; font-weight: bold; color: #f0b90b; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; }
-          .badge { background: #f0b90b22; color: #f0b90b; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 15px; display: inline-block; }
+          .logo { font-size: 24px; font-weight: bold; color: ${isPix ? '#00b4d8' : '#f0b90b'}; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+          .badge { background: ${isPix ? '#00b4d820' : '#f0b90b20'}; color: ${isPix ? '#00b4d8' : '#f0b90b'}; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 15px; display: inline-block; }
           .amount { font-size: 38px; font-weight: 800; color: #fff; margin: 10px 0; }
-          .curr { font-size: 20px; color: #848e9c; }
           .info { background: #181a20; padding: 14px; border-radius: 8px; margin: 20px 0; text-align: left; font-size: 14px; color: #848e9c; }
           .info div { display: flex; justify-content: space-between; margin-bottom: 8px; }
           .info div:last-child { margin-bottom: 0; }
           .info span { color: #eaecef; font-weight: 500; }
-          button { background: #f0b90b; color: #181a20; border: none; padding: 14px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; width: 100%; cursor: pointer; transition: 0.2s; }
-          button:hover { background: #dfa90a; }
+          button { background: ${isPix ? '#00b4d8' : '#f0b90b'}; color: #181a20; border: none; padding: 14px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; width: 100%; cursor: pointer; transition: 0.2s; }
+          button:hover { filter: brightness(1.1); }
           .status { margin-top: 15px; font-size: 14px; color: #02c076; font-weight: bold; }
         </style>
       </head>
       <body>
         <div class="card">
-          <div class="logo">⚡ BINANCE <span>PAY</span></div>
-          <div class="badge">Modo Simulação / Teste</div>
-          <div class="amount">${order.amount.toFixed(2)} <span class="curr">${order.currency}</span></div>
+          <div class="logo">${logoTitle}</div>
+          <div class="badge">Modo de Simulação / Teste</div>
+          <div class="amount">${amountFormatted}</div>
           <div class="info">
             <div><span>Produto:</span> <span>${order.product_name}</span></div>
             <div><span>Pedido:</span> <span>${order.merchant_trade_no}</span></div>
+            <div><span>Gateway:</span> <span>${(order.gateway || 'Pix').toUpperCase()}</span></div>
             <div><span>Canal:</span> <span>${order.platform.toUpperCase()}</span></div>
             <div><span>Status:</span> <span id="lblStatus">${order.status}</span></div>
           </div>
@@ -196,7 +216,7 @@ function createServer() {
   });
 
   // ==========================================
-  // 3. APIS DE GESTÃO DO PAINEL ADMIN
+  // 5. APIS DE GESTÃO DO PAINEL ADMIN
   // ==========================================
 
   // Métricas
@@ -230,15 +250,17 @@ function createServer() {
   });
 
   app.post('/api/products', (req, res) => {
-    const { name, description, price, currency, type, duration_days, content, telegram_channel_id } = req.body;
-    if (!name || !price || !type) {
-      return res.status(400).json({ error: 'Campos nome, preço e tipo são obrigatórios.' });
+    const { name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id } = req.body;
+    if (!name || !type) {
+      return res.status(400).json({ error: 'Campos nome e tipo são obrigatórios.' });
     }
     const created = models.createProduct({
       name,
       description,
-      price,
-      currency: currency || 'USDT',
+      price: price_brl || price || 0,
+      price_brl: price_brl || price || 0,
+      price_usdt: price_usdt || (price ? price / 5.5 : 0),
+      currency: currency || 'BRL',
       type,
       duration_days: duration_days || 0,
       content,
@@ -271,7 +293,7 @@ function createServer() {
 
   app.post('/api/keys/:productId', (req, res) => {
     const productId = parseInt(req.params.productId, 10);
-    const { keysText } = req.body; // Texto com 1 chave por linha
+    const { keysText } = req.body;
     if (!keysText) return res.status(400).json({ error: 'Texto de chaves vazio' });
 
     const keyList = keysText.split('\n').map(k => k.trim()).filter(Boolean);
@@ -305,53 +327,108 @@ function createServer() {
     res.json({ success: true });
   });
 
-  // Configurações
+  // ==========================================
+  // CONFIGURAÇÕES GERAIS (PAINEL ADMIN)
+  // ==========================================
   app.get('/api/settings', (req, res) => {
     const current = models.getAllSettings();
     const apiKey = current.BINANCE_API_KEY || config.binance.apiKey || '';
     const secretKey = current.BINANCE_SECRET_KEY || config.binance.secretKey || '';
-    const simMode = current.BINANCE_SIMULATION_MODE || (config.binance.simulationMode ? 'true' : 'false');
+    const mpToken = current.MERCADO_PAGO_ACCESS_TOKEN || '';
+    const simModeBinance = current.BINANCE_SIMULATION_MODE || (config.binance.simulationMode ? 'true' : 'false');
+    const simModePix = current.PIX_SIMULATION_MODE || 'true';
     const tgToken = current.TELEGRAM_BOT_TOKEN || config.telegram.botToken || '';
     const tgChannel = current.TELEGRAM_VIP_CHANNEL_ID || config.telegram.vipChannelId || '';
-    const pubUrl = current.PUBLIC_URL || config.publicUrl || '';
+    const pubUrl = current.PUBLIC_URL || config.publicUrl || 'http://localhost:3000';
 
     res.json({
+      // Gateways Ativos
+      GATEWAY_PIX_ENABLED: current.GATEWAY_PIX_ENABLED !== 'false',
+      GATEWAY_BINANCE_ENABLED: current.GATEWAY_BINANCE_ENABLED !== 'false',
+      GATEWAY_LIVEPIX_ENABLED: current.GATEWAY_LIVEPIX_ENABLED === 'true',
+      
+      // Mercado Pago (Pix)
+      MERCADO_PAGO_ACCESS_TOKEN: mpToken ? (mpToken.slice(0, 10) + '...' + mpToken.slice(-6)) : '',
+      hasMercadoPagoToken: Boolean(mpToken),
+      PIX_SIMULATION_MODE: simModePix,
+
+      // LivePix
+      LIVEPIX_USERNAME: current.LIVEPIX_USERNAME || '',
+
+      // Binance Pay
       BINANCE_API_KEY: apiKey ? (apiKey.slice(0, 6) + '...' + apiKey.slice(-4)) : '',
       BINANCE_SECRET_KEY: secretKey ? '••••••••••••••••' : '',
       hasBinanceKeys: Boolean(apiKey && secretKey),
-      BINANCE_SIMULATION_MODE: simMode,
+      BINANCE_SIMULATION_MODE: simModeBinance,
+
+      // Telegram
       TELEGRAM_BOT_TOKEN: tgToken ? (tgToken.slice(0, 6) + '...' + tgToken.slice(-4)) : '',
       hasTelegramToken: Boolean(tgToken),
       TELEGRAM_VIP_CHANNEL_ID: tgChannel,
-      PUBLIC_URL: pubUrl
+
+      // Servidor & Webhooks
+      PUBLIC_URL: pubUrl,
+      webhooks: {
+        binance: `${pubUrl}/api/binance/webhook`,
+        mercadopago: `${pubUrl}/api/mercadopago/webhook`,
+        livepix: `${pubUrl}/api/livepix/webhook`
+      }
     });
   });
 
   app.post('/api/settings', (req, res) => {
-    const { BINANCE_API_KEY, BINANCE_SECRET_KEY, BINANCE_SIMULATION_MODE, TELEGRAM_BOT_TOKEN, TELEGRAM_VIP_CHANNEL_ID, PUBLIC_URL } = req.body;
+    const body = req.body;
 
-    if (BINANCE_API_KEY && !BINANCE_API_KEY.includes('...')) {
-      models.setSetting('BINANCE_API_KEY', BINANCE_API_KEY.trim());
+    // Gateways
+    if (body.GATEWAY_PIX_ENABLED !== undefined) {
+      models.setSetting('GATEWAY_PIX_ENABLED', String(body.GATEWAY_PIX_ENABLED));
     }
-    if (BINANCE_SECRET_KEY && !BINANCE_SECRET_KEY.includes('•••')) {
-      models.setSetting('BINANCE_SECRET_KEY', BINANCE_SECRET_KEY.trim());
+    if (body.GATEWAY_BINANCE_ENABLED !== undefined) {
+      models.setSetting('GATEWAY_BINANCE_ENABLED', String(body.GATEWAY_BINANCE_ENABLED));
     }
-    if (BINANCE_SIMULATION_MODE !== undefined) {
-      models.setSetting('BINANCE_SIMULATION_MODE', String(BINANCE_SIMULATION_MODE));
+    if (body.GATEWAY_LIVEPIX_ENABLED !== undefined) {
+      models.setSetting('GATEWAY_LIVEPIX_ENABLED', String(body.GATEWAY_LIVEPIX_ENABLED));
     }
-    if (TELEGRAM_BOT_TOKEN && !TELEGRAM_BOT_TOKEN.includes('...')) {
-      models.setSetting('TELEGRAM_BOT_TOKEN', TELEGRAM_BOT_TOKEN.trim());
-      // Reinicia bot do Telegram com novo token se necessário
+
+    // Mercado Pago
+    if (body.MERCADO_PAGO_ACCESS_TOKEN && !body.MERCADO_PAGO_ACCESS_TOKEN.includes('...')) {
+      models.setSetting('MERCADO_PAGO_ACCESS_TOKEN', body.MERCADO_PAGO_ACCESS_TOKEN.trim());
+    }
+    if (body.PIX_SIMULATION_MODE !== undefined) {
+      models.setSetting('PIX_SIMULATION_MODE', String(body.PIX_SIMULATION_MODE));
+    }
+
+    // LivePix
+    if (body.LIVEPIX_USERNAME !== undefined) {
+      models.setSetting('LIVEPIX_USERNAME', body.LIVEPIX_USERNAME.trim().replace('@', ''));
+    }
+
+    // Binance Pay
+    if (body.BINANCE_API_KEY && !body.BINANCE_API_KEY.includes('...')) {
+      models.setSetting('BINANCE_API_KEY', body.BINANCE_API_KEY.trim());
+    }
+    if (body.BINANCE_SECRET_KEY && !body.BINANCE_SECRET_KEY.includes('•••')) {
+      models.setSetting('BINANCE_SECRET_KEY', body.BINANCE_SECRET_KEY.trim());
+    }
+    if (body.BINANCE_SIMULATION_MODE !== undefined) {
+      models.setSetting('BINANCE_SIMULATION_MODE', String(body.BINANCE_SIMULATION_MODE));
+    }
+
+    // Telegram
+    if (body.TELEGRAM_BOT_TOKEN && !body.TELEGRAM_BOT_TOKEN.includes('...')) {
+      models.setSetting('TELEGRAM_BOT_TOKEN', body.TELEGRAM_BOT_TOKEN.trim());
       telegramBot.start().catch(console.error);
     }
-    if (TELEGRAM_VIP_CHANNEL_ID !== undefined) {
-      models.setSetting('TELEGRAM_VIP_CHANNEL_ID', TELEGRAM_VIP_CHANNEL_ID.trim());
-    }
-    if (PUBLIC_URL !== undefined) {
-      models.setSetting('PUBLIC_URL', PUBLIC_URL.trim());
+    if (body.TELEGRAM_VIP_CHANNEL_ID !== undefined) {
+      models.setSetting('TELEGRAM_VIP_CHANNEL_ID', body.TELEGRAM_VIP_CHANNEL_ID.trim());
     }
 
-    res.json({ success: true, message: 'Configurações atualizadas com sucesso!' });
+    // URL Pública
+    if (body.PUBLIC_URL !== undefined) {
+      models.setSetting('PUBLIC_URL', body.PUBLIC_URL.trim().replace(/\/$/, ''));
+    }
+
+    res.json({ success: true, message: 'Todas as configurações foram salvas com sucesso!' });
   });
 
   return app;

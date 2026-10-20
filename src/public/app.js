@@ -7,11 +7,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initNav();
   loadAllData();
 
-  // Polling regular para métricas e status a cada 10s
+  // Polling regular para métricas e status a cada 8s
   setInterval(() => {
     loadMetrics();
     loadWhatsAppStatus();
-  }, 10000);
+  }, 8000);
 });
 
 // 1. NAVEGAÇÃO DE ABAS
@@ -39,14 +39,12 @@ function switchTab(tabName) {
     document.getElementById('pageTitle').innerText = targetLink.innerText.trim();
   }
 
-  // Se abriu a aba de conexões, ativa polling do QR
   if (tabName === 'connections') {
     startQrPolling();
   } else {
     stopQrPolling();
   }
 
-  // Recarrega dados específicos
   if (tabName === 'products') loadProducts();
   if (tabName === 'orders') loadOrders();
   if (tabName === 'subscriptions') loadSubscriptions();
@@ -72,12 +70,11 @@ async function loadMetrics() {
     const res = await fetch('/api/metrics');
     const data = await res.json();
 
-    document.getElementById('statRevenue').innerText = `${data.totalRevenue.toFixed(2)} USDT`;
+    document.getElementById('statRevenueBRL').innerText = `R$ ${data.totalRevenueBRL.toFixed(2)}`;
+    document.getElementById('statRevenueUSDT').innerText = `${data.totalRevenueUSDT.toFixed(2)} USDT`;
     document.getElementById('statPaidOrders').innerText = data.paidOrders;
     document.getElementById('statActiveSubs').innerText = data.activeSubs;
-    document.getElementById('statProducts').innerText = data.totalProducts;
 
-    // Atualiza badges de conexão
     const wppBadge = document.getElementById('overviewWppStatus');
     if (data.whatsapp?.connected) {
       wppBadge.className = 'badge badge-paid';
@@ -160,7 +157,7 @@ async function loadProducts() {
 
     const tbody = document.querySelector('#tableProducts tbody');
     if (currentProducts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center">Nenhum produto cadastrado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum produto cadastrado.</td></tr>';
       return;
     }
 
@@ -183,12 +180,16 @@ async function loadProducts() {
         ? '<span class="badge badge-paid">Ativo</span>' 
         : '<span class="badge badge-canceled">Inativo</span>';
 
+      const brl = Number(p.price_brl || p.price).toFixed(2);
+      const usdt = Number(p.price_usdt || (p.price / 5.5)).toFixed(2);
+
       return `
         <tr>
           <td>#${p.id}</td>
           <td><b>${p.name}</b><br><small style="color:var(--text-muted)">${p.description || ''}</small></td>
           <td>${typeLabel}</td>
-          <td><b>${p.price.toFixed(2)} ${p.currency}</b></td>
+          <td><b style="color:var(--color-pix)">R$ ${brl}</b></td>
+          <td><b style="color:var(--primary-gold)">${usdt} USDT</b></td>
           <td>${infoExtra}</td>
           <td>${statusBadge}</td>
           <td>
@@ -228,7 +229,6 @@ function toggleProductTypeFields() {
     fieldContent.style.display = 'none';
     fieldSub.style.display = 'flex';
   } else {
-    // license_key
     fieldContent.style.display = 'none';
     fieldSub.style.display = 'none';
   }
@@ -238,7 +238,8 @@ async function saveProduct(e) {
   e.preventDefault();
   const name = document.getElementById('prodName').value;
   const description = document.getElementById('prodDesc').value;
-  const price = parseFloat(document.getElementById('prodPrice').value);
+  const price_brl = parseFloat(document.getElementById('prodPriceBRL').value);
+  const price_usdt = parseFloat(document.getElementById('prodPriceUSDT').value);
   const type = document.getElementById('prodType').value;
   const content = document.getElementById('prodContent').value;
   const duration_days = parseInt(document.getElementById('prodDuration').value, 10) || 0;
@@ -247,8 +248,10 @@ async function saveProduct(e) {
   const payload = {
     name,
     description,
-    price,
-    currency: 'USDT',
+    price: price_brl,
+    price_brl,
+    price_usdt,
+    currency: 'BRL',
     type,
     content,
     duration_days,
@@ -329,7 +332,7 @@ async function loadProductKeys() {
       </tr>
     `).join('');
   } catch (err) {
-    console.error('Erro ao carregar chaves do produto:', err);
+    console.error('Erro ao carregar chaves:', err);
   }
 }
 
@@ -377,7 +380,7 @@ function renderOrdersTable(tableId, list) {
   if (!tbody) return;
 
   if (list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum pedido registrado ainda.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center">Nenhum pedido registrado ainda.</td></tr>';
     return;
   }
 
@@ -387,13 +390,20 @@ function renderOrdersTable(tableId, list) {
     if (o.status === 'CANCELED') statusBadge = '<span class="badge badge-canceled">Cancelado</span>';
     if (o.status === 'EXPIRED') statusBadge = '<span class="badge badge-expired">Expirado</span>';
 
+    let gatewayBadge = '<span class="badge badge-crypto">⚡ Binance</span>';
+    if (o.gateway === 'mercadopago' || o.currency === 'BRL') {
+      gatewayBadge = '<span class="badge badge-pix">🟢 PIX</span>';
+    } else if (o.gateway === 'livepix') {
+      gatewayBadge = '<span class="badge badge-livepix">💜 LivePix</span>';
+    }
+
     const platformIcon = o.platform === 'whatsapp' 
       ? '<i class="fa-brands fa-whatsapp wpp-color"></i> WhatsApp' 
       : '<i class="fa-brands fa-telegram tg-color"></i> Telegram';
 
     const dateStr = new Date(o.created_at).toLocaleString('pt-BR');
+    const valorStr = o.currency === 'BRL' ? `R$ ${o.amount.toFixed(2)}` : `${o.amount.toFixed(2)} USDT`;
 
-    // Botão de simular pagamento caso pendente
     const actionBtn = o.status === 'PENDING'
       ? `<button class="btn btn-sm btn-primary" onclick="simulatePayment('${o.merchant_trade_no}')"><i class="fa-solid fa-check"></i> Simular Pago</button>`
       : `<span style="font-size:12px; color:var(--text-muted)">Concluído</span>`;
@@ -401,10 +411,11 @@ function renderOrdersTable(tableId, list) {
     return `
       <tr>
         <td><code>${o.merchant_trade_no}</code></td>
+        <td>${gatewayBadge}</td>
         <td>${platformIcon}</td>
         <td>${o.platform_user_name || o.platform_user_id}</td>
         <td><b>${o.product_name}</b></td>
-        <td><b>${o.amount.toFixed(2)} ${o.currency}</b></td>
+        <td><b>${valorStr}</b></td>
         <td>${statusBadge}</td>
         <td><small>${dateStr}</small></td>
         <td>${actionBtn}</td>
@@ -489,23 +500,88 @@ async function loadSettings() {
     const res = await fetch('/api/settings');
     const cfg = await res.json();
 
+    // Toggles de Gateways
+    document.getElementById('cfgGatewayPix').checked = cfg.GATEWAY_PIX_ENABLED;
+    document.getElementById('cfgGatewayBinance').checked = cfg.GATEWAY_BINANCE_ENABLED;
+    document.getElementById('cfgGatewayLivepix').checked = cfg.GATEWAY_LIVEPIX_ENABLED;
+
+    // Badges no topo
+    updateGatewayBadges(cfg);
+
+    // Modo simulação
+    document.getElementById('cfgSimulationMode').checked = cfg.BINANCE_SIMULATION_MODE === 'true' || cfg.PIX_SIMULATION_MODE === 'true';
+
+    // Mercado Pago
+    document.getElementById('cfgMercadoPagoToken').value = cfg.MERCADO_PAGO_ACCESS_TOKEN || '';
+
+    // LivePix
+    document.getElementById('cfgLivepixUsername').value = cfg.LIVEPIX_USERNAME || '';
+
+    // Binance Pay
     document.getElementById('cfgBinanceApiKey').value = cfg.BINANCE_API_KEY || '';
     document.getElementById('cfgBinanceSecretKey').value = cfg.BINANCE_SECRET_KEY || '';
-    document.getElementById('cfgSimulationMode').checked = cfg.BINANCE_SIMULATION_MODE === 'true';
+
+    // Telegram
     document.getElementById('cfgTelegramToken').value = cfg.TELEGRAM_BOT_TOKEN || '';
     document.getElementById('cfgTelegramChannelId').value = cfg.TELEGRAM_VIP_CHANNEL_ID || '';
+
+    // URL Pública & Webhooks
     document.getElementById('cfgPublicUrl').value = cfg.PUBLIC_URL || '';
+    if (cfg.webhooks) {
+      document.getElementById('whMercadopago').innerText = cfg.webhooks.mercadopago;
+      document.getElementById('whBinance').innerText = cfg.webhooks.binance;
+      document.getElementById('whLivepix').innerText = cfg.webhooks.livepix;
+    }
   } catch (err) {
     console.error('Erro ao carregar configurações:', err);
   }
 }
 
+function updateGatewayBadges(cfg) {
+  const bPix = document.getElementById('badgePixStatus');
+  const bBinance = document.getElementById('badgeBinanceStatus');
+  const bLivepix = document.getElementById('badgeLivepixStatus');
+
+  if (cfg.GATEWAY_PIX_ENABLED) {
+    bPix.className = 'badge badge-pix';
+    bPix.innerText = '🟢 PIX Ativo';
+  } else {
+    bPix.className = 'badge badge-expired';
+    bPix.innerText = '⚪ PIX Inativo';
+  }
+
+  if (cfg.GATEWAY_BINANCE_ENABLED) {
+    bBinance.className = 'badge badge-crypto';
+    bBinance.innerText = '🟡 Binance Pay Ativo';
+  } else {
+    bBinance.className = 'badge badge-expired';
+    bBinance.innerText = '⚪ Binance Pay Inativo';
+  }
+
+  if (cfg.GATEWAY_LIVEPIX_ENABLED) {
+    bLivepix.className = 'badge badge-livepix';
+    bLivepix.innerText = '💜 LivePix Ativo';
+  } else {
+    bLivepix.className = 'badge badge-expired';
+    bLivepix.innerText = '⚪ LivePix Inativo';
+  }
+}
+
 async function saveSettings(e) {
   e.preventDefault();
+
+  const isSim = document.getElementById('cfgSimulationMode').checked;
+
   const payload = {
+    GATEWAY_PIX_ENABLED: document.getElementById('cfgGatewayPix').checked,
+    GATEWAY_BINANCE_ENABLED: document.getElementById('cfgGatewayBinance').checked,
+    GATEWAY_LIVEPIX_ENABLED: document.getElementById('cfgGatewayLivepix').checked,
+    PIX_SIMULATION_MODE: isSim,
+    BINANCE_SIMULATION_MODE: isSim,
+    MERCADO_PAGO_ACCESS_TOKEN: document.getElementById('cfgMercadoPagoToken').value,
+    LIVEPIX_USERNAME: document.getElementById('cfgLivepixUsername').value,
     BINANCE_API_KEY: document.getElementById('cfgBinanceApiKey').value,
     BINANCE_SECRET_KEY: document.getElementById('cfgBinanceSecretKey').value,
-    BINANCE_SIMULATION_MODE: document.getElementById('cfgSimulationMode').checked,
     TELEGRAM_BOT_TOKEN: document.getElementById('cfgTelegramToken').value,
     TELEGRAM_VIP_CHANNEL_ID: document.getElementById('cfgTelegramChannelId').value,
     PUBLIC_URL: document.getElementById('cfgPublicUrl').value
@@ -519,8 +595,9 @@ async function saveSettings(e) {
     });
     const data = await res.json();
     const msg = document.getElementById('saveSettingsMsg');
-    msg.innerText = '✅ Configurações salvas!';
-    setTimeout(() => { msg.innerText = ''; }, 3000);
+    msg.innerText = '✅ Configurações salvas com sucesso!';
+    setTimeout(() => { msg.innerText = ''; }, 3500);
+    loadSettings();
     loadMetrics();
   } catch (err) {
     alert('Erro ao salvar configurações: ' + err.message);

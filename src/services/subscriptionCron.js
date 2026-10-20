@@ -1,5 +1,6 @@
 const models = require('../db/models');
 const binancePay = require('./binancePay');
+const pixPayment = require('./pixPayment');
 const fulfillment = require('./fulfillment');
 
 class SubscriptionCronService {
@@ -14,7 +15,7 @@ class SubscriptionCronService {
     this.isRunning = true;
     console.log('⏰ [Cron] Serviço de verificação automática iniciado.');
 
-    // 1. Polling de pagamentos pendentes na Binance Pay a cada 15 segundos
+    // 1. Polling de pagamentos pendentes a cada 15 segundos
     this.pollInterval = setInterval(() => {
       this.checkPendingOrders().catch(err => {
         console.error('[Cron ❌ Erro ao checar pedidos pendentes]:', err.message);
@@ -56,13 +57,23 @@ class SubscriptionCronService {
         continue;
       }
 
-      // Consulta status na Binance Pay
-      const queryResult = await binancePay.queryOrder(order.merchant_trade_no);
-      if (queryResult.success && queryResult.status === 'PAID') {
-        console.log(`[Cron 💰] Pagamento detectado pela Binance Pay para pedido ${order.merchant_trade_no}!`);
-        await fulfillment.fulfillOrder(order.merchant_trade_no);
-      } else if (queryResult.status === 'CANCELED' || queryResult.status === 'EXPIRED') {
-        models.updateOrderStatus(order.merchant_trade_no, queryResult.status);
+      // Se for Mercado Pago (Pix)
+      if (order.gateway === 'mercadopago' && order.prepay_id) {
+        const pixRes = await pixPayment.queryPixPayment(order.prepay_id);
+        if (pixRes.success && pixRes.status === 'PAID') {
+          console.log(`[Cron 💰] Pagamento Pix detectado para pedido ${order.merchant_trade_no}!`);
+          await fulfillment.fulfillOrder(order.merchant_trade_no);
+        }
+      } 
+      // Se for Binance Pay
+      else if (order.gateway === 'binancepay') {
+        const queryResult = await binancePay.queryOrder(order.merchant_trade_no);
+        if (queryResult.success && queryResult.status === 'PAID') {
+          console.log(`[Cron 💰] Pagamento Binance Pay detectado para pedido ${order.merchant_trade_no}!`);
+          await fulfillment.fulfillOrder(order.merchant_trade_no);
+        } else if (queryResult.status === 'CANCELED' || queryResult.status === 'EXPIRED') {
+          models.updateOrderStatus(order.merchant_trade_no, queryResult.status);
+        }
       }
     }
   }

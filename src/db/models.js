@@ -13,21 +13,27 @@ const models = {
     return db.prepare('SELECT * FROM products WHERE id = ?').get(id);
   },
 
-  createProduct({ name, description, price, currency = 'USDT', type, duration_days = 0, content = null, telegram_channel_id = null }) {
+  createProduct({ name, description, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null }) {
+    const brl = price_brl !== null ? Number(price_brl) : Number(price);
+    const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
+    
     const stmt = db.prepare(`
-      INSERT INTO products (name, description, price, currency, type, duration_days, content, telegram_channel_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const res = stmt.run(name, description, Number(price), currency, type, Number(duration_days), content, telegram_channel_id);
+    const res = stmt.run(name, description, brl, brl, usdt, currency, type, Number(duration_days), content, telegram_channel_id);
     return models.getProductById(Number(res.lastInsertRowid));
   },
 
-  updateProduct(id, { name, description, price, currency = 'USDT', type, duration_days = 0, content = null, telegram_channel_id = null, active = 1 }) {
+  updateProduct(id, { name, description, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, active = 1 }) {
+    const brl = price_brl !== null ? Number(price_brl) : Number(price);
+    const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
+
     db.prepare(`
       UPDATE products 
-      SET name = ?, description = ?, price = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, active = ?
+      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, active = ?
       WHERE id = ?
-    `).run(name, description, Number(price), currency, type, Number(duration_days), content, telegram_channel_id, active ? 1 : 0, id);
+    `).run(name, description, brl, brl, usdt, currency, type, Number(duration_days), content, telegram_channel_id, active ? 1 : 0, id);
     return models.getProductById(id);
   },
 
@@ -66,12 +72,25 @@ const models = {
   },
 
   // --- PEDIDOS ---
-  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, amount, currency = 'USDT', prepay_id = null, checkout_url = null, qr_content = null }) {
+  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null }) {
     const stmt = db.prepare(`
-      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, amount, currency, prepay_id, checkout_url, qr_content)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const res = stmt.run(merchant_trade_no, platform, String(platform_user_id), platform_user_name || null, Number(product_id), Number(amount), currency, prepay_id, checkout_url, qr_content);
+    stmt.run(
+      merchant_trade_no, 
+      platform, 
+      String(platform_user_id), 
+      platform_user_name || null, 
+      Number(product_id), 
+      gateway, 
+      Number(amount), 
+      currency, 
+      prepay_id, 
+      checkout_url, 
+      qr_content,
+      pix_code
+    );
     return models.getOrderByTradeNo(merchant_trade_no);
   },
 
@@ -155,7 +174,7 @@ const models = {
 
   getActiveSubscriptions() {
     return db.prepare(`
-      SELECT s.*, p.name as product_name, p.price as product_price
+      SELECT s.*, p.name as product_name, p.price as product_price, p.price_brl, p.price_usdt
       FROM subscriptions s
       JOIN products p ON s.product_id = p.id
       WHERE s.status = 'ACTIVE'
@@ -217,16 +236,27 @@ const models = {
 
   // --- MÉTRICAS & RESUMO ---
   getMetrics() {
-    const totalRevenue = db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM orders WHERE status = 'PAID'").get().total;
+    const paidOrders = db.prepare("SELECT * FROM orders WHERE status = 'PAID'").all();
+    let totalBRL = 0;
+    let totalUSDT = 0;
+
+    for (const o of paidOrders) {
+      if (o.currency === 'USDT') {
+        totalUSDT += o.amount;
+      } else {
+        totalBRL += o.amount;
+      }
+    }
+
     const totalOrders = db.prepare("SELECT COUNT(*) as count FROM orders").get().count;
-    const paidOrders = db.prepare("SELECT COUNT(*) as count FROM orders WHERE status = 'PAID'").get().count;
     const activeSubs = db.prepare("SELECT COUNT(*) as count FROM subscriptions WHERE status = 'ACTIVE'").get().count;
     const totalProducts = db.prepare("SELECT COUNT(*) as count FROM products WHERE active = 1").get().count;
     
     return {
-      totalRevenue: Number(totalRevenue.toFixed(2)),
+      totalRevenueBRL: Number(totalBRL.toFixed(2)),
+      totalRevenueUSDT: Number(totalUSDT.toFixed(2)),
       totalOrders,
-      paidOrders,
+      paidOrders: paidOrders.length,
       activeSubs,
       totalProducts
     };
