@@ -38,6 +38,9 @@
         <a href="#" class="nav-item" data-tab="commissions">
           <i class="fa-solid fa-money-bill-transfer"></i> Comissões & Repasses
         </a>
+        <a href="#" class="nav-item" data-tab="channel">
+          <i class="fa-solid fa-bullhorn"></i> Canal & Ofertas
+        </a>
         <a href="#" class="nav-item" data-tab="products">
           <i class="fa-solid fa-box-open"></i> Produtos & VIP
         </a>
@@ -351,6 +354,27 @@
                     <input type="text" id="cfgTelegramBotUsername" class="form-control" placeholder="ex: meubot_vendas_bot">
                     <small class="hint">Necessário para gerar os links de afiliados automáticos.</small>
                   </div>
+
+                  <div class="form-group mt-3">
+                    <label>ID / @User do Canal de Atualizações & Transações</label>
+                    <input type="text" id="cfgTelegramUpdatesChannelId" class="form-control" placeholder="ex: @canal_atualizacoes ou -100xxxxxxxxxx">
+                    <small class="hint">Canal público onde o bot postará as transações confirmadas e ofertas.</small>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label class="checkbox-label">
+                        <input type="checkbox" id="cfgAutoPostTransactions">
+                        <span><b>Publicar Transações Automaticamente no Canal</b></span>
+                      </label>
+                    </div>
+                    <div class="form-group flex-1">
+                      <label class="checkbox-label">
+                        <input type="checkbox" id="cfgMaskCustomerName">
+                        <span><b>Mascarar Nome do Cliente (ex: Carl*** S.)</b></span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- 7. WEBHOOKS & URL PÚBLICA -->
@@ -489,6 +513,118 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB NOVO: CANAL DE ATUALIZAÇÕES & OFERTAS -->
+        <section id="tab-channel" class="tab-pane">
+          <div class="grid-2col">
+            <!-- Card de Criar / Disparar Oferta -->
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-bullhorn gold"></i> Disparar Nova Oferta / Promoção</h3>
+              </div>
+              <div class="card-body">
+                <p class="section-desc">Envie uma oferta promocional diretamente para o seu Canal de Atualizações no Telegram com botão de compra imediata.</p>
+                
+                <form id="formBroadcastOffer" onsubmit="submitBroadcastOffer(event)">
+                  <div class="form-group">
+                    <label>Título Chamativo da Oferta *</label>
+                    <input type="text" id="offerTitle" class="form-control" required placeholder="Ex: 🔥 OFERTA RELÂMPAGO: 40% OFF NO GRUPO VIP!">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label>Descrição / Texto Persuasivo da Oferta *</label>
+                    <textarea id="offerContent" class="form-control" rows="4" required placeholder="Ex: Apenas hoje! Entre para o nosso grupo exclusivo e receba acesso a todos os materiais e análises diárias. Vagas limitadas!"></textarea>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label>Vincular a um Produto (Opcional)</label>
+                      <select id="offerProductSelect" class="form-control">
+                        <option value="">Nenhum (Link Geral do Bot)</option>
+                      </select>
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>Texto do Botão (CTA)</label>
+                      <input type="text" id="offerCtaText" class="form-control" value="🛒 Aproveitar Oferta Agora">
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label>URL de Imagem / Banner (Opcional)</label>
+                    <input type="url" id="offerImageUrl" class="form-control" placeholder="https://exemplo.com/banner.jpg">
+                    <small class="hint">Se preenchido, a postagem no canal será enviada com esta foto em destaque.</small>
+                  </div>
+
+                  <div class="form-group">
+                    <label>Link Personalizado de Destino (Opcional)</label>
+                    <input type="url" id="offerCtaUrl" class="form-control" placeholder="Deixe em branco para usar o link direto do bot">
+                  </div>
+
+                  <button type="submit" class="btn btn-primary mt-2">
+                    <i class="fa-solid fa-paper-plane"></i> Publicar Oferta no Canal
+                  </button>
+                  <span id="offerStatusMsg" class="save-msg"></span>
+                </form>
+              </div>
+            </div>
+
+            <!-- Card de Status do Canal e Prova Social -->
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-circle-check text-pix"></i> Canal de Prova Social & Transações</h3>
+              </div>
+              <div class="card-body">
+                <div class="status-summary-box">
+                  <div class="d-flex align-center justify-between">
+                    <div>
+                      <h4 id="lblChannelConfigStatus" style="color:var(--primary-gold);">Verificando canal...</h4>
+                      <p id="lblChannelIdText" class="section-desc mt-1">Carregando ID do canal...</p>
+                    </div>
+                    <button class="btn btn-sm btn-outline" onclick="switchTab('settings')">
+                      <i class="fa-solid fa-gear"></i> Ajustar ID
+                    </button>
+                  </div>
+                </div>
+
+                <h4 class="mt-4"><i class="fa-solid fa-shield-halved"></i> Como Funciona o Canal:</h4>
+                <div class="setup-steps mt-2">
+                  <div class="step">
+                    <b>1. Transações Automáticas:</b> Cada vez que um cliente compra via PIX ou Binance Pay, o robô publica um comprovante estilizado no canal com os dados da compra e nome do cliente mascarado para privacidade.
+                  </div>
+                  <div class="step">
+                    <b>2. Prova Social Contínua:</b> Visitantes que entram no canal veem vendas reais acontecendo o tempo todo, aumentando a confiança e a conversão dos seus produtos.
+                  </div>
+                  <div class="step">
+                    <b>3. Requisitos:</b> Crie um Canal no Telegram, adicione seu Bot como <b>Administrador</b> com permissão para <i>Postar Mensagens</i> e insira o <code>@canal</code> ou <code>-100...</code> na Central de Configurações.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Histórico de Ofertas Publicadas -->
+          <div class="card mt-4">
+            <div class="card-header">
+              <h3>Histórico de Ofertas Publicadas</h3>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableOffers">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Título</th>
+                    <th>Produto Vinculado</th>
+                    <th>Texto do Botão</th>
+                    <th>Data de Publicação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="5" class="text-center">Carregando ofertas...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>

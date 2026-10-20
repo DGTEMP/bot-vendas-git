@@ -163,6 +163,21 @@ function initDatabase() {
     );
   `);
 
+  // 9. Tabela de Ofertas e Promoções Transmitidas
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS offers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      image_url TEXT,
+      product_id INTEGER,
+      cta_text TEXT DEFAULT '🛒 Aproveitar Oferta',
+      cta_url TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    );
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
@@ -194,7 +209,10 @@ function initDatabase() {
     ['ADMIN_NOTIFY_WHATSAPP_PHONE', ''],
     ['BOT_NAME', 'PayBot Vendas'],
     ['WELCOME_MESSAGE', '👋 Olá! Seja muito bem-vindo à nossa loja automatizada.'],
-    ['SUPPORT_CONTACT', '@suporte']
+    ['SUPPORT_CONTACT', '@suporte'],
+    ['TELEGRAM_UPDATES_CHANNEL_ID', ''],
+    ['AUTO_POST_TRANSACTIONS', 'true'],
+    ['MASK_CUSTOMER_NAME', 'true']
   ];
 
   for (const [k, v] of defaultSettings) {

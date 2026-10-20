@@ -5,6 +5,7 @@ const models = require('../db/models');
 const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
+const updatesChannel = require('../services/updatesChannel');
 
 class TelegramBotService {
   constructor() {
@@ -28,6 +29,10 @@ class TelegramBotService {
         sendMessage: (chatId, text) => this.sendMessage(chatId, text),
         createInviteLink: (channelId) => this.createInviteLink(channelId),
         removeMember: (channelId, userId) => this.removeMember(channelId, userId)
+      });
+
+      updatesChannel.registerTelegramBroadcaster((channelId, text, options) => {
+        return this.sendChannelPost(channelId, text, options);
       });
 
       this.setupHandlers();
@@ -501,6 +506,32 @@ class TelegramBotService {
       await this.bot.telegram.unbanChatMember(channelId, Number(userId));
       return true;
     } catch (err) {
+      return false;
+    }
+  }
+
+  async sendChannelPost(channelId, text, { imageUrl = null, buttons = null } = {}) {
+    if (!this.bot || !this.isRunning) return false;
+    try {
+      const keyboard = buttons && buttons.length > 0 
+        ? { inline_keyboard: buttons } 
+        : undefined;
+
+      if (imageUrl) {
+        await this.bot.telegram.sendPhoto(channelId, imageUrl, {
+          caption: text,
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+        });
+      } else {
+        await this.bot.telegram.sendMessage(channelId, text, {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard
+        });
+      }
+      return true;
+    } catch (err) {
+      console.error(`[Telegram ❌ Erro ao postar no canal ${channelId}]:`, err.message);
       return false;
     }
   }

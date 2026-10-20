@@ -53,6 +53,7 @@ function switchTab(tabName) {
   if (tabName === 'sellers') loadSellers();
   if (tabName === 'affiliates') loadAffiliates();
   if (tabName === 'commissions') loadCommissions();
+  if (tabName === 'channel') loadChannelTab();
 }
 
 // 2. CARREGAMENTO GERAL
@@ -66,7 +67,8 @@ async function loadAllData() {
     loadSettings(),
     loadSellers(),
     loadAffiliates(),
-    loadCommissions()
+    loadCommissions(),
+    loadOffers()
   ]);
 }
 
@@ -452,12 +454,123 @@ async function submitPayCommission(e) {
 }
 
 // ==========================================
-// 8. PRODUTOS & PLANOS
+// 8. CANAL DE ATUALIZAÇÕES & OFERTAS (CHANNEL & OFFERS)
+// ==========================================
+async function loadChannelTab() {
+  await Promise.all([
+    loadOffers(),
+    loadSettings(),
+    populateOfferProductsDropdown()
+  ]);
+}
+
+async function populateOfferProductsDropdown() {
+  const select = document.getElementById('offerProductSelect');
+  if (!select) return;
+  try {
+    let prods = currentProducts;
+    if (!prods || prods.length === 0) {
+      const res = await fetch('/api/products');
+      prods = await res.json();
+      currentProducts = prods;
+    }
+
+    let html = '<option value="">Nenhum (Link Geral do Bot)</option>';
+    prods.forEach(p => {
+      const brl = Number(p.price_brl || p.price).toFixed(2);
+      const usdt = Number(p.price_usdt || 0).toFixed(2);
+      html += `<option value="${p.id}">${p.name} - R$ ${brl} / ${usdt} USDT</option>`;
+    });
+    select.innerHTML = html;
+  } catch (err) {
+    console.error('Erro ao popular lista de produtos para oferta:', err);
+  }
+}
+
+async function loadOffers() {
+  try {
+    const res = await fetch('/api/offers');
+    const offers = await res.json();
+
+    const tbody = document.querySelector('#tableOffers tbody');
+    if (!tbody) return;
+
+    if (!offers || offers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center">Nenhuma oferta publicada ainda.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = offers.map(o => {
+      const date = o.created_at ? new Date(o.created_at).toLocaleString('pt-BR') : '-';
+      const prodName = o.product_name ? `<b>${o.product_name}</b>` : '<span style="color:var(--text-muted)">Geral (Bot)</span>';
+      return `
+        <tr>
+          <td>#${o.id}</td>
+          <td><b>${o.title}</b><br><small style="color:var(--text-muted)">${(o.content || '').substring(0, 65)}...</small></td>
+          <td>${prodName}</td>
+          <td><span class="badge" style="background:#f59e0b20; color:#f59e0b">${o.cta_text || 'Comprar'}</span></td>
+          <td><small>${date}</small></td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar ofertas:', err);
+  }
+}
+
+async function submitBroadcastOffer(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  const originalText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Disparando...';
+
+  const payload = {
+    title: document.getElementById('offerTitle').value.trim(),
+    content: document.getElementById('offerContent').value.trim(),
+    product_id: document.getElementById('offerProductSelect').value ? parseInt(document.getElementById('offerProductSelect').value, 10) : null,
+    cta_text: document.getElementById('offerCtaText').value.trim(),
+    cta_url: document.getElementById('offerCtaUrl').value.trim() || null,
+    image_url: document.getElementById('offerImageUrl').value.trim() || null
+  };
+
+  const statusMsg = document.getElementById('offerStatusMsg');
+
+  try {
+    const res = await fetch('/api/offers/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+
+    if (result.success) {
+      statusMsg.style.color = 'var(--color-green)';
+      statusMsg.innerText = '✅ Oferta disparada e registrada com sucesso no Canal!';
+      document.getElementById('formBroadcastOffer').reset();
+      loadOffers();
+    } else {
+      statusMsg.style.color = '#ef4444';
+      statusMsg.innerText = '⚠️ Erro: ' + (result.error || 'Não foi possível publicar a oferta.');
+    }
+  } catch (err) {
+    statusMsg.style.color = '#ef4444';
+    statusMsg.innerText = '⚠️ Erro de rede: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    setTimeout(() => { if (statusMsg) statusMsg.innerText = ''; }, 6000);
+  }
+}
+
+// ==========================================
+// 9. PRODUTOS & PLANOS
 // ==========================================
 async function loadProducts() {
   try {
     const res = await fetch('/api/products');
     currentProducts = await res.json();
+    populateOfferProductsDropdown();
 
     const tbody = document.querySelector('#tableProducts tbody');
     if (currentProducts.length === 0) {
@@ -865,6 +978,33 @@ async function loadSettings() {
     document.getElementById('cfgTelegramChannelId').value = cfg.TELEGRAM_VIP_CHANNEL_ID || '';
     document.getElementById('cfgTelegramBotUsername').value = cfg.TELEGRAM_BOT_USERNAME || '';
 
+    // Canal de Atualizações & Prova Social
+    const updatesChannelId = cfg.TELEGRAM_UPDATES_CHANNEL_ID || '';
+    if (document.getElementById('cfgTelegramUpdatesChannelId')) {
+      document.getElementById('cfgTelegramUpdatesChannelId').value = updatesChannelId;
+    }
+    if (document.getElementById('cfgAutoPostTransactions')) {
+      document.getElementById('cfgAutoPostTransactions').checked = cfg.AUTO_POST_TRANSACTIONS !== false;
+    }
+    if (document.getElementById('cfgMaskCustomerName')) {
+      document.getElementById('cfgMaskCustomerName').checked = cfg.MASK_CUSTOMER_NAME !== false;
+    }
+
+    // Atualiza status do canal na aba de Atualizações
+    const lblStatus = document.getElementById('lblChannelConfigStatus');
+    const lblId = document.getElementById('lblChannelIdText');
+    if (lblStatus && lblId) {
+      if (updatesChannelId) {
+        lblStatus.style.color = 'var(--color-green)';
+        lblStatus.innerHTML = '<i class="fa-solid fa-circle-check"></i> Canal Configurado & Ativo';
+        lblId.innerHTML = `Canal de destino: <code>${updatesChannelId}</code> (Postagem automática: <b>${cfg.AUTO_POST_TRANSACTIONS !== false ? 'Ligada' : 'Desligada'}</b>)`;
+      } else {
+        lblStatus.style.color = 'var(--primary-gold)';
+        lblStatus.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Canal Não Configurado';
+        lblId.innerHTML = 'Nenhum canal configurado. Preencha o campo <b>ID / @User do Canal</b> em Configurações.';
+      }
+    }
+
     // URL Pública & Webhooks
     document.getElementById('cfgPublicUrl').value = cfg.PUBLIC_URL || '';
     if (cfg.webhooks) {
@@ -936,6 +1076,9 @@ async function saveSettings(e) {
     TELEGRAM_BOT_TOKEN: document.getElementById('cfgTelegramToken').value,
     TELEGRAM_VIP_CHANNEL_ID: document.getElementById('cfgTelegramChannelId').value,
     TELEGRAM_BOT_USERNAME: document.getElementById('cfgTelegramBotUsername').value,
+    TELEGRAM_UPDATES_CHANNEL_ID: document.getElementById('cfgTelegramUpdatesChannelId')?.value?.trim() || '',
+    AUTO_POST_TRANSACTIONS: document.getElementById('cfgAutoPostTransactions')?.checked ?? true,
+    MASK_CUSTOMER_NAME: document.getElementById('cfgMaskCustomerName')?.checked ?? true,
     PUBLIC_URL: document.getElementById('cfgPublicUrl').value
   };
 

@@ -1,4 +1,5 @@
 const models = require('../db/models');
+const updatesChannel = require('./updatesChannel');
 
 class FulfillmentService {
   constructor() {
@@ -219,6 +220,13 @@ class FulfillmentService {
     } catch (sendErr) {
       console.error(`[Fulfillment ❌ Erro no envio de mensagem para cliente]:`, sendErr.message);
     }
+
+    // ==========================================
+    // 7. PUBLICAÇÃO NO CANAL DE ATUALIZAÇÕES (PROVA SOCIAL)
+    // ==========================================
+    updatesChannel.broadcastTransaction(updatedOrder).catch(err => {
+      console.error('[Fulfillment ⚠️ Erro ao publicar transação no canal]:', err.message);
+    });
 
     return {
       success: true,

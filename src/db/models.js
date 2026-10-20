@@ -500,6 +500,31 @@ const models = {
       pendingCommissionsBRL: Number(pendingBRL.toFixed(2)),
       pendingCommissionsUSDT: Number(pendingUSDT.toFixed(2))
     };
+  },
+  // ==========================================
+  // 10. OFERTAS & PROMOÇÕES DO CANAL (OFFERS)
+  // ==========================================
+  createOffer({ title, content, image_url = null, product_id = null, cta_text = '🛒 Aproveitar Oferta', cta_url = null }) {
+    const stmt = db.prepare(`
+      INSERT INTO offers (title, content, image_url, product_id, cta_text, cta_url)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(title, content, image_url || null, product_id ? Number(product_id) : null, cta_text, cta_url || null);
+    return db.prepare('SELECT o.*, p.name as product_name FROM offers o LEFT JOIN products p ON o.product_id = p.id WHERE o.id = ?').get(Number(res.lastInsertRowid));
+  },
+
+  getOffers(limit = 50) {
+    return db.prepare(`
+      SELECT o.*, p.name as product_name, p.price_brl, p.price_usdt
+      FROM offers o
+      LEFT JOIN products p ON o.product_id = p.id
+      ORDER BY o.id DESC
+      LIMIT ?
+    `).all(limit);
+  },
+
+  deleteOffer(id) {
+    return db.prepare('DELETE FROM offers WHERE id = ?').run(id);
   }
 };
 

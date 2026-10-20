@@ -6,6 +6,7 @@ const models = require('../db/models');
 const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
+const updatesChannel = require('../services/updatesChannel');
 const whatsappBot = require('../bots/whatsappBot');
 const telegramBot = require('../bots/telegramBot');
 
@@ -423,6 +424,36 @@ function createServer() {
   });
 
   // ==========================================
+  // CANAL DE ATUALIZAÇÕES & OFERTAS (OFFERS API)
+  // ==========================================
+  app.get('/api/offers', (req, res) => {
+    const offers = models.getOffers(50);
+    res.json(offers);
+  });
+
+  app.post('/api/offers/broadcast', async (req, res) => {
+    try {
+      const { title, content, image_url, product_id, cta_text, cta_url } = req.body;
+      if (!title || !content) {
+        return res.status(400).json({ error: 'Título e descrição da oferta são obrigatórios.' });
+      }
+
+      const offer = await updatesChannel.broadcastOffer({
+        title,
+        content,
+        image_url,
+        product_id,
+        cta_text,
+        cta_url
+      });
+
+      res.json({ success: true, offer });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
   // CONFIGURAÇÕES GERAIS (PAINEL ADMIN)
   // ==========================================
   app.get('/api/settings', (req, res) => {
@@ -461,6 +492,9 @@ function createServer() {
       hasTelegramToken: Boolean(tgToken),
       TELEGRAM_VIP_CHANNEL_ID: tgChannel,
       TELEGRAM_BOT_USERNAME: current.TELEGRAM_BOT_USERNAME || '',
+      TELEGRAM_UPDATES_CHANNEL_ID: current.TELEGRAM_UPDATES_CHANNEL_ID || '',
+      AUTO_POST_TRANSACTIONS: current.AUTO_POST_TRANSACTIONS !== 'false',
+      MASK_CUSTOMER_NAME: current.MASK_CUSTOMER_NAME !== 'false',
 
       // Regras de Negócio & Equipe
       GLOBAL_AFFILIATE_RATE: Number(current.GLOBAL_AFFILIATE_RATE || 20.0),
@@ -530,6 +564,15 @@ function createServer() {
     }
     if (body.TELEGRAM_BOT_USERNAME !== undefined) {
       models.setSetting('TELEGRAM_BOT_USERNAME', body.TELEGRAM_BOT_USERNAME.trim().replace('@', ''));
+    }
+    if (body.TELEGRAM_UPDATES_CHANNEL_ID !== undefined) {
+      models.setSetting('TELEGRAM_UPDATES_CHANNEL_ID', body.TELEGRAM_UPDATES_CHANNEL_ID.trim());
+    }
+    if (body.AUTO_POST_TRANSACTIONS !== undefined) {
+      models.setSetting('AUTO_POST_TRANSACTIONS', String(body.AUTO_POST_TRANSACTIONS));
+    }
+    if (body.MASK_CUSTOMER_NAME !== undefined) {
+      models.setSetting('MASK_CUSTOMER_NAME', String(body.MASK_CUSTOMER_NAME));
     }
 
     // Regras de Negócio e Notificações
