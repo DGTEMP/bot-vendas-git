@@ -294,9 +294,99 @@ async function main() {
   });
 
   // ----------------------------------------------------------------
-  // 6. TESTES DE APIS E SERVIDOR EXPRESS
+  // 6. TESTES DO MOTOR DE EXPANSÃO DE VENDAS (CUPONS, UPSELL, RECUPERAÇÃO)
   // ----------------------------------------------------------------
-  console.log('\n🌐 6. Testes das Rotas HTTP / APIs do Servidor:');
+  console.log('\n🚀 6. Testes do Motor de Expansão de Vendas:');
+
+  let testCouponPercent, testCouponFixed;
+  const uniqueCodePercent = 'TESTE_' + Date.now();
+  const uniqueCodeFixed = 'DESC_' + Date.now();
+
+  runTest('Criação e Consulta de Cupom Percentual e Fixo', () => {
+    testCouponPercent = models.createCoupon({
+      code: uniqueCodePercent,
+      discount_percent: 20,
+      max_uses: 5
+    });
+    assert(testCouponPercent.id > 0);
+    assert.strictEqual(testCouponPercent.code, uniqueCodePercent);
+    assert.strictEqual(testCouponPercent.discount_percent, 20);
+
+    testCouponFixed = models.createCoupon({
+      code: uniqueCodeFixed,
+      discount_amount: 10.0,
+      max_uses: 100
+    });
+    assert(testCouponFixed.id > 0);
+    assert.strictEqual(testCouponFixed.discount_amount, 10.0);
+
+    const retrieved = models.getCouponByCode(uniqueCodePercent.toLowerCase()); // Case-insensitive
+    assert(retrieved !== null);
+    assert.strictEqual(retrieved.id, testCouponPercent.id);
+  });
+
+  runTest('Validação de Limites e Uso de Cupom', () => {
+    const success = models.useCoupon(uniqueCodePercent);
+    assert(success !== null && success.id > 0);
+
+    const updated = models.getCouponByCode(uniqueCodePercent);
+    assert.strictEqual(updated.used_count, 1);
+  });
+
+  runTest('Configuração de Upsell Pós-Venda em Produto', () => {
+    const mainProd = models.createProduct({
+      name: 'Curso Base de Investimentos',
+      price: 100.00,
+      price_brl: 100.00,
+      price_usdt: 20.00,
+      type: 'digital_link',
+      content: 'https://exemplo.com/curso',
+      upsell_product_id: testProdSub.id,
+      upsell_discount_percent: 30,
+      upsell_headline: 'Aproveite: Leve o Canal VIP com 30% OFF!'
+    });
+
+    assert(mainProd.id > 0);
+    assert.strictEqual(mainProd.upsell_product_id, testProdSub.id);
+    assert.strictEqual(mainProd.upsell_discount_percent, 30);
+    assert.strictEqual(mainProd.upsell_headline, 'Aproveite: Leve o Canal VIP com 30% OFF!');
+  });
+
+  runTest('Recuperação de Carrinho Abandonado (Pending Orders)', () => {
+    const abandonedTradeNo = 'ORD_ABANDONED_' + Date.now();
+    const order = models.createOrder({
+      merchant_trade_no: abandonedTradeNo,
+      platform: 'telegram',
+      platform_user_id: '12345678',
+      product_id: testProdDigital.id,
+      amount: testProdDigital.price_brl,
+      currency: 'BRL'
+    });
+
+    assert.strictEqual(order.recovery_sent, 0);
+
+    // Simula pedido criado há 30 minutos alterando o created_at no banco
+    const db = require('./src/db/database');
+    db.prepare(`UPDATE orders SET created_at = datetime('now', '-30 minutes') WHERE id = ?`).run(order.id);
+
+    // Consulta pedidos abandonados com janela de 15 minutos
+    const abandonedList = models.getAbandonedOrders(15);
+    const found = abandonedList.find(o => o.id === order.id);
+    assert(found !== undefined, 'O pedido de 30 min atrás deve constar como abandonado');
+
+    // Marca como notificado
+    models.markOrderRecoverySent(order.id);
+
+    // Verifica que agora não aparece mais na lista
+    const abandonedAfter = models.getAbandonedOrders(15);
+    const foundAfter = abandonedAfter.find(o => o.id === order.id);
+    assert.strictEqual(foundAfter, undefined, 'Pedido notificado não deve ser retornado novamente');
+  });
+
+  // ----------------------------------------------------------------
+  // 7. TESTES DE APIS E SERVIDOR EXPRESS
+  // ----------------------------------------------------------------
+  console.log('\n🌐 7. Testes das Rotas HTTP / APIs do Servidor:');
 
   const app = createServer();
   const testServer = http.createServer(app);
@@ -372,6 +462,28 @@ async function main() {
     assert.strictEqual(resAfils.status, 200);
     const bufAfils = Buffer.from(await resAfils.arrayBuffer());
     assert(bufAfils[0] === 0xEF && bufAfils[1] === 0xBB && bufAfils[2] === 0xBF);
+  });
+
+  await runAsyncTest('Endpoints de Cupons (/api/coupons GET e POST)', async () => {
+    const apiCode = 'PROMO_' + Date.now();
+    const postRes = await fetchApi('/api/coupons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: apiCode,
+        discount_percent: 30,
+        max_uses: 10
+      })
+    });
+    assert.strictEqual(postRes.status, 201);
+    assert.strictEqual(postRes.data.code, apiCode);
+
+    const getRes = await fetchApi('/api/coupons');
+    assert.strictEqual(getRes.status, 200);
+    assert(Array.isArray(getRes.data));
+    const found = getRes.data.find(c => c.code === apiCode);
+    assert(found !== undefined);
+    assert.strictEqual(found.discount_percent, 30);
   });
 
   await new Promise(resolve => testServer.close(resolve));

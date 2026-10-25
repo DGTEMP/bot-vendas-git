@@ -12,6 +12,7 @@ class TelegramBotService {
     this.bot = null;
     this.isRunning = false;
     this.userReferrals = new Map(); // Armazena affiliate_id e ref_code por user_id
+    this.userCoupons = new Map(); // Armazena cupom ativo por user_id
   }
 
   async start() {
@@ -31,6 +32,7 @@ class TelegramBotService {
 
       fulfillment.registerTelegramBot({
         sendMessage: (chatId, text) => this.sendMessage(chatId, text),
+        sendUpsell: (chatId, text, data) => this.sendUpsell(chatId, text, data),
         createInviteLink: (channelId) => this.createInviteLink(channelId),
         removeMember: (channelId, userId) => this.removeMember(channelId, userId)
       });
@@ -91,14 +93,30 @@ class TelegramBotService {
             return this.showProductDetails(ctx, product, false);
           }
         }
+
+        // 3. Ativação de Cupom via link (ex: cupom_PROMO10)
+        const couponMatch = payload.match(/cupo[nm]_([a-zA-Z0-9_-]+)/i);
+        if (couponMatch) {
+          const coupon = models.getCouponByCode(couponMatch[1]);
+          if (coupon) {
+            this.userCoupons.set(userId, coupon);
+            console.log(`[Telegram 🎟️] Cupom ${coupon.code} (${coupon.discount_percent}%) ativado para ${userId}`);
+          }
+        }
       }
 
       const botName = models.getSetting('BOT_NAME', 'PayBot');
       const welcomeCustom = models.getSetting('WELCOME_MESSAGE', '👋 Olá! Seja muito bem-vindo.');
 
-      const welcomeText = `${welcomeCustom}\n\n` +
-        `Aqui você pode adquirir nossos produtos digitais e assinaturas VIP com cobrança automática via *PIX* ou *Binance Pay* (USDT).\n\n` +
-        `Escolha uma das opções abaixo:`;
+      let welcomeText = `${welcomeCustom}\n\n` +
+        `Aqui você pode adquirir nossos produtos digitais e assinaturas VIP com cobrança automática via *PIX* ou *Binance Pay* (USDT).\n\n`;
+
+      if (this.userCoupons.has(userId)) {
+        const c = this.userCoupons.get(userId);
+        welcomeText += `🎟️ *Cupom Ativo:* \`${c.code}\` (*${c.discount_percent}% OFF* aplicado na sua próxima compra!)\n\n`;
+      }
+
+      welcomeText += `Escolha uma das opções abaixo:`;
 
       await ctx.replyWithMarkdown(welcomeText, Markup.inlineKeyboard([
         [Markup.button.callback('🛍️ Produtos Digitais', 'nav_products')],
@@ -106,6 +124,20 @@ class TelegramBotService {
         [Markup.button.callback('📦 Meus Pedidos', 'nav_my_orders')],
         [Markup.button.callback('❓ Como Funciona', 'nav_help')]
       ]));
+    });
+
+    this.bot.command('cupom', async (ctx) => {
+      const parts = ctx.message.text.trim().split(/\s+/);
+      if (parts.length < 2) {
+        return ctx.reply('ℹ️ Como usar: envie `/cupom SEU_CUPOM` (ex: `/cupom PROMO10`)', { parse_mode: 'Markdown' });
+      }
+      const code = parts[1].toUpperCase();
+      const coupon = models.getCouponByCode(code);
+      if (!coupon) {
+        return ctx.reply('❌ Cupom inválido, esgotado ou expirado.');
+      }
+      this.userCoupons.set(String(ctx.from.id), coupon);
+      return ctx.reply(`🎉 *Cupom ${coupon.code} Aplicado com Sucesso!*\n\nVocê ganhou *${coupon.discount_percent}% de desconto* para sua próxima compra! Acesse o menu e escolha seu produto.`, { parse_mode: 'Markdown' });
     });
 
     this.bot.command('produtos', (ctx) => this.showProducts(ctx, false));
@@ -165,7 +197,19 @@ class TelegramBotService {
       const tradeNo = `ORD_PIX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       const userId = String(ctx.from.id);
       const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
-      const amount = product.price_brl || product.price;
+      let amount = product.price_brl || product.price;
+
+      // Aplica Cupom de Desconto se houver
+      let couponCode = null;
+      let discountAmount = 0;
+      const activeCoupon = this.userCoupons.get(userId);
+      if (activeCoupon) {
+        discountAmount = Number(((amount * activeCoupon.discount_percent) / 100).toFixed(2));
+        amount = Number(Math.max(0.50, amount - discountAmount).toFixed(2));
+        couponCode = activeCoupon.code;
+        models.useCoupon(activeCoupon.code);
+        this.userCoupons.delete(userId);
+      }
 
       const pixRes = await pixPayment.createPixCharge({
         merchantTradeNo: tradeNo,
@@ -203,12 +247,15 @@ class TelegramBotService {
         pix_code: pixCode,
         affiliate_id: refInfo.affiliate_id || null,
         seller_id: sellerId,
-        ref_code: refInfo.ref_code || null
+        ref_code: refInfo.ref_code || null,
+        coupon_code: couponCode,
+        discount_amount: discountAmount
       });
 
+      const couponNotice = couponCode ? ` (Cupom *${couponCode}* aplicado: -R$ ${discountAmount.toFixed(2)})` : '';
       const captionText = `🟢 *PAGAMENTO VIA PIX GERADO!*\n\n` +
         `📦 *Item:* ${product.name}\n` +
-        `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*\n` +
+        `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*${couponNotice}\n` +
         `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
         `📲 *Como Pagar:*\n` +
         `1. Escaneie o QR Code acima pelo app do seu banco.\n` +
@@ -243,7 +290,19 @@ class TelegramBotService {
       const tradeNo = `ORD_BNB_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       const userId = String(ctx.from.id);
       const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
-      const amount = product.price_usdt || (product.price / 5.5).toFixed(2);
+      let amount = Number(product.price_usdt || (product.price / 5.5)).toFixed(2);
+
+      // Aplica Cupom de Desconto se houver
+      let couponCode = null;
+      let discountAmount = 0;
+      const activeCoupon = this.userCoupons.get(userId);
+      if (activeCoupon) {
+        discountAmount = Number(((amount * activeCoupon.discount_percent) / 100).toFixed(2));
+        amount = Number(Math.max(0.50, amount - discountAmount).toFixed(2));
+        couponCode = activeCoupon.code;
+        models.useCoupon(activeCoupon.code);
+        this.userCoupons.delete(userId);
+      }
 
       const binanceRes = await binancePay.createOrder({
         merchantTradeNo: tradeNo,
@@ -281,7 +340,9 @@ class TelegramBotService {
         qr_content: payData.qrContent,
         affiliate_id: refInfo.affiliate_id || null,
         seller_id: sellerId,
-        ref_code: refInfo.ref_code || null
+        ref_code: refInfo.ref_code || null,
+        coupon_code: couponCode,
+        discount_amount: discountAmount
       });
 
       const qrBuffer = await QRCode.toBuffer(payData.qrContent || payData.checkoutUrl, { width: 360, margin: 2 });
@@ -404,6 +465,138 @@ class TelegramBotService {
       models.updateOrderStatus(tradeNo, 'CANCELED');
       await ctx.answerCbQuery('Pedido cancelado.');
       await ctx.reply('❌ Pedido cancelado.');
+    });
+
+    // Fechar oferta de Upsell
+    this.bot.action('dismiss_upsell', async (ctx) => {
+      await ctx.answerCbQuery('Oferta dispensada.');
+      try {
+        await ctx.deleteMessage();
+      } catch (e) {}
+    });
+
+    // Pagar Upsell com PIX
+    this.bot.action(/^pay_upsell_pix_(\d+)_(\d+)$/, async (ctx) => {
+      const upsellProdId = parseInt(ctx.match[2], 10);
+      const product = models.getProductById(upsellProdId);
+      if (!product) return ctx.answerCbQuery('Produto não encontrado.');
+
+      await ctx.answerCbQuery('Gerando PIX com desconto exclusivo...');
+      const tradeNo = `ORD_UP_PIX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const userId = String(ctx.from.id);
+      const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
+
+      const discountPercent = product.upsell_discount_percent || 20.0;
+      const discountedAmount = Number((product.price_brl * (1 - discountPercent / 100)).toFixed(2));
+
+      const pixRes = await pixPayment.createPixCharge({
+        merchantTradeNo: tradeNo,
+        amount: discountedAmount,
+        goodsName: `[UPSELL] ${product.name}`,
+        payerName: userName
+      });
+
+      if (!pixRes.success) return ctx.reply(`❌ Erro: ${pixRes.errorMessage}`);
+
+      const { pixCode, qrBuffer, checkoutUrl, paymentId } = pixRes.data;
+
+      models.createOrder({
+        merchant_trade_no: tradeNo,
+        platform: 'telegram',
+        platform_user_id: userId,
+        platform_user_name: userName,
+        product_id: product.id,
+        gateway: 'mercadopago',
+        amount: discountedAmount,
+        currency: 'BRL',
+        prepay_id: paymentId,
+        checkout_url: checkoutUrl,
+        pix_code: pixCode,
+        is_upsell: 1
+      });
+
+      const captionText = `🔥 *OFERTA UPSELL: PIX COM DESCONTO GERADO!*\n\n` +
+        `📦 *Item Adicional:* ${product.name}\n` +
+        `💰 *Valor Especial:* *R$ ${discountedAmount.toFixed(2)}* (${discountPercent}% OFF)\n` +
+        `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
+        `📲 *Pix Copia e Cola:*\n\`${pixCode}\``;
+
+      const buttons = [
+        [Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)],
+        [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
+      ];
+      if (pixRes.isSimulated) {
+        buttons.unshift([Markup.button.url('🧪 [TESTE] Simular Pagamento Pix', checkoutUrl)]);
+      }
+
+      await ctx.replyWithPhoto({ source: qrBuffer }, {
+        caption: captionText,
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
+    });
+
+    // Pagar Upsell com Binance Pay
+    this.bot.action(/^pay_upsell_bpay_(\d+)_(\d+)$/, async (ctx) => {
+      const upsellProdId = parseInt(ctx.match[2], 10);
+      const product = models.getProductById(upsellProdId);
+      if (!product) return ctx.answerCbQuery('Produto não encontrado.');
+
+      await ctx.answerCbQuery('Gerando fatura Binance Pay...');
+      const tradeNo = `ORD_UP_BNB_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const userId = String(ctx.from.id);
+      const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
+
+      const discountPercent = product.upsell_discount_percent || 20.0;
+      const discountedUsdt = Number((product.price_usdt * (1 - discountPercent / 100)).toFixed(2));
+
+      const binanceRes = await binancePay.createOrder({
+        merchantTradeNo: tradeNo,
+        amount: discountedUsdt,
+        currency: 'USDT',
+        goodsName: `[UPSELL] ${product.name}`,
+        productId: product.id
+      });
+
+      if (!binanceRes.success) return ctx.reply(`❌ Erro Binance Pay: ${binanceRes.errorMessage}`);
+
+      const payData = binanceRes.data;
+      const qrBuffer = await QRCode.toBuffer(payData.qrContent || payData.checkoutUrl, { width: 360, margin: 2 });
+
+      models.createOrder({
+        merchant_trade_no: tradeNo,
+        platform: 'telegram',
+        platform_user_id: userId,
+        platform_user_name: userName,
+        product_id: product.id,
+        gateway: 'binancepay',
+        amount: discountedUsdt,
+        currency: 'USDT',
+        prepay_id: payData.prepayId,
+        checkout_url: payData.checkoutUrl,
+        qr_content: payData.qrContent,
+        is_upsell: 1
+      });
+
+      const captionText = `🔥 *OFERTA UPSELL: BINANCE PAY COM DESCONTO!*\n\n` +
+        `📦 *Item Adicional:* ${product.name}\n` +
+        `💰 *Valor Especial:* *${discountedUsdt.toFixed(2)} USDT* (${discountPercent}% OFF)\n` +
+        `🆔 *Pedido:* \`${tradeNo}\``;
+
+      const buttons = [
+        [Markup.button.url('🟡 Pagar no App Binance', payData.checkoutUrl)],
+        [Markup.button.callback('🔄 Já Paguei / Verificar', `check_${tradeNo}`)],
+        [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
+      ];
+      if (binanceRes.isSimulated) {
+        buttons.splice(1, 0, [Markup.button.url('🧪 [TESTE] Simular Pagamento', payData.checkoutUrl)]);
+      }
+
+      await ctx.replyWithPhoto({ source: qrBuffer }, {
+        caption: captionText,
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
     });
   }
 
@@ -562,6 +755,32 @@ class TelegramBotService {
       return true;
     } catch (err) {
       console.error(`[Telegram ❌ Erro ao postar no canal ${channelId}]:`, err.message);
+      return false;
+    }
+  }
+
+  async sendUpsell(chatId, text, { orderId, upsellProductId, discountedBrl, discountedUsdt }) {
+    if (!this.bot || !this.isRunning) return false;
+    try {
+      const isPix = models.getSetting('GATEWAY_PIX_ENABLED', 'true') === 'true';
+      const isBinance = models.getSetting('GATEWAY_BINANCE_ENABLED', 'true') === 'true';
+
+      const buttons = [];
+      if (isPix) {
+        buttons.push([Markup.button.callback(`🚀 Sim! Levar com PIX (R$ ${discountedBrl.toFixed(2)})`, `pay_upsell_pix_${orderId}_${upsellProductId}`)]);
+      }
+      if (isBinance) {
+        buttons.push([Markup.button.callback(`🟡 Sim! Levar com Binance Pay (${discountedUsdt.toFixed(2)} USDT)`, `pay_upsell_bpay_${orderId}_${upsellProductId}`)]);
+      }
+      buttons.push([Markup.button.callback('❌ Não, obrigado', 'dismiss_upsell')]);
+
+      await this.bot.telegram.sendMessage(chatId, text, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
+      return true;
+    } catch (err) {
+      console.error(`[Telegram ❌ Erro ao enviar Upsell para ${chatId}]:`, err.message);
       return false;
     }
   }

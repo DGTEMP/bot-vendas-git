@@ -20,6 +20,7 @@ class WhatsAppBotService {
     this.authFolder = config.whatsapp.authFolder;
     this.userSessions = new Map();
     this.userReferrals = new Map(); // Armazena affiliate_id e ref_code por jid
+    this.userCoupons = new Map(); // Armazena cupom ativo por jid
   }
 
   async stop() {
@@ -142,7 +143,7 @@ class WhatsAppBotService {
     const lower = text.toLowerCase();
 
     // 0. Detecta indicação de afiliado via link ou mensagem (ex: ref_TOPVIP ou cupom TOPVIP)
-    const refMatch = text.match(/(?:ref_|afiliado[:\s]+|cupom[:\s]+)([a-zA-Z0-9_-]+)/i);
+    const refMatch = text.match(/(?:ref_|afiliado[:\s]+)([a-zA-Z0-9_-]+)/i);
     if (refMatch) {
       const code = refMatch[1].toUpperCase();
       const affiliate = models.getAffiliateByCode(code);
@@ -152,6 +153,39 @@ class WhatsAppBotService {
           ref_code: affiliate.ref_code
         });
         console.log(`[WhatsApp 🤝] Lead ${from} (${senderName}) vinculado ao afiliado ${affiliate.name} (#${affiliate.ref_code})`);
+      }
+    }
+
+    // 0.1 Detecta ativação de cupom de desconto (ex: cupom PROMO10 ou desconto BLACK20)
+    const couponMatch = text.match(/(?:cupom[:\s]+|desconto[:\s]+)([a-zA-Z0-9_-]+)/i);
+    if (couponMatch) {
+      const couponCode = couponMatch[1].toUpperCase();
+      const coupon = models.getCouponByCode(couponCode);
+      if (coupon) {
+        this.userCoupons.set(from, coupon);
+        return this.sendMessage(from, `🎉 *Cupom ${coupon.code} Aplicado com Sucesso!*\n\nVocê ganhou *${coupon.discount_percent}% de desconto* na sua próxima compra. Digite *MENU* para ver as opções!`);
+      } else {
+        return this.sendMessage(from, `❌ Desculpe, o cupom *${couponCode}* é inválido ou já expirou.`);
+      }
+    }
+
+    // 0.2 Resposta para Oferta de Upsell / Order Bump (ex: "UP" ou "QUERO UP")
+    if (lower === 'up' || lower === 'quero up' || lower === 'sim up') {
+      const lastOrder = models.getAllOrders(10).find(o => o.platform === 'whatsapp' && o.platform_user_id === from && o.status === 'PAID');
+      if (lastOrder) {
+        const baseProduct = models.getProductById(lastOrder.product_id);
+        if (baseProduct && baseProduct.upsell_product_id) {
+          const upsellProd = models.getProductById(baseProduct.upsell_product_id);
+          if (upsellProd && upsellProd.active) {
+            const discount = baseProduct.upsell_discount_percent || 20.0;
+            const discountedBrl = Number((upsellProd.price_brl * (1 - discount / 100)).toFixed(2));
+            return this.processPixPurchase(from, senderName, {
+              ...upsellProd,
+              price_brl: discountedBrl,
+              is_upsell: 1
+            });
+          }
+        }
       }
     }
 
@@ -266,7 +300,19 @@ class WhatsAppBotService {
     await this.sendMessage(to, `⏳ Gerando seu código *PIX* para *${product.name}*...`);
 
     const tradeNo = `ORD_WPIX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const amount = product.price_brl || product.price;
+    let amount = product.price_brl || product.price;
+
+    // Aplica Cupom de Desconto se houver
+    let couponCode = null;
+    let discountAmount = 0;
+    const activeCoupon = this.userCoupons.get(to);
+    if (activeCoupon) {
+      discountAmount = Number(((amount * activeCoupon.discount_percent) / 100).toFixed(2));
+      amount = Number(Math.max(0.50, amount - discountAmount).toFixed(2));
+      couponCode = activeCoupon.code;
+      models.useCoupon(activeCoupon.code);
+      this.userCoupons.delete(to);
+    }
 
     const pixRes = await pixPayment.createPixCharge({
       merchantTradeNo: tradeNo,
@@ -304,13 +350,17 @@ class WhatsAppBotService {
       pix_code: pixCode,
       affiliate_id: refInfo.affiliate_id || null,
       seller_id: sellerId,
-      ref_code: refInfo.ref_code || null
+      ref_code: refInfo.ref_code || null,
+      coupon_code: couponCode,
+      discount_amount: discountAmount,
+      is_upsell: product.is_upsell || 0
     });
 
     try {
+      const couponNotice = couponCode ? ` (Cupom *${couponCode}* aplicado: -R$ ${discountAmount.toFixed(2)})` : '';
       let caption = `🟢 *COBRANÇA PIX GERADA!*\n\n` +
         `📦 *Item:* ${product.name}\n` +
-        `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*\n` +
+        `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*${couponNotice}\n` +
         `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
         `📲 *Como Pagar:*\n` +
         `1. Aponte a câmera do aplicativo do seu banco para o QR Code acima.\n` +
@@ -349,7 +399,19 @@ class WhatsAppBotService {
     await this.sendMessage(to, `⏳ Gerando sua fatura na *Binance Pay* para *${product.name}*...`);
 
     const tradeNo = `ORD_WBNB_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const amount = product.price_usdt || (product.price / 5.5).toFixed(2);
+    let amount = Number(product.price_usdt || (product.price / 5.5)).toFixed(2);
+
+    // Aplica Cupom de Desconto se houver
+    let couponCode = null;
+    let discountAmount = 0;
+    const activeCoupon = this.userCoupons.get(to);
+    if (activeCoupon) {
+      discountAmount = Number(((amount * activeCoupon.discount_percent) / 100).toFixed(2));
+      amount = Number(Math.max(0.50, amount - discountAmount).toFixed(2));
+      couponCode = activeCoupon.code;
+      models.useCoupon(activeCoupon.code);
+      this.userCoupons.delete(to);
+    }
 
     const binanceRes = await binancePay.createOrder({
       merchantTradeNo: tradeNo,
@@ -387,7 +449,10 @@ class WhatsAppBotService {
       qr_content: payData.qrContent,
       affiliate_id: refInfo.affiliate_id || null,
       seller_id: sellerId,
-      ref_code: refInfo.ref_code || null
+      ref_code: refInfo.ref_code || null,
+      coupon_code: couponCode,
+      discount_amount: discountAmount,
+      is_upsell: product.is_upsell || 0
     });
 
     try {

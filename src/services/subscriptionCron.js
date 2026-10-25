@@ -7,6 +7,7 @@ class SubscriptionCronService {
   constructor() {
     this.pollInterval = null;
     this.subCheckInterval = null;
+    this.abandonedInterval = null;
     this.isRunning = false;
   }
 
@@ -22,7 +23,14 @@ class SubscriptionCronService {
       });
     }, 15000);
 
-    // 2. Verificação de assinaturas (vencimentos e renovações) a cada 5 minutos
+    // 2. Recuperação automática de carrinhos/pedidos abandonados a cada 60 segundos
+    this.abandonedInterval = setInterval(() => {
+      this.checkAbandonedCarts().catch(err => {
+        console.error('[Cron ❌ Erro ao recuperar carrinhos]:', err.message);
+      });
+    }, 60000);
+
+    // 3. Verificação de assinaturas (vencimentos e renovações) a cada 5 minutos
     this.subCheckInterval = setInterval(() => {
       this.checkSubscriptions().catch(err => {
         console.error('[Cron ❌ Erro ao checar assinaturas]:', err.message);
@@ -32,12 +40,14 @@ class SubscriptionCronService {
     // Executa uma checagem imediata
     setTimeout(() => {
       this.checkPendingOrders();
+      this.checkAbandonedCarts();
       this.checkSubscriptions();
     }, 3000);
   }
 
   stop() {
     if (this.pollInterval) clearInterval(this.pollInterval);
+    if (this.abandonedInterval) clearInterval(this.abandonedInterval);
     if (this.subCheckInterval) clearInterval(this.subCheckInterval);
     this.isRunning = false;
     console.log('⏰ [Cron] Serviço de verificação automática parado.');
@@ -74,6 +84,54 @@ class SubscriptionCronService {
         } else if (queryResult.status === 'CANCELED' || queryResult.status === 'EXPIRED') {
           models.updateOrderStatus(order.merchant_trade_no, queryResult.status);
         }
+      }
+    }
+  }
+
+  async checkAbandonedCarts() {
+    const isEnabled = models.getSetting('ABANDONED_CART_ENABLED', 'true') === 'true';
+    if (!isEnabled) return;
+
+    const delayMinutes = parseInt(models.getSetting('ABANDONED_CART_DELAY_MIN', '15'), 10) || 15;
+    const abandonedOrders = models.getAbandonedOrders(delayMinutes);
+    if (!abandonedOrders || abandonedOrders.length === 0) return;
+
+    const template = models.getSetting(
+      'ABANDONED_CART_MESSAGE',
+      '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no botão abaixo para pagar e receber seu acesso imediatamente:'
+    );
+
+    for (const order of abandonedOrders) {
+      const customerName = order.platform_user_name || 'Cliente';
+      const valorStr = order.currency === 'BRL' ? `R$ ${order.amount.toFixed(2)}` : `${order.amount.toFixed(2)} USDT`;
+
+      let message = template
+        .replace(/{name}/g, customerName)
+        .replace(/{product}/g, order.product_name)
+        .replace(/{amount}/g, valorStr)
+        .replace(/{order}/g, order.merchant_trade_no);
+
+      try {
+        if (order.platform === 'telegram' && fulfillment.sendTelegramMessage) {
+          if (order.pix_code) {
+            message += `\n\n📋 *Pix Copia e Cola:* \`${order.pix_code}\``;
+          } else if (order.checkout_url) {
+            message += `\n\n🔗 *Link de Pagamento:* ${order.checkout_url}`;
+          }
+          await fulfillment.sendTelegramMessage(order.platform_user_id, message);
+        } else if (order.platform === 'whatsapp' && fulfillment.sendWhatsAppMessage) {
+          if (order.pix_code) {
+            message += `\n\n📋 *Código Pix Copia e Cola:*\n\`${order.pix_code}\``;
+          } else if (order.checkout_url) {
+            message += `\n\n🔗 *Link Direto de Pagamento:*\n${order.checkout_url}`;
+          }
+          await fulfillment.sendWhatsAppMessage(order.platform_user_id, message);
+        }
+
+        models.markOrderRecoverySent(order.id);
+        console.log(`[Carrinho Abandonado 🛒] Lembrete enviado com sucesso para ${order.platform_user_id} (${order.platform}) ref. #${order.merchant_trade_no}`);
+      } catch (err) {
+        console.error(`[Carrinho Abandonado ⚠️ Erro ao enviar para ${order.platform_user_id}]:`, err.message);
       }
     }
   }

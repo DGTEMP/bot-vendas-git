@@ -4,13 +4,15 @@ const updatesChannel = require('./updatesChannel');
 class FulfillmentService {
   constructor() {
     this.sendTelegramMessage = null;
+    this.sendTelegramUpsell = null;
     this.sendWhatsAppMessage = null;
     this.createTelegramInviteLink = null;
     this.removeTelegramMember = null;
   }
 
-  registerTelegramBot({ sendMessage, createInviteLink, removeMember }) {
+  registerTelegramBot({ sendMessage, sendUpsell, createInviteLink, removeMember }) {
     this.sendTelegramMessage = sendMessage;
+    this.sendTelegramUpsell = sendUpsell;
     this.createTelegramInviteLink = createInviteLink;
     this.removeTelegramMember = removeMember;
   }
@@ -227,6 +229,45 @@ class FulfillmentService {
     updatesChannel.broadcastTransaction(updatedOrder).catch(err => {
       console.error('[Fulfillment ⚠️ Erro ao publicar transação no canal]:', err.message);
     });
+
+    // ==========================================
+    // 8. OFERTA DE UPSELL / ORDER BUMP PÓS-VENDA
+    // ==========================================
+    const isUpsellEnabled = models.getSetting('UPSELL_ENABLED', 'true') === 'true';
+    if (isUpsellEnabled && product.upsell_product_id && !order.is_upsell) {
+      const upsellProd = models.getProductById(product.upsell_product_id);
+      if (upsellProd && upsellProd.active) {
+        const discountPercent = product.upsell_discount_percent || 20.0;
+        const discountedBrl = Number((upsellProd.price_brl * (1 - discountPercent / 100)).toFixed(2));
+        const discountedUsdt = Number((upsellProd.price_usdt * (1 - discountPercent / 100)).toFixed(2));
+        const headline = product.upsell_headline || `🔥 Oportunidade Exclusiva Pós-Venda (${discountPercent}% OFF)!`;
+
+        const upsellMsg = `🎁 *${headline}*\n\n` +
+          `Como você acabou de adquirir *${product.name}*, liberamos um desconto especial único para você levar também:\n\n` +
+          `📦 *${upsellProd.name}*\n` +
+          (upsellProd.description ? `_${upsellProd.description}_\n\n` : '') +
+          `💵 De ~R$ ${upsellProd.price_brl.toFixed(2)}~ por apenas *R$ ${discountedBrl.toFixed(2)}* (ou *${discountedUsdt.toFixed(2)} USDT*)\n\n` +
+          (order.platform === 'whatsapp' 
+            ? `👉 Para garantir agora com desconto, envie *UP* para receber o Pix direto!`
+            : `👉 Clique no botão abaixo para garantir sua oferta:`);
+
+        try {
+          if (order.platform === 'telegram' && this.sendTelegramUpsell) {
+            this.sendTelegramUpsell(order.platform_user_id, upsellMsg, {
+              orderId: order.id,
+              upsellProductId: upsellProd.id,
+              discountedBrl,
+              discountedUsdt
+            }).catch(() => {});
+          } else if (order.platform === 'whatsapp' && this.sendWhatsAppMessage) {
+            this.sendWhatsAppMessage(order.platform_user_id, upsellMsg).catch(() => {});
+          }
+          console.log(`[Upsell 🚀] Oferta de pós-venda disparada para ${order.platform_user_id} (${order.platform})`);
+        } catch (uErr) {
+          console.error('[Upsell ⚠️ Erro ao enviar oferta]:', uErr.message);
+        }
+      }
+    }
 
     return {
       success: true,

@@ -180,6 +180,21 @@ function initDatabase() {
     );
   `);
 
+  // 10. Tabela de Cupons de Desconto
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      discount_percent REAL DEFAULT 10.0,
+      discount_amount REAL DEFAULT 0,
+      max_uses INTEGER DEFAULT 0, -- 0 = ilimitado
+      used_count INTEGER DEFAULT 0,
+      expires_at TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
@@ -188,7 +203,15 @@ function initDatabase() {
     'ALTER TABLE products ADD COLUMN price_brl REAL DEFAULT 0;',
     'ALTER TABLE products ADD COLUMN price_usdt REAL DEFAULT 0;',
     'ALTER TABLE orders ADD COLUMN gateway TEXT DEFAULT "binancepay";',
-    'ALTER TABLE orders ADD COLUMN pix_code TEXT;'
+    'ALTER TABLE orders ADD COLUMN pix_code TEXT;',
+    'ALTER TABLE orders ADD COLUMN recovery_sent INTEGER DEFAULT 0;',
+    'ALTER TABLE orders ADD COLUMN recovery_sent_at TEXT;',
+    'ALTER TABLE orders ADD COLUMN coupon_code TEXT;',
+    'ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0;',
+    'ALTER TABLE orders ADD COLUMN is_upsell INTEGER DEFAULT 0;',
+    'ALTER TABLE products ADD COLUMN upsell_product_id INTEGER;',
+    'ALTER TABLE products ADD COLUMN upsell_discount_percent REAL DEFAULT 20.0;',
+    'ALTER TABLE products ADD COLUMN upsell_headline TEXT;'
   ];
 
   for (const m of migrations) {
@@ -214,7 +237,11 @@ function initDatabase() {
     ['SUPPORT_CONTACT', '@suporte'],
     ['TELEGRAM_UPDATES_CHANNEL_ID', ''],
     ['AUTO_POST_TRANSACTIONS', 'true'],
-    ['MASK_CUSTOMER_NAME', 'true']
+    ['MASK_CUSTOMER_NAME', 'true'],
+    ['ABANDONED_CART_ENABLED', 'true'],
+    ['ABANDONED_CART_DELAY_MIN', '15'],
+    ['ABANDONED_CART_MESSAGE', '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no botão abaixo para pagar e receber seu acesso imediatamente:'],
+    ['UPSELL_ENABLED', 'true']
   ];
 
   for (const [k, v] of defaultSettings) {

@@ -12,30 +12,65 @@ const models = {
   },
 
   getProductById(id) {
-    return db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+    return db.prepare(`
+      SELECT p.*, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
+      FROM products p
+      LEFT JOIN products u ON p.upsell_product_id = u.id
+      WHERE p.id = ?
+    `).get(id);
   },
 
-  createProduct({ name, description, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null }) {
+  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null }) {
     const brl = price_brl !== null ? Number(price_brl) : Number(price);
     const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
     
     const stmt = db.prepare(`
-      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const res = stmt.run(name, description, brl, brl, usdt, currency, type, Number(duration_days), content, telegram_channel_id);
+    const res = stmt.run(
+      name, 
+      description || null, 
+      brl, 
+      brl, 
+      usdt, 
+      currency, 
+      type, 
+      Number(duration_days || 0), 
+      content || null, 
+      telegram_channel_id || null, 
+      upsell_product_id ? Number(upsell_product_id) : null, 
+      Number(upsell_discount_percent || 20.0), 
+      upsell_headline || null
+    );
     return models.getProductById(Number(res.lastInsertRowid));
   },
 
-  updateProduct(id, { name, description, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, active = 1 }) {
+  updateProduct(id, { name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, active = 1 }) {
     const brl = price_brl !== null ? Number(price_brl) : Number(price);
     const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
 
     db.prepare(`
       UPDATE products 
-      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, active = ?
+      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, active = ?
       WHERE id = ?
-    `).run(name, description, brl, brl, usdt, currency, type, Number(duration_days), content, telegram_channel_id, active ? 1 : 0, id);
+    `).run(
+      name, 
+      description || null, 
+      brl, 
+      brl, 
+      usdt, 
+      currency, 
+      type, 
+      Number(duration_days || 0), 
+      content || null, 
+      telegram_channel_id || null, 
+      upsell_product_id ? Number(upsell_product_id) : null, 
+      Number(upsell_discount_percent || 20.0), 
+      upsell_headline || null, 
+      active ? 1 : 0, 
+      id
+    );
     return models.getProductById(id);
   },
 
@@ -292,10 +327,10 @@ const models = {
   // ==========================================
   // 6. PEDIDOS (ORDERS)
   // ==========================================
-  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null, affiliate_id = null, seller_id = null, ref_code = null }) {
+  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null, affiliate_id = null, seller_id = null, ref_code = null, coupon_code = null, discount_amount = 0, is_upsell = 0 }) {
     const stmt = db.prepare(`
-      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code, affiliate_id, seller_id, ref_code)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code, affiliate_id, seller_id, ref_code, coupon_code, discount_amount, is_upsell)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       merchant_trade_no, 
@@ -312,7 +347,10 @@ const models = {
       pix_code,
       affiliate_id ? Number(affiliate_id) : null,
       seller_id ? Number(seller_id) : null,
-      ref_code || null
+      ref_code || null,
+      coupon_code || null,
+      Number(discount_amount || 0),
+      is_upsell ? 1 : 0
     );
     return models.getOrderByTradeNo(merchant_trade_no);
   },
@@ -369,6 +407,27 @@ const models = {
       WHERE o.status = 'PENDING'
       ORDER BY o.id DESC
     `).all();
+  },
+
+  getAbandonedOrders(delayMinutes = 15) {
+    return db.prepare(`
+      SELECT o.*, p.name as product_name, p.type as product_type, p.price_brl, p.price_usdt
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      WHERE o.status = 'PENDING' 
+        AND (o.recovery_sent = 0 OR o.recovery_sent IS NULL)
+        AND datetime(o.created_at) <= datetime('now', '-' || ? || ' minutes')
+        AND datetime(o.created_at) >= datetime('now', '-6 hours')
+      ORDER BY o.id ASC
+    `).all(Number(delayMinutes));
+  },
+
+  markOrderRecoverySent(orderId) {
+    db.prepare(`
+      UPDATE orders 
+      SET recovery_sent = 1, recovery_sent_at = datetime('now')
+      WHERE id = ?
+    `).run(Number(orderId));
   },
 
   getAllOrders(limit = 100) {
@@ -504,6 +563,12 @@ const models = {
       else pendingBRL = pc.total || 0;
     }
 
+    // Vendas Recuperadas & Upsells
+    const recoveredOrders = paidOrders.filter(o => o.recovery_sent === 1);
+    const recoveredRevenueBRL = recoveredOrders.reduce((acc, o) => acc + (o.currency === 'BRL' ? o.amount : 0), 0);
+    const upsellOrdersCount = paidOrders.filter(o => o.is_upsell === 1).length;
+    const totalCoupons = db.prepare("SELECT COUNT(*) as count FROM coupons WHERE active = 1").get().count;
+
     return {
       totalRevenueBRL: Number(totalBRL.toFixed(2)),
       totalRevenueUSDT: Number(totalUSDT.toFixed(2)),
@@ -514,7 +579,11 @@ const models = {
       totalSellers,
       totalAffiliates,
       pendingCommissionsBRL: Number(pendingBRL.toFixed(2)),
-      pendingCommissionsUSDT: Number(pendingUSDT.toFixed(2))
+      pendingCommissionsUSDT: Number(pendingUSDT.toFixed(2)),
+      recoveredOrdersCount: recoveredOrders.length,
+      recoveredRevenueBRL: Number(recoveredRevenueBRL.toFixed(2)),
+      upsellOrdersCount,
+      totalCoupons
     };
   },
   // ==========================================
@@ -541,6 +610,51 @@ const models = {
 
   deleteOffer(id) {
     return db.prepare('DELETE FROM offers WHERE id = ?').run(id);
+  },
+
+  // ==========================================
+  // 11. SISTEMA DE CUPONS DE DESCONTO (COUPONS)
+  // ==========================================
+  getCoupons(activeOnly = false) {
+    const sql = activeOnly
+      ? 'SELECT * FROM coupons WHERE active = 1 ORDER BY id DESC'
+      : 'SELECT * FROM coupons ORDER BY id DESC';
+    return db.prepare(sql).all();
+  },
+
+  getCouponById(id) {
+    return db.prepare('SELECT * FROM coupons WHERE id = ?').get(id);
+  },
+
+  getCouponByCode(code) {
+    if (!code) return null;
+    const clean = code.trim().toUpperCase();
+    return db.prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1').get(clean);
+  },
+
+  createCoupon({ code, discount_percent = 10.0, discount_amount = 0, max_uses = 0, expires_at = null }) {
+    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+    const stmt = db.prepare(`
+      INSERT INTO coupons (code, discount_percent, discount_amount, max_uses, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(cleanCode, Number(discount_percent), Number(discount_amount), Number(max_uses), expires_at || null);
+    return models.getCouponById(Number(res.lastInsertRowid));
+  },
+
+  deleteCoupon(id) {
+    return db.prepare('DELETE FROM coupons WHERE id = ?').run(id);
+  },
+
+  useCoupon(code) {
+    const coupon = models.getCouponByCode(code);
+    if (!coupon) return null;
+
+    db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(coupon.id);
+    if (coupon.max_uses > 0 && (coupon.used_count + 1) >= coupon.max_uses) {
+      db.prepare('UPDATE coupons SET active = 0 WHERE id = ?').run(coupon.id);
+    }
+    return coupon;
   }
 };
 

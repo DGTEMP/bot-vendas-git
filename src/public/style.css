@@ -212,6 +212,8 @@ body {
 .stat-icon.green { background: #0ecb8120; color: var(--color-green); }
 .stat-icon.purple { background: #a855f720; color: var(--color-purple); }
 .stat-icon.blue { background: #3b82f620; color: var(--color-blue); }
+.stat-icon.red { background: #ef444420; color: #ef4444; }
+.stat-icon.orange { background: #f9731620; color: #f97316; }
 
 .stat-label {
   font-size: 13px;

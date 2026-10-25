@@ -258,7 +258,7 @@ function createServer() {
   });
 
   app.post('/api/products', (req, res) => {
-    const { name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id } = req.body;
+    const { name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline } = req.body;
     if (!name || !type) {
       return res.status(400).json({ error: 'Campos nome e tipo são obrigatórios.' });
     }
@@ -272,7 +272,10 @@ function createServer() {
       type,
       duration_days: duration_days || 0,
       content,
-      telegram_channel_id
+      telegram_channel_id,
+      upsell_product_id: upsell_product_id ? Number(upsell_product_id) : null,
+      upsell_discount_percent: Number(upsell_discount_percent || 20.0),
+      upsell_headline
     });
     res.json(created);
   });
@@ -547,6 +550,31 @@ function createServer() {
   });
 
   // ==========================================
+  // CUPONS DE DESCONTO (COUPONS API)
+  // ==========================================
+  app.get('/api/coupons', (req, res) => {
+    const coupons = models.getCoupons(false);
+    res.json(coupons);
+  });
+
+  app.post('/api/coupons', (req, res) => {
+    const { code, discount_percent, discount_amount, max_uses, expires_at } = req.body;
+    if (!code) return res.status(400).json({ error: 'Código do cupom é obrigatório.' });
+    try {
+      const coupon = models.createCoupon({ code, discount_percent, discount_amount, max_uses, expires_at });
+      res.status(201).json(coupon);
+    } catch (e) {
+      res.status(400).json({ error: 'Código de cupom já existe ou é inválido.' });
+    }
+  });
+
+  app.delete('/api/coupons/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    models.deleteCoupon(id);
+    res.json({ success: true });
+  });
+
+  // ==========================================
   // CONFIGURAÇÕES GERAIS (PAINEL ADMIN)
   // ==========================================
   app.get('/api/settings', (req, res) => {
@@ -588,6 +616,12 @@ function createServer() {
       TELEGRAM_UPDATES_CHANNEL_ID: current.TELEGRAM_UPDATES_CHANNEL_ID || '',
       AUTO_POST_TRANSACTIONS: current.AUTO_POST_TRANSACTIONS !== 'false',
       MASK_CUSTOMER_NAME: current.MASK_CUSTOMER_NAME !== 'false',
+
+      // Recuperação de Carrinho & Upsell
+      ABANDONED_CART_ENABLED: current.ABANDONED_CART_ENABLED !== 'false',
+      ABANDONED_CART_DELAY_MIN: parseInt(current.ABANDONED_CART_DELAY_MIN || '15', 10),
+      ABANDONED_CART_MESSAGE: current.ABANDONED_CART_MESSAGE || '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no botão abaixo para pagar e receber seu acesso imediatamente:',
+      UPSELL_ENABLED: current.UPSELL_ENABLED !== 'false',
 
       // Regras de Negócio & Equipe
       GLOBAL_AFFILIATE_RATE: Number(current.GLOBAL_AFFILIATE_RATE || 20.0),
@@ -692,6 +726,20 @@ function createServer() {
     }
     if (body.SUPPORT_CONTACT !== undefined) {
       models.setSetting('SUPPORT_CONTACT', body.SUPPORT_CONTACT.trim());
+    }
+
+    // Recuperação de Carrinho & Upsell
+    if (body.ABANDONED_CART_ENABLED !== undefined) {
+      models.setSetting('ABANDONED_CART_ENABLED', String(body.ABANDONED_CART_ENABLED));
+    }
+    if (body.ABANDONED_CART_DELAY_MIN !== undefined) {
+      models.setSetting('ABANDONED_CART_DELAY_MIN', String(body.ABANDONED_CART_DELAY_MIN));
+    }
+    if (body.ABANDONED_CART_MESSAGE !== undefined) {
+      models.setSetting('ABANDONED_CART_MESSAGE', body.ABANDONED_CART_MESSAGE.trim());
+    }
+    if (body.UPSELL_ENABLED !== undefined) {
+      models.setSetting('UPSELL_ENABLED', String(body.UPSELL_ENABLED));
     }
 
     // URL Pública

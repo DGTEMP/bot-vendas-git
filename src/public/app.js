@@ -54,6 +54,7 @@ function switchTab(tabName) {
   if (tabName === 'affiliates') loadAffiliates();
   if (tabName === 'commissions') loadCommissions();
   if (tabName === 'channel') loadChannelTab();
+  if (tabName === 'coupons') loadCoupons();
 }
 
 // 2. CARREGAMENTO GERAL
@@ -68,7 +69,8 @@ async function loadAllData() {
     loadSellers(),
     loadAffiliates(),
     loadCommissions(),
-    loadOffers()
+    loadOffers(),
+    loadCoupons()
   ]);
 }
 
@@ -87,6 +89,18 @@ async function loadMetrics() {
     }
     if (document.getElementById('statTotalAffiliates')) {
       document.getElementById('statTotalAffiliates').innerText = data.totalAffiliates || 0;
+    }
+    if (document.getElementById('statRecoveredCount')) {
+      document.getElementById('statRecoveredCount').innerText = data.recoveredOrdersCount || 0;
+    }
+    if (document.getElementById('statRecoveredAmount')) {
+      document.getElementById('statRecoveredAmount').innerText = `R$ ${(data.recoveredRevenueBRL || 0).toFixed(2)}`;
+    }
+    if (document.getElementById('statUpsellCount')) {
+      document.getElementById('statUpsellCount').innerText = data.upsellOrdersCount || 0;
+    }
+    if (document.getElementById('statTotalCoupons')) {
+      document.getElementById('statTotalCoupons').innerText = data.totalCoupons || 0;
     }
 
     const wppBadge = document.getElementById('overviewWppStatus');
@@ -622,10 +636,26 @@ async function loadProducts() {
   }
 }
 
+function populateProductUpsellDropdown(excludeId = null) {
+  const select = document.getElementById('prodUpsellId');
+  if (!select) return;
+  let html = '<option value="">Nenhum (Desativado)</option>';
+  if (currentProducts && currentProducts.length > 0) {
+    currentProducts.forEach(p => {
+      if (excludeId && p.id === excludeId) return;
+      html += `<option value="${p.id}">${p.name} (R$ ${Number(p.price_brl || p.price).toFixed(2)})</option>`;
+    });
+  }
+  select.innerHTML = html;
+}
+
 function openProductModal() {
   document.getElementById('formProduct').reset();
   document.getElementById('prodId').value = '';
   document.getElementById('modalProductTitle').innerText = 'Novo Produto / Assinatura';
+  populateProductUpsellDropdown();
+  document.getElementById('prodUpsellDiscount').value = '20';
+  document.getElementById('prodUpsellHeadline').value = '';
   toggleProductTypeFields();
   document.getElementById('modalProduct').classList.add('active');
 }
@@ -661,6 +691,9 @@ async function saveProduct(e) {
   const content = document.getElementById('prodContent').value;
   const duration_days = parseInt(document.getElementById('prodDuration').value, 10) || 0;
   const telegram_channel_id = document.getElementById('prodChannelId').value;
+  const upsell_product_id = document.getElementById('prodUpsellId').value ? parseInt(document.getElementById('prodUpsellId').value, 10) : null;
+  const upsell_discount_percent = parseFloat(document.getElementById('prodUpsellDiscount').value) || 0;
+  const upsell_headline = document.getElementById('prodUpsellHeadline').value.trim();
 
   const payload = {
     name,
@@ -672,7 +705,10 @@ async function saveProduct(e) {
     type,
     content,
     duration_days,
-    telegram_channel_id
+    telegram_channel_id,
+    upsell_product_id,
+    upsell_discount_percent,
+    upsell_headline
   };
 
   try {
@@ -990,6 +1026,20 @@ async function loadSettings() {
       document.getElementById('cfgMaskCustomerName').checked = cfg.MASK_CUSTOMER_NAME !== false;
     }
 
+    // Recuperação de Carrinho & Upsell
+    if (document.getElementById('cfgAbandonedCartEnabled')) {
+      document.getElementById('cfgAbandonedCartEnabled').checked = cfg.ABANDONED_CART_ENABLED !== false;
+    }
+    if (document.getElementById('cfgAbandonedCartDelayMin')) {
+      document.getElementById('cfgAbandonedCartDelayMin').value = cfg.ABANDONED_CART_DELAY_MIN || 15;
+    }
+    if (document.getElementById('cfgAbandonedCartMessage')) {
+      document.getElementById('cfgAbandonedCartMessage').value = cfg.ABANDONED_CART_MESSAGE || '';
+    }
+    if (document.getElementById('cfgUpsellEnabled')) {
+      document.getElementById('cfgUpsellEnabled').checked = cfg.UPSELL_ENABLED !== false;
+    }
+
     // Atualiza status do canal na aba de Atualizações
     const lblStatus = document.getElementById('lblChannelConfigStatus');
     const lblId = document.getElementById('lblChannelIdText');
@@ -1079,6 +1129,10 @@ async function saveSettings(e) {
     TELEGRAM_UPDATES_CHANNEL_ID: document.getElementById('cfgTelegramUpdatesChannelId')?.value?.trim() || '',
     AUTO_POST_TRANSACTIONS: document.getElementById('cfgAutoPostTransactions')?.checked ?? true,
     MASK_CUSTOMER_NAME: document.getElementById('cfgMaskCustomerName')?.checked ?? true,
+    ABANDONED_CART_ENABLED: document.getElementById('cfgAbandonedCartEnabled')?.checked ?? true,
+    ABANDONED_CART_DELAY_MIN: parseInt(document.getElementById('cfgAbandonedCartDelayMin')?.value, 10) || 15,
+    ABANDONED_CART_MESSAGE: document.getElementById('cfgAbandonedCartMessage')?.value || '',
+    UPSELL_ENABLED: document.getElementById('cfgUpsellEnabled')?.checked ?? true,
     PUBLIC_URL: document.getElementById('cfgPublicUrl').value
   };
 
@@ -1096,5 +1150,135 @@ async function saveSettings(e) {
     loadMetrics();
   } catch (err) {
     alert('Erro ao salvar configurações: ' + err.message);
+  }
+}
+
+// ==========================================
+// 13. CUPONS DE DESCONTO
+// ==========================================
+async function loadCoupons() {
+  try {
+    const res = await fetch('/api/coupons');
+    const coupons = await res.json();
+
+    const tbody = document.querySelector('#tableCoupons tbody');
+    if (!tbody) return;
+
+    if (!coupons || coupons.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center">Nenhum cupom cadastrado ainda.</td></tr>';
+      return;
+    }
+
+    // Obter username do bot para gerar deep link
+    const tgUsername = document.getElementById('cfgTelegramBotUsername')?.value || '';
+
+    tbody.innerHTML = coupons.map(c => {
+      const discountStr = c.discount_percent 
+        ? `<b style="color:var(--color-green)">${c.discount_percent}% OFF</b>` 
+        : `<b style="color:var(--color-green)">R$ ${Number(c.discount_amount).toFixed(2)} OFF</b>`;
+      
+      const usesStr = c.max_uses > 0 
+        ? `${c.used_count} / ${c.max_uses}` 
+        : `${c.used_count} / ∞`;
+
+      const expStr = c.expires_at ? new Date(c.expires_at).toLocaleDateString('pt-BR') : 'Sem expiração';
+
+      const statusBadge = c.active 
+        ? '<span class="badge badge-paid">Ativo</span>' 
+        : '<span class="badge badge-canceled">Inativo</span>';
+
+      const tgLink = tgUsername 
+        ? `https://t.me/${tgUsername}?start=cupom_${c.code}` 
+        : `?start=cupom_${c.code}`;
+
+      return `
+        <tr>
+          <td><code style="font-size:14px; font-weight:bold; color:var(--primary-gold);">${c.code}</code></td>
+          <td>${discountStr}</td>
+          <td>${usesStr}</td>
+          <td><small>${expStr}</small></td>
+          <td>${statusBadge}</td>
+          <td>
+            <a href="${tgLink}" target="_blank" style="color:var(--primary-gold); font-size:12px; text-decoration:none;">
+              <i class="fa-brands fa-telegram"></i> <code>cupom_${c.code}</code>
+            </a>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-danger" onclick="deleteCoupon(${c.id})">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar cupons:', err);
+  }
+}
+
+function openCouponModal() {
+  document.getElementById('formCoupon').reset();
+  document.getElementById('couponDiscountPercent').value = '10';
+  document.getElementById('couponDiscountAmount').value = '';
+  document.getElementById('couponMaxUses').value = '0';
+  document.getElementById('couponExpiresAt').value = '';
+  toggleCouponTypeFields();
+  document.getElementById('modalCoupon').classList.add('active');
+}
+
+function closeCouponModal() {
+  document.getElementById('modalCoupon').classList.remove('active');
+}
+
+function toggleCouponTypeFields() {
+  const type = document.getElementById('couponType').value;
+  const grpPercent = document.getElementById('groupCouponPercent');
+  const grpAmount = document.getElementById('groupCouponAmount');
+
+  if (type === 'percent') {
+    grpPercent.style.display = 'block';
+    grpAmount.style.display = 'none';
+  } else {
+    grpPercent.style.display = 'none';
+    grpAmount.style.display = 'block';
+  }
+}
+
+async function saveCoupon(e) {
+  e.preventDefault();
+  const code = document.getElementById('couponCode').value.trim().toUpperCase();
+  const type = document.getElementById('couponType').value;
+  const discount_percent = type === 'percent' ? parseFloat(document.getElementById('couponDiscountPercent').value) || 0 : null;
+  const discount_amount = type === 'fixed' ? parseFloat(document.getElementById('couponDiscountAmount').value) || 0 : null;
+  const max_uses = parseInt(document.getElementById('couponMaxUses').value, 10) || 0;
+  const expires_at = document.getElementById('couponExpiresAt').value || null;
+
+  try {
+    const res = await fetch('/api/coupons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, discount_percent, discount_amount, max_uses, expires_at })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      closeCouponModal();
+      loadCoupons();
+      loadMetrics();
+    } else {
+      alert('Erro ao salvar cupom: ' + (data.error || 'Falha ao salvar'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function deleteCoupon(id) {
+  if (!confirm('Deseja realmente desativar/remover este cupom?')) return;
+  try {
+    await fetch(`/api/coupons/${id}`, { method: 'DELETE' });
+    loadCoupons();
+    loadMetrics();
+  } catch (err) {
+    alert('Erro ao excluir cupom: ' + err.message);
   }
 }
