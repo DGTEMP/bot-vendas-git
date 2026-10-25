@@ -25,6 +25,13 @@ function createServer() {
     console.log('🔔 [Binance Webhook Recebido]:', JSON.stringify(req.body));
 
     try {
+      // Validação de assinatura criptográfica Binance Pay
+      const isValidSig = binancePay.verifyWebhookSignature(req.headers, req.body);
+      if (!isValidSig) {
+        console.warn('⚠️ [Binance Webhook] Assinatura HMAC inválida rejeitada.');
+        return res.status(401).json({ returnCode: 'FAIL', returnMessage: 'Assinatura inválida' });
+      }
+
       const payload = req.body;
       let tradeNo = null;
       let status = null;
@@ -421,6 +428,92 @@ function createServer() {
     const { proofNote } = req.body;
     const paid = models.markCommissionPaid(id, proofNote || 'Pago pelo Painel Admin');
     res.json({ success: true, commission: paid });
+  });
+
+  // ==========================================
+  // EXPORTAÇÃO DE RELATÓRIOS (CSV UTF-8 BOM PARA EXCEL)
+  // ==========================================
+  function escapeCsv(val) {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  }
+
+  app.get('/api/export/orders.csv', (req, res) => {
+    const orders = models.getAllOrders(5000);
+    const header = ['ID', 'Pedido', 'Data', 'Plataforma', 'Usuario', 'Produto', 'Gateway', 'Valor', 'Moeda', 'Status', 'Afiliado', 'Vendedor', 'Pago_Em'].map(escapeCsv).join(';');
+    const lines = orders.map(o => [
+      o.id,
+      o.merchant_trade_no,
+      o.created_at,
+      o.platform,
+      o.platform_user_name || o.platform_user_id,
+      o.product_name,
+      o.gateway,
+      o.amount.toFixed(2),
+      o.currency,
+      o.status,
+      o.affiliate_name || '',
+      o.seller_name || '',
+      o.paid_at || ''
+    ].map(escapeCsv).join(';'));
+
+    const csvContent = '\uFEFF' + [header, ...lines].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="pedidos_paybot_${Date.now()}.csv"`);
+    res.send(csvContent);
+  });
+
+  app.get('/api/export/commissions.csv', (req, res) => {
+    const commissions = models.getAllCommissions(5000);
+    const header = ['ID', 'Pedido', 'Data', 'Beneficiario', 'Tipo', 'Produto', 'Valor_Comissao', 'Moeda', 'Taxa_Percentual', 'Status', 'Destino_Pagamento', 'Pago_Em', 'Comprovante'].map(escapeCsv).join(';');
+    const lines = commissions.map(c => [
+      c.id,
+      c.merchant_trade_no,
+      c.created_at,
+      c.beneficiary_name || '',
+      c.beneficiary_type,
+      c.product_name || '',
+      c.amount.toFixed(2),
+      c.currency,
+      c.rate_percent,
+      c.status,
+      c.payment_destination || '',
+      c.paid_at || '',
+      c.payment_proof || ''
+    ].map(escapeCsv).join(';'));
+
+    const csvContent = '\uFEFF' + [header, ...lines].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="comissoes_paybot_${Date.now()}.csv"`);
+    res.send(csvContent);
+  });
+
+  app.get('/api/export/affiliates.csv', (req, res) => {
+    const affiliates = models.getAffiliates(false);
+    const header = ['ID', 'Nome', 'Codigo_Ref', 'Email', 'Telefone', 'Telegram', 'Comissao_Percentual', 'Saldo_BRL', 'Saldo_USDT', 'Total_Pago_BRL', 'Total_Pago_USDT', 'Chave_Pix', 'Carteira_USDT', 'Status', 'Data_Cadastro'].map(escapeCsv).join(';');
+    const lines = affiliates.map(a => [
+      a.id,
+      a.name,
+      a.ref_code,
+      a.email || '',
+      a.phone || '',
+      a.telegram_username || '',
+      a.commission_rate,
+      (a.balance_brl || 0).toFixed(2),
+      (a.balance_usdt || 0).toFixed(2),
+      (a.total_paid_brl || 0).toFixed(2),
+      (a.total_paid_usdt || 0).toFixed(2),
+      a.pix_key || '',
+      a.usdt_wallet || '',
+      a.active ? 'Ativo' : 'Inativo',
+      a.created_at
+    ].map(escapeCsv).join(';'));
+
+    const csvContent = '\uFEFF' + [header, ...lines].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="afiliados_paybot_${Date.now()}.csv"`);
+    res.send(csvContent);
   });
 
   // ==========================================

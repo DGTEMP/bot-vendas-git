@@ -453,9 +453,14 @@
           <div class="card">
             <div class="card-header">
               <h3><i class="fa-solid fa-handshake orange"></i> Gestão de Afiliados & Links de Indicação</h3>
-              <button class="btn btn-primary" onclick="openAffiliateModal()">
-                <i class="fa-solid fa-plus"></i> Novo Afiliado
-              </button>
+              <div class="d-flex gap-2">
+                <a href="/api/export/affiliates.csv" class="btn btn-outline" download>
+                  <i class="fa-solid fa-file-csv"></i> Exportar CSV
+                </a>
+                <button class="btn btn-primary" onclick="openAffiliateModal()">
+                  <i class="fa-solid fa-plus"></i> Novo Afiliado
+                </button>
+              </div>
             </div>
             <div class="card-body">
               <p class="section-desc">Crie afiliados com códigos de rastreamento únicos. O sistema monitora vendas pelo Telegram e WhatsApp, credita o saldo e notifica o afiliado automaticamente.</p>
@@ -489,6 +494,9 @@
           <div class="card">
             <div class="card-header">
               <h3><i class="fa-solid fa-money-bill-transfer green"></i> Histórico de Comissões & Repasses</h3>
+              <a href="/api/export/commissions.csv" class="btn btn-outline" download>
+                <i class="fa-solid fa-file-csv"></i> Exportar CSV
+              </a>
             </div>
             <div class="card-body">
               <p class="section-desc">Todas as comissões geradas por vendas de afiliados e vendedores. Quando você fizer a transferência (PIX ou USDT), clique em <b>Marcar como Pago</b> para debitar o saldo.</p>
@@ -714,6 +722,9 @@
           <div class="card">
             <div class="card-header">
               <h3>Histórico de Pedidos & Faturas</h3>
+              <a href="/api/export/orders.csv" class="btn btn-outline" download>
+                <i class="fa-solid fa-file-csv"></i> Exportar CSV
+              </a>
             </div>
             <div class="table-responsive">
               <table class="table" id="tableOrders">

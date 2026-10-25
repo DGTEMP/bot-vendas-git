@@ -48,6 +48,7 @@ async function bootstrap() {
     console.log('\n🛑 Encerrando serviços graciosamente...');
     subscriptionCron.stop();
     await telegramBot.stop();
+    await whatsappBot.stop();
     server.close(() => {
       console.log('👋 Servidor finalizado com segurança.');
       process.exit(0);

@@ -742,3 +742,6 @@ body {
 .mt-2 { margin-top: 8px; }
 .mt-3 { margin-top: 16px; }
 .mt-4 { margin-top: 24px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 14px; }
+.d-flex { display: flex; align-items: center; }

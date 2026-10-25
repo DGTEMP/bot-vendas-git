@@ -11,9 +11,11 @@ if (!fs.existsSync(dbDir)) {
 
 const db = new DatabaseSync(config.dbPath);
 
-// Ativa WAL mode para alta concorrência
+// Ativa WAL mode para alta concorrência e resiliência
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
+db.exec('PRAGMA busy_timeout = 5000;');
+db.exec('PRAGMA synchronous = NORMAL;');
 
 function initDatabase() {
   // 1. Tabela de Configurações

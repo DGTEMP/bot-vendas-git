@@ -69,10 +69,26 @@ const models = {
   },
 
   popAvailableKey(productId, orderId) {
-    const key = db.prepare('SELECT * FROM inventory_keys WHERE product_id = ? AND is_used = 0 ORDER BY id ASC LIMIT 1').get(productId);
-    if (!key) return null;
-    db.prepare('UPDATE inventory_keys SET is_used = 1, used_by_order_id = ? WHERE id = ?').run(orderId, key.id);
-    return key.key_content;
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      const key = db.prepare('SELECT * FROM inventory_keys WHERE product_id = ? AND is_used = 0 ORDER BY id ASC LIMIT 1').get(productId);
+      if (!key) {
+        db.exec('COMMIT;');
+        return null;
+      }
+      const res = db.prepare('UPDATE inventory_keys SET is_used = 1, used_by_order_id = ? WHERE id = ? AND is_used = 0').run(orderId, key.id);
+      db.exec('COMMIT;');
+
+      if (res.changes === 0) {
+        // Concorrência evitada: tenta a próxima chave disponível
+        return models.popAvailableKey(productId, orderId);
+      }
+      return key.key_content;
+    } catch (err) {
+      try { db.exec('ROLLBACK;'); } catch (_) {}
+      console.error('[popAvailableKey Error]:', err.message);
+      return null;
+    }
   },
 
   // ==========================================

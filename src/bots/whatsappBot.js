@@ -22,11 +22,24 @@ class WhatsAppBotService {
     this.userReferrals = new Map(); // Armazena affiliate_id e ref_code por jid
   }
 
+  async stop() {
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners();
+        this.sock.end();
+      } catch (e) {}
+      this.sock = null;
+    }
+    this.isConnected = false;
+  }
+
   async start() {
     if (!config.whatsapp.enabled) {
       console.log('📱 [WhatsApp] Módulo desativado na configuração.');
       return;
     }
+
+    await this.stop();
 
     fulfillment.registerWhatsAppBot({
       sendMessage: (jid, text) => this.sendMessage(jid, text)
@@ -155,8 +168,8 @@ class WhatsAppBotService {
       return this.sendOrderStatus(from);
     }
 
-    // Atalhos diretos de pagamento: Ex "P1" (Pix produto 1) ou "C1" (Cripto produto 1)
-    const pixMatch = lower.match(/^p(\d+)$/);
+    // Atalhos diretos de pagamento: Ex "P1", "PIX 1", "C1", "CRIPTO 1"
+    const pixMatch = lower.match(/^(?:p|pix\s*)(\d+)$/);
     if (pixMatch) {
       const idx = parseInt(pixMatch[1], 10);
       const products = models.getProducts(true);
@@ -165,7 +178,7 @@ class WhatsAppBotService {
       }
     }
 
-    const bpayMatch = lower.match(/^c(\d+)$/);
+    const bpayMatch = lower.match(/^(?:c|cripto\s*|crypto\s*|usdt\s*)(\d+)$/);
     if (bpayMatch) {
       const idx = parseInt(bpayMatch[1], 10);
       const products = models.getProducts(true);
@@ -174,11 +187,12 @@ class WhatsAppBotService {
       }
     }
 
-    // Seleção de produto apenas com número (Ex: "1", "2")
-    const num = parseInt(text, 10);
-    if (!isNaN(num) && num > 0) {
+    // Seleção de produto: Ex "1", "QUERO 1", "COMPRAR 2"
+    const wantMatch = lower.match(/^(?:quero\s*(?:o\s*)?|comprar\s*(?:o\s*)?|item\s*)?(\d+)$/);
+    if (wantMatch) {
+      const num = parseInt(wantMatch[1], 10);
       const products = models.getProducts(true);
-      if (num <= products.length) {
+      if (!isNaN(num) && num > 0 && num <= products.length) {
         const product = products[num - 1];
         
         const isPix = models.getSetting('GATEWAY_PIX_ENABLED', 'true') === 'true';

@@ -25,6 +25,26 @@ class BinancePayService {
     return crypto.createHmac('sha512', secretKey).update(payload).digest('hex').toUpperCase();
   }
 
+  verifyWebhookSignature(headers, body) {
+    const { secretKey, isSimulated } = this.getCredentials();
+
+    if (isSimulated) {
+      return true; // No modo simulação permite testes e webhooks simulados
+    }
+
+    const timestamp = headers['binancepay-timestamp'] || headers['BinancePay-Timestamp'];
+    const nonce = headers['binancepay-nonce'] || headers['BinancePay-Nonce'];
+    const signature = headers['binancepay-signature'] || headers['BinancePay-Signature'];
+
+    if (!timestamp || !nonce || !signature || !secretKey) {
+      return false;
+    }
+
+    const bodyString = typeof body === 'string' ? body : JSON.stringify(body);
+    const expected = this.generateSignature(timestamp, nonce, bodyString, secretKey);
+    return signature.toUpperCase() === expected.toUpperCase();
+  }
+
   async createOrder({ merchantTradeNo, amount, currency = 'USDT', goodsName, goodsDetail, productId }) {
     const { apiKey, secretKey, isSimulated } = this.getCredentials();
 

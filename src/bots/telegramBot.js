@@ -25,6 +25,10 @@ class TelegramBotService {
     try {
       this.bot = new Telegraf(token);
 
+      this.bot.catch((err, ctx) => {
+        console.error(`[Telegram ⚠️ Erro interceptado em update ${ctx?.updateType}]:`, err.message);
+      });
+
       fulfillment.registerTelegramBot({
         sendMessage: (chatId, text) => this.sendMessage(chatId, text),
         createInviteLink: (channelId) => this.createInviteLink(channelId),
@@ -54,21 +58,38 @@ class TelegramBotService {
   }
 
   setupHandlers() {
-    // /start com suporte a Links de Afiliados (Deep-Linking: /start ref_CODIGO)
+    // /start com suporte a Links de Afiliados e Ofertas (Deep-Linking: /start ref_CODIGO ou /start buy_ID)
     this.bot.start(async (ctx) => {
       const userName = ctx.from.first_name || 'Cliente';
       const userId = String(ctx.from.id);
 
-      // Captura código de afiliado se presente no link
+      // Captura código de afiliado e/ou compra direta de produto se presente no link
       if (ctx.startPayload) {
-        const cleanCode = ctx.startPayload.replace(/^ref_/, '').toUpperCase();
-        const affiliate = models.getAffiliateByCode(cleanCode);
-        if (affiliate) {
-          this.userReferrals.set(userId, {
-            affiliate_id: affiliate.id,
-            ref_code: affiliate.ref_code
-          });
-          console.log(`[Telegram 🤝] Usuário ${userId} (${userName}) vinculado ao afiliado ${affiliate.name} (#${affiliate.ref_code})`);
+        const payload = ctx.startPayload;
+
+        // 1. Vincula afiliado se presente (ex: ref_CODIGO ou ref_CODIGO_buy_1)
+        const refMatch = payload.match(/ref_([a-zA-Z0-9_-]+)/i);
+        if (refMatch) {
+          const cleanCode = refMatch[1].split('_')[0].toUpperCase();
+          const affiliate = models.getAffiliateByCode(cleanCode);
+          if (affiliate) {
+            this.userReferrals.set(userId, {
+              affiliate_id: affiliate.id,
+              ref_code: affiliate.ref_code
+            });
+            console.log(`[Telegram 🤝] Usuário ${userId} (${userName}) vinculado ao afiliado ${affiliate.name} (#${affiliate.ref_code})`);
+          }
+        }
+
+        // 2. Compra direta vinda do canal de ofertas (ex: buy_1 ou ref_TOPVIP_buy_1)
+        const buyMatch = payload.match(/buy_(\d+)/i);
+        if (buyMatch) {
+          const productId = parseInt(buyMatch[1], 10);
+          const product = models.getProductById(productId);
+          if (product && product.active) {
+            console.log(`[Telegram ⚡ Checkout Direto de Oferta] Abrindo item #${product.id} (${product.name}) para ${userName}`);
+            return this.showProductDetails(ctx, product, false);
+          }
         }
       }
 
@@ -130,47 +151,7 @@ class TelegramBotService {
     this.bot.action(/^buy_(\d+)$/, async (ctx) => {
       const productId = parseInt(ctx.match[1], 10);
       const product = models.getProductById(productId);
-
-      if (!product || !product.active) {
-        return ctx.answerCbQuery('Produto indisponível no momento.');
-      }
-
-      if (product.type === 'license_key') {
-        const available = models.getAvailableKeyCount(product.id);
-        if (available <= 0) {
-          return ctx.reply('⚠️ Desculpe, o estoque deste item está esgotado no momento.');
-        }
-      }
-
-      const isPix = models.getSetting('GATEWAY_PIX_ENABLED', 'true') === 'true';
-      const isBinance = models.getSetting('GATEWAY_BINANCE_ENABLED', 'true') === 'true';
-      const isLivepix = models.getSetting('GATEWAY_LIVEPIX_ENABLED', 'false') === 'true';
-
-      const buttons = [];
-      const brlPrice = product.price_brl || product.price;
-      const usdtPrice = product.price_usdt || (brlPrice / 5.5).toFixed(2);
-
-      if (isPix) {
-        buttons.push([Markup.button.callback(`🟢 Pagar com PIX (R$ ${Number(brlPrice).toFixed(2)})`, `pay_pix_${product.id}`)]);
-      }
-      if (isBinance) {
-        buttons.push([Markup.button.callback(`🟡 Pagar com Binance Pay (${Number(usdtPrice).toFixed(2)} USDT)`, `pay_bpay_${product.id}`)]);
-      }
-      if (isLivepix) {
-        buttons.push([Markup.button.callback(`💜 Pagar via LivePix (Apoiador)`, `pay_lpix_${product.id}`)]);
-      }
-
-      buttons.push([Markup.button.callback('⬅️ Voltar aos Produtos', 'nav_products')]);
-
-      const detailsText = `📦 *${product.name}*\n\n` +
-        (product.description ? `_${product.description}_\n\n` : '') +
-        `💵 *Preço:* R$ ${Number(brlPrice).toFixed(2)} ou ${Number(usdtPrice).toFixed(2)} USDT\n\n` +
-        `Como deseja efetuar o pagamento?`;
-
-      await ctx.editMessageText(detailsText, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(buttons)
-      });
+      await this.showProductDetails(ctx, product, true);
     });
 
     // 1. Processar Pagamento via PIX (Mercado Pago / Dinâmico)
@@ -450,6 +431,55 @@ class TelegramBotService {
       await ctx.editMessageText(msg, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
     } else {
       await ctx.replyWithMarkdown(msg, Markup.inlineKeyboard(buttons));
+    }
+  }
+
+  async showProductDetails(ctx, product, isEdit = true) {
+    if (!product || !product.active) {
+      if (ctx.callbackQuery) return ctx.answerCbQuery('Produto indisponível no momento.');
+      return ctx.reply('⚠️ Produto indisponível no momento.');
+    }
+
+    if (product.type === 'license_key') {
+      const available = models.getAvailableKeyCount(product.id);
+      if (available <= 0) {
+        if (ctx.callbackQuery) return ctx.answerCbQuery('Estoque esgotado.');
+        return ctx.reply('⚠️ Desculpe, o estoque deste item está esgotado no momento.');
+      }
+    }
+
+    const isPix = models.getSetting('GATEWAY_PIX_ENABLED', 'true') === 'true';
+    const isBinance = models.getSetting('GATEWAY_BINANCE_ENABLED', 'true') === 'true';
+    const isLivepix = models.getSetting('GATEWAY_LIVEPIX_ENABLED', 'false') === 'true';
+
+    const buttons = [];
+    const brlPrice = product.price_brl || product.price;
+    const usdtPrice = product.price_usdt || (brlPrice / 5.5).toFixed(2);
+
+    if (isPix) {
+      buttons.push([Markup.button.callback(`🟢 Pagar com PIX (R$ ${Number(brlPrice).toFixed(2)})`, `pay_pix_${product.id}`)]);
+    }
+    if (isBinance) {
+      buttons.push([Markup.button.callback(`🟡 Pagar com Binance Pay (${Number(usdtPrice).toFixed(2)} USDT)`, `pay_bpay_${product.id}`)]);
+    }
+    if (isLivepix) {
+      buttons.push([Markup.button.callback(`💜 Pagar via LivePix (Apoiador)`, `pay_lpix_${product.id}`)]);
+    }
+
+    buttons.push([Markup.button.callback('⬅️ Voltar ao Início', 'nav_main')]);
+
+    const detailsText = `📦 *${product.name}*\n\n` +
+      (product.description ? `_${product.description}_\n\n` : '') +
+      `💵 *Preço:* R$ ${Number(brlPrice).toFixed(2)} ou ${Number(usdtPrice).toFixed(2)} USDT\n\n` +
+      `Como deseja efetuar o pagamento?`;
+
+    if (isEdit && ctx.callbackQuery) {
+      await ctx.editMessageText(detailsText, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
+    } else {
+      await ctx.replyWithMarkdown(detailsText, Markup.inlineKeyboard(buttons));
     }
   }
 
