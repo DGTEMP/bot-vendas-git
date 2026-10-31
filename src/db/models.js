@@ -2402,10 +2402,12 @@ const models = {
 
     // Cria cupom exclusivo na tabela de cupons
     const couponCode = `FIDELIDADE_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-    db.prepare(`
-      INSERT INTO coupons (code, type, value, max_uses, current_uses, active)
-      VALUES (?, 'PERCENT', 15.0, 1, 0, 1)
-    `).run(couponCode);
+    models.createCoupon({
+      code: couponCode,
+      discount_percent: 15.0,
+      discount_amount: 0,
+      max_uses: 1
+    });
 
     return {
       success: true,

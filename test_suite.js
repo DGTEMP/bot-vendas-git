@@ -14,9 +14,12 @@ const socialMediaService = require('./src/services/socialMediaService');
 let passedTests = 0;
 let failedTests = 0;
 
-function runTest(name, fn) {
+async function runTest(name, fn) {
   try {
-    fn();
+    const res = fn();
+    if (res && typeof res.then === 'function') {
+      await res;
+    }
     console.log(`  ✅ [PASS] ${name}`);
     passedTests++;
   } catch (err) {
@@ -193,7 +196,7 @@ async function main() {
   });
 
   runTest('Criação de Afiliado com Código Único', () => {
-    const uniqueRef = 'TESTREF' + Date.now().toString().slice(-4);
+    const uniqueRef = 'TR' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 900 + 100);
     testAffiliate = models.createAffiliate({
       name: 'Afiliado Teste Unitário',
       email: 'afiliado.unit@paybot.com',
@@ -214,7 +217,7 @@ async function main() {
     // Afiliado recém-criado sem vendas
     const freshAffiliate = models.createAffiliate({
       name: 'Afiliado Iniciante Sem Vendas',
-      ref_code: 'INICIA_' + Date.now().toString().slice(-4),
+      ref_code: 'IN_' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 900 + 100),
       pix_key: 'iniciante@pix.com'
     });
 
@@ -2110,11 +2113,11 @@ async function main() {
 
   await runTest('Gata Nina: Gamificação, Nível de Fidelidade & Resgate de Cupons', async () => {
     const gataFeatures = require('./src/services/gataFeaturesService');
-    const userPhone = '5511999112233';
+    const userPhone = '55119' + Date.now().toString().slice(-7) + Math.floor(Math.random() * 90 + 10);
 
     // 1. Perfil Inicial
     const initial = models.getUserLoyalty('whatsapp', userPhone, 'Jogador Teste');
-    assert.strictEqual(initial.points, 0);
+    assert.strictEqual(initial.points, 50, 'Novo usuário ganha 50 pontos iniciais de boas-vindas');
     assert.strictEqual(initial.level, 1);
 
     // 2. Tentativa de resgate sem saldo suficiente

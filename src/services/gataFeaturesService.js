@@ -759,7 +759,7 @@ class GataFeaturesService {
   async handlePerfil(sock, from, userPhone, userName) {
     const cleanPhone = String(userPhone).replace(/\D/g, '');
     const loyalty = models.getUserLoyalty('whatsapp', cleanPhone, userName);
-    const orders = models.getAllOrders(100).filter(o => o.platform === 'whatsapp' && o.platform_user_id.includes(cleanPhone) && o.status === 'PAID');
+    const orders = models.getAllOrders(100).filter(o => o.platform === 'whatsapp' && o.platform_user_id && String(o.platform_user_id).includes(cleanPhone) && o.status === 'PAID');
 
     const totalOrders = orders.length;
     const warnsCount = models.getWarningsCount(from, cleanPhone);
