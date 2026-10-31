@@ -257,8 +257,31 @@ function createServer() {
     res.json(categories);
   });
 
+  app.get('/api/products/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const product = models.getProductById(id);
+    if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
+    res.json(product);
+  });
+
+  app.get('/api/products/:id/sellers', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    res.json(models.getProductSellers(id));
+  });
+
+  app.post('/api/products/:id/sellers', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { seller_ids } = req.body;
+    const sellers = models.setProductSellers(id, seller_ids || []);
+    res.json(sellers);
+  });
+
   app.post('/api/products', (req, res) => {
-    const { name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category } = req.body;
+    const { 
+      name, description, price, price_brl, price_usdt, currency, type, duration_days, 
+      content, telegram_channel_id, upsell_product_id, upsell_discount_percent, 
+      upsell_headline, company_id, category, affiliation_enabled, custom_affiliate_rate, seller_ids 
+    } = req.body;
     if (!name || !type) {
       return res.status(400).json({ error: 'Campos nome e tipo são obrigatórios.' });
     }
@@ -277,7 +300,10 @@ function createServer() {
       upsell_discount_percent: Number(upsell_discount_percent || 20.0),
       upsell_headline,
       company_id: company_id ? Number(company_id) : null,
-      category: category ? category.trim() : 'Geral'
+      category: category ? category.trim() : 'Geral',
+      affiliation_enabled: affiliation_enabled !== undefined ? (affiliation_enabled ? 1 : 0) : 1,
+      custom_affiliate_rate: custom_affiliate_rate !== undefined && custom_affiliate_rate !== null && custom_affiliate_rate !== '' ? Number(custom_affiliate_rate) : null,
+      seller_ids: Array.isArray(seller_ids) ? seller_ids : []
     });
     res.json(created);
   });

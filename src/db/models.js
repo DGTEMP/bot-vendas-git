@@ -17,17 +17,60 @@ const models = {
          LEFT JOIN companies c ON p.company_id = c.id
          LEFT JOIN products u ON p.upsell_product_id = u.id
          ORDER BY p.id ASC`;
-    return db.prepare(sql).all();
+    const products = db.prepare(sql).all();
+    for (const p of products) {
+      if (p.type === 'license_key') {
+        p.availableStock = models.getAvailableKeyCount(p.id);
+      }
+      p.assigned_seller_ids = models.getProductSellerIds(p.id);
+      p.assigned_sellers = models.getProductSellers(p.id);
+    }
+    return products;
   },
 
   getProductById(id) {
-    return db.prepare(`
+    const product = db.prepare(`
       SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
       FROM products p
       LEFT JOIN companies c ON p.company_id = c.id
       LEFT JOIN products u ON p.upsell_product_id = u.id
       WHERE p.id = ?
     `).get(id);
+
+    if (product) {
+      if (product.type === 'license_key') {
+        product.availableStock = models.getAvailableKeyCount(product.id);
+      }
+      product.assigned_seller_ids = models.getProductSellerIds(product.id);
+      product.assigned_sellers = models.getProductSellers(product.id);
+    }
+    return product;
+  },
+
+  getProductSellerIds(productId) {
+    const rows = db.prepare('SELECT seller_id FROM seller_products WHERE product_id = ?').all(productId);
+    return rows.map(r => r.seller_id);
+  },
+
+  getProductSellers(productId) {
+    return db.prepare(`
+      SELECT s.id, s.name, s.email, s.phone, s.telegram_username, s.commission_rate, s.active
+      FROM seller_products sp
+      JOIN sellers s ON sp.seller_id = s.id
+      WHERE sp.product_id = ?
+      ORDER BY s.name ASC
+    `).all(productId);
+  },
+
+  setProductSellers(productId, sellerIds = []) {
+    db.prepare('DELETE FROM seller_products WHERE product_id = ?').run(productId);
+    if (Array.isArray(sellerIds) && sellerIds.length > 0) {
+      const insert = db.prepare('INSERT OR IGNORE INTO seller_products (seller_id, product_id) VALUES (?, ?)');
+      for (const sid of sellerIds) {
+        if (sid) insert.run(Number(sid), productId);
+      }
+    }
+    return models.getProductSellers(productId);
   },
 
   getCategories() {
@@ -35,13 +78,13 @@ const models = {
     return rows.map(r => r.category);
   },
 
-  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral' }) {
+  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral', affiliation_enabled = 1, custom_affiliate_rate = null, seller_ids = [] }) {
     const brl = price_brl !== null ? Number(price_brl) : Number(price);
     const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
     
     const stmt = db.prepare(`
-      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category, affiliation_enabled, custom_affiliate_rate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const res = stmt.run(
       name, 
@@ -58,38 +101,69 @@ const models = {
       Number(upsell_discount_percent || 20.0), 
       upsell_headline || null,
       company_id ? Number(company_id) : null,
-      category || 'Geral'
+      category || 'Geral',
+      affiliation_enabled ? 1 : 0,
+      custom_affiliate_rate !== null && custom_affiliate_rate !== undefined && custom_affiliate_rate !== '' ? Number(custom_affiliate_rate) : null
     );
-    return models.getProductById(Number(res.lastInsertRowid));
+    const prodId = Number(res.lastInsertRowid);
+    if (Array.isArray(seller_ids) && seller_ids.length > 0) {
+      models.setProductSellers(prodId, seller_ids);
+    }
+    return models.getProductById(prodId);
   },
 
-  updateProduct(id, { name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral', active = 1 }) {
-    const brl = price_brl !== null ? Number(price_brl) : Number(price);
-    const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
+  updateProduct(id, data = {}) {
+    const existing = models.getProductById(id);
+    if (!existing) throw new Error('Produto não encontrado');
+
+    const name = data.name !== undefined ? data.name : existing.name;
+    const description = data.description !== undefined ? data.description : existing.description;
+    const price_brl = data.price_brl !== undefined ? Number(data.price_brl) : (data.price !== undefined ? Number(data.price) : Number(existing.price_brl || existing.price));
+    const price_usdt = data.price_usdt !== undefined ? Number(data.price_usdt) : Number(existing.price_usdt || (price_brl / 5.5).toFixed(2));
+    const currency = data.currency !== undefined ? data.currency : (existing.currency || 'BRL');
+    const type = data.type !== undefined ? data.type : existing.type;
+    const duration_days = data.duration_days !== undefined ? Number(data.duration_days) : Number(existing.duration_days || 0);
+    const content = data.content !== undefined ? data.content : existing.content;
+    const telegram_channel_id = data.telegram_channel_id !== undefined ? data.telegram_channel_id : existing.telegram_channel_id;
+    const upsell_product_id = data.upsell_product_id !== undefined ? (data.upsell_product_id ? Number(data.upsell_product_id) : null) : existing.upsell_product_id;
+    const upsell_discount_percent = data.upsell_discount_percent !== undefined ? Number(data.upsell_discount_percent) : Number(existing.upsell_discount_percent || 20.0);
+    const upsell_headline = data.upsell_headline !== undefined ? data.upsell_headline : existing.upsell_headline;
+    const company_id = data.company_id !== undefined ? (data.company_id ? Number(data.company_id) : null) : existing.company_id;
+    const category = data.category !== undefined ? (data.category ? data.category.trim() : 'Geral') : (existing.category || 'Geral');
+    const active = data.active !== undefined ? (data.active ? 1 : 0) : (existing.active ? 1 : 0);
+    const affiliation_enabled = data.affiliation_enabled !== undefined ? (data.affiliation_enabled ? 1 : 0) : (existing.affiliation_enabled !== undefined ? existing.affiliation_enabled : 1);
+    const custom_affiliate_rate = data.custom_affiliate_rate !== undefined ? (data.custom_affiliate_rate !== null && data.custom_affiliate_rate !== '' ? Number(data.custom_affiliate_rate) : null) : existing.custom_affiliate_rate;
 
     db.prepare(`
       UPDATE products 
-      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, company_id = ?, category = ?, active = ?
+      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, company_id = ?, category = ?, active = ?, affiliation_enabled = ?, custom_affiliate_rate = ?
       WHERE id = ?
     `).run(
       name, 
       description || null, 
-      brl, 
-      brl, 
-      usdt, 
+      price_brl, 
+      price_brl, 
+      price_usdt, 
       currency, 
       type, 
-      Number(duration_days || 0), 
+      duration_days, 
       content || null, 
       telegram_channel_id || null, 
-      upsell_product_id ? Number(upsell_product_id) : null, 
-      Number(upsell_discount_percent || 20.0), 
+      upsell_product_id, 
+      upsell_discount_percent, 
       upsell_headline || null, 
-      company_id ? Number(company_id) : null,
-      category || 'Geral',
-      active ? 1 : 0, 
+      company_id, 
+      category, 
+      active, 
+      affiliation_enabled, 
+      custom_affiliate_rate, 
       id
     );
+
+    if (data.seller_ids !== undefined && Array.isArray(data.seller_ids)) {
+      models.setProductSellers(id, data.seller_ids);
+    }
+
     return models.getProductById(id);
   },
 
@@ -918,6 +992,9 @@ const models = {
 
     if (!affiliate) throw new Error('Afiliado não encontrado.');
     if (!product) throw new Error('Produto não encontrado.');
+    if (product.affiliation_enabled === 0) {
+      throw new Error('Este produto não está disponível para afiliação no momento.');
+    }
 
     const existing = db.prepare('SELECT * FROM product_affiliations WHERE affiliate_id = ? AND product_id = ?').get(affiliate_id, product_id);
 
@@ -1017,6 +1094,9 @@ const models = {
   isAffiliateApprovedForProduct(affiliateId, productId) {
     const affiliate = models.getAffiliateById(affiliateId);
     if (!affiliate || !affiliate.active) return false;
+
+    const product = models.getProductById(productId);
+    if (!product || product.affiliation_enabled === 0) return false;
 
     const restricted = models.getSetting('AFFILIATION_PRODUCT_RESTRICTED', 'false') === 'true';
     const record = db.prepare('SELECT status FROM product_affiliations WHERE affiliate_id = ? AND product_id = ?').get(affiliateId, productId);

@@ -120,7 +120,9 @@ class FulfillmentService {
         const isApproved = models.isAffiliateApprovedForProduct(affiliate.id, product.id);
 
         if (isApproved) {
-          const rate = affiliate.commission_rate || 20.0;
+          const rate = (product.custom_affiliate_rate !== null && product.custom_affiliate_rate !== undefined && Number(product.custom_affiliate_rate) > 0)
+            ? Number(product.custom_affiliate_rate)
+            : (affiliate.commission_rate || 20.0);
           const commAmount = Number(((order.amount * rate) / 100).toFixed(2));
 
           models.createCommission({

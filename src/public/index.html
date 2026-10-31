@@ -891,6 +891,39 @@
                 <i class="fa-solid fa-plus"></i> Novo Produto / Plano
               </button>
             </div>
+            
+            <!-- Barra de Filtros por Categoria, Empresa e Status -->
+            <div class="filter-bar" style="display: flex; gap: 15px; padding: 15px 20px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-color); flex-wrap: wrap; align-items: center;">
+              <div style="flex: 1; min-width: 180px;">
+                <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; display: block;">Filtrar Categoria</label>
+                <select id="filterProdCategory" class="form-control" onchange="filterProducts()">
+                  <option value="">Todas as Categorias</option>
+                </select>
+              </div>
+              <div style="flex: 1; min-width: 180px;">
+                <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; display: block;">Filtrar Empresa</label>
+                <select id="filterProdCompany" class="form-control" onchange="filterProducts()">
+                  <option value="">Todas as Empresas</option>
+                </select>
+              </div>
+              <div style="flex: 1; min-width: 180px;">
+                <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; display: block;">Filtrar Afiliação</label>
+                <select id="filterProdAffiliation" class="form-control" onchange="filterProducts()">
+                  <option value="">Todas as Afiliações</option>
+                  <option value="enabled">Disponível para Afiliados</option>
+                  <option value="disabled">Afiliação Bloqueada</option>
+                </select>
+              </div>
+              <div style="flex: 1; min-width: 180px;">
+                <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; display: block;">Status do Produto</label>
+                <select id="filterProdActive" class="form-control" onchange="filterProducts()">
+                  <option value="">Todos os Status</option>
+                  <option value="1">Apenas Ativos</option>
+                  <option value="0">Apenas Inativos</option>
+                </select>
+              </div>
+            </div>
+
             <div class="table-responsive">
               <table class="table" id="tableProducts">
                 <thead>
@@ -903,12 +936,14 @@
                     <th>Preço (PIX)</th>
                     <th>Preço (USDT)</th>
                     <th>Duração / Estoque</th>
+                    <th>Afiliação</th>
+                    <th>Vendedores</th>
                     <th>Status</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colspan="10" class="text-center">Carregando produtos...</td></tr>
+                  <tr><td colspan="12" class="text-center">Carregando produtos...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1100,6 +1135,13 @@
             <input type="text" id="prodCategory" class="form-control" placeholder="Ex: Cursos, Softwares, Sinais VIP" list="listCategories">
             <datalist id="listCategories"></datalist>
           </div>
+          <div class="form-group" style="width: 140px;">
+            <label>Status</label>
+            <select id="prodActive" class="form-control">
+              <option value="1">Ativo</option>
+              <option value="0">Inativo</option>
+            </select>
+          </div>
         </div>
         <div class="form-group">
           <label>Descrição Breve</label>
@@ -1163,9 +1205,34 @@
           </div>
         </div>
 
+        <!-- CONFIGURAÇÃO DE AFILIAÇÃO DO PRODUTO -->
+        <div class="form-group mt-3" style="border-top: 1px solid var(--border-color, #2a2e39); padding-top: 15px;">
+          <label><i class="fa-solid fa-users gold"></i> Configurações de Afiliação deste Produto</label>
+          <div style="display: flex; gap: 20px; align-items: center; margin-top: 8px; margin-bottom: 10px;">
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: normal; margin-bottom: 0;">
+              <input type="checkbox" id="prodAffiliationEnabled" checked>
+              <span><b>Disponível para Afiliação</b> (Permite pedidos de afiliação e vendas comissionadas)</span>
+            </label>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>Comissão Personalizada do Produto (%):</label>
+            <input type="number" step="0.5" min="0" max="100" id="prodCustomAffiliateRate" class="form-control" placeholder="Deixe em branco para usar a comissão padrão do afiliado">
+            <small style="color: var(--text-muted); font-size: 11px;">Opcional. Se preenchido, substitui a taxa geral do afiliado nas vendas deste produto específico.</small>
+          </div>
+        </div>
+
+        <!-- ATRIBUIÇÃO DIRETA DE VENDEDORES -->
+        <div class="form-group mt-3" style="border-top: 1px solid var(--border-color, #2a2e39); padding-top: 15px;">
+          <label><i class="fa-solid fa-user-tag gold"></i> Vendedores Autorizados a Vender este Produto</label>
+          <p class="section-desc" style="font-size: 12px; margin-bottom: 8px;">Marque quais vendedores podem comercializar este produto. Se nenhum for marcado, todos os vendedores com catálogo aberto terão acesso.</p>
+          <div id="prodSellersChecklist" class="checklist-box" style="max-height: 140px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;">
+            <!-- Checkboxes dos vendedores gerados dinamicamente -->
+          </div>
+        </div>
+
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeProductModal()">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Salvar Produto</button>
+          <button type="submit" id="btnSaveProduct" class="btn btn-primary">Salvar Produto</button>
         </div>
       </form>
     </div>

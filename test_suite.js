@@ -92,6 +92,30 @@ async function main() {
     assert.strictEqual(testProdSub.duration_days, 30);
   });
 
+  runTest('Edição Completa de Produto e Atribuição Direta de Vendedores', () => {
+    // Atualiza o produto digital com novos dados, categoria e atribui vendedores
+    const updated = models.updateProduct(testProdDigital.id, {
+      name: 'E-book Cripto Trader 2026 - Edição Deluxe',
+      description: 'Guia definitivo com mais de 30 estratégias testadas',
+      price_brl: 59.90,
+      price_usdt: 12.00,
+      category: 'Finanças & Cripto',
+      affiliation_enabled: 1,
+      custom_affiliate_rate: 35.0,
+      seller_ids: [1, 2]
+    });
+
+    assert.strictEqual(updated.name, 'E-book Cripto Trader 2026 - Edição Deluxe');
+    assert.strictEqual(updated.price_brl, 59.90);
+    assert.strictEqual(updated.price_usdt, 12.00);
+    assert.strictEqual(updated.category, 'Finanças & Cripto');
+    assert.strictEqual(updated.affiliation_enabled, 1);
+    assert.strictEqual(updated.custom_affiliate_rate, 35.0);
+    assert(Array.isArray(updated.assigned_seller_ids));
+    assert(updated.assigned_seller_ids.includes(1));
+    assert(updated.assigned_seller_ids.includes(2));
+  });
+
   // ----------------------------------------------------------------
   // 2. TESTES DE EQUIPES DE VENDAS & AFILIADOS
   // ----------------------------------------------------------------
@@ -233,6 +257,31 @@ async function main() {
     models.setSetting('AFFILIATION_PRODUCT_RESTRICTED', 'false');
   });
 
+  runTest('Validação de Bloqueio de Afiliação por Produto (affiliation_enabled = 0)', () => {
+    // Cria produto exclusivo sem permissão para afiliados
+    const privateProd = models.createProduct({
+      name: 'Mentoria Privada 1on1',
+      price: 1500.00,
+      type: 'digital_link',
+      category: 'Mentorias',
+      affiliation_enabled: 0
+    });
+
+    assert.strictEqual(privateProd.affiliation_enabled, 0);
+
+    // Afiliado ativo tenta solicitar afiliação para este produto restrito
+    assert.throws(() => {
+      models.requestProductAffiliation({
+        affiliate_id: testAffiliate.id,
+        product_id: privateProd.id
+      });
+    }, /não está disponível para afiliação/);
+
+    // Verifica que não está aprovado
+    const approved = models.isAffiliateApprovedForProduct(testAffiliate.id, privateProd.id);
+    assert.strictEqual(approved, false);
+  });
+
   // ----------------------------------------------------------------
   // 3. TESTES DE GATEWAYS DE PAGAMENTO (PIX & BINANCE)
   // ----------------------------------------------------------------
@@ -337,6 +386,32 @@ async function main() {
     assert.strictEqual(paidComm.status, 'PAID');
     const reloadedAffiliate = models.getAffiliateById(testAffiliate.id);
     assert.strictEqual(reloadedAffiliate.balance_brl, updatedAffiliate.balance_brl - expectedComm, 'Saldo deve ter sido debitado');
+  });
+
+  await runAsyncTest('Comissão Personalizada por Produto no Fulfillment (custom_affiliate_rate)', async () => {
+    // testProdDigital foi configurado com custom_affiliate_rate: 35.0
+    // testAffiliate tem commission_rate padrão de 20.0
+    const tradeNo = 'ORD_CUSTOM_RATE_' + Date.now();
+    const order = models.createOrder({
+      merchant_trade_no: tradeNo,
+      platform: 'telegram',
+      platform_user_id: '88776655',
+      platform_user_name: 'CustomRateTester',
+      product_id: testProdDigital.id,
+      gateway: 'mercadopago',
+      amount: 100.00,
+      currency: 'BRL',
+      affiliate_id: testAffiliate.id,
+      status: 'PAID'
+    });
+
+    const initBal = models.getAffiliateById(testAffiliate.id).balance_brl;
+    await fulfillment.fulfillOrder(tradeNo);
+    const endBal = models.getAffiliateById(testAffiliate.id).balance_brl;
+
+    // A taxa do produto (35%) deve prevalecer sobre a do afiliado (20%) -> 35.00 BRL
+    const diff = Number((endBal - initBal).toFixed(2));
+    assert.strictEqual(diff, 35.00, `Esperava comissão personalizada de 35.00 BRL, mas recebeu ${diff}`);
   });
 
   await runAsyncTest('Ativação de Assinatura VIP + Cálculo de Expiração', async () => {
@@ -645,6 +720,45 @@ async function main() {
     const found = getQueue.data.find(q => q.id === postReq.data.id);
     assert(found !== undefined);
     assert(found.criteria !== undefined, 'Deve conter métricas avaliadas do afiliado');
+  });
+
+  await runAsyncTest('Endpoints de Edição de Produtos e Vendedores (/api/products/:id & sellers)', async () => {
+    const getRes = await fetchApi(`/api/products/${testProdDigital.id}`);
+    assert.strictEqual(getRes.status, 200);
+    assert.strictEqual(getRes.data.id, testProdDigital.id);
+    assert.strictEqual(getRes.data.category, 'Finanças & Cripto');
+
+    // PUT atualizando dados do produto e lista de vendedores
+    const putRes = await fetchApi(`/api/products/${testProdDigital.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'E-book Cripto Trader 2026 - Edição Final API',
+        category: 'Criptomoedas',
+        seller_ids: [testSeller.id]
+      })
+    });
+    assert.strictEqual(putRes.status, 200);
+    assert.strictEqual(putRes.data.name, 'E-book Cripto Trader 2026 - Edição Final API');
+    assert.strictEqual(putRes.data.category, 'Criptomoedas');
+    assert(putRes.data.assigned_seller_ids.includes(testSeller.id));
+
+    // GET /api/products/:id/sellers
+    const getSellersRes = await fetchApi(`/api/products/${testProdDigital.id}/sellers`);
+    assert.strictEqual(getSellersRes.status, 200);
+    assert(Array.isArray(getSellersRes.data));
+    assert(getSellersRes.data.some(s => s.id === testSeller.id));
+
+    // POST /api/products/:id/sellers
+    const postSellersRes = await fetchApi(`/api/products/${testProdDigital.id}/sellers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        seller_ids: [testSeller.id]
+      })
+    });
+    assert.strictEqual(postSellersRes.status, 200);
+    assert(Array.isArray(postSellersRes.data));
   });
 
   await new Promise(resolve => testServer.close(resolve));

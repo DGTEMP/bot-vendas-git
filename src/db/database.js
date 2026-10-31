@@ -254,7 +254,9 @@ function initDatabase() {
     'ALTER TABLE products ADD COLUMN upsell_discount_percent REAL DEFAULT 20.0;',
     'ALTER TABLE products ADD COLUMN upsell_headline TEXT;',
     'ALTER TABLE products ADD COLUMN company_id INTEGER;',
-    'ALTER TABLE products ADD COLUMN category TEXT DEFAULT "Geral";'
+    'ALTER TABLE products ADD COLUMN category TEXT DEFAULT "Geral";',
+    'ALTER TABLE products ADD COLUMN affiliation_enabled INTEGER DEFAULT 1;',
+    'ALTER TABLE products ADD COLUMN custom_affiliate_rate REAL DEFAULT NULL;'
   ];
 
   for (const m of migrations) {

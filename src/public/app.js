@@ -3,6 +3,7 @@
 let currentProducts = [];
 let currentCompanies = [];
 let currentAffiliates = [];
+let currentSellers = [];
 let qrPollingInterval = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -205,6 +206,7 @@ async function loadSellers() {
   try {
     const res = await fetch('/api/sellers');
     const sellers = await res.json();
+    currentSellers = sellers;
 
     const tbody = document.querySelector('#tableSellers tbody');
     if (!tbody) return;
@@ -453,6 +455,7 @@ async function loadCompanies() {
     const companies = await res.json();
     currentCompanies = companies;
     populateCompaniesDropdown();
+    populateCompanyFilters();
 
     const tbody = document.querySelector('#tableCompanies tbody');
     if (!tbody) return;
@@ -936,60 +939,134 @@ async function loadProducts() {
     const res = await fetch('/api/products');
     currentProducts = await res.json();
     populateOfferProductsDropdown();
-
-    const tbody = document.querySelector('#tableProducts tbody');
-    if (currentProducts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" class="text-center">Nenhum produto cadastrado.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = currentProducts.map(p => {
-      let typeLabel = '';
-      let infoExtra = '-';
-
-      if (p.type === 'digital_link') {
-        typeLabel = '<span class="badge" style="background:#3b82f620; color:#3b82f6">Link / Arquivo</span>';
-        infoExtra = p.content ? `<a href="${p.content}" target="_blank" style="color:var(--primary-gold)">Ver link</a>` : '-';
-      } else if (p.type === 'license_key') {
-        typeLabel = '<span class="badge" style="background:#a855f720; color:#a855f7">Chave de Licença</span>';
-        infoExtra = `<b>${p.availableStock || 0}</b> disponíveis`;
-      } else if (p.type === 'vip_subscription') {
-        typeLabel = '<span class="badge" style="background:#f0b90b20; color:#f0b90b">Assinatura VIP</span>';
-        infoExtra = `${p.duration_days} dias de acesso`;
-      }
-
-      const statusBadge = p.active 
-        ? '<span class="badge badge-paid">Ativo</span>' 
-        : '<span class="badge badge-canceled">Inativo</span>';
-
-      const brl = Number(p.price_brl || p.price).toFixed(2);
-      const usdt = Number(p.price_usdt || (p.price / 5.5)).toFixed(2);
-
-      const companyLabel = p.company_name ? `<b>${p.company_name}</b>` : '<span style="color:var(--text-muted)">Matriz</span>';
-      const categoryLabel = `<span class="badge" style="background:#64748b20; color:#94a3b8">${p.category || 'Geral'}</span>`;
-
-      return `
-        <tr>
-          <td>#${p.id}</td>
-          <td><b>${p.name}</b><br><small style="color:var(--text-muted)">${p.description || ''}</small></td>
-          <td>${companyLabel}</td>
-          <td>${categoryLabel}</td>
-          <td>${typeLabel}</td>
-          <td><b style="color:var(--color-pix)">R$ ${brl}</b></td>
-          <td><b style="color:var(--primary-gold)">${usdt} USDT</b></td>
-          <td>${infoExtra}</td>
-          <td>${statusBadge}</td>
-          <td>
-            <button class="btn btn-sm btn-danger" onclick="deleteProduct(${p.id})">
-              <i class="fa-solid fa-trash"></i>
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join('');
+    populateCategoryFilters();
+    populateCompanyFilters();
+    filterProducts();
   } catch (err) {
     console.error('Erro ao carregar produtos:', err);
   }
+}
+
+function populateCategoryFilters() {
+  const select = document.getElementById('filterProdCategory');
+  if (!select) return;
+  const currentVal = select.value;
+  const categories = Array.from(new Set(currentProducts.map(p => p.category || 'Geral'))).sort();
+  select.innerHTML = '<option value="">Todas as Categorias</option>' + 
+    categories.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (currentVal && categories.includes(currentVal)) {
+    select.value = currentVal;
+  }
+}
+
+function populateCompanyFilters() {
+  const select = document.getElementById('filterProdCompany');
+  if (!select) return;
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">Todas as Empresas</option><option value="0">Matriz (Sem empresa)</option>' +
+    currentCompanies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  if (currentVal) {
+    select.value = currentVal;
+  }
+}
+
+function filterProducts() {
+  const catFilter = document.getElementById('filterProdCategory')?.value || '';
+  const compFilter = document.getElementById('filterProdCompany')?.value || '';
+  const affilFilter = document.getElementById('filterProdAffiliation')?.value || '';
+  const activeFilter = document.getElementById('filterProdActive')?.value || '';
+
+  let filtered = currentProducts;
+
+  if (catFilter) {
+    filtered = filtered.filter(p => (p.category || 'Geral') === catFilter);
+  }
+
+  if (compFilter !== '') {
+    if (compFilter === '0') {
+      filtered = filtered.filter(p => !p.company_id);
+    } else {
+      filtered = filtered.filter(p => p.company_id === Number(compFilter));
+    }
+  }
+
+  if (affilFilter === 'enabled') {
+    filtered = filtered.filter(p => p.affiliation_enabled !== 0);
+  } else if (affilFilter === 'disabled') {
+    filtered = filtered.filter(p => p.affiliation_enabled === 0);
+  }
+
+  if (activeFilter !== '') {
+    filtered = filtered.filter(p => String(p.active ? 1 : 0) === activeFilter);
+  }
+
+  const tbody = document.querySelector('#tableProducts tbody');
+  if (!tbody) return;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding: 25px; color: var(--text-muted);">Nenhum produto encontrado com os filtros selecionados.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(p => {
+    let typeLabel = '';
+    let infoExtra = '-';
+
+    if (p.type === 'digital_link') {
+      typeLabel = '<span class="badge" style="background:#3b82f620; color:#3b82f6"><i class="fa-solid fa-link"></i> Link / Arquivo</span>';
+      infoExtra = p.content ? `<a href="${p.content}" target="_blank" style="color:var(--primary-gold)">Ver link</a>` : '-';
+    } else if (p.type === 'license_key') {
+      typeLabel = '<span class="badge" style="background:#a855f720; color:#a855f7"><i class="fa-solid fa-key"></i> Chave Licença</span>';
+      infoExtra = `<b>${p.availableStock || 0}</b> disponíveis`;
+    } else if (p.type === 'vip_subscription') {
+      typeLabel = '<span class="badge" style="background:#f0b90b20; color:#f0b90b"><i class="fa-solid fa-crown"></i> Assinatura VIP</span>';
+      infoExtra = `${p.duration_days} dias de acesso`;
+    }
+
+    const statusBadge = p.active 
+      ? '<span class="badge badge-paid"><i class="fa-solid fa-circle-check"></i> Ativo</span>' 
+      : '<span class="badge badge-canceled"><i class="fa-solid fa-circle-pause"></i> Inativo</span>';
+
+    const affilBadge = p.affiliation_enabled !== 0
+      ? `<span class="badge" style="background:#10b98120; color:#10b981" title="Disponível para venda por afiliados"><i class="fa-solid fa-check"></i> Aberta${p.custom_affiliate_rate ? ` (${p.custom_affiliate_rate}%)` : ''}</span>`
+      : `<span class="badge" style="background:#ef444420; color:#ef4444" title="Afiliação desabilitada para este produto"><i class="fa-solid fa-ban"></i> Fechada</span>`;
+
+    const sellersBadge = (p.assigned_sellers && p.assigned_sellers.length > 0)
+      ? `<span class="badge" style="background:#3b82f620; color:#3b82f6; cursor:pointer;" title="${p.assigned_sellers.map(s => s.name).join(', ')}"><i class="fa-solid fa-user-check"></i> ${p.assigned_sellers.length} vendedor(es)</span>`
+      : `<span style="color:var(--text-muted); font-size:12px;">Todos</span>`;
+
+    const brl = Number(p.price_brl || p.price).toFixed(2);
+    const usdt = Number(p.price_usdt || (p.price / 5.5)).toFixed(2);
+
+    const companyLabel = p.company_name ? `<b>${p.company_name}</b>` : '<span style="color:var(--text-muted)">Matriz</span>';
+    const categoryLabel = `<span class="badge" style="background:#64748b20; color:#94a3b8"><i class="fa-solid fa-tag"></i> ${p.category || 'Geral'}</span>`;
+
+    return `
+      <tr>
+        <td>#${p.id}</td>
+        <td><b>${p.name}</b><br><small style="color:var(--text-muted)">${p.description || ''}</small></td>
+        <td>${companyLabel}</td>
+        <td>${categoryLabel}</td>
+        <td>${typeLabel}</td>
+        <td><b style="color:var(--color-pix)">R$ ${brl}</b></td>
+        <td><b style="color:var(--primary-gold)">${usdt} USDT</b></td>
+        <td>${infoExtra}</td>
+        <td>${affilBadge}</td>
+        <td>${sellersBadge}</td>
+        <td>${statusBadge}</td>
+        <td>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-sm btn-primary" onclick="openEditProductModal(${p.id})" title="Editar Produto Completo">
+              <i class="fa-solid fa-pen"></i>
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteProduct(${p.id})" title="Excluir Produto">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 async function populateCategoriesDatalist() {
@@ -1015,18 +1092,99 @@ function populateProductUpsellDropdown(excludeId = null) {
   select.innerHTML = html;
 }
 
+function renderProductSellersChecklist(selectedSellerIds = []) {
+  const container = document.getElementById('prodSellersChecklist');
+  if (!container) return;
+
+  if (!currentSellers || currentSellers.length === 0) {
+    container.innerHTML = '<div style="font-size: 12px; color: var(--text-muted);">Nenhum vendedor cadastrado ainda no sistema.</div>';
+    return;
+  }
+
+  const selectedSet = new Set((selectedSellerIds || []).map(Number));
+
+  container.innerHTML = currentSellers.map(s => {
+    const isChecked = selectedSet.has(s.id) ? 'checked' : '';
+    return `
+      <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px; cursor: pointer; font-size: 13px; font-weight: normal;">
+        <input type="checkbox" name="prodSellerCheckbox" value="${s.id}" ${isChecked}>
+        <span><b>${s.name}</b> ${s.email ? `<small style="color:var(--text-muted)">(${s.email})</small>` : ''}</span>
+      </label>
+    `;
+  }).join('');
+}
+
 function openProductModal() {
   document.getElementById('formProduct').reset();
   document.getElementById('prodId').value = '';
   document.getElementById('modalProductTitle').innerText = 'Novo Produto / Assinatura';
+  const saveBtn = document.getElementById('btnSaveProduct');
+  if (saveBtn) saveBtn.innerText = 'Salvar Produto';
+
   populateCompaniesDropdown();
   populateCategoriesDatalist();
   populateProductUpsellDropdown();
+
+  document.getElementById('prodActive').value = '1';
+  document.getElementById('prodAffiliationEnabled').checked = true;
+  document.getElementById('prodCustomAffiliateRate').value = '';
   document.getElementById('prodUpsellDiscount').value = '20';
   document.getElementById('prodUpsellHeadline').value = '';
   document.getElementById('prodCategory').value = 'Geral';
+
+  renderProductSellersChecklist([]);
   toggleProductTypeFields();
   document.getElementById('modalProduct').classList.add('active');
+}
+
+async function openEditProductModal(id) {
+  try {
+    let p = currentProducts.find(prod => prod.id === id);
+    if (!p) {
+      const res = await fetch(`/api/products/${id}`);
+      if (res.ok) p = await res.json();
+    }
+    if (!p) {
+      alert('Produto não encontrado');
+      return;
+    }
+
+    document.getElementById('formProduct').reset();
+    document.getElementById('prodId').value = p.id;
+    document.getElementById('modalProductTitle').innerText = `Editar Produto #${p.id} - ${p.name}`;
+    const saveBtn = document.getElementById('btnSaveProduct');
+    if (saveBtn) saveBtn.innerText = 'Salvar Alterações';
+
+    populateCompaniesDropdown();
+    populateCategoriesDatalist();
+    populateProductUpsellDropdown(p.id);
+
+    document.getElementById('prodName').value = p.name || '';
+    document.getElementById('prodDesc').value = p.description || '';
+    document.getElementById('prodPriceBRL').value = p.price_brl !== undefined ? p.price_brl : p.price;
+    document.getElementById('prodPriceUSDT').value = p.price_usdt !== undefined ? p.price_usdt : (p.price / 5.5).toFixed(2);
+    document.getElementById('prodCompanyId').value = p.company_id || '';
+    document.getElementById('prodCategory').value = p.category || 'Geral';
+    document.getElementById('prodActive').value = p.active ? '1' : '0';
+    document.getElementById('prodType').value = p.type;
+    document.getElementById('prodContent').value = p.content || '';
+    document.getElementById('prodDuration').value = p.duration_days || 0;
+    document.getElementById('prodChannelId').value = p.telegram_channel_id || '';
+
+    document.getElementById('prodUpsellId').value = p.upsell_product_id || '';
+    document.getElementById('prodUpsellDiscount').value = p.upsell_discount_percent !== undefined ? p.upsell_discount_percent : 20;
+    document.getElementById('prodUpsellHeadline').value = p.upsell_headline || '';
+
+    document.getElementById('prodAffiliationEnabled').checked = p.affiliation_enabled !== 0;
+    document.getElementById('prodCustomAffiliateRate').value = (p.custom_affiliate_rate !== null && p.custom_affiliate_rate !== undefined) ? p.custom_affiliate_rate : '';
+
+    renderProductSellersChecklist(p.assigned_seller_ids || []);
+    toggleProductTypeFields();
+
+    document.getElementById('modalProduct').classList.add('active');
+  } catch (err) {
+    alert('Erro ao abrir edição de produto: ' + err.message);
+  }
 }
 
 function closeProductModal() {
@@ -1052,6 +1210,7 @@ function toggleProductTypeFields() {
 
 async function saveProduct(e) {
   e.preventDefault();
+  const prodId = document.getElementById('prodId').value;
   const name = document.getElementById('prodName').value;
   const description = document.getElementById('prodDesc').value;
   const price_brl = parseFloat(document.getElementById('prodPriceBRL').value);
@@ -1065,6 +1224,12 @@ async function saveProduct(e) {
   const upsell_headline = document.getElementById('prodUpsellHeadline').value.trim();
   const company_id = document.getElementById('prodCompanyId').value ? parseInt(document.getElementById('prodCompanyId').value, 10) : null;
   const category = document.getElementById('prodCategory').value.trim() || 'Geral';
+  const active = parseInt(document.getElementById('prodActive').value, 10);
+  const affiliation_enabled = document.getElementById('prodAffiliationEnabled').checked ? 1 : 0;
+  const customRateVal = document.getElementById('prodCustomAffiliateRate').value;
+  const custom_affiliate_rate = customRateVal !== '' ? parseFloat(customRateVal) : null;
+
+  const checkedSellers = Array.from(document.querySelectorAll('#prodSellersChecklist input[type="checkbox"]:checked')).map(cb => parseInt(cb.value, 10));
 
   const payload = {
     name,
@@ -1081,19 +1246,30 @@ async function saveProduct(e) {
     upsell_discount_percent,
     upsell_headline,
     company_id,
-    category
+    category,
+    active,
+    affiliation_enabled,
+    custom_affiliate_rate,
+    seller_ids: checkedSellers
   };
 
   try {
-    const res = await fetch('/api/products', {
-      method: 'POST',
+    const url = prodId ? `/api/products/${prodId}` : '/api/products';
+    const method = prodId ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+
     if (res.ok) {
       closeProductModal();
-      loadProducts();
+      await loadProducts();
       loadMetrics();
+    } else {
+      const err = await res.json();
+      alert('Erro ao salvar produto: ' + (err.error || 'Falha ao salvar produto'));
     }
   } catch (err) {
     alert('Erro ao salvar produto: ' + err.message);
