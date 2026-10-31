@@ -331,7 +331,7 @@ class WhatsAppBotService {
     const refInfo = this.userReferrals.get(to) || {};
     let sellerId = null;
     if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
-      const nextSeller = models.getNextRoundRobinSeller();
+      const nextSeller = models.getNextRoundRobinSeller(product.id);
       if (nextSeller) sellerId = nextSeller.id;
     }
 
@@ -431,7 +431,7 @@ class WhatsAppBotService {
     const refInfo = this.userReferrals.get(to) || {};
     let sellerId = null;
     if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
-      const nextSeller = models.getNextRoundRobinSeller();
+      const nextSeller = models.getNextRoundRobinSeller(product.id);
       if (nextSeller) sellerId = nextSeller.id;
     }
 

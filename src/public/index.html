@@ -29,11 +29,17 @@
         <a href="#" class="nav-item" data-tab="settings">
           <i class="fa-solid fa-sliders"></i> Central de Configurações
         </a>
+        <a href="#" class="nav-item" data-tab="companies">
+          <i class="fa-solid fa-building"></i> Empresas & Marcas
+        </a>
         <a href="#" class="nav-item" data-tab="sellers">
           <i class="fa-solid fa-users-gear"></i> Times de Vendedores
         </a>
         <a href="#" class="nav-item" data-tab="affiliates">
           <i class="fa-solid fa-handshake"></i> Sistema de Afiliados
+        </a>
+        <a href="#" class="nav-item" data-tab="affiliations">
+          <i class="fa-solid fa-user-clock"></i> Fila de Afiliação <span id="badgePendingAffiliations" class="badge-mini" style="display:none; background:#f59e0b; color:#12161f; font-weight:bold; border-radius:10px; padding:2px 7px; font-size:10px; margin-left:auto;">0</span>
         </a>
         <a href="#" class="nav-item" data-tab="commissions">
           <i class="fa-solid fa-money-bill-transfer"></i> Comissões & Repasses
@@ -157,6 +163,23 @@
               <div class="stat-info">
                 <span class="stat-label">Cupons Ativos</span>
                 <h3 id="statTotalCoupons">0</h3>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon blue"><i class="fa-solid fa-building"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Empresas / Marcas</span>
+                <h3 id="statTotalCompanies">1</h3>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon orange"><i class="fa-solid fa-user-clock"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Fila de Afiliação</span>
+                <h3 id="statPendingAffiliations">0</h3>
+                <small style="color:var(--primary-gold)">Aguardando critérios</small>
               </div>
             </div>
           </div>
@@ -464,6 +487,50 @@
                   </div>
                 </div>
 
+                <!-- 9. REGRAS & CRITÉRIOS DE AFILIAÇÃO POR PRODUTO -->
+                <div class="config-section mt-4">
+                  <h4 class="section-title"><i class="fa-solid fa-user-check gold"></i> 9. Fila de Espera & Critérios Mínimos de Afiliação</h4>
+                  <p class="section-desc">Defina as regras e métricas necessárias para que um afiliado seja aprovado e ativado para divulgar produtos específicos.</p>
+
+                  <div class="form-row">
+                    <div class="form-group flex-1">
+                      <label>Mínimo de Vendas Concluídas para Ativação</label>
+                      <input type="number" min="0" id="cfgAffiliationMinSales" class="form-control" placeholder="2" value="2">
+                      <small class="hint">Total de vendas pagas necessárias no histórico do afiliado.</small>
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>Faturamento Mínimo Acumulado (R$)</label>
+                      <input type="number" step="0.01" min="0" id="cfgAffiliationMinRevenue" class="form-control" placeholder="50.00" value="50.00">
+                      <small class="hint">Receita bruta gerada pelo afiliado na plataforma.</small>
+                    </div>
+                  </div>
+
+                  <div class="form-row mt-2">
+                    <div class="form-group flex-1">
+                      <label class="checkbox-label">
+                        <input type="checkbox" id="cfgAffiliationRequirePayment">
+                        <span><b>Exigir Chave PIX ou Carteira USDT Cadastrada</b></span>
+                      </label>
+                      <small class="hint">Afiliado deve cadastrar dados de repasse antes de poder ser ativado.</small>
+                    </div>
+                    <div class="form-group flex-1">
+                      <label class="checkbox-label">
+                        <input type="checkbox" id="cfgAffiliationAutoApprove">
+                        <span><b>Ativar Automaticamente ao Atingir Critérios Mínimos</b></span>
+                      </label>
+                      <small class="hint">Se ativado, assim que os critérios forem atingidos o pedido sai da fila e torna-se Aprovado.</small>
+                    </div>
+                  </div>
+
+                  <div class="form-group mt-3">
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="cfgAffiliationProductRestricted">
+                      <span><b>Restringir Comissões Apenas para Produtos com Afiliação Aprovada</b></span>
+                    </label>
+                    <small class="hint">Se marcado, o afiliado só ganha comissão se tiver afiliação expressamente Aprovada naquele produto.</small>
+                  </div>
+                </div>
+
                 <div class="form-actions mt-4">
                   <button type="submit" class="btn btn-primary btn-lg">
                     <i class="fa-solid fa-floppy-disk"></i> Salvar Todas as Configurações
@@ -471,6 +538,40 @@
                   <span id="saveSettingsMsg" class="save-msg"></span>
                 </div>
               </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: EMPRESAS & MARCAS -->
+        <section id="tab-companies" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-building blue"></i> Empresas & Unidades de Negócio</h3>
+              <button class="btn btn-primary" onclick="openCompanyModal()">
+                <i class="fa-solid fa-plus"></i> Nova Empresa
+              </button>
+            </div>
+            <div class="card-body">
+              <p class="section-desc">Separe seus produtos, categorias e operações por empresa. Vendedores e ofertas podem ser direcionados para marcas específicas.</p>
+              
+              <div class="table-responsive">
+                <table class="table" id="tableCompanies">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Nome da Empresa</th>
+                      <th>Documento (CNPJ/CPF)</th>
+                      <th>Descrição</th>
+                      <th>Produtos Vinculados</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="7" class="text-center">Carregando empresas...</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>
@@ -485,7 +586,7 @@
               </button>
             </div>
             <div class="card-body">
-              <p class="section-desc">Gerencie sua equipe de vendas. Se a <b>Roleta de Vendedores</b> estiver ativa na Central de Configurações, os novos clientes serão distribuídos automaticamente entre os vendedores ativos.</p>
+              <p class="section-desc">Gerencie sua equipe de vendas e selecione os <b>produtos disponíveis para cada vendedor</b>. A roleta distribuirá as vendas apenas para os vendedores autorizados em cada produto.</p>
               
               <div class="table-responsive">
                 <table class="table" id="tableSellers">
@@ -495,6 +596,7 @@
                       <th>Nome</th>
                       <th>WhatsApp</th>
                       <th>Telegram</th>
+                      <th>Produtos Permitidos</th>
                       <th>Comissão %</th>
                       <th>Vendas Feitas</th>
                       <th>Receita Gerada</th>
@@ -503,7 +605,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr><td colspan="9" class="text-center">Carregando vendedores...</td></tr>
+                    <tr><td colspan="10" class="text-center">Carregando vendedores...</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -545,6 +647,56 @@
                   </thead>
                   <tbody>
                     <tr><td colspan="9" class="text-center">Carregando afiliados...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: FILA DE ESPERA DE AFILIAÇÃO -->
+        <section id="tab-affiliations" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-user-clock orange"></i> Fila de Espera & Pedidos de Afiliação por Produto</h3>
+              <div class="d-flex gap-2">
+                <button class="btn btn-secondary" onclick="checkAllAffiliationCriteria()">
+                  <i class="fa-solid fa-arrows-rotate"></i> Reavaliar Critérios
+                </button>
+                <button class="btn btn-primary" onclick="openRequestAffiliationModal()">
+                  <i class="fa-solid fa-plus"></i> Novo Pedido de Afiliação
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="gateway-status-bar mb-3" style="font-size:13px;">
+                <span><b>Critérios Mínimos Configurados:</b></span>
+                <span id="badgeCriteriaSales" class="badge badge-paid">Mín. 2 Vendas</span>
+                <span id="badgeCriteriaRevenue" class="badge badge-paid">Mín. R$ 50,00</span>
+                <span id="badgeCriteriaWallet" class="badge badge-paid">PIX/USDT Obrigatório</span>
+                <span id="badgeCriteriaAutoApprove" class="badge badge-active">⚡ Auto-ativação Ativa</span>
+                <button class="btn btn-sm btn-outline ml-auto" onclick="switchTab('settings')">
+                  <i class="fa-solid fa-gear"></i> Ajustar Regras
+                </button>
+              </div>
+              <p class="section-desc">Os afiliados que solicitam divulgação de produtos entram nesta <b>Fila de Espera</b>. O sistema monitora o histórico do afiliado e libera o acesso automaticamente assim que ele atinge os critérios mínimos configurados.</p>
+
+              <div class="table-responsive">
+                <table class="table" id="tableAffiliationQueue">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Afiliado</th>
+                      <th>Produto Solicitado</th>
+                      <th>Empresa / Categoria</th>
+                      <th>Progresso dos Critérios</th>
+                      <th>Status</th>
+                      <th>Solicitado Em</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td colspan="8" class="text-center">Carregando fila de afiliação...</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -745,6 +897,8 @@
                   <tr>
                     <th>ID</th>
                     <th>Nome</th>
+                    <th>Empresa</th>
+                    <th>Categoria</th>
                     <th>Tipo</th>
                     <th>Preço (PIX)</th>
                     <th>Preço (USDT)</th>
@@ -754,7 +908,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr><td colspan="8" class="text-center">Carregando produtos...</td></tr>
+                  <tr><td colspan="10" class="text-center">Carregando produtos...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -934,6 +1088,19 @@
           <label>Nome do Produto / Plano *</label>
           <input type="text" id="prodName" class="form-control" required placeholder="Ex: Curso de Cripto ou Acesso VIP">
         </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Empresa / Marca Vinculada</label>
+            <select id="prodCompanyId" class="form-control">
+              <option value="">Carregando empresas...</option>
+            </select>
+          </div>
+          <div class="form-group flex-1">
+            <label>Categoria do Produto</label>
+            <input type="text" id="prodCategory" class="form-control" placeholder="Ex: Cursos, Softwares, Sinais VIP" list="listCategories">
+            <datalist id="listCategories"></datalist>
+          </div>
+        </div>
         <div class="form-group">
           <label>Descrição Breve</label>
           <textarea id="prodDesc" class="form-control" rows="2" placeholder="Ex: Acesso vitalício ao material completo"></textarea>
@@ -1041,6 +1208,15 @@
           <label>Comissão por Venda (%)</label>
           <input type="number" step="0.5" id="sellerCommission" class="form-control" value="10.0" placeholder="10.0">
         </div>
+
+        <div class="form-group mt-3" style="border-top:1px solid var(--border-color); padding-top:12px;">
+          <label><b><i class="fa-solid fa-box-open gold"></i> Produtos Disponíveis para Este Vendedor:</b></label>
+          <p class="section-desc" style="font-size:12px; margin-bottom:8px;">Marque os produtos que este vendedor está autorizado a atender. Se nenhum for marcado, ele atenderá <b>todos os produtos</b>.</p>
+          <div id="sellerProductsChecklist" style="max-height: 180px; overflow-y: auto; background: var(--bg-body, #0b0e14); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+            <span style="color:var(--text-muted); font-size:12px;">Carregando catálogo de produtos...</span>
+          </div>
+        </div>
+
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeSellerModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary">Salvar Vendedor</button>
@@ -1218,6 +1394,68 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="closeCouponModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary">Criar Cupom</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL EMPRESA / MARCA -->
+  <div id="modalCompany" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalCompanyTitle">Nova Empresa / Marca</h3>
+        <button class="btn-close" onclick="closeCompanyModal()">&times;</button>
+      </div>
+      <form id="formCompany" onsubmit="saveCompany(event)">
+        <input type="hidden" id="companyId">
+        <div class="form-group">
+          <label>Nome da Empresa / Marca *</label>
+          <input type="text" id="companyName" class="form-control" required placeholder="Ex: Minha Empresa Digital Ltda">
+        </div>
+        <div class="form-group">
+          <label>CNPJ / CPF / Documento (Opcional)</label>
+          <input type="text" id="companyDocument" class="form-control" placeholder="12.345.678/0001-90">
+        </div>
+        <div class="form-group">
+          <label>Descrição / Ramo de Atuação</label>
+          <textarea id="companyDescription" class="form-control" rows="2" placeholder="Ex: Divisão de infoprodutos, cursos e mentorias"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeCompanyModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Empresa</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL NOVO PEDIDO DE AFILIAÇÃO -->
+  <div id="modalRequestAffiliation" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Novo Pedido de Afiliação para Produto</h3>
+        <button class="btn-close" onclick="closeRequestAffiliationModal()">&times;</button>
+      </div>
+      <form id="formRequestAffiliation" onsubmit="submitRequestAffiliation(event)">
+        <div class="form-group">
+          <label>Selecione o Afiliado *</label>
+          <select id="reqAffiliateSelect" class="form-control" required>
+            <option value="">Carregando afiliados...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Selecione o Produto *</label>
+          <select id="reqProductSelect" class="form-control" required>
+            <option value="">Carregando produtos...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Observações / Justificativa (Opcional)</label>
+          <textarea id="reqNotes" class="form-control" rows="2" placeholder="Ex: Canal no YouTube com 50k inscritos ou audiência especializada"></textarea>
+          <small class="hint">O pedido entrará na fila de espera. Se o afiliado já cumprir os critérios mínimos e o auto-aprovar estiver ativo, a liberação será instantânea.</small>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeRequestAffiliationModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Cadastrar na Fila</button>
         </div>
       </form>
     </div>

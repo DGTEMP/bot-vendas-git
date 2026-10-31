@@ -228,7 +228,7 @@ class TelegramBotService {
       const refInfo = this.userReferrals.get(userId) || {};
       let sellerId = null;
       if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
-        const nextSeller = models.getNextRoundRobinSeller();
+        const nextSeller = models.getNextRoundRobinSeller(product.id);
         if (nextSeller) sellerId = nextSeller.id;
       }
 
@@ -322,7 +322,7 @@ class TelegramBotService {
       const refInfo = this.userReferrals.get(userId) || {};
       let sellerId = null;
       if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
-        const nextSeller = models.getNextRoundRobinSeller();
+        const nextSeller = models.getNextRoundRobinSeller(product.id);
         if (nextSeller) sellerId = nextSeller.id;
       }
 
@@ -390,7 +390,7 @@ class TelegramBotService {
       const refInfo = this.userReferrals.get(userId) || {};
       let sellerId = null;
       if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
-        const nextSeller = models.getNextRoundRobinSeller();
+        const nextSeller = models.getNextRoundRobinSeller(product.id);
         if (nextSeller) sellerId = nextSeller.id;
       }
 

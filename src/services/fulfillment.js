@@ -115,35 +115,44 @@ class FulfillmentService {
     if (order.affiliate_id) {
       const affiliate = models.getAffiliateById(order.affiliate_id);
       if (affiliate && affiliate.active) {
-        const rate = affiliate.commission_rate || 20.0;
-        const commAmount = Number(((order.amount * rate) / 100).toFixed(2));
+        // Re-avalia a fila de espera do afiliado para verificar se atingiu os critérios mínimos com esta venda
+        models.checkAndActivateAffiliations(affiliate.id);
+        const isApproved = models.isAffiliateApprovedForProduct(affiliate.id, product.id);
 
-        models.createCommission({
-          order_id: order.id,
-          beneficiary_type: 'affiliate',
-          beneficiary_id: affiliate.id,
-          amount: commAmount,
-          currency: order.currency,
-          rate_percent: rate
-        });
+        if (isApproved) {
+          const rate = affiliate.commission_rate || 20.0;
+          const commAmount = Number(((order.amount * rate) / 100).toFixed(2));
 
-        models.creditAffiliateBalance(affiliate.id, commAmount, order.currency);
-        console.log(`[Fulfillment 🤝] Afiliado ${affiliate.name} (${affiliate.ref_code}) creditado: ${commAmount} ${order.currency}`);
+          models.createCommission({
+            order_id: order.id,
+            beneficiary_type: 'affiliate',
+            beneficiary_id: affiliate.id,
+            amount: commAmount,
+            currency: order.currency,
+            rate_percent: rate
+          });
 
-        affiliateNotice = `${affiliate.name} (${affiliate.ref_code}) - Comissão: ${commAmount} ${order.currency}`;
+          models.creditAffiliateBalance(affiliate.id, commAmount, order.currency);
+          console.log(`[Fulfillment 🤝] Afiliado ${affiliate.name} (${affiliate.ref_code}) creditado: ${commAmount} ${order.currency}`);
 
-        // Notifica o Afiliado se configurado
-        const afilMsg = `🎉 *PARABÉNS! VOCÊ FEZ UMA VENDA!* 💰\n\n` +
-          `📦 *Item:* ${product.name}\n` +
-          `💵 *Valor da Venda:* ${order.amount} ${order.currency}\n` +
-          `⭐ *Sua Comissão (${rate}%):* ${commAmount} ${order.currency}\n\n` +
-          `Seu saldo já foi atualizado!`;
+          affiliateNotice = `${affiliate.name} (${affiliate.ref_code}) - Comissão: ${commAmount} ${order.currency}`;
 
-        if (affiliate.telegram_id && this.sendTelegramMessage) {
-          this.sendTelegramMessage(affiliate.telegram_id, afilMsg).catch(() => {});
-        } else if (affiliate.phone && this.sendWhatsAppMessage) {
-          const wppPhone = affiliate.phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-          this.sendWhatsAppMessage(wppPhone, afilMsg).catch(() => {});
+          // Notifica o Afiliado se configurado
+          const afilMsg = `🎉 *PARABÉNS! VOCÊ FEZ UMA VENDA!* 💰\n\n` +
+            `📦 *Item:* ${product.name}\n` +
+            `💵 *Valor da Venda:* ${order.amount} ${order.currency}\n` +
+            `⭐ *Sua Comissão (${rate}%):* ${commAmount} ${order.currency}\n\n` +
+            `Seu saldo já foi atualizado!`;
+
+          if (affiliate.telegram_id && this.sendTelegramMessage) {
+            this.sendTelegramMessage(affiliate.telegram_id, afilMsg).catch(() => {});
+          } else if (affiliate.phone && this.sendWhatsAppMessage) {
+            const wppPhone = affiliate.phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+            this.sendWhatsAppMessage(wppPhone, afilMsg).catch(() => {});
+          }
+        } else {
+          console.log(`[Fulfillment ⏳] Afiliado ${affiliate.name} (${affiliate.ref_code}) está na Fila de Espera para o produto ${product.name}. Critérios em avaliação.`);
+          affiliateNotice = `${affiliate.name} (${affiliate.ref_code}) [Fila de Espera]`;
         }
       }
     }

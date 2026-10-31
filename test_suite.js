@@ -98,6 +98,32 @@ async function main() {
   console.log('\n👔 2. Testes de Vendedores, Afiliados e Comissões:');
 
   let testSeller, testAffiliate;
+  let testCompany;
+
+  runTest('Criação de Empresa e Vinculação de Produto & Categoria', () => {
+    testCompany = models.createCompany({
+      name: 'Alpha Tech Enterprises',
+      document: '11.222.333/0001-44',
+      description: 'Divisão de tecnologia e inteligência artificial'
+    });
+    assert(testCompany.id > 0);
+    assert.strictEqual(testCompany.name, 'Alpha Tech Enterprises');
+
+    const prodWithComp = models.createProduct({
+      name: 'Software IA Sniper',
+      price: 250.00,
+      price_brl: 250.00,
+      price_usdt: 50.00,
+      type: 'digital_link',
+      content: 'https://exemplo.com/sniper',
+      company_id: testCompany.id,
+      category: 'Inteligência Artificial'
+    });
+
+    assert(prodWithComp.id > 0);
+    assert.strictEqual(prodWithComp.company_name, 'Alpha Tech Enterprises');
+    assert.strictEqual(prodWithComp.category, 'Inteligência Artificial');
+  });
 
   runTest('Criação e Rotação de Vendedor (Round-Robin)', () => {
     testSeller = models.createSeller({
@@ -111,6 +137,32 @@ async function main() {
 
     const nextSeller = models.getNextRoundRobinSeller();
     assert(nextSeller !== null, 'Deve retornar um vendedor ativo para a roleta');
+  });
+
+  runTest('Seleção de Produtos Disponíveis por Vendedor Conectado', () => {
+    // Cria Vendedor Especialista apenas para o produto Digital
+    const sellerEbook = models.createSeller({
+      name: 'Vendedor Especialista E-book',
+      commission_rate: 15.0,
+      product_ids: [testProdDigital.id]
+    });
+    assert(sellerEbook.id > 0);
+
+    // Cria Vendedor Especialista apenas para o produto VIP
+    const sellerVip = models.createSeller({
+      name: 'Vendedor Especialista VIP',
+      commission_rate: 12.0,
+      product_ids: [testProdSub.id]
+    });
+    assert(sellerVip.id > 0);
+
+    // Roleta específica para o produto Digital deve selecionar o vendedor do E-book
+    const chosenForDigital = models.getNextRoundRobinSeller(testProdDigital.id);
+    assert.strictEqual(chosenForDigital.id, sellerEbook.id, 'Para o produto Digital, deve selecionar o vendedor com acesso a ele');
+
+    // Roleta específica para o produto VIP deve selecionar o vendedor do VIP
+    const chosenForVip = models.getNextRoundRobinSeller(testProdSub.id);
+    assert.strictEqual(chosenForVip.id, sellerVip.id, 'Para o produto VIP, deve selecionar o vendedor com acesso ao VIP');
   });
 
   runTest('Criação de Afiliado com Código Único', () => {
@@ -129,6 +181,56 @@ async function main() {
 
     const fetched = models.getAffiliateByCode(uniqueRef);
     assert.strictEqual(fetched.id, testAffiliate.id, 'Deve encontrar afiliado pelo código');
+  });
+
+  runTest('Fila de Espera de Afiliação & Critérios Mínimos de Ativação', () => {
+    // Afiliado recém-criado sem vendas
+    const freshAffiliate = models.createAffiliate({
+      name: 'Afiliado Iniciante Sem Vendas',
+      ref_code: 'INICIA_' + Date.now().toString().slice(-4),
+      pix_key: 'iniciante@pix.com'
+    });
+
+    // Configura critérios mínimos: 2 vendas e R$ 50
+    models.setSetting('AFFILIATION_MIN_SALES', '2');
+    models.setSetting('AFFILIATION_MIN_REVENUE_BRL', '50.0');
+    models.setSetting('AFFILIATION_AUTO_APPROVE', 'true');
+    models.setSetting('AFFILIATION_PRODUCT_RESTRICTED', 'true');
+
+    // Solicita afiliação para o produto digital -> deve entrar na Fila de Espera (PENDING)
+    const request = models.requestProductAffiliation({
+      affiliate_id: freshAffiliate.id,
+      product_id: testProdDigital.id,
+      notes: 'Solicitação inicial para teste'
+    });
+
+    assert.strictEqual(request.status, 'PENDING', 'Novo afiliado sem vendas deve ficar na Fila de Espera');
+    assert.strictEqual(models.isAffiliateApprovedForProduct(freshAffiliate.id, testProdDigital.id), false);
+
+    // Simula duas vendas pagas para atingir os critérios mínimos
+    for (let i = 0; i < 2; i++) {
+      models.createOrder({
+        merchant_trade_no: `ORD_CRIT_${Date.now()}_${i}`,
+        platform: 'telegram',
+        platform_user_id: '123456',
+        product_id: testProdDigital.id,
+        amount: 50.0,
+        currency: 'BRL',
+        status: 'PAID',
+        affiliate_id: freshAffiliate.id
+      });
+    }
+
+    // Avalia os critérios e auto-ativação
+    const updated = models.checkAndActivateAffiliations(freshAffiliate.id);
+    assert(updated.length > 0, 'Deve ter atualizado o pedido na fila');
+    assert.strictEqual(updated[0].status, 'APPROVED', 'Deve ter aprovado automaticamente após bater os critérios');
+
+    // Agora o afiliado está expressamente aprovado
+    assert.strictEqual(models.isAffiliateApprovedForProduct(freshAffiliate.id, testProdDigital.id), true);
+
+    // Restaura configuração padrão de restrição
+    models.setSetting('AFFILIATION_PRODUCT_RESTRICTED', 'false');
   });
 
   // ----------------------------------------------------------------
@@ -484,6 +586,65 @@ async function main() {
     const found = getRes.data.find(c => c.code === apiCode);
     assert(found !== undefined);
     assert.strictEqual(found.discount_percent, 30);
+  });
+
+  await runAsyncTest('Endpoints de Empresas & Multi-Tenant (/api/companies)', async () => {
+    const postComp = await fetchApi('/api/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Beta Global Tech',
+        document: '99.888.777/0001-66',
+        description: 'Empresa do grupo focada em vendas internacionais'
+      })
+    });
+    assert.strictEqual(postComp.status, 200);
+    assert(postComp.data.id > 0);
+    assert.strictEqual(postComp.data.name, 'Beta Global Tech');
+
+    const getComp = await fetchApi('/api/companies');
+    assert.strictEqual(getComp.status, 200);
+    assert(Array.isArray(getComp.data));
+    const found = getComp.data.find(c => c.name === 'Beta Global Tech');
+    assert(found !== undefined);
+  });
+
+  await runAsyncTest('Endpoints de Vendedores e Produtos Permitidos (/api/sellers/:id/products)', async () => {
+    const postSProd = await fetchApi(`/api/sellers/${testSeller.id}/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_ids: [testProdDigital.id, testProdKey.id]
+      })
+    });
+    assert.strictEqual(postSProd.status, 200);
+    assert(Array.isArray(postSProd.data));
+    assert.strictEqual(postSProd.data.length, 2);
+
+    const getSProd = await fetchApi(`/api/sellers/${testSeller.id}/products`);
+    assert.strictEqual(getSProd.status, 200);
+    assert.strictEqual(getSProd.data.length, 2);
+  });
+
+  await runAsyncTest('Endpoints da Fila de Afiliação e Critérios (/api/affiliations/queue & request)', async () => {
+    const postReq = await fetchApi('/api/affiliations/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        affiliate_id: testAffiliate.id,
+        product_id: testProdKey.id,
+        notes: 'Solicitação via API de teste'
+      })
+    });
+    assert.strictEqual(postReq.status, 200);
+    assert(postReq.data.id > 0);
+
+    const getQueue = await fetchApi('/api/affiliations/queue');
+    assert.strictEqual(getQueue.status, 200);
+    assert(Array.isArray(getQueue.data));
+    const found = getQueue.data.find(q => q.id === postReq.data.id);
+    assert(found !== undefined);
+    assert(found.criteria !== undefined, 'Deve conter métricas avaliadas do afiliado');
   });
 
   await new Promise(resolve => testServer.close(resolve));

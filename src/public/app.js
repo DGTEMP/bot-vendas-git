@@ -1,6 +1,8 @@
 // PayBot Admin Master Dashboard Script
 
 let currentProducts = [];
+let currentCompanies = [];
+let currentAffiliates = [];
 let qrPollingInterval = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -45,13 +47,15 @@ function switchTab(tabName) {
     stopQrPolling();
   }
 
+  if (tabName === 'companies') loadCompanies();
+  if (tabName === 'sellers') loadSellers();
+  if (tabName === 'affiliates') loadAffiliates();
+  if (tabName === 'affiliations') loadAffiliationQueue();
   if (tabName === 'products') loadProducts();
   if (tabName === 'orders') loadOrders();
   if (tabName === 'subscriptions') loadSubscriptions();
   if (tabName === 'keys') loadProductsForKeys();
   if (tabName === 'settings') loadSettings();
-  if (tabName === 'sellers') loadSellers();
-  if (tabName === 'affiliates') loadAffiliates();
   if (tabName === 'commissions') loadCommissions();
   if (tabName === 'channel') loadChannelTab();
   if (tabName === 'coupons') loadCoupons();
@@ -62,12 +66,14 @@ async function loadAllData() {
   await Promise.all([
     loadMetrics(),
     loadWhatsAppStatus(),
+    loadCompanies(),
     loadProducts(),
     loadOrders(),
     loadSubscriptions(),
     loadSettings(),
     loadSellers(),
     loadAffiliates(),
+    loadAffiliationQueue(),
     loadCommissions(),
     loadOffers(),
     loadCoupons()
@@ -89,6 +95,21 @@ async function loadMetrics() {
     }
     if (document.getElementById('statTotalAffiliates')) {
       document.getElementById('statTotalAffiliates').innerText = data.totalAffiliates || 0;
+    }
+    if (document.getElementById('statTotalCompanies')) {
+      document.getElementById('statTotalCompanies').innerText = data.totalCompanies || 0;
+    }
+    if (document.getElementById('statPendingAffiliations')) {
+      document.getElementById('statPendingAffiliations').innerText = data.pendingAffiliationsCount || 0;
+    }
+    const badgePending = document.getElementById('badgePendingAffiliations');
+    if (badgePending) {
+      if (data.pendingAffiliationsCount > 0) {
+        badgePending.style.display = 'inline-block';
+        badgePending.innerText = data.pendingAffiliationsCount;
+      } else {
+        badgePending.style.display = 'none';
+      }
     }
     if (document.getElementById('statRecoveredCount')) {
       document.getElementById('statRecoveredCount').innerText = data.recoveredOrdersCount || 0;
@@ -178,7 +199,7 @@ async function loadWhatsAppStatus() {
 }
 
 // ==========================================
-// 5. TIMES DE VENDEDORES (SELLERS)
+// 5. TIMES DE VENDEDORES & PRODUTOS PERMITIDOS (SELLERS)
 // ==========================================
 async function loadSellers() {
   try {
@@ -189,35 +210,70 @@ async function loadSellers() {
     if (!tbody) return;
 
     if (sellers.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" class="text-center">Nenhum vendedor cadastrado ainda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center">Nenhum vendedor cadastrado ainda.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = sellers.map(s => `
-      <tr>
-        <td>#${s.id}</td>
-        <td><b>${s.name}</b><br><small style="color:var(--text-muted)">${s.email || ''}</small></td>
-        <td>${s.phone || '-'}</td>
-        <td>${s.telegram_username ? '@' + s.telegram_username.replace('@', '') : '-'}</td>
-        <td><span class="badge" style="background:#3b82f620; color:#3b82f6">${s.commission_rate}%</span></td>
-        <td><b>${s.total_sales_count}</b></td>
-        <td>R$ ${(s.total_revenue_brl || 0).toFixed(2)} | ${(s.total_revenue_usdt || 0).toFixed(2)} USDT</td>
-        <td>${s.active ? '<span class="badge badge-paid">Ativo</span>' : '<span class="badge badge-canceled">Inativo</span>'}</td>
-        <td>
-          <button class="btn btn-sm btn-danger" onclick="deleteSeller(${s.id})">
-            <i class="fa-solid fa-trash"></i>
-          </button>
-        </td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = sellers.map(s => {
+      let prodsBadge = '';
+      if (s.assigned_products && s.assigned_products.length > 0) {
+        const prodNames = s.assigned_products.map(p => p.name).join(', ');
+        prodsBadge = `<span class="badge" style="background:#f0b90b20; color:#f0b90b; cursor:pointer;" title="${prodNames}"><i class="fa-solid fa-boxes-stacked"></i> ${s.assigned_products.length} selecionado(s)</span>`;
+      } else {
+        prodsBadge = '<span class="badge badge-paid"><i class="fa-solid fa-globe"></i> Todos os produtos</span>';
+      }
+
+      return `
+        <tr>
+          <td>#${s.id}</td>
+          <td><b>${s.name}</b><br><small style="color:var(--text-muted)">${s.email || ''}</small></td>
+          <td>${s.phone || '-'}</td>
+          <td>${s.telegram_username ? '@' + s.telegram_username.replace('@', '') : '-'}</td>
+          <td>${prodsBadge}</td>
+          <td><span class="badge" style="background:#3b82f620; color:#3b82f6">${s.commission_rate}%</span></td>
+          <td><b>${s.total_sales_count}</b></td>
+          <td>R$ ${(s.total_revenue_brl || 0).toFixed(2)} | ${(s.total_revenue_usdt || 0).toFixed(2)} USDT</td>
+          <td>${s.active ? '<span class="badge badge-paid">Ativo</span>' : '<span class="badge badge-canceled">Inativo</span>'}</td>
+          <td>
+            <button class="btn btn-sm btn-danger" onclick="deleteSeller(${s.id})">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
   } catch (err) {
     console.error('Erro ao carregar vendedores:', err);
   }
 }
 
-function openSellerModal() {
+function renderSellerProductsChecklist(selectedIds = []) {
+  const container = document.getElementById('sellerProductsChecklist');
+  if (!container) return;
+
+  if (!currentProducts || currentProducts.length === 0) {
+    container.innerHTML = '<span style="color:var(--text-muted); font-size:12px;">Nenhum produto cadastrado no catálogo ainda.</span>';
+    return;
+  }
+
+  container.innerHTML = currentProducts.map(p => {
+    const isChecked = selectedIds.includes(p.id) ? 'checked' : '';
+    const company = p.company_name ? `• ${p.company_name}` : '';
+    const cat = p.category ? `[${p.category}]` : '';
+    return `
+      <label class="checkbox-label" style="font-size:12px; margin-bottom:4px; cursor:pointer;">
+        <input type="checkbox" name="sellerProdCheck" value="${p.id}" ${isChecked}>
+        <span><b>${p.name}</b> <small style="color:var(--text-muted);">${cat} ${company} (R$ ${Number(p.price_brl || p.price).toFixed(2)})</small></span>
+      </label>
+    `;
+  }).join('');
+}
+
+function openSellerModal(seller = null) {
   document.getElementById('formSeller').reset();
   document.getElementById('sellerId').value = '';
+  document.getElementById('modalSellerTitle').innerText = 'Novo Vendedor';
+  renderSellerProductsChecklist(seller ? (seller.assigned_product_ids || []) : []);
   document.getElementById('modalSeller').classList.add('active');
 }
 
@@ -227,13 +283,17 @@ function closeSellerModal() {
 
 async function saveSeller(e) {
   e.preventDefault();
+  const checkedBoxes = Array.from(document.querySelectorAll('input[name="sellerProdCheck"]:checked'));
+  const product_ids = checkedBoxes.map(cb => parseInt(cb.value, 10));
+
   const payload = {
     name: document.getElementById('sellerName').value,
     phone: document.getElementById('sellerPhone').value,
     email: document.getElementById('sellerEmail').value,
     telegram_username: document.getElementById('sellerTgUser').value,
     telegram_id: document.getElementById('sellerTgId').value,
-    commission_rate: parseFloat(document.getElementById('sellerCommission').value) || 0
+    commission_rate: parseFloat(document.getElementById('sellerCommission').value) || 0,
+    product_ids
   };
 
   try {
@@ -270,6 +330,7 @@ async function loadAffiliates() {
   try {
     const res = await fetch('/api/affiliates');
     const affiliates = await res.json();
+    currentAffiliates = affiliates;
 
     const tbody = document.querySelector('#tableAffiliates tbody');
     if (!tbody) return;
@@ -381,6 +442,296 @@ function copyInput(inputId) {
   input.select();
   navigator.clipboard.writeText(input.value);
   alert('Link copiado para a área de transferência!');
+}
+
+// ==========================================
+// EMPRESAS & MARCAS (COMPANIES)
+// ==========================================
+async function loadCompanies() {
+  try {
+    const res = await fetch('/api/companies');
+    const companies = await res.json();
+    currentCompanies = companies;
+    populateCompaniesDropdown();
+
+    const tbody = document.querySelector('#tableCompanies tbody');
+    if (!tbody) return;
+
+    if (!companies || companies.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center">Nenhuma empresa cadastrada ainda.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = companies.map(c => `
+      <tr>
+        <td>#${c.id}</td>
+        <td><b>${c.name}</b></td>
+        <td><code>${c.document || '-'}</code></td>
+        <td><small style="color:var(--text-muted)">${c.description || '-'}</small></td>
+        <td><span class="badge" style="background:#3b82f620; color:#3b82f6">${c.products_count || 0} produto(s)</span></td>
+        <td>${c.active ? '<span class="badge badge-paid">Ativa</span>' : '<span class="badge badge-canceled">Inativa</span>'}</td>
+        <td>
+          <button class="btn btn-sm btn-danger" onclick="deleteCompany(${c.id})">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('Erro ao carregar empresas:', err);
+  }
+}
+
+function openCompanyModal() {
+  document.getElementById('formCompany').reset();
+  document.getElementById('companyId').value = '';
+  document.getElementById('modalCompanyTitle').innerText = 'Nova Empresa / Marca';
+  document.getElementById('modalCompany').classList.add('active');
+}
+
+function closeCompanyModal() {
+  document.getElementById('modalCompany').classList.remove('active');
+}
+
+async function saveCompany(e) {
+  e.preventDefault();
+  const name = document.getElementById('companyName').value.trim();
+  const documentNum = document.getElementById('companyDocument').value.trim();
+  const description = document.getElementById('companyDescription').value.trim();
+
+  try {
+    const res = await fetch('/api/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, document: documentNum, description })
+    });
+    if (res.ok) {
+      closeCompanyModal();
+      loadCompanies();
+      loadProducts();
+      loadMetrics();
+    } else {
+      const err = await res.json();
+      alert('Erro: ' + (err.error || 'Falha ao salvar'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function deleteCompany(id) {
+  if (!confirm('Deseja realmente remover esta empresa? Os produtos continuarão no sistema sem empresa vinculada.')) return;
+  try {
+    await fetch(`/api/companies/${id}`, { method: 'DELETE' });
+    loadCompanies();
+    loadProducts();
+    loadMetrics();
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
+  }
+}
+
+function populateCompaniesDropdown() {
+  const select = document.getElementById('prodCompanyId');
+  if (!select) return;
+
+  let html = '<option value="">Nenhuma (Geral)</option>';
+  if (currentCompanies && currentCompanies.length > 0) {
+    currentCompanies.forEach(c => {
+      html += `<option value="${c.id}">${c.name}</option>`;
+    });
+  }
+  select.innerHTML = html;
+}
+
+// ==========================================
+// FILA DE ESPERA DE AFILIAÇÃO (PRODUCT AFFILIATION QUEUE)
+// ==========================================
+async function loadAffiliationQueue() {
+  try {
+    const res = await fetch('/api/affiliations/queue');
+    const items = await res.json();
+
+    const tbody = document.querySelector('#tableAffiliationQueue tbody');
+    if (!tbody) return;
+
+    if (!items || items.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum pedido de afiliação na fila no momento.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+      const c = item.criteria || {};
+      const date = item.requested_at ? new Date(item.requested_at).toLocaleDateString('pt-BR') : '-';
+
+      // Status Badge
+      let statusBadge = '';
+      if (item.status === 'APPROVED') {
+        statusBadge = '<span class="badge badge-paid"><i class="fa-solid fa-circle-check"></i> Aprovado</span>';
+      } else if (item.status === 'CRITERIA_MET') {
+        statusBadge = '<span class="badge" style="background:#3b82f620; color:#3b82f6"><i class="fa-solid fa-star"></i> Critérios Atingidos</span>';
+      } else if (item.status === 'REJECTED') {
+        statusBadge = '<span class="badge badge-canceled"><i class="fa-solid fa-circle-xmark"></i> Recusado</span>';
+      } else {
+        statusBadge = '<span class="badge badge-pending"><i class="fa-solid fa-clock"></i> Fila de Espera</span>';
+      }
+
+      // Progresso dos Critérios
+      const salesBadge = c.meets_sales 
+        ? `<span class="badge badge-paid" title="Vendas do Afiliado">${c.sales_count} / ${c.min_sales} vendas</span>`
+        : `<span class="badge badge-pending" title="Vendas do Afiliado">${c.sales_count || 0} / ${c.min_sales} vendas</span>`;
+
+      const revBadge = c.meets_revenue
+        ? `<span class="badge badge-paid" title="Faturamento">R$ ${(c.revenue_brl || 0).toFixed(0)}</span>`
+        : `<span class="badge badge-pending" title="Faturamento">R$ ${(c.revenue_brl || 0).toFixed(0)} / R$ ${c.min_revenue}</span>`;
+
+      const walletBadge = c.has_payment_info
+        ? `<span class="badge badge-paid" title="PIX/USDT cadastrado">Dados OK</span>`
+        : `<span class="badge badge-expired" title="Sem chave PIX ou carteira">Sem PIX/Wallet</span>`;
+
+      let actionButtons = '';
+      if (item.status !== 'APPROVED') {
+        actionButtons += `
+          <button class="btn btn-sm btn-primary" onclick="approveAffiliation(${item.id})" title="Aprovar e Ativar">
+            <i class="fa-solid fa-check"></i> Aprovar
+          </button>
+        `;
+      }
+      if (item.status !== 'REJECTED') {
+        actionButtons += `
+          <button class="btn btn-sm btn-outline" onclick="rejectAffiliation(${item.id})" title="Recusar">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        `;
+      }
+
+      const companyStr = item.company_name ? `<b>${item.company_name}</b><br>` : '';
+      const catStr = item.category ? `<small style="color:var(--text-muted)">[${item.category}]</small>` : '';
+
+      return `
+        <tr>
+          <td>#${item.id}</td>
+          <td><b>${item.affiliate_name}</b><br><code style="color:var(--primary-gold)">${item.ref_code}</code></td>
+          <td><b>${item.product_name}</b><br><small style="color:var(--text-muted)">R$ ${Number(item.price_brl).toFixed(2)}</small></td>
+          <td>${companyStr}${catStr}</td>
+          <td>
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <div>${salesBadge} ${revBadge}</div>
+              <div>${walletBadge}</div>
+            </div>
+          </td>
+          <td>${statusBadge}<br><small style="color:var(--text-muted); font-size:10px;">${item.notes || ''}</small></td>
+          <td><small>${date}</small></td>
+          <td style="white-space:nowrap;">${actionButtons}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar fila de afiliação:', err);
+  }
+}
+
+function openRequestAffiliationModal() {
+  const selAfil = document.getElementById('reqAffiliateSelect');
+  const selProd = document.getElementById('reqProductSelect');
+  document.getElementById('formRequestAffiliation').reset();
+
+  if (currentAffiliates && currentAffiliates.length > 0) {
+    selAfil.innerHTML = currentAffiliates.map(a => `<option value="${a.id}">${a.name} (${a.ref_code})</option>`).join('');
+  } else {
+    selAfil.innerHTML = '<option value="">Nenhum afiliado cadastrado</option>';
+  }
+
+  if (currentProducts && currentProducts.length > 0) {
+    selProd.innerHTML = currentProducts.map(p => {
+      const comp = p.company_name ? `[${p.company_name}]` : '';
+      return `<option value="${p.id}">${p.name} ${comp} - R$ ${Number(p.price_brl || p.price).toFixed(2)}</option>`;
+    }).join('');
+  } else {
+    selProd.innerHTML = '<option value="">Nenhum produto cadastrado</option>';
+  }
+
+  document.getElementById('modalRequestAffiliation').classList.add('active');
+}
+
+function closeRequestAffiliationModal() {
+  document.getElementById('modalRequestAffiliation').classList.remove('active');
+}
+
+async function submitRequestAffiliation(e) {
+  e.preventDefault();
+  const affiliate_id = document.getElementById('reqAffiliateSelect').value;
+  const product_id = document.getElementById('reqProductSelect').value;
+  const notes = document.getElementById('reqNotes').value.trim();
+
+  try {
+    const res = await fetch('/api/affiliations/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ affiliate_id, product_id, notes })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      closeRequestAffiliationModal();
+      loadAffiliationQueue();
+      loadMetrics();
+      alert(`Pedido de afiliação cadastrado! Status: ${data.status}`);
+    } else {
+      alert('Erro: ' + (data.error || 'Falha ao registrar pedido'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function approveAffiliation(id) {
+  try {
+    const res = await fetch(`/api/affiliations/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: 'Aprovado pelo administrador no painel' })
+    });
+    if (res.ok) {
+      loadAffiliationQueue();
+      loadMetrics();
+    }
+  } catch (err) {
+    alert('Erro ao aprovar: ' + err.message);
+  }
+}
+
+async function rejectAffiliation(id) {
+  const reason = prompt('Informe o motivo da recusa (opcional):', 'Critérios mínimos não atingidos no momento');
+  if (reason === null) return;
+  try {
+    const res = await fetch(`/api/affiliations/${id}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    if (res.ok) {
+      loadAffiliationQueue();
+      loadMetrics();
+    }
+  } catch (err) {
+    alert('Erro ao recusar: ' + err.message);
+  }
+}
+
+async function checkAllAffiliationCriteria() {
+  try {
+    const res = await fetch('/api/affiliations/check-criteria', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    alert(`Critérios reavaliados! ${data.updatedCount || 0} solicitações foram atualizadas.`);
+    loadAffiliationQueue();
+    loadMetrics();
+  } catch (err) {
+    alert('Erro ao reavaliar critérios: ' + err.message);
+  }
 }
 
 // ==========================================
@@ -588,7 +939,7 @@ async function loadProducts() {
 
     const tbody = document.querySelector('#tableProducts tbody');
     if (currentProducts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum produto cadastrado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center">Nenhum produto cadastrado.</td></tr>';
       return;
     }
 
@@ -614,10 +965,15 @@ async function loadProducts() {
       const brl = Number(p.price_brl || p.price).toFixed(2);
       const usdt = Number(p.price_usdt || (p.price / 5.5)).toFixed(2);
 
+      const companyLabel = p.company_name ? `<b>${p.company_name}</b>` : '<span style="color:var(--text-muted)">Matriz</span>';
+      const categoryLabel = `<span class="badge" style="background:#64748b20; color:#94a3b8">${p.category || 'Geral'}</span>`;
+
       return `
         <tr>
           <td>#${p.id}</td>
           <td><b>${p.name}</b><br><small style="color:var(--text-muted)">${p.description || ''}</small></td>
+          <td>${companyLabel}</td>
+          <td>${categoryLabel}</td>
           <td>${typeLabel}</td>
           <td><b style="color:var(--color-pix)">R$ ${brl}</b></td>
           <td><b style="color:var(--primary-gold)">${usdt} USDT</b></td>
@@ -634,6 +990,16 @@ async function loadProducts() {
   } catch (err) {
     console.error('Erro ao carregar produtos:', err);
   }
+}
+
+async function populateCategoriesDatalist() {
+  try {
+    const res = await fetch('/api/categories');
+    const categories = await res.json();
+    const datalist = document.getElementById('listCategories');
+    if (!datalist) return;
+    datalist.innerHTML = categories.map(c => `<option value="${c}">`).join('');
+  } catch (_) {}
 }
 
 function populateProductUpsellDropdown(excludeId = null) {
@@ -653,9 +1019,12 @@ function openProductModal() {
   document.getElementById('formProduct').reset();
   document.getElementById('prodId').value = '';
   document.getElementById('modalProductTitle').innerText = 'Novo Produto / Assinatura';
+  populateCompaniesDropdown();
+  populateCategoriesDatalist();
   populateProductUpsellDropdown();
   document.getElementById('prodUpsellDiscount').value = '20';
   document.getElementById('prodUpsellHeadline').value = '';
+  document.getElementById('prodCategory').value = 'Geral';
   toggleProductTypeFields();
   document.getElementById('modalProduct').classList.add('active');
 }
@@ -694,6 +1063,8 @@ async function saveProduct(e) {
   const upsell_product_id = document.getElementById('prodUpsellId').value ? parseInt(document.getElementById('prodUpsellId').value, 10) : null;
   const upsell_discount_percent = parseFloat(document.getElementById('prodUpsellDiscount').value) || 0;
   const upsell_headline = document.getElementById('prodUpsellHeadline').value.trim();
+  const company_id = document.getElementById('prodCompanyId').value ? parseInt(document.getElementById('prodCompanyId').value, 10) : null;
+  const category = document.getElementById('prodCategory').value.trim() || 'Geral';
 
   const payload = {
     name,
@@ -708,7 +1079,9 @@ async function saveProduct(e) {
     telegram_channel_id,
     upsell_product_id,
     upsell_discount_percent,
-    upsell_headline
+    upsell_headline,
+    company_id,
+    category
   };
 
   try {
@@ -1040,6 +1413,36 @@ async function loadSettings() {
       document.getElementById('cfgUpsellEnabled').checked = cfg.UPSELL_ENABLED !== false;
     }
 
+    // Critérios Mínimos de Afiliação
+    if (document.getElementById('cfgAffiliationMinSales')) {
+      document.getElementById('cfgAffiliationMinSales').value = cfg.AFFILIATION_MIN_SALES || 2;
+    }
+    if (document.getElementById('cfgAffiliationMinRevenue')) {
+      document.getElementById('cfgAffiliationMinRevenue').value = cfg.AFFILIATION_MIN_REVENUE_BRL || 50.0;
+    }
+    if (document.getElementById('cfgAffiliationRequirePayment')) {
+      document.getElementById('cfgAffiliationRequirePayment').checked = cfg.AFFILIATION_REQUIRE_PAYMENT_INFO !== false;
+    }
+    if (document.getElementById('cfgAffiliationAutoApprove')) {
+      document.getElementById('cfgAffiliationAutoApprove').checked = cfg.AFFILIATION_AUTO_APPROVE !== false;
+    }
+    if (document.getElementById('cfgAffiliationProductRestricted')) {
+      document.getElementById('cfgAffiliationProductRestricted').checked = cfg.AFFILIATION_PRODUCT_RESTRICTED === true;
+    }
+
+    // Badges informativos na aba de Fila de Afiliação
+    if (document.getElementById('badgeCriteriaSales')) {
+      document.getElementById('badgeCriteriaSales').innerText = `Mín. ${cfg.AFFILIATION_MIN_SALES || 2} Vendas`;
+    }
+    if (document.getElementById('badgeCriteriaRevenue')) {
+      document.getElementById('badgeCriteriaRevenue').innerText = `Mín. R$ ${Number(cfg.AFFILIATION_MIN_REVENUE_BRL || 50).toFixed(2)}`;
+    }
+    if (document.getElementById('badgeCriteriaAutoApprove')) {
+      const isAuto = cfg.AFFILIATION_AUTO_APPROVE !== false;
+      document.getElementById('badgeCriteriaAutoApprove').className = isAuto ? 'badge badge-paid' : 'badge badge-pending';
+      document.getElementById('badgeCriteriaAutoApprove').innerText = isAuto ? '⚡ Auto-ativação Ativa' : '✋ Aprovação Manual';
+    }
+
     // Atualiza status do canal na aba de Atualizações
     const lblStatus = document.getElementById('lblChannelConfigStatus');
     const lblId = document.getElementById('lblChannelIdText');
@@ -1133,6 +1536,11 @@ async function saveSettings(e) {
     ABANDONED_CART_DELAY_MIN: parseInt(document.getElementById('cfgAbandonedCartDelayMin')?.value, 10) || 15,
     ABANDONED_CART_MESSAGE: document.getElementById('cfgAbandonedCartMessage')?.value || '',
     UPSELL_ENABLED: document.getElementById('cfgUpsellEnabled')?.checked ?? true,
+    AFFILIATION_MIN_SALES: parseInt(document.getElementById('cfgAffiliationMinSales')?.value, 10) || 2,
+    AFFILIATION_MIN_REVENUE_BRL: parseFloat(document.getElementById('cfgAffiliationMinRevenue')?.value) || 50.0,
+    AFFILIATION_REQUIRE_PAYMENT_INFO: document.getElementById('cfgAffiliationRequirePayment')?.checked ?? true,
+    AFFILIATION_AUTO_APPROVE: document.getElementById('cfgAffiliationAutoApprove')?.checked ?? true,
+    AFFILIATION_PRODUCT_RESTRICTED: document.getElementById('cfgAffiliationProductRestricted')?.checked ?? false,
     PUBLIC_URL: document.getElementById('cfgPublicUrl').value
   };
 

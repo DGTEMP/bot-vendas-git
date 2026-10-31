@@ -195,6 +195,47 @@ function initDatabase() {
     );
   `);
 
+  // 11. Tabela de Empresas / Multi-tenant (Companies)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      document TEXT,
+      description TEXT,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 12. Tabela de Associação Vendedor <-> Produtos (Seller Allowed Products)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS seller_products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      seller_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(seller_id, product_id),
+      FOREIGN KEY (seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+  `);
+
+  // 13. Tabela de Fila de Espera de Afiliação por Produto (Product Affiliations Queue)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_affiliations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      affiliate_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      status TEXT DEFAULT 'PENDING', -- 'PENDING', 'CRITERIA_MET', 'APPROVED', 'REJECTED'
+      notes TEXT,
+      requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at TEXT,
+      UNIQUE(affiliate_id, product_id),
+      FOREIGN KEY (affiliate_id) REFERENCES affiliates(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
@@ -211,7 +252,9 @@ function initDatabase() {
     'ALTER TABLE orders ADD COLUMN is_upsell INTEGER DEFAULT 0;',
     'ALTER TABLE products ADD COLUMN upsell_product_id INTEGER;',
     'ALTER TABLE products ADD COLUMN upsell_discount_percent REAL DEFAULT 20.0;',
-    'ALTER TABLE products ADD COLUMN upsell_headline TEXT;'
+    'ALTER TABLE products ADD COLUMN upsell_headline TEXT;',
+    'ALTER TABLE products ADD COLUMN company_id INTEGER;',
+    'ALTER TABLE products ADD COLUMN category TEXT DEFAULT "Geral";'
   ];
 
   for (const m of migrations) {
@@ -241,7 +284,12 @@ function initDatabase() {
     ['ABANDONED_CART_ENABLED', 'true'],
     ['ABANDONED_CART_DELAY_MIN', '15'],
     ['ABANDONED_CART_MESSAGE', '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no botão abaixo para pagar e receber seu acesso imediatamente:'],
-    ['UPSELL_ENABLED', 'true']
+    ['UPSELL_ENABLED', 'true'],
+    ['AFFILIATION_MIN_SALES', '2'],
+    ['AFFILIATION_MIN_REVENUE_BRL', '50.0'],
+    ['AFFILIATION_REQUIRE_PAYMENT_INFO', 'true'],
+    ['AFFILIATION_AUTO_APPROVE', 'true'],
+    ['AFFILIATION_PRODUCT_RESTRICTED', 'false']
   ];
 
   for (const [k, v] of defaultSettings) {
@@ -249,6 +297,20 @@ function initDatabase() {
     if (!exists) {
       db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(k, v);
     }
+  }
+
+  // Semeia empresa padrão se nenhuma existir
+  const companiesCount = db.prepare('SELECT COUNT(*) as count FROM companies').get().count;
+  if (companiesCount === 0) {
+    const resComp = db.prepare(`
+      INSERT INTO companies (name, document, description)
+      VALUES (?, ?, ?)
+    `).run('Empresa Principal (Matriz)', '12.345.678/0001-90', 'Unidade de Negócios e Operação Principal');
+    
+    // Atualiza produtos sem company_id para vincular à empresa matriz
+    try {
+      db.prepare('UPDATE products SET company_id = ? WHERE company_id IS NULL').run(Number(resComp.lastInsertRowid));
+    } catch (_) {}
   }
 
   // Semeia vendedor e afiliado de exemplo se vazios

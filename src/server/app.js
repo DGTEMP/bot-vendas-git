@@ -246,19 +246,19 @@ function createServer() {
     res.json(whatsappBot.getConnectionStatus());
   });
 
-  // Produtos
+  // Produtos & Categorias
   app.get('/api/products', (req, res) => {
-    const products = models.getProducts(false).map(p => {
-      if (p.type === 'license_key') {
-        p.availableStock = models.getAvailableKeyCount(p.id);
-      }
-      return p;
-    });
+    const products = models.getProducts(false);
     res.json(products);
   });
 
+  app.get('/api/categories', (req, res) => {
+    const categories = models.getCategories();
+    res.json(categories);
+  });
+
   app.post('/api/products', (req, res) => {
-    const { name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline } = req.body;
+    const { name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category } = req.body;
     if (!name || !type) {
       return res.status(400).json({ error: 'Campos nome e tipo são obrigatórios.' });
     }
@@ -275,7 +275,9 @@ function createServer() {
       telegram_channel_id,
       upsell_product_id: upsell_product_id ? Number(upsell_product_id) : null,
       upsell_discount_percent: Number(upsell_discount_percent || 20.0),
-      upsell_headline
+      upsell_headline,
+      company_id: company_id ? Number(company_id) : null,
+      category: category ? category.trim() : 'Geral'
     });
     res.json(created);
   });
@@ -339,7 +341,7 @@ function createServer() {
   });
 
   // ==========================================
-  // TIMES DE VENDEDORES (SELLERS API)
+  // TIMES DE VENDEDORES & PRODUTOS PERMITIDOS (SELLERS API)
   // ==========================================
   app.get('/api/sellers', (req, res) => {
     const sellers = models.getSellers(false);
@@ -347,9 +349,17 @@ function createServer() {
   });
 
   app.post('/api/sellers', (req, res) => {
-    const { name, email, phone, telegram_id, telegram_username, commission_rate } = req.body;
+    const { name, email, phone, telegram_id, telegram_username, commission_rate, product_ids } = req.body;
     if (!name) return res.status(400).json({ error: 'Nome do vendedor é obrigatório' });
-    const seller = models.createSeller({ name, email, phone, telegram_id, telegram_username, commission_rate });
+    const seller = models.createSeller({ 
+      name, 
+      email, 
+      phone, 
+      telegram_id, 
+      telegram_username, 
+      commission_rate, 
+      product_ids: Array.isArray(product_ids) ? product_ids : [] 
+    });
     res.json(seller);
   });
 
@@ -359,10 +369,109 @@ function createServer() {
     res.json(updated);
   });
 
+  app.get('/api/sellers/:id/products', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const products = models.getSellerProducts(id);
+    res.json(products);
+  });
+
+  app.post('/api/sellers/:id/products', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { product_ids } = req.body;
+    const updated = models.setSellerProducts(id, Array.isArray(product_ids) ? product_ids : []);
+    res.json(updated);
+  });
+
   app.delete('/api/sellers/:id', (req, res) => {
     const id = parseInt(req.params.id, 10);
     models.deleteSeller(id);
     res.json({ success: true });
+  });
+
+  // ==========================================
+  // EMPRESAS & MULTI-TENANCY (COMPANIES API)
+  // ==========================================
+  app.get('/api/companies', (req, res) => {
+    const companies = models.getCompanies(false);
+    res.json(companies);
+  });
+
+  app.post('/api/companies', (req, res) => {
+    const { name, document, description } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Nome da empresa é obrigatório.' });
+    }
+    const company = models.createCompany({ name, document, description });
+    res.json(company);
+  });
+
+  app.put('/api/companies/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const updated = models.updateCompany(id, req.body);
+    res.json(updated);
+  });
+
+  app.delete('/api/companies/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    models.deleteCompany(id);
+    res.json({ success: true });
+  });
+
+  // ==========================================
+  // FILA DE ESPERA DE AFILIAÇÃO & CRITÉRIOS (PRODUCT AFFILIATIONS API)
+  // ==========================================
+  app.get('/api/affiliations/queue', (req, res) => {
+    const { status, affiliate_id, product_id } = req.query;
+    const affiliations = models.getProductAffiliations({
+      status: status || null,
+      affiliate_id: affiliate_id ? parseInt(affiliate_id, 10) : null,
+      product_id: product_id ? parseInt(product_id, 10) : null
+    });
+    res.json(affiliations);
+  });
+
+  app.post('/api/affiliations/request', (req, res) => {
+    const { affiliate_id, product_id, notes } = req.body;
+    if (!affiliate_id || !product_id) {
+      return res.status(400).json({ error: 'affiliate_id e product_id são obrigatórios.' });
+    }
+    try {
+      const created = models.requestProductAffiliation({
+        affiliate_id: parseInt(affiliate_id, 10),
+        product_id: parseInt(product_id, 10),
+        notes
+      });
+      res.json(created);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/affiliations/:id/approve', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { note } = req.body;
+    const approved = models.approveProductAffiliation(id, 'ADMIN', note);
+    res.json({ success: true, affiliation: approved });
+  });
+
+  app.post('/api/affiliations/:id/reject', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { reason } = req.body;
+    const rejected = models.rejectProductAffiliation(id, reason);
+    res.json({ success: true, affiliation: rejected });
+  });
+
+  app.post('/api/affiliations/check-criteria', (req, res) => {
+    const { affiliate_id } = req.body;
+    const updated = models.checkAndActivateAffiliations(affiliate_id ? parseInt(affiliate_id, 10) : null);
+    res.json({ success: true, updatedCount: updated.length, updated });
+  });
+
+  app.get('/api/affiliates/:id/criteria', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const criteria = models.evaluateAffiliateCriteria(id);
+    if (!criteria) return res.status(404).json({ error: 'Afiliado não encontrado' });
+    res.json(criteria);
   });
 
   // ==========================================
@@ -623,6 +732,13 @@ function createServer() {
       ABANDONED_CART_MESSAGE: current.ABANDONED_CART_MESSAGE || '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no botão abaixo para pagar e receber seu acesso imediatamente:',
       UPSELL_ENABLED: current.UPSELL_ENABLED !== 'false',
 
+      // Critérios de Afiliação por Produto & Fila de Espera
+      AFFILIATION_MIN_SALES: parseInt(current.AFFILIATION_MIN_SALES || '2', 10),
+      AFFILIATION_MIN_REVENUE_BRL: parseFloat(current.AFFILIATION_MIN_REVENUE_BRL || '50.0'),
+      AFFILIATION_REQUIRE_PAYMENT_INFO: current.AFFILIATION_REQUIRE_PAYMENT_INFO !== 'false',
+      AFFILIATION_AUTO_APPROVE: current.AFFILIATION_AUTO_APPROVE !== 'false',
+      AFFILIATION_PRODUCT_RESTRICTED: current.AFFILIATION_PRODUCT_RESTRICTED === 'true',
+
       // Regras de Negócio & Equipe
       GLOBAL_AFFILIATE_RATE: Number(current.GLOBAL_AFFILIATE_RATE || 20.0),
       ROUND_ROBIN_SELLERS: current.ROUND_ROBIN_SELLERS !== 'false',
@@ -740,6 +856,23 @@ function createServer() {
     }
     if (body.UPSELL_ENABLED !== undefined) {
       models.setSetting('UPSELL_ENABLED', String(body.UPSELL_ENABLED));
+    }
+
+    // Critérios de Afiliação por Produto
+    if (body.AFFILIATION_MIN_SALES !== undefined) {
+      models.setSetting('AFFILIATION_MIN_SALES', String(body.AFFILIATION_MIN_SALES));
+    }
+    if (body.AFFILIATION_MIN_REVENUE_BRL !== undefined) {
+      models.setSetting('AFFILIATION_MIN_REVENUE_BRL', String(body.AFFILIATION_MIN_REVENUE_BRL));
+    }
+    if (body.AFFILIATION_REQUIRE_PAYMENT_INFO !== undefined) {
+      models.setSetting('AFFILIATION_REQUIRE_PAYMENT_INFO', String(body.AFFILIATION_REQUIRE_PAYMENT_INFO));
+    }
+    if (body.AFFILIATION_AUTO_APPROVE !== undefined) {
+      models.setSetting('AFFILIATION_AUTO_APPROVE', String(body.AFFILIATION_AUTO_APPROVE));
+    }
+    if (body.AFFILIATION_PRODUCT_RESTRICTED !== undefined) {
+      models.setSetting('AFFILIATION_PRODUCT_RESTRICTED', String(body.AFFILIATION_PRODUCT_RESTRICTED));
     }
 
     // URL Pública

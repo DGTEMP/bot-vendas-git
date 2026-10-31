@@ -2,31 +2,46 @@ const db = require('./database');
 
 const models = {
   // ==========================================
-  // 1. PRODUTOS
+  // 1. PRODUTOS & CATEGORIAS
   // ==========================================
   getProducts(activeOnly = true) {
     const sql = activeOnly 
-      ? 'SELECT * FROM products WHERE active = 1 ORDER BY id ASC'
-      : 'SELECT * FROM products ORDER BY id ASC';
+      ? `SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
+         FROM products p
+         LEFT JOIN companies c ON p.company_id = c.id
+         LEFT JOIN products u ON p.upsell_product_id = u.id
+         WHERE p.active = 1 
+         ORDER BY p.id ASC`
+      : `SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
+         FROM products p
+         LEFT JOIN companies c ON p.company_id = c.id
+         LEFT JOIN products u ON p.upsell_product_id = u.id
+         ORDER BY p.id ASC`;
     return db.prepare(sql).all();
   },
 
   getProductById(id) {
     return db.prepare(`
-      SELECT p.*, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
+      SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
       FROM products p
+      LEFT JOIN companies c ON p.company_id = c.id
       LEFT JOIN products u ON p.upsell_product_id = u.id
       WHERE p.id = ?
     `).get(id);
   },
 
-  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null }) {
+  getCategories() {
+    const rows = db.prepare('SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != "" ORDER BY category ASC').all();
+    return rows.map(r => r.category);
+  },
+
+  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral' }) {
     const brl = price_brl !== null ? Number(price_brl) : Number(price);
     const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
     
     const stmt = db.prepare(`
-      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const res = stmt.run(
       name, 
@@ -41,18 +56,20 @@ const models = {
       telegram_channel_id || null, 
       upsell_product_id ? Number(upsell_product_id) : null, 
       Number(upsell_discount_percent || 20.0), 
-      upsell_headline || null
+      upsell_headline || null,
+      company_id ? Number(company_id) : null,
+      category || 'Geral'
     );
     return models.getProductById(Number(res.lastInsertRowid));
   },
 
-  updateProduct(id, { name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, active = 1 }) {
+  updateProduct(id, { name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral', active = 1 }) {
     const brl = price_brl !== null ? Number(price_brl) : Number(price);
     const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
 
     db.prepare(`
       UPDATE products 
-      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, active = ?
+      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, company_id = ?, category = ?, active = ?
       WHERE id = ?
     `).run(
       name, 
@@ -68,6 +85,8 @@ const models = {
       upsell_product_id ? Number(upsell_product_id) : null, 
       Number(upsell_discount_percent || 20.0), 
       upsell_headline || null, 
+      company_id ? Number(company_id) : null,
+      category || 'Geral',
       active ? 1 : 0, 
       id
     );
@@ -127,48 +146,118 @@ const models = {
   },
 
   // ==========================================
-  // 3. TIMES DE VENDEDORES (SELLERS)
+  // 3. TIMES DE VENDEDORES (SELLERS) & ATRIBUIÇÃO DE PRODUTOS
   // ==========================================
   getSellers(activeOnly = false) {
     const sql = activeOnly
       ? 'SELECT * FROM sellers WHERE active = 1 ORDER BY id ASC'
       : 'SELECT * FROM sellers ORDER BY id ASC';
-    return db.prepare(sql).all();
+    const sellers = db.prepare(sql).all();
+    for (const s of sellers) {
+      s.assigned_product_ids = models.getSellerProductIds(s.id);
+      s.assigned_products = models.getSellerProducts(s.id);
+    }
+    return sellers;
   },
 
   getSellerById(id) {
-    return db.prepare('SELECT * FROM sellers WHERE id = ?').get(id);
+    const seller = db.prepare('SELECT * FROM sellers WHERE id = ?').get(id);
+    if (seller) {
+      seller.assigned_product_ids = models.getSellerProductIds(seller.id);
+      seller.assigned_products = models.getSellerProducts(seller.id);
+    }
+    return seller;
   },
 
-  createSeller({ name, email, phone, telegram_id, telegram_username, commission_rate = 10.0 }) {
+  getSellerProductIds(sellerId) {
+    const rows = db.prepare('SELECT product_id FROM seller_products WHERE seller_id = ?').all(sellerId);
+    return rows.map(r => r.product_id);
+  },
+
+  getSellerProducts(sellerId) {
+    return db.prepare(`
+      SELECT p.id, p.name, p.price_brl, p.price_usdt, p.category, c.name as company_name
+      FROM seller_products sp
+      JOIN products p ON sp.product_id = p.id
+      LEFT JOIN companies c ON p.company_id = c.id
+      WHERE sp.seller_id = ?
+      ORDER BY p.name ASC
+    `).all(sellerId);
+  },
+
+  setSellerProducts(sellerId, productIds = []) {
+    db.prepare('DELETE FROM seller_products WHERE seller_id = ?').run(sellerId);
+    if (Array.isArray(productIds) && productIds.length > 0) {
+      const insert = db.prepare('INSERT OR IGNORE INTO seller_products (seller_id, product_id) VALUES (?, ?)');
+      for (const pid of productIds) {
+        if (pid) insert.run(sellerId, Number(pid));
+      }
+    }
+    return models.getSellerProducts(sellerId);
+  },
+
+  createSeller({ name, email, phone, telegram_id, telegram_username, commission_rate = 10.0, product_ids = [] }) {
     const stmt = db.prepare(`
       INSERT INTO sellers (name, email, phone, telegram_id, telegram_username, commission_rate)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     const res = stmt.run(name, email || null, phone || null, telegram_id || null, telegram_username || null, Number(commission_rate));
-    return models.getSellerById(Number(res.lastInsertRowid));
+    const sellerId = Number(res.lastInsertRowid);
+    if (product_ids && product_ids.length > 0) {
+      models.setSellerProducts(sellerId, product_ids);
+    }
+    return models.getSellerById(sellerId);
   },
 
-  updateSeller(id, { name, email, phone, telegram_id, telegram_username, commission_rate, active = 1 }) {
+  updateSeller(id, { name, email, phone, telegram_id, telegram_username, commission_rate, active = 1, product_ids = null }) {
     db.prepare(`
       UPDATE sellers
       SET name = ?, email = ?, phone = ?, telegram_id = ?, telegram_username = ?, commission_rate = ?, active = ?
       WHERE id = ?
     `).run(name, email || null, phone || null, telegram_id || null, telegram_username || null, Number(commission_rate), active ? 1 : 0, id);
+
+    if (product_ids !== null && Array.isArray(product_ids)) {
+      models.setSellerProducts(id, product_ids);
+    }
     return models.getSellerById(id);
   },
 
   deleteSeller(id) {
+    db.prepare('DELETE FROM seller_products WHERE seller_id = ?').run(id);
     return db.prepare('DELETE FROM sellers WHERE id = ?').run(id);
   },
 
-  // Roleta de distribuição de leads/vendas entre vendedores ativos (Round-Robin)
-  getNextRoundRobinSeller() {
-    const sellers = models.getSellers(true);
-    if (sellers.length === 0) return null;
+  // Roleta de distribuição de leads/vendas entre vendedores ativos (Round-Robin inteligente por produto)
+  getNextRoundRobinSeller(productId = null) {
+    let eligibleSellers = [];
+
+    if (productId) {
+      // 1. Tenta vendedores ativos especificamente designados para este produto
+      eligibleSellers = db.prepare(`
+        SELECT s.* FROM sellers s
+        JOIN seller_products sp ON s.id = sp.seller_id
+        WHERE sp.product_id = ? AND s.active = 1
+      `).all(Number(productId));
+
+      // 2. Se nenhum vendedor específico foi configurado para este produto, busca vendedores sem restrição (atendem tudo)
+      if (eligibleSellers.length === 0) {
+        eligibleSellers = db.prepare(`
+          SELECT s.* FROM sellers s
+          WHERE s.active = 1
+            AND s.id NOT IN (SELECT DISTINCT seller_id FROM seller_products)
+        `).all();
+      }
+    }
+
+    // 3. Fallback: qualquer vendedor ativo
+    if (eligibleSellers.length === 0) {
+      eligibleSellers = db.prepare('SELECT * FROM sellers WHERE active = 1').all();
+    }
+
+    if (eligibleSellers.length === 0) return null;
 
     // Seleciona o vendedor que tiver o menor número de vendas atribuídas
-    const sorted = [...sellers].sort((a, b) => a.total_sales_count - b.total_sales_count);
+    const sorted = [...eligibleSellers].sort((a, b) => a.total_sales_count - b.total_sales_count);
     return sorted[0];
   },
 
@@ -189,6 +278,59 @@ const models = {
         WHERE id = ?
       `).run(Number(amount), sellerId);
     }
+  },
+
+  // ==========================================
+  // EMPRESAS / MARCAS (COMPANIES)
+  // ==========================================
+  getCompanies(activeOnly = false) {
+    const sql = activeOnly
+      ? `SELECT c.*, COUNT(p.id) as products_count
+         FROM companies c
+         LEFT JOIN products p ON c.id = p.company_id AND p.active = 1
+         WHERE c.active = 1
+         GROUP BY c.id
+         ORDER BY c.name ASC`
+      : `SELECT c.*, COUNT(p.id) as products_count
+         FROM companies c
+         LEFT JOIN products p ON c.id = p.company_id
+         GROUP BY c.id
+         ORDER BY c.name ASC`;
+    return db.prepare(sql).all();
+  },
+
+  getCompanyById(id) {
+    return db.prepare(`
+      SELECT c.*, COUNT(p.id) as products_count
+      FROM companies c
+      LEFT JOIN products p ON c.id = p.company_id
+      WHERE c.id = ?
+      GROUP BY c.id
+    `).get(id);
+  },
+
+  createCompany({ name, document = null, description = null }) {
+    const stmt = db.prepare(`
+      INSERT INTO companies (name, document, description)
+      VALUES (?, ?, ?)
+    `);
+    const res = stmt.run(name.trim(), document || null, description || null);
+    return models.getCompanyById(Number(res.lastInsertRowid));
+  },
+
+  updateCompany(id, { name, document = null, description = null, active = 1 }) {
+    db.prepare(`
+      UPDATE companies
+      SET name = ?, document = ?, description = ?, active = ?
+      WHERE id = ?
+    `).run(name.trim(), document || null, description || null, active ? 1 : 0, id);
+    return models.getCompanyById(id);
+  },
+
+  deleteCompany(id) {
+    // Desvincula produtos desta empresa
+    db.prepare('UPDATE products SET company_id = NULL WHERE company_id = ?').run(id);
+    return db.prepare('DELETE FROM companies WHERE id = ?').run(id);
   },
 
   // ==========================================
@@ -327,10 +469,10 @@ const models = {
   // ==========================================
   // 6. PEDIDOS (ORDERS)
   // ==========================================
-  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null, affiliate_id = null, seller_id = null, ref_code = null, coupon_code = null, discount_amount = 0, is_upsell = 0 }) {
+  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null, affiliate_id = null, seller_id = null, ref_code = null, coupon_code = null, discount_amount = 0, is_upsell = 0, status = 'PENDING' }) {
     const stmt = db.prepare(`
-      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code, affiliate_id, seller_id, ref_code, coupon_code, discount_amount, is_upsell)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code, affiliate_id, seller_id, ref_code, coupon_code, discount_amount, is_upsell, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       merchant_trade_no, 
@@ -350,7 +492,8 @@ const models = {
       ref_code || null,
       coupon_code || null,
       Number(discount_amount || 0),
-      is_upsell ? 1 : 0
+      is_upsell ? 1 : 0,
+      status || 'PENDING'
     );
     return models.getOrderByTradeNo(merchant_trade_no);
   },
@@ -568,6 +711,8 @@ const models = {
     const recoveredRevenueBRL = recoveredOrders.reduce((acc, o) => acc + (o.currency === 'BRL' ? o.amount : 0), 0);
     const upsellOrdersCount = paidOrders.filter(o => o.is_upsell === 1).length;
     const totalCoupons = db.prepare("SELECT COUNT(*) as count FROM coupons WHERE active = 1").get().count;
+    const totalCompanies = db.prepare("SELECT COUNT(*) as count FROM companies WHERE active = 1").get().count;
+    const pendingAffiliationsCount = db.prepare("SELECT COUNT(*) as count FROM product_affiliations WHERE status = 'PENDING'").get().count;
 
     return {
       totalRevenueBRL: Number(totalBRL.toFixed(2)),
@@ -578,6 +723,8 @@ const models = {
       totalProducts,
       totalSellers,
       totalAffiliates,
+      totalCompanies,
+      pendingAffiliationsCount,
       pendingCommissionsBRL: Number(pendingBRL.toFixed(2)),
       pendingCommissionsUSDT: Number(pendingUSDT.toFixed(2)),
       recoveredOrdersCount: recoveredOrders.length,
@@ -655,6 +802,231 @@ const models = {
       db.prepare('UPDATE coupons SET active = 0 WHERE id = ?').run(coupon.id);
     }
     return coupon;
+  },
+
+  // ==========================================
+  // 12. FILA DE ESPERA DE AFILIAÇÃO & CRITÉRIOS DE ATIVAÇÃO
+  // ==========================================
+  evaluateAffiliateCriteria(affiliateId) {
+    const affiliate = models.getAffiliateById(affiliateId);
+    if (!affiliate) return null;
+
+    // Estatísticas de vendas concluídas pelo afiliado em toda a plataforma
+    const stats = db.prepare(`
+      SELECT 
+        COUNT(id) as sales_count,
+        COALESCE(SUM(CASE WHEN currency = 'BRL' THEN amount ELSE amount * 5.5 END), 0) as total_revenue_brl
+      FROM orders 
+      WHERE affiliate_id = ? AND status = 'PAID'
+    `).get(affiliateId);
+
+    const minSales = parseInt(models.getSetting('AFFILIATION_MIN_SALES', '2'), 10);
+    const minRevenue = parseFloat(models.getSetting('AFFILIATION_MIN_REVENUE_BRL', '50.0'));
+    const requirePayment = models.getSetting('AFFILIATION_REQUIRE_PAYMENT_INFO', 'true') === 'true';
+    const autoApprove = models.getSetting('AFFILIATION_AUTO_APPROVE', 'true') === 'true';
+
+    const hasPayment = Boolean((affiliate.pix_key && affiliate.pix_key.trim()) || (affiliate.usdt_wallet && affiliate.usdt_wallet.trim()));
+    const salesCount = stats ? (stats.sales_count || 0) : 0;
+    const revenueBrl = stats ? (stats.total_revenue_brl || 0) : 0;
+
+    const meetsSales = salesCount >= minSales;
+    const meetsRevenue = revenueBrl >= minRevenue;
+    const meetsPayment = !requirePayment || hasPayment;
+    const criteriaMet = meetsSales && meetsRevenue && meetsPayment;
+
+    return {
+      affiliate_id: affiliate.id,
+      affiliate_name: affiliate.name,
+      ref_code: affiliate.ref_code,
+      sales_count: salesCount,
+      min_sales: minSales,
+      meets_sales: meetsSales,
+      revenue_brl: Number(revenueBrl.toFixed(2)),
+      min_revenue: minRevenue,
+      meets_revenue: meetsRevenue,
+      has_payment_info: hasPayment,
+      meets_payment: meetsPayment,
+      criteria_met: criteriaMet,
+      auto_approve: autoApprove
+    };
+  },
+
+  getProductAffiliationById(id) {
+    const row = db.prepare(`
+      SELECT pa.*,
+             a.name as affiliate_name, a.ref_code, a.email as affiliate_email, a.phone as affiliate_phone, a.telegram_username, a.pix_key, a.usdt_wallet,
+             p.name as product_name, p.price_brl, p.price_usdt, p.category, p.type as product_type,
+             c.name as company_name
+      FROM product_affiliations pa
+      JOIN affiliates a ON pa.affiliate_id = a.id
+      JOIN products p ON pa.product_id = p.id
+      LEFT JOIN companies c ON p.company_id = c.id
+      WHERE pa.id = ?
+    `).get(id);
+
+    if (row) {
+      row.criteria = models.evaluateAffiliateCriteria(row.affiliate_id);
+    }
+    return row;
+  },
+
+  getProductAffiliations({ affiliate_id = null, product_id = null, status = null } = {}) {
+    let sql = `
+      SELECT pa.*,
+             a.name as affiliate_name, a.ref_code, a.email as affiliate_email, a.phone as affiliate_phone, a.telegram_username, a.pix_key, a.usdt_wallet,
+             p.name as product_name, p.price_brl, p.price_usdt, p.category, p.type as product_type,
+             c.name as company_name
+      FROM product_affiliations pa
+      JOIN affiliates a ON pa.affiliate_id = a.id
+      JOIN products p ON pa.product_id = p.id
+      LEFT JOIN companies c ON p.company_id = c.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (affiliate_id) {
+      sql += ' AND pa.affiliate_id = ?';
+      params.push(affiliate_id);
+    }
+    if (product_id) {
+      sql += ' AND pa.product_id = ?';
+      params.push(product_id);
+    }
+    if (status) {
+      sql += ' AND pa.status = ?';
+      params.push(status);
+    }
+
+    sql += ` ORDER BY 
+      CASE pa.status 
+        WHEN 'PENDING' THEN 1 
+        WHEN 'CRITERIA_MET' THEN 2 
+        WHEN 'APPROVED' THEN 3 
+        ELSE 4 
+      END, pa.requested_at DESC`;
+
+    const rows = db.prepare(sql).all(...params);
+    return rows.map(r => {
+      r.criteria = models.evaluateAffiliateCriteria(r.affiliate_id);
+      return r;
+    });
+  },
+
+  requestProductAffiliation({ affiliate_id, product_id, notes = null }) {
+    const affiliate = models.getAffiliateById(affiliate_id);
+    const product = models.getProductById(product_id);
+
+    if (!affiliate) throw new Error('Afiliado não encontrado.');
+    if (!product) throw new Error('Produto não encontrado.');
+
+    const existing = db.prepare('SELECT * FROM product_affiliations WHERE affiliate_id = ? AND product_id = ?').get(affiliate_id, product_id);
+
+    if (existing && existing.status === 'APPROVED') {
+      return models.getProductAffiliationById(existing.id);
+    }
+
+    // Avalia os critérios mínimos atuais do afiliado
+    const criteria = models.evaluateAffiliateCriteria(affiliate_id);
+    let initialStatus = 'PENDING';
+    let statusNote = notes || 'Solicitação inserida na fila de espera.';
+
+    if (criteria.criteria_met) {
+      if (criteria.auto_approve) {
+        initialStatus = 'APPROVED';
+        statusNote = 'Critérios mínimos atingidos - Aprovado automaticamente.';
+      } else {
+        initialStatus = 'CRITERIA_MET';
+        statusNote = 'Critérios mínimos atingidos - Aguardando liberação do administrador.';
+      }
+    }
+
+    let affiliationId;
+    if (existing) {
+      db.prepare(`
+        UPDATE product_affiliations
+        SET status = ?, notes = ?, requested_at = datetime('now')
+        WHERE id = ?
+      `).run(initialStatus, statusNote, existing.id);
+      affiliationId = existing.id;
+    } else {
+      const res = db.prepare(`
+        INSERT INTO product_affiliations (affiliate_id, product_id, status, notes)
+        VALUES (?, ?, ?, ?)
+      `).run(affiliate_id, product_id, initialStatus, statusNote);
+      affiliationId = Number(res.lastInsertRowid);
+    }
+
+    return models.getProductAffiliationById(affiliationId);
+  },
+
+  approveProductAffiliation(affiliationId, reviewer = 'ADMIN', note = null) {
+    const finalNote = note || `Aprovado manualmente por ${reviewer}.`;
+    db.prepare(`
+      UPDATE product_affiliations
+      SET status = 'APPROVED', reviewed_at = datetime('now'), notes = ?
+      WHERE id = ?
+    `).run(finalNote, affiliationId);
+    return models.getProductAffiliationById(affiliationId);
+  },
+
+  rejectProductAffiliation(affiliationId, reason = null) {
+    const finalReason = reason || 'Solicitação recusada pelo administrador.';
+    db.prepare(`
+      UPDATE product_affiliations
+      SET status = 'REJECTED', reviewed_at = datetime('now'), notes = ?
+      WHERE id = ?
+    `).run(finalReason, affiliationId);
+    return models.getProductAffiliationById(affiliationId);
+  },
+
+  checkAndActivateAffiliations(affiliateId = null) {
+    const autoApprove = models.getSetting('AFFILIATION_AUTO_APPROVE', 'true') === 'true';
+    let query = "SELECT id, affiliate_id, product_id FROM product_affiliations WHERE status IN ('PENDING', 'CRITERIA_MET')";
+    const params = [];
+    if (affiliateId) {
+      query += ' AND affiliate_id = ?';
+      params.push(affiliateId);
+    }
+
+    const pendingList = db.prepare(query).all(...params);
+    const updated = [];
+
+    for (const item of pendingList) {
+      const evalResult = models.evaluateAffiliateCriteria(item.affiliate_id);
+      if (evalResult && evalResult.criteria_met) {
+        if (autoApprove) {
+          db.prepare(`
+            UPDATE product_affiliations 
+            SET status = 'APPROVED', reviewed_at = datetime('now'), notes = 'Critérios mínimos atingidos com sucesso - Ativação Automática.'
+            WHERE id = ?
+          `).run(item.id);
+          updated.push({ id: item.id, status: 'APPROVED' });
+        } else {
+          db.prepare(`
+            UPDATE product_affiliations 
+            SET status = 'CRITERIA_MET', notes = 'Critérios mínimos atingidos - Aguardando liberação do administrador.'
+            WHERE id = ?
+          `).run(item.id);
+          updated.push({ id: item.id, status: 'CRITERIA_MET' });
+        }
+      }
+    }
+    return updated;
+  },
+
+  isAffiliateApprovedForProduct(affiliateId, productId) {
+    const affiliate = models.getAffiliateById(affiliateId);
+    if (!affiliate || !affiliate.active) return false;
+
+    const restricted = models.getSetting('AFFILIATION_PRODUCT_RESTRICTED', 'false') === 'true';
+    const record = db.prepare('SELECT status FROM product_affiliations WHERE affiliate_id = ? AND product_id = ?').get(affiliateId, productId);
+
+    if (record) {
+      return record.status === 'APPROVED';
+    }
+
+    // Se o modo estrito/restringido estiver desativado, o afiliado ativo tem acesso se não houver recusa explícita
+    return !restricted;
   }
 };
 
