@@ -1317,6 +1317,95 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // CONTROLE DE MODERAÇÃO (MUTE & BLOQUEIOS)
+  // ==========================================
+  app.get('/api/controls', (req, res) => {
+    try {
+      const activeOnly = req.query.active !== 'false';
+      const platform = req.query.platform || null;
+      res.json(models.getChatControls({ platform, activeOnly }));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/controls/mute', (req, res) => {
+    try {
+      const { platform, chatId, targetType, reason, userName } = req.body;
+      if (!platform || !chatId) {
+        return res.status(400).json({ error: 'Plataforma e Chat ID são obrigatórios.' });
+      }
+      const result = models.muteChat({
+        platform,
+        chatId,
+        targetType: targetType || 'PRIVATE',
+        reason: reason || 'Mute via painel admin',
+        createdBy: 'admin_dashboard',
+        userName: userName || null
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/controls/unmute', (req, res) => {
+    try {
+      const { platform, chatId } = req.body;
+      if (!platform || !chatId) {
+        return res.status(400).json({ error: 'Plataforma e Chat ID são obrigatórios.' });
+      }
+      const result = models.unmuteChat(platform, chatId);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/controls/block', (req, res) => {
+    try {
+      const { platform, userId, chatId, targetType, reason, userName } = req.body;
+      if (!platform || !userId) {
+        return res.status(400).json({ error: 'Plataforma e ID do Usuário são obrigatórios.' });
+      }
+      const result = models.blockUser({
+        platform,
+        userId,
+        chatId: chatId || null,
+        targetType: targetType || 'USER',
+        reason: reason || 'Bloqueio via painel admin',
+        createdBy: 'admin_dashboard',
+        userName: userName || null
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/controls/unblock', (req, res) => {
+    try {
+      const { platform, userId, chatId } = req.body;
+      if (!platform || !userId) {
+        return res.status(400).json({ error: 'Plataforma e ID do Usuário são obrigatórios.' });
+      }
+      const result = models.unblockUser(platform, userId, chatId || null);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/controls/:id', (req, res) => {
+    try {
+      const result = models.deleteChatControl(req.params.id);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

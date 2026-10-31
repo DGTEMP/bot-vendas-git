@@ -124,8 +124,13 @@ class WhatsAppBotService {
         if (type !== 'notify') return;
 
         for (const msg of messages) {
-          if (!msg.message || msg.key.fromMe) continue;
-          if (msg.key.remoteJid.endsWith('@g.us')) continue; // ignora grupos
+          if (!msg.message) continue;
+          
+          // Se for mensagem própria (fromMe), processa se for comando iniciado por ! ou /
+          if (msg.key.fromMe) {
+            const rawTxt = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+            if (!rawTxt.startsWith('!') && !rawTxt.startsWith('/')) continue;
+          }
 
           await this.handleIncomingMessage(msg);
         }
@@ -137,8 +142,34 @@ class WhatsAppBotService {
     }
   }
 
+  async checkIsAdmin(from, participantJid, isFromMe) {
+    if (isFromMe) return true;
+    const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
+    const cleanParticipant = (participantJid || '').split('@')[0].split(':')[0];
+    if (adminPhoneSetting && (adminPhoneSetting.includes(cleanParticipant) || cleanParticipant.includes(adminPhoneSetting))) {
+      return true;
+    }
+    if (!from.endsWith('@g.us')) {
+      return true; // Na conversa privada, o usuário é dono da própria conversa para desativar/parar
+    }
+    try {
+      if (this.sock && this.sock.groupMetadata) {
+        const metadata = await this.sock.groupMetadata(from);
+        const p = metadata?.participants?.find(x => x.id.includes(cleanParticipant));
+        if (p && (p.admin === 'admin' || p.admin === 'superadmin')) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
   async handleIncomingMessage(msg) {
     const from = msg.key.remoteJid;
+    const isGroup = from.endsWith('@g.us');
+    const participantJid = msg.key.participant || from;
+    const senderPhone = participantJid.split('@')[0].split(':')[0];
+    const isFromMe = !!msg.key.fromMe;
     const senderName = msg.pushName || 'Cliente';
     
     const text = (
@@ -149,6 +180,156 @@ class WhatsAppBotService {
 
     if (!text) return;
     const lower = text.toLowerCase();
+
+    // 0. VERIFICAÇÃO DE BLOQUEIO DE PARTICIPANTE / USUÁRIO
+    if (models.isUserBlocked('whatsapp', senderPhone, from)) {
+      console.log(`[WhatsApp 🚫 BLOQUEADO] Mensagem ignorada de ${senderPhone} no chat ${from}`);
+      return;
+    }
+
+    // 0.1 COMANDOS DE MODERAÇÃO E CONTROLE (DESATIVAR, ATIVAR, BLOQUEAR, DESBLOQUEAR, STATUS)
+    const isAdmin = await this.checkIsAdmin(from, participantJid, isFromMe);
+
+    // Desativar / Mute do Bot
+    if (/^(?:!|\/)(?:desativar|pausar|mute|parar|stop)(?:\s.*)?$/i.test(lower)) {
+      if (isGroup && !isAdmin) {
+        return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem desativar o bot.');
+      }
+      models.muteChat({
+        platform: 'whatsapp',
+        chatId: from,
+        targetType: isGroup ? 'GROUP' : 'PRIVATE',
+        reason: isGroup ? 'Desativado por moderador no grupo' : 'Desativado a pedido na conversa privada',
+        createdBy: senderPhone,
+        userName: senderName
+      });
+      return this.sendMessage(from, `🛑 *BOT DESATIVADO NESTE ${isGroup ? 'GRUPO' : 'CHAT'}!*\n\nO bot não responderá mensagens automáticas por aqui.\n\nPara reativar a qualquer momento, envie *!ativar*.`);
+    }
+
+    // Ativar / Unmute do Bot
+    if (/^(?:!|\/)(?:ativar|despausar|unmute|start)(?:\s.*)?$/i.test(lower)) {
+      if (isGroup && !isAdmin) {
+        return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem reativar o bot.');
+      }
+      models.unmuteChat('whatsapp', from);
+      return this.sendMessage(from, `🟢 *BOT REATIVADO COM SUCESSO!*\n\nO atendimento automático e vendas inteligentes estão operando normalmente por aqui!`);
+    }
+
+    // Bloquear participante de grupo ou usuário
+    if (/^(?:!|\/)(?:bloquear|block)(?:\s.*)?$/i.test(lower)) {
+      if (!isAdmin) {
+        return this.sendMessage(from, '⚠️ Apenas administradores podem bloquear participantes.');
+      }
+
+      let targetPhone = null;
+      let targetName = null;
+
+      const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+      if (quotedParticipant) {
+        targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+      }
+      if (!targetPhone) {
+        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+        if (mentioned && mentioned.length > 0) {
+          targetPhone = mentioned[0].split('@')[0].split(':')[0];
+        }
+      }
+      if (!targetPhone) {
+        const matchNum = text.match(/(?:!|\/)(?:bloquear|block)\s*@?(\+?[0-9]{8,20})/i);
+        if (matchNum) {
+          targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+        }
+      }
+
+      if (!targetPhone) {
+        return this.sendMessage(from, `ℹ️ *Como bloquear um participante:*\n• Responda à mensagem da pessoa com *!bloquear*\n• Ou envie *!bloquear @usuario*\n• Ou envie *!bloquear 5511999998888*`);
+      }
+
+      models.blockUser({
+        platform: 'whatsapp',
+        userId: targetPhone,
+        chatId: isGroup ? from : null,
+        targetType: 'USER',
+        reason: isGroup ? 'Bloqueado no grupo por administrador' : 'Bloqueado por administrador',
+        createdBy: senderPhone,
+        userName: targetName
+      });
+
+      return this.sendMessage(from, `🚫 *PARTICIPANTE BLOQUEADO!*\n\nO usuário *${targetPhone}* foi bloqueado e não poderá mais interagir com o bot ${isGroup ? 'neste grupo' : 'no sistema'}.\n\nPara desbloquear: *!desbloquear ${targetPhone}*`);
+    }
+
+    // Desbloquear participante
+    if (/^(?:!|\/)(?:desbloquear|unblock)(?:\s.*)?$/i.test(lower)) {
+      if (!isAdmin) {
+        return this.sendMessage(from, '⚠️ Apenas administradores podem desbloquear participantes.');
+      }
+
+      let targetPhone = null;
+      const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+      if (quotedParticipant) {
+        targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+      }
+      if (!targetPhone) {
+        const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+        if (mentioned && mentioned.length > 0) {
+          targetPhone = mentioned[0].split('@')[0].split(':')[0];
+        }
+      }
+      if (!targetPhone) {
+        const matchNum = text.match(/(?:!|\/)(?:desbloquear|unblock)\s*@?(\+?[0-9]{8,20})/i);
+        if (matchNum) {
+          targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+        }
+      }
+
+      if (!targetPhone) {
+        return this.sendMessage(from, `ℹ️ *Como desbloquear:* envie *!desbloquear 5511999998888* ou responda à mensagem da pessoa com *!desbloquear*.`);
+      }
+
+      models.unblockUser('whatsapp', targetPhone, isGroup ? from : null);
+      return this.sendMessage(from, `✅ *PARTICIPANTE DESBLOQUEADO!*\n\nO usuário *${targetPhone}* agora pode interagir com o bot normalmente.`);
+    }
+
+    // Status da moderação no chat
+    if (/^(?:!|\/)(?:statusbot|botstatus|mod)$/i.test(lower)) {
+      const isMuted = models.isChatMuted('whatsapp', from);
+      const controls = models.getChatControls({ platform: 'whatsapp', activeOnly: true });
+      const blockedInThisChat = controls.filter(c => c.control_type === 'BLOCK_USER' && (c.chat_id === from || c.chat_id === '*'));
+
+      let statusText = `📊 *MODERAÇÃO & STATUS DO BOT:*\n\n` +
+        `• *Tipo do Chat:* ${isGroup ? 'Grupo WhatsApp' : 'Conversa Privada'}\n` +
+        `• *ID:* \`${from}\`\n` +
+        `• *Status:* ${isMuted ? '🔴 Desativado (Muted)' : '🟢 Ativo'}\n` +
+        `• *Participantes Bloqueados:* ${blockedInThisChat.length}\n\n`;
+
+      if (blockedInThisChat.length > 0) {
+        statusText += `*Bloqueados neste chat:*\n`;
+        blockedInThisChat.slice(0, 5).forEach(b => {
+          statusText += `• ${b.user_id} (${b.reason || 'Sem motivo'})\n`;
+        });
+        statusText += `\n`;
+      }
+
+      statusText += `_Comandos úteis: !desativar, !ativar, !bloquear, !desbloquear_`;
+      return this.sendMessage(from, statusText);
+    }
+
+    // 0.2 SE O CHAT ESTIVER DESATIVADO (MUTED), NÃO RESPONDE MAIS NADA
+    if (models.isChatMuted('whatsapp', from)) {
+      return;
+    }
+
+    // 0.3 FILTRO EM GRUPOS: O BOT NÃO INTERFERE EM CONVERSAS ALEATÓRIAS
+    if (isGroup) {
+      const myNumber = this.sock?.user?.id ? this.sock.user.id.split(':')[0] : '';
+      const isMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.some(j => myNumber && j.includes(myNumber));
+      const isCommand = text.startsWith('!') || text.startsWith('/');
+      const startsWithBot = lower.startsWith('bot,') || lower.startsWith('bot ');
+
+      if (!isCommand && !isMentioned && !startsWithBot) {
+        return; // Não responde conversas normais de membros do grupo
+      }
+    }
 
     // Auto-resposta do Exército de WhatsApp se for lead de campanha de divulgação
     try {
@@ -276,6 +457,17 @@ class WhatsAppBotService {
       });
 
       if (nlp && nlp.intent !== 'UNKNOWN') {
+        if (nlp.directAction === 'DEACTIVATE_BOT') {
+          models.muteChat({
+            platform: 'whatsapp',
+            chatId: from,
+            targetType: isGroup ? 'GROUP' : 'PRIVATE',
+            reason: 'Solicitado via linguagem natural pelo cliente',
+            createdBy: senderPhone,
+            userName: senderName
+          });
+          return this.sendMessage(from, nlp.replyText);
+        }
         if (nlp.directAction === 'TRIGGER_PIX' && nlp.entities?.matchedProduct) {
           return this.processPixPurchase(from, senderName, nlp.entities.matchedProduct);
         }

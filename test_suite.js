@@ -1281,6 +1281,156 @@ async function main() {
     assert.strictEqual(infoRes.data.dictionary['vc'], 'você');
   });
 
+  // ================================================================
+  // 14. TESTES DE MODERAÇÃO & CONTROLE DE CHATS (MUTE & BLOQUEIOS)
+  // ================================================================
+  await runAsyncTest('Moderação: Mute e Unmute de Conversa Privada e Grupo no DB', async () => {
+    const testPrivateChat = '5511999997711@s.whatsapp.net';
+    const testGroupChat = '120363028123456789@g.us';
+
+    // 1. Mute de conversa privada
+    assert.strictEqual(models.isChatMuted('whatsapp', testPrivateChat), false);
+    models.muteChat({
+      platform: 'whatsapp',
+      chatId: testPrivateChat,
+      targetType: 'PRIVATE',
+      reason: 'Cliente pediu para pausar mensagens'
+    });
+    assert.strictEqual(models.isChatMuted('whatsapp', testPrivateChat), true);
+
+    // 2. Mute de grupo
+    assert.strictEqual(models.isChatMuted('whatsapp', testGroupChat), false);
+    models.muteChat({
+      platform: 'whatsapp',
+      chatId: testGroupChat,
+      targetType: 'GROUP',
+      reason: 'Admin desativou no grupo'
+    });
+    assert.strictEqual(models.isChatMuted('whatsapp', testGroupChat), true);
+
+    // 3. Unmute
+    models.unmuteChat('whatsapp', testPrivateChat);
+    assert.strictEqual(models.isChatMuted('whatsapp', testPrivateChat), false);
+
+    models.unmuteChat('whatsapp', testGroupChat);
+    assert.strictEqual(models.isChatMuted('whatsapp', testGroupChat), false);
+  });
+
+  await runAsyncTest('Moderação: Bloqueio de Participante em Grupo e Globalmente', async () => {
+    const testGroup = '120363099999999999@g.us';
+    const badUser1 = '5511988880001';
+    const badUser2 = '5511988880002';
+
+    // 1. Bloqueio específico em um grupo
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser1, testGroup), false);
+    models.blockUser({
+      platform: 'whatsapp',
+      userId: badUser1,
+      chatId: testGroup,
+      targetType: 'USER',
+      reason: 'Spam no grupo'
+    });
+    // Bloqueado no grupo especificado:
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser1, testGroup), true);
+    // Mas não bloqueado em outro grupo:
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser1, '120363011111111111@g.us'), false);
+
+    // 2. Bloqueio global de usuário (chatId = '*')
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser2), false);
+    models.blockUser({
+      platform: 'whatsapp',
+      userId: badUser2,
+      chatId: '*',
+      targetType: 'USER',
+      reason: 'Fraude / Abuso'
+    });
+    // Bloqueado em qualquer grupo ou privado:
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser2, testGroup), true);
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser2, 'outro_chat'), true);
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser2), true);
+
+    // 3. Desbloqueio
+    models.unblockUser('whatsapp', badUser1, testGroup);
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser1, testGroup), false);
+
+    models.unblockUser('whatsapp', badUser2);
+    assert.strictEqual(models.isUserBlocked('whatsapp', badUser2), false);
+  });
+
+  await runAsyncTest('Moderação: Reconhecimento de Opt-out no NLP (DEACTIVATE_BOT)', async () => {
+    const nlpService = require('./src/services/nlpService');
+    const res = await nlpService.processMessage({
+      text: 'pare de me mandar mensagem por favor',
+      customerName: 'Renato'
+    });
+    assert.strictEqual(res.intent, 'DEACTIVATE_BOT');
+    assert.strictEqual(res.directAction, 'DEACTIVATE_BOT');
+    assert(res.replyText.includes('PAUSADO'));
+  });
+
+  await runAsyncTest('Moderação: Endpoints REST (/api/controls/*)', async () => {
+    // 1. POST /api/controls/mute
+    const muteRes = await fetchApi('/api/controls/mute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'whatsapp',
+        chatId: '5511999993333@s.whatsapp.net',
+        targetType: 'PRIVATE',
+        reason: 'Teste API Mute'
+      })
+    });
+    assert.strictEqual(muteRes.status, 200);
+    assert.strictEqual(muteRes.data.success, true);
+    assert.strictEqual(models.isChatMuted('whatsapp', '5511999993333@s.whatsapp.net'), true);
+
+    // 2. POST /api/controls/block
+    const blockRes = await fetchApi('/api/controls/block', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'whatsapp',
+        userId: '5511977771111',
+        chatId: '*',
+        targetType: 'USER',
+        reason: 'Teste API Bloqueio'
+      })
+    });
+    assert.strictEqual(blockRes.status, 200);
+    assert.strictEqual(blockRes.data.success, true);
+    assert.strictEqual(models.isUserBlocked('whatsapp', '5511977771111'), true);
+
+    // 3. GET /api/controls
+    const listRes = await fetchApi('/api/controls?platform=whatsapp');
+    assert.strictEqual(listRes.status, 200);
+    assert(Array.isArray(listRes.data));
+    assert(listRes.data.some(c => c.chat_id.includes('5511999993333')));
+
+    // 4. POST /api/controls/unmute
+    const unmuteRes = await fetchApi('/api/controls/unmute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'whatsapp',
+        chatId: '5511999993333@s.whatsapp.net'
+      })
+    });
+    assert.strictEqual(unmuteRes.status, 200);
+    assert.strictEqual(models.isChatMuted('whatsapp', '5511999993333@s.whatsapp.net'), false);
+
+    // 5. POST /api/controls/unblock
+    const unblockRes = await fetchApi('/api/controls/unblock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'whatsapp',
+        userId: '5511977771111'
+      })
+    });
+    assert.strictEqual(unblockRes.status, 200);
+    assert.strictEqual(models.isUserBlocked('whatsapp', '5511977771111'), false);
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

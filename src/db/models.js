@@ -1836,6 +1836,154 @@ const models = {
       totalSent,
       totalMessagesLogged
     };
+  },
+
+  // ==========================================
+  // 17. CONTROLE DE MODERAÇÃO (MUTE & BLOQUEIOS)
+  // ==========================================
+  isChatMuted(platform, chatId) {
+    if (!chatId) return false;
+    const cleanChat = String(chatId).trim();
+    const row = db.prepare(`
+      SELECT * FROM bot_chat_controls
+      WHERE platform = ? AND control_type = 'MUTE_CHAT' AND active = 1 AND chat_id = ?
+      LIMIT 1
+    `).get(platform, cleanChat);
+    return !!row;
+  },
+
+  isUserBlocked(platform, userId, chatId = null) {
+    if (!userId) return false;
+    const cleanUser = String(userId).trim();
+    const rawDigits = cleanUser.replace(/[^0-9]/g, '');
+
+    if (chatId) {
+      const cleanChat = String(chatId).trim();
+      const row = db.prepare(`
+        SELECT * FROM bot_chat_controls
+        WHERE platform = ? AND control_type = 'BLOCK_USER' AND active = 1
+          AND (chat_id = ? OR chat_id = '*' OR chat_id = '')
+          AND (
+            user_id = ? 
+            OR user_id LIKE '%' || ? 
+            OR (? != '' AND user_id = ?)
+          )
+        LIMIT 1
+      `).get(platform, cleanChat, cleanUser, rawDigits ? rawDigits.slice(-8) : cleanUser, rawDigits, rawDigits);
+      return !!row;
+    } else {
+      const row = db.prepare(`
+        SELECT * FROM bot_chat_controls
+        WHERE platform = ? AND control_type = 'BLOCK_USER' AND active = 1
+          AND (
+            user_id = ? 
+            OR user_id LIKE '%' || ? 
+            OR (? != '' AND user_id = ?)
+          )
+        LIMIT 1
+      `).get(platform, cleanUser, rawDigits ? rawDigits.slice(-8) : cleanUser, rawDigits, rawDigits);
+      return !!row;
+    }
+  },
+
+  muteChat({ platform, chatId, targetType = 'PRIVATE', reason = 'Desativado via comando', createdBy = 'admin', userName = null }) {
+    const cleanChat = String(chatId).trim();
+    const existing = db.prepare(`
+      SELECT id FROM bot_chat_controls
+      WHERE platform = ? AND control_type = 'MUTE_CHAT' AND chat_id = ?
+    `).get(platform, cleanChat);
+
+    if (existing) {
+      db.prepare(`
+        UPDATE bot_chat_controls
+        SET active = 1, target_type = ?, reason = ?, user_name = COALESCE(?, user_name), updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(targetType, reason, userName, existing.id);
+      return { id: existing.id, muted: true };
+    } else {
+      const info = db.prepare(`
+        INSERT INTO bot_chat_controls (platform, control_type, target_type, chat_id, reason, created_by, user_name, active)
+        VALUES (?, 'MUTE_CHAT', ?, ?, ?, ?, ?, 1)
+      `).run(platform, targetType, cleanChat, reason, createdBy, userName);
+      return { id: info.lastInsertRowid, muted: true };
+    }
+  },
+
+  unmuteChat(platform, chatId) {
+    const cleanChat = String(chatId).trim();
+    const info = db.prepare(`
+      UPDATE bot_chat_controls
+      SET active = 0, updated_at = CURRENT_TIMESTAMP
+      WHERE platform = ? AND control_type = 'MUTE_CHAT' AND chat_id = ?
+    `).run(platform, cleanChat);
+    return { unmuted: info.changes > 0 };
+  },
+
+  blockUser({ platform, userId, chatId = null, targetType = 'USER', reason = 'Participante bloqueado', createdBy = 'admin', userName = null }) {
+    const cleanUser = String(userId).trim();
+    const cleanChat = chatId ? String(chatId).trim() : '*';
+
+    const existing = db.prepare(`
+      SELECT id FROM bot_chat_controls
+      WHERE platform = ? AND control_type = 'BLOCK_USER' AND user_id = ? AND chat_id = ?
+    `).get(platform, cleanUser, cleanChat);
+
+    if (existing) {
+      db.prepare(`
+        UPDATE bot_chat_controls
+        SET active = 1, reason = ?, user_name = COALESCE(?, user_name), updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(reason, userName, existing.id);
+      return { id: existing.id, blocked: true };
+    } else {
+      const info = db.prepare(`
+        INSERT INTO bot_chat_controls (platform, control_type, target_type, chat_id, user_id, user_name, reason, created_by, active)
+        VALUES (?, 'BLOCK_USER', ?, ?, ?, ?, ?, ?, 1)
+      `).run(platform, targetType, cleanChat, cleanUser, userName, reason, createdBy);
+      return { id: info.lastInsertRowid, blocked: true };
+    }
+  },
+
+  unblockUser(platform, userId, chatId = null) {
+    const cleanUser = String(userId).trim();
+    const rawDigits = cleanUser.replace(/[^0-9]/g, '');
+
+    let query = `
+      UPDATE bot_chat_controls
+      SET active = 0, updated_at = CURRENT_TIMESTAMP
+      WHERE platform = ? AND control_type = 'BLOCK_USER'
+        AND (
+          user_id = ? 
+          OR user_id LIKE '%' || ?
+          OR (? != '' AND user_id = ?)
+        )
+    `;
+    const params = [platform, cleanUser, rawDigits ? rawDigits.slice(-8) : cleanUser, rawDigits, rawDigits];
+    if (chatId) {
+      query += ` AND (chat_id = ? OR chat_id = '*' OR chat_id = '')`;
+      params.push(String(chatId));
+    }
+    const info = db.prepare(query).run(...params);
+    return { unblocked: info.changes > 0 };
+  },
+
+  getChatControls({ platform = null, activeOnly = true } = {}) {
+    let query = `SELECT * FROM bot_chat_controls WHERE 1=1`;
+    const params = [];
+    if (platform) {
+      query += ` AND platform = ?`;
+      params.push(platform);
+    }
+    if (activeOnly) {
+      query += ` AND active = 1`;
+    }
+    query += ` ORDER BY id DESC`;
+    return db.prepare(query).all(...params);
+  },
+
+  deleteChatControl(id) {
+    const info = db.prepare(`DELETE FROM bot_chat_controls WHERE id = ?`).run(id);
+    return { deleted: info.changes > 0 };
   }
 };
 

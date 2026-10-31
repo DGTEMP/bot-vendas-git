@@ -49,6 +49,7 @@ function switchTab(tabName) {
 
   if (tabName === 'connections') {
     startQrPolling();
+    loadChatControls();
   } else {
     stopQrPolling();
   }
@@ -86,7 +87,8 @@ async function loadAllData() {
     loadCommissions(),
     loadOffers(),
     loadCoupons(),
-    loadArmyData()
+    loadArmyData(),
+    loadChatControls()
   ]);
 }
 
@@ -3350,4 +3352,214 @@ async function loadNlpData() {
       tbody.innerHTML = html;
     }
   } catch (_) {}
+}
+
+// ==========================================
+// 18. MODERAÇÃO & CONTROLE DE CHATS (MUTE & BLOQUEIOS)
+// ==========================================
+let currentChatControls = [];
+
+async function loadChatControls() {
+  try {
+    const res = await fetch('/api/controls');
+    if (!res.ok) return;
+    const controls = await res.json();
+    currentChatControls = controls;
+
+    const tbody = document.getElementById('tableChatControlsBody');
+    if (!tbody) return;
+
+    let mutedPriv = 0;
+    let mutedGrp = 0;
+    let blockedUsr = 0;
+
+    controls.forEach(c => {
+      if (c.control_type === 'MUTE_CHAT') {
+        if (c.target_type === 'GROUP') mutedGrp++;
+        else mutedPriv++;
+      } else if (c.control_type === 'BLOCK_USER') {
+        blockedUsr++;
+      }
+    });
+
+    const elPriv = document.getElementById('statMutedPrivate');
+    const elGrp = document.getElementById('statMutedGroups');
+    const elBlk = document.getElementById('statBlockedUsers');
+    if (elPriv) elPriv.innerText = mutedPriv;
+    if (elGrp) elGrp.innerText = mutedGrp;
+    if (elBlk) elBlk.innerText = blockedUsr;
+
+    if (controls.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 20px; color: var(--text-muted);">Nenhuma restrição ativa. Todos os chats e usuários estão liberados.</td></tr>';
+      return;
+    }
+
+    let html = '';
+    controls.forEach(c => {
+      const isWpp = c.platform === 'whatsapp';
+      const platBadge = isWpp 
+        ? '<span class="badge" style="background:#25d366; color:#0f172a;"><i class="fa-brands fa-whatsapp"></i> WhatsApp</span>' 
+        : '<span class="badge" style="background:#229ed9; color:#fff;"><i class="fa-brands fa-telegram"></i> Telegram</span>';
+
+      let typeBadge = '';
+      if (c.control_type === 'MUTE_CHAT') {
+        typeBadge = c.target_type === 'GROUP' 
+          ? '<span class="badge" style="background:#f59e0b; color:#12161f; font-weight:600;"><i class="fa-solid fa-users-slash"></i> Grupo Pausado</span>' 
+          : '<span class="badge" style="background:#64748b; color:#fff;"><i class="fa-solid fa-comment-slash"></i> Chat Privado Pausado</span>';
+      } else {
+        typeBadge = '<span class="badge" style="background:#ef4444; color:#fff; font-weight:600;"><i class="fa-solid fa-user-lock"></i> Participante Bloqueado</span>';
+      }
+
+      const targetIdentifier = c.user_id ? `<b>${c.user_id}</b>${c.chat_id && c.chat_id !== '*' ? ` <small class="text-muted">(em ${c.chat_id})</small>` : ''}` : `<code>${c.chat_id}</code>`;
+      const nameText = c.user_name ? `<br><small class="text-muted">${c.user_name}</small>` : '';
+      const dateFormatted = c.created_at ? new Date(c.created_at).toLocaleString('pt-BR') : '-';
+
+      html += `
+        <tr>
+          <td>${platBadge}</td>
+          <td>${typeBadge}</td>
+          <td>${targetIdentifier}${nameText}</td>
+          <td>${c.reason || 'Sem motivo informado'}</td>
+          <td><span class="badge-mini">${c.created_by || 'admin'}</span></td>
+          <td style="font-size: 11px;">${dateFormatted}</td>
+          <td class="text-right">
+            <button class="btn btn-sm btn-success" onclick="unmuteOrUnblockControl(${c.id}, '${c.platform}', '${c.control_type}', '${c.chat_id}', '${c.user_id || ''}')" title="Reativar bot ou desbloquear participante">
+              <i class="fa-solid fa-unlock"></i> Liberar
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = html;
+  } catch (err) {
+    console.error('Erro ao carregar moderação:', err.message);
+  }
+}
+
+function openChatControlModal() {
+  const modal = document.getElementById('modalChatControl');
+  if (modal) {
+    modal.classList.add('active');
+    onControlTypeChange();
+  }
+}
+
+function closeChatControlModal() {
+  const modal = document.getElementById('modalChatControl');
+  if (modal) modal.classList.remove('active');
+}
+
+function onControlPlatformChange() {
+  onControlTypeChange();
+}
+
+function onControlTypeChange() {
+  const type = document.getElementById('controlType')?.value || 'MUTE_PRIVATE';
+  const platform = document.getElementById('controlPlatform')?.value || 'whatsapp';
+  const lbl = document.getElementById('lblControlTarget');
+  const input = document.getElementById('controlTargetId');
+  const groupChatId = document.getElementById('groupControlChatId');
+
+  if (type === 'MUTE_PRIVATE') {
+    if (lbl) lbl.innerText = platform === 'whatsapp' ? 'Número do WhatsApp com DDD (ex: 5511999998888) *' : 'Chat ID do Telegram (ex: 123456789) *';
+    if (input) input.placeholder = platform === 'whatsapp' ? '5511999998888' : '123456789';
+    if (groupChatId) groupChatId.style.display = 'none';
+  } else if (type === 'MUTE_GROUP') {
+    if (lbl) lbl.innerText = platform === 'whatsapp' ? 'JID do Grupo do WhatsApp (ex: 120363028123456789@g.us) *' : 'Chat ID do Grupo Telegram (ex: -100123456789) *';
+    if (input) input.placeholder = platform === 'whatsapp' ? '120363028123456789@g.us' : '-100123456789';
+    if (groupChatId) groupChatId.style.display = 'none';
+  } else if (type === 'BLOCK_USER') {
+    if (lbl) lbl.innerText = platform === 'whatsapp' ? 'Número do Participante a Bloquear (ex: 5511999998888) *' : 'ID do Usuário a Bloquear (ex: 123456789) *';
+    if (input) input.placeholder = platform === 'whatsapp' ? '5511999998888' : '123456789';
+    if (groupChatId) groupChatId.style.display = 'block';
+  } else if (type === 'BLOCK_GLOBAL') {
+    if (lbl) lbl.innerText = platform === 'whatsapp' ? 'Número do Usuário para Bloqueio Global (ex: 5511999998888) *' : 'ID do Usuário para Bloqueio Global (ex: 123456789) *';
+    if (input) input.placeholder = platform === 'whatsapp' ? '5511999998888' : '123456789';
+    if (groupChatId) groupChatId.style.display = 'none';
+  }
+}
+
+async function saveChatControl(e) {
+  e.preventDefault();
+  const platform = document.getElementById('controlPlatform').value;
+  const type = document.getElementById('controlType').value;
+  const targetId = document.getElementById('controlTargetId').value.trim();
+  const specificChatId = document.getElementById('controlChatId')?.value?.trim() || null;
+  const userName = document.getElementById('controlUserName')?.value?.trim() || null;
+  const reason = document.getElementById('controlReason')?.value?.trim() || 'Moderação via painel admin';
+
+  if (!targetId) {
+    alert('Por favor, informe o identificador.');
+    return;
+  }
+
+  try {
+    let endpoint = '';
+    let body = {};
+
+    if (type === 'MUTE_PRIVATE' || type === 'MUTE_GROUP') {
+      endpoint = '/api/controls/mute';
+      body = {
+        platform,
+        chatId: targetId,
+        targetType: type === 'MUTE_GROUP' ? 'GROUP' : 'PRIVATE',
+        userName,
+        reason
+      };
+    } else {
+      endpoint = '/api/controls/block';
+      body = {
+        platform,
+        userId: targetId,
+        chatId: type === 'BLOCK_USER' ? specificChatId : '*',
+        targetType: 'USER',
+        userName,
+        reason
+      };
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao salvar controle');
+
+    closeChatControlModal();
+    document.getElementById('formChatControl').reset();
+    loadChatControls();
+  } catch (err) {
+    alert('Erro ao aplicar moderação: ' + err.message);
+  }
+}
+
+async function unmuteOrUnblockControl(id, platform, controlType, chatId, userId) {
+  if (!confirm('Deseja realmente liberar este chat / participante para voltar a usar o bot?')) return;
+
+  try {
+    let res = null;
+    if (controlType === 'MUTE_CHAT') {
+      res = await fetch('/api/controls/unmute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, chatId })
+      });
+    } else {
+      res = await fetch('/api/controls/unblock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, userId, chatId })
+      });
+    }
+
+    if (!res.ok) {
+      await fetch(`/api/controls/${id}`, { method: 'DELETE' });
+    }
+
+    loadChatControls();
+  } catch (err) {
+    alert('Erro ao liberar: ' + err.message);
+  }
 }

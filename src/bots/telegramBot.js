@@ -59,7 +59,159 @@ class TelegramBotService {
     }
   }
 
+  async checkTelegramAdmin(ctx) {
+    if (!ctx.chat) return false;
+    if (ctx.chat.type === 'private') return true;
+    try {
+      const chatMember = await ctx.getChatMember(ctx.from.id);
+      return chatMember.status === 'creator' || chatMember.status === 'administrator';
+    } catch (_) {
+      return false;
+    }
+  }
+
   setupHandlers() {
+    // Middleware de Moderação & Controle de Acesso (Mute & Blacklist)
+    this.bot.use(async (ctx, next) => {
+      const chatId = ctx.chat ? String(ctx.chat.id) : null;
+      const userId = ctx.from ? String(ctx.from.id) : null;
+
+      // 1. Verifica se o participante está bloqueado
+      if (userId && models.isUserBlocked('telegram', userId, chatId)) {
+        return; // Usuário bloqueado: silêncio absoluto
+      }
+
+      // 2. Se o chat estiver desativado/mutado
+      if (chatId && models.isChatMuted('telegram', chatId)) {
+        const text = (ctx.message?.text || '').trim();
+        const isReactivateCmd = /^\/(?:ativar|despausar|unmute|startbot)(?:@\w+)?(?:\s.*)?$/i.test(text);
+        if (!isReactivateCmd) {
+          return; // Chat mutado: silêncio para todas as mensagens exceto reativação
+        }
+      }
+
+      return next();
+    });
+
+    // Comandos de Moderação e Controle do Bot
+    this.bot.command(['desativar', 'pausar', 'mute', 'stopbot'], async (ctx) => {
+      const isAdmin = await this.checkTelegramAdmin(ctx);
+      if (!isAdmin) {
+        return ctx.reply('⚠️ Apenas administradores podem desativar o bot.');
+      }
+      const isGroup = ctx.chat.type !== 'private';
+      models.muteChat({
+        platform: 'telegram',
+        chatId: String(ctx.chat.id),
+        targetType: isGroup ? 'GROUP' : 'PRIVATE',
+        reason: isGroup ? 'Desativado por moderador no grupo' : 'Desativado a pedido na conversa privada',
+        createdBy: String(ctx.from.id),
+        userName: ctx.chat.title || ctx.from.first_name
+      });
+      await ctx.reply(`🛑 *BOT DESATIVADO NESTE ${isGroup ? 'GRUPO' : 'CHAT'}!*\n\nO bot não responderá comandos ou mensagens aqui.\n\nPara reativar a qualquer momento, envie /ativar.`, { parse_mode: 'Markdown' });
+    });
+
+    this.bot.command(['ativar', 'despausar', 'unmute', 'startbot'], async (ctx) => {
+      const isAdmin = await this.checkTelegramAdmin(ctx);
+      if (!isAdmin) {
+        return ctx.reply('⚠️ Apenas administradores podem reativar o bot.');
+      }
+      models.unmuteChat('telegram', String(ctx.chat.id));
+      await ctx.reply('🟢 *BOT REATIVADO COM SUCESSO!*\n\nO atendimento automático e vendas estão operando normalmente.', { parse_mode: 'Markdown' });
+    });
+
+    this.bot.command(['bloquear', 'block'], async (ctx) => {
+      const isAdmin = await this.checkTelegramAdmin(ctx);
+      if (!isAdmin) {
+        return ctx.reply('⚠️ Apenas administradores podem bloquear participantes.');
+      }
+
+      const chatId = String(ctx.chat.id);
+      const isGroup = ctx.chat.type !== 'private';
+      let targetId = null;
+      let targetName = null;
+
+      if (ctx.message?.reply_to_message?.from) {
+        const u = ctx.message.reply_to_message.from;
+        targetId = String(u.id);
+        targetName = u.username ? `@${u.username}` : (u.first_name || targetId);
+      } else {
+        const parts = ctx.message.text.trim().split(/\s+/);
+        if (parts.length > 1) {
+          targetId = parts[1].replace(/[^0-9a-zA-Z_@]/g, '');
+          targetName = targetId;
+        }
+      }
+
+      if (!targetId) {
+        return ctx.reply('ℹ️ *Como bloquear um participante:*\n• Responda à mensagem da pessoa com `/bloquear`\n• Ou envie `/bloquear ID_DO_USUARIO`', { parse_mode: 'Markdown' });
+      }
+
+      models.blockUser({
+        platform: 'telegram',
+        userId: targetId,
+        chatId: isGroup ? chatId : null,
+        targetType: 'USER',
+        reason: isGroup ? 'Bloqueado no grupo por administrador' : 'Bloqueado por administrador',
+        createdBy: String(ctx.from.id),
+        userName: targetName
+      });
+
+      return ctx.reply(`🚫 *Participante bloqueado com sucesso!*\n\nO usuário *${targetName}* foi bloqueado e não poderá mais interagir com o bot ${isGroup ? 'neste grupo' : 'no sistema'}.\n\nPara desbloquear: \`/desbloquear ${targetId}\``, { parse_mode: 'Markdown' });
+    });
+
+    this.bot.command(['desbloquear', 'unblock'], async (ctx) => {
+      const isAdmin = await this.checkTelegramAdmin(ctx);
+      if (!isAdmin) {
+        return ctx.reply('⚠️ Apenas administradores podem desbloquear participantes.');
+      }
+
+      const chatId = String(ctx.chat.id);
+      const isGroup = ctx.chat.type !== 'private';
+      let targetId = null;
+
+      if (ctx.message?.reply_to_message?.from) {
+        targetId = String(ctx.message.reply_to_message.from.id);
+      } else {
+        const parts = ctx.message.text.trim().split(/\s+/);
+        if (parts.length > 1) {
+          targetId = parts[1].replace(/[^0-9a-zA-Z_@]/g, '');
+        }
+      }
+
+      if (!targetId) {
+        return ctx.reply('ℹ️ *Como desbloquear:* responda à mensagem da pessoa com `/desbloquear` ou envie `/desbloquear ID_DO_USUARIO`', { parse_mode: 'Markdown' });
+      }
+
+      models.unblockUser('telegram', targetId, isGroup ? chatId : null);
+      return ctx.reply(`✅ *Participante desbloqueado!*\n\nO usuário *${targetId}* agora pode interagir com o bot normalmente.`, { parse_mode: 'Markdown' });
+    });
+
+    this.bot.command(['statusbot', 'mod'], async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      const isGroup = ctx.chat.type !== 'private';
+      const isMuted = models.isChatMuted('telegram', chatId);
+      const controls = models.getChatControls({ platform: 'telegram', activeOnly: true });
+      const blockedInThisChat = controls.filter(c => c.control_type === 'BLOCK_USER' && (c.chat_id === chatId || c.chat_id === '*'));
+
+      let statusText = `📊 *MODERAÇÃO & STATUS DO BOT (TELEGRAM):*\n\n` +
+        `• *Tipo do Chat:* ${isGroup ? 'Grupo / Supergrupo' : 'Conversa Privada'}\n` +
+        `• *Chat ID:* \`${chatId}\`\n` +
+        `• *Status:* ${isMuted ? '🔴 Desativado (Muted)' : '🟢 Ativo'}\n` +
+        `• *Participantes Bloqueados:* ${blockedInThisChat.length}\n\n`;
+
+      if (blockedInThisChat.length > 0) {
+        statusText += `*Bloqueados neste chat:*\n`;
+        blockedInThisChat.slice(0, 5).forEach(b => {
+          statusText += `• ${b.user_name || b.user_id} (${b.reason || 'Sem motivo'})\n`;
+        });
+        statusText += `\n`;
+      }
+
+      statusText += `_Comandos úteis: /desativar, /ativar, /bloquear, /desbloquear_`;
+      return ctx.reply(statusText, { parse_mode: 'Markdown' });
+    });
+
     // /start com suporte a Links de Afiliados e Ofertas (Deep-Linking: /start ref_CODIGO ou /start buy_ID)
     this.bot.start(async (ctx) => {
       const userName = ctx.from.first_name || 'Cliente';

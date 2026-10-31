@@ -257,6 +257,73 @@
               </table>
             </div>
           </div>
+
+          <!-- CARD DE MODERAÇÃO & CONTROLE DE CHATS -->
+          <div class="card mt-4" style="border-top: 3px solid #ef4444;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3><i class="fa-solid fa-shield-halved" style="color: #ef4444;"></i> Moderação &amp; Controle de Conversas</h3>
+                <small style="color: var(--text-muted);">Desative o bot em conversas privadas, pause em grupos ou bloqueie participantes específicos de interagir</small>
+              </div>
+              <div style="display: flex; gap: 10px;">
+                <button type="button" class="btn btn-sm btn-primary" onclick="openChatControlModal()" style="background: #ef4444; border-color: #ef4444;">
+                  <i class="fa-solid fa-plus"></i> Novo Bloqueio / Mute
+                </button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="loadChatControls()">
+                  <i class="fa-solid fa-rotate"></i> Atualizar
+                </button>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <!-- Mini-Pills de Estatísticas -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
+                <div style="background: rgba(0,0,0,0.25); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Privados Desativados</span>
+                  <div id="statMutedPrivate" style="font-size: 20px; font-weight: 700; color: #f59e0b; margin-top: 2px;">0</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.25); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Grupos Desativados</span>
+                  <div id="statMutedGroups" style="font-size: 20px; font-weight: 700; color: #ef4444; margin-top: 2px;">0</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.25); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Participantes Bloqueados</span>
+                  <div id="statBlockedUsers" style="font-size: 20px; font-weight: 700; color: #dc2626; margin-top: 2px;">0</div>
+                </div>
+              </div>
+
+              <!-- Guia rápido de comandos -->
+              <div style="background: rgba(239, 68, 68, 0.08); border: 1px dashed rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 12px; line-height: 1.6;">
+                <b>💡 Comandos Rápidos nos Chats (WhatsApp &amp; Telegram):</b><br>
+                • <code>!desativar</code> ou <code>/desativar</code>: Desativa respostas automáticas nesta conversa privada ou grupo.<br>
+                • <code>!ativar</code> ou <code>/ativar</code>: Reativa o bot neste chat/grupo.<br>
+                • <code>!bloquear &lt;número/@menção&gt;</code> ou <code>/bloquear</code>: Bloqueia participante do grupo de usar o bot (ou responda à mensagem dele com o comando).<br>
+                • <code>!desbloquear &lt;número/@menção&gt;</code> ou <code>/desbloquear</code>: Remove o bloqueio do participante.<br>
+                • <code>!statusbot</code> ou <code>/statusbot</code>: Exibe se o chat está ativo e lista membros bloqueados.
+              </div>
+
+              <!-- Tabela de Controles Ativos -->
+              <div class="table-responsive" style="max-height: 350px; overflow-y: auto;">
+                <table class="table" style="font-size: 13px;">
+                  <thead>
+                    <tr>
+                      <th>Plataforma</th>
+                      <th>Tipo</th>
+                      <th>Alvo (Chat / Participante)</th>
+                      <th>Motivo</th>
+                      <th>Cadastrado Por</th>
+                      <th>Data</th>
+                      <th class="text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tableChatControlsBody">
+                    <tr><td colspan="7" class="text-center">Nenhuma restrição ativa. Todos os chats e usuários estão liberados.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
         </section>
 
         <!-- TAB 2: CENTRAL DE CONFIGURAÇÕES -->
@@ -2517,6 +2584,65 @@
         <button type="submit" class="btn btn-primary" style="white-space: nowrap;">
           <i class="fa-solid fa-paper-plane"></i> Enviar
         </button>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- MODAL DE CONTROLE DE CHAT / BLOQUEIO -->
+  <div id="modalChatControl" class="modal">
+    <div class="modal-content" style="max-width: 550px;">
+      <div class="modal-header">
+        <h3 id="modalChatControlTitle"><i class="fa-solid fa-shield-halved" style="color: #ef4444;"></i> Novo Bloqueio / Desativação</h3>
+        <button type="button" class="btn-close" onclick="closeChatControlModal()">&times;</button>
+      </div>
+      <form id="formChatControl" onsubmit="saveChatControl(event)">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Plataforma *</label>
+              <select id="controlPlatform" class="form-control" required onchange="onControlPlatformChange()">
+                <option value="whatsapp">WhatsApp</option>
+                <option value="telegram">Telegram</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label>Tipo de Moderação *</label>
+              <select id="controlType" class="form-control" required onchange="onControlTypeChange()">
+                <option value="MUTE_PRIVATE">Desativar Bot em Conversa Privada</option>
+                <option value="MUTE_GROUP">Desativar Bot em Grupo</option>
+                <option value="BLOCK_USER">Bloquear Participante de Grupo</option>
+                <option value="BLOCK_GLOBAL">Bloquear Usuário Globalmente</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" id="groupControlTarget">
+            <label id="lblControlTarget">Número do WhatsApp com DDD (ex: 5511999998888) *</label>
+            <input type="text" id="controlTargetId" class="form-control" required placeholder="5511999998888">
+            <small id="hintControlTarget" class="hint" style="color: var(--text-muted); font-size: 11px;">Insira o número de telefone com DDI e DDD ou Chat ID.</small>
+          </div>
+
+          <div class="form-group" id="groupControlChatId" style="display: none;">
+            <label>ID do Grupo Específico (Opcional - deixe vazio para todos os grupos)</label>
+            <input type="text" id="controlChatId" class="form-control" placeholder="Ex: 120363028123456789@g.us ou -100123456789">
+            <small class="hint" style="color: var(--text-muted); font-size: 11px;">Se preenchido, o bloqueio deste usuário valerá somente neste grupo.</small>
+          </div>
+
+          <div class="form-group">
+            <label>Nome / Identificação (Opcional)</label>
+            <input type="text" id="controlUserName" class="form-control" placeholder="Ex: Cliente Solicitou Pausa ou Usuário Spam">
+          </div>
+
+          <div class="form-group">
+            <label>Motivo do Bloqueio / Desativação</label>
+            <input type="text" id="controlReason" class="form-control" placeholder="Ex: Solicitou parar de receber mensagens, SPAM, etc.">
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeChatControlModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #ef4444; border-color: #ef4444;">Aplicar Bloqueio</button>
+        </div>
       </form>
     </div>
   </div>

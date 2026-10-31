@@ -393,6 +393,25 @@ function initDatabase() {
     );
   `);
 
+  // 23. Tabela de Controle de Moderação (Mute de Conversa Privada, Grupos & Bloqueio de Participantes)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_chat_controls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL, -- 'whatsapp', 'telegram', 'instagram', 'facebook'
+      control_type TEXT NOT NULL, -- 'MUTE_CHAT' ou 'BLOCK_USER'
+      target_type TEXT NOT NULL, -- 'PRIVATE', 'GROUP' ou 'USER'
+      chat_id TEXT NOT NULL, -- JID / Chat ID (ou '*' para bloqueio global)
+      user_id TEXT, -- JID / Telefone / ID do usuário bloqueado
+      user_name TEXT, -- Nome ou apelido
+      reason TEXT, -- Motivo do bloqueio / desativação
+      created_by TEXT DEFAULT 'admin', -- 'admin', 'user_request', 'command'
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_controls ON bot_chat_controls(platform, control_type, active, chat_id, user_id);
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',

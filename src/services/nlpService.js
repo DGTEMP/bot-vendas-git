@@ -71,6 +71,11 @@ class NaturalLanguageService {
   // 2. CLASSIFICAÇÃO DE INTENÇÕES (NLU SEMÂNTICO PT-BR)
   // ==============================================================
   classifyIntent(normalized) {
+    // 0. Pedido de Desativação / Pausa / Parar de receber mensagens (Opt-out / LGPD)
+    if (/(pare de me mandar mensagem|para de mandar mensagem|nao quero mais mensagem|nao me mande mensagem|desativar bot|pausar bot|parar bot|cancela o bot|nao me mande mais|para de mandar|nao quero receber|silenciar bot)/i.test(normalized)) {
+      return { intent: 'DEACTIVATE_BOT', confidence: 0.98 };
+    }
+
     // 1. Confirmação de Pagamento / Já paguei
     if (/(ja fiz o pix|acabei de pagar|ja paguei|fiz o pagamento|mandei o comprovante|olha o comprovante|ja transferi|dinheiro enviado|paguei aqui|caiu ai|ta pago|comprovante|pagamento feito|pagamento realizado|fiz a transferencia)/i.test(normalized)) {
       return { intent: 'CONFIRM_PURCHASE', confidence: 0.98 };
@@ -223,6 +228,11 @@ class NaturalLanguageService {
     let directAction = null; // 'TRIGGER_PIX', 'TRIGGER_BINANCE', 'SHOW_MENU', 'APPLY_COUPON', 'TRIGGER_UPSELL'
 
     switch (intent) {
+      case 'DEACTIVATE_BOT':
+        directAction = 'DEACTIVATE_BOT';
+        replyText = `🛑 *ATENDIMENTO AUTOMÁTICO PAUSADO!*\n\nRespeitamos sua decisão, ${firstName}! Pausamos as respostas automáticas para esta conversa. Se quiser reativar a qualquer momento, basta enviar *!ativar*. Tenha um ótimo dia!`;
+        break;
+
       case 'CONFIRM_PURCHASE':
         replyText = `🎉 *PARABÉNS PELA COMPRA, ${firstName.toUpperCase()}!* 🚀\n\nIdentificamos sua confirmação! O nosso sistema faz a validação automática em segundos. Assim que o pagamento for compensado, você receberá seus dados de acesso diretamente por aqui!\n\nSe precisar de qualquer auxílio imediato, pode chamar nossa equipe!`;
         break;
