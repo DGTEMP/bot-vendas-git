@@ -2282,6 +2282,147 @@ const models = {
     });
 
     return metrics;
+  },
+
+  // ==========================================
+  // 17. GATA NINA SECURITY: SISTEMA DE ADVERTÊNCIAS (WARNS)
+  // ==========================================
+  addWarning(groupId, userPhone, reason = 'Violação de regras do grupo', warnedBy = 'Admin') {
+    const cleanPhone = String(userPhone).replace(/\D/g, '');
+    const cleanGroup = String(groupId).trim();
+    
+    db.prepare(`
+      INSERT INTO group_warnings (group_id, user_phone, reason, warned_by)
+      VALUES (?, ?, ?, ?)
+    `).run(cleanGroup, cleanPhone, reason, warnedBy);
+
+    const count = this.getWarningsCount(cleanGroup, cleanPhone);
+    return { count, reason, warnedBy, userPhone: cleanPhone };
+  },
+
+  getWarningsCount(groupId, userPhone) {
+    const cleanPhone = String(userPhone).replace(/\D/g, '');
+    const cleanGroup = String(groupId).trim();
+    const row = db.prepare(`
+      SELECT COUNT(*) as count FROM group_warnings 
+      WHERE group_id = ? AND user_phone = ?
+    `).get(cleanGroup, cleanPhone);
+    return row ? row.count : 0;
+  },
+
+  getWarnings(groupId, userPhone) {
+    const cleanPhone = String(userPhone).replace(/\D/g, '');
+    const cleanGroup = String(groupId).trim();
+    return db.prepare(`
+      SELECT * FROM group_warnings 
+      WHERE group_id = ? AND user_phone = ? 
+      ORDER BY id DESC
+    `).all(cleanGroup, cleanPhone);
+  },
+
+  removeLastWarning(groupId, userPhone) {
+    const cleanPhone = String(userPhone).replace(/\D/g, '');
+    const cleanGroup = String(groupId).trim();
+    const last = db.prepare(`
+      SELECT id FROM group_warnings 
+      WHERE group_id = ? AND user_phone = ? 
+      ORDER BY id DESC LIMIT 1
+    `).get(cleanGroup, cleanPhone);
+
+    if (last) {
+      db.prepare('DELETE FROM group_warnings WHERE id = ?').run(last.id);
+      return true;
+    }
+    return false;
+  },
+
+  clearWarnings(groupId, userPhone) {
+    const cleanPhone = String(userPhone).replace(/\D/g, '');
+    const cleanGroup = String(groupId).trim();
+    db.prepare('DELETE FROM group_warnings WHERE group_id = ? AND user_phone = ?').run(cleanGroup, cleanPhone);
+    return true;
+  },
+
+  // ==========================================
+  // 18. GATA NINA GAMIFICAÇÃO & FIDELIDADE (LOYALTY / RPG)
+  // ==========================================
+  getUserLoyalty(platform = 'whatsapp', userId, userName = null) {
+    const cleanId = String(userId).trim();
+    let row = db.prepare('SELECT * FROM user_loyalty WHERE platform = ? AND user_id = ?').get(platform, cleanId);
+    
+    if (!row) {
+      db.prepare(`
+        INSERT INTO user_loyalty (platform, user_id, user_name, points, level, exp, total_spent)
+        VALUES (?, ?, ?, 50, 1, 0, 0)
+      `).run(platform, cleanId, userName || 'Membro');
+      row = db.prepare('SELECT * FROM user_loyalty WHERE platform = ? AND user_id = ?').get(platform, cleanId);
+    } else if (userName && row.user_name !== userName) {
+      db.prepare('UPDATE user_loyalty SET user_name = ? WHERE id = ?').run(userName, row.id);
+      row.user_name = userName;
+    }
+
+    return row;
+  },
+
+  addLoyaltyPoints(platform = 'whatsapp', userId, pointsToAdd = 10, expToAdd = 10, userName = null) {
+    const current = this.getUserLoyalty(platform, userId, userName);
+    const newPoints = Math.max(0, (current.points || 0) + pointsToAdd);
+    const newExp = (current.exp || 0) + expToAdd;
+    
+    // Nível sobe a cada 100 de exp
+    const newLevel = Math.floor(newExp / 100) + 1;
+
+    db.prepare(`
+      UPDATE user_loyalty 
+      SET points = ?, exp = ?, level = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(newPoints, newExp, newLevel, current.id);
+
+    return {
+      points: newPoints,
+      exp: newExp,
+      level: newLevel,
+      pointsAdded: pointsToAdd,
+      leveledUp: newLevel > current.level
+    };
+  },
+
+  redeemLoyaltyCoupon(platform = 'whatsapp', userId, pointsCost = 100) {
+    const current = this.getUserLoyalty(platform, userId);
+    if ((current.points || 0) < pointsCost) {
+      return {
+        success: false,
+        error: `Pontos insuficientes. Você possui ${current.points} pts, mas precisa de ${pointsCost} pts para resgatar este cupom.`
+      };
+    }
+
+    // Deduz pontos
+    const newPoints = current.points - pointsCost;
+    db.prepare('UPDATE user_loyalty SET points = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newPoints, current.id);
+
+    // Cria cupom exclusivo na tabela de cupons
+    const couponCode = `FIDELIDADE_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    db.prepare(`
+      INSERT INTO coupons (code, type, value, max_uses, current_uses, active)
+      VALUES (?, 'PERCENT', 15.0, 1, 0, 1)
+    `).run(couponCode);
+
+    return {
+      success: true,
+      couponCode,
+      discountPercent: 15,
+      remainingPoints: newPoints
+    };
+  },
+
+  // ==========================================
+  // 19. GATA NINA ANTI-VIEW-ONCE
+  // ==========================================
+  logViewOnceMedia(chatId, senderPhone, mediaType, mediaCaption = '') {
+    db.prepare(`
+      INSERT INTO view_once_logs (chat_id, sender_phone, media_type, media_caption)
+      VALUES (?, ?, ?, ?)
+    `).run(chatId, senderPhone, mediaType, mediaCaption);
   }
 };
 

@@ -150,6 +150,10 @@ class WhatsAppArmyService {
       sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
         try {
           if (action === 'add') {
+            // Anti-Fake / Anti-Estrangeiro (Gata Nina Security)
+            const gataFeatures = require('./gataFeaturesService');
+            await gataFeatures.checkAntiFakeEntry(sock, id, participants);
+
             const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
             if (!isWelcomeActive) return;
 

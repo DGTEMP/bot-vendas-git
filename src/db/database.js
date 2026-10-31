@@ -463,6 +463,41 @@ function initDatabase() {
       FOREIGN KEY (seller_id) REFERENCES sellers(id)
     );
     CREATE INDEX IF NOT EXISTS idx_support_tickets ON support_tickets(status, platform, seller_id);
+
+    -- Sistema de Advertências (Gata Nina Security)
+    CREATE TABLE IF NOT EXISTS group_warnings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_id TEXT NOT NULL,
+      user_phone TEXT NOT NULL,
+      reason TEXT DEFAULT 'Violação de regras do grupo',
+      warned_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_warnings ON group_warnings(group_id, user_phone);
+
+    -- Sistema de Fidelidade & Gamificação (Gata Nina Loyalty / RPG)
+    CREATE TABLE IF NOT EXISTS user_loyalty (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL DEFAULT 'whatsapp',
+      user_id TEXT NOT NULL,
+      user_name TEXT,
+      points INTEGER DEFAULT 50,
+      level INTEGER DEFAULT 1,
+      exp INTEGER DEFAULT 0,
+      total_spent REAL DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(platform, user_id)
+    );
+
+    -- Log de Mídias de Visualização Única Reveladas (Anti-ViewOnce)
+    CREATE TABLE IF NOT EXISTS view_once_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      sender_phone TEXT,
+      media_type TEXT,
+      media_caption TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Migrações seguras

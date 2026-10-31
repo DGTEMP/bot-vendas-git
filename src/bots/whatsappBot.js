@@ -9,6 +9,7 @@ const models = require('../db/models');
 const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
+const gataFeatures = require('../services/gataFeaturesService');
 
 class WhatsAppBotService {
   constructor() {
@@ -148,10 +149,13 @@ class WhatsAppBotService {
         }
       });
 
-      // Evento de novos participantes entrando no grupo (Boas-vindas automáticas)
+      // Evento de novos participantes entrando no grupo (Boas-vindas automáticas & Anti-Fake)
       this.sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
         try {
           if (action === 'add') {
+            // Anti-Fake / Anti-Estrangeiro (Gata Nina Security)
+            await gataFeatures.checkAntiFakeEntry(this.sock, id, participants);
+
             const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
             if (!isWelcomeActive) return;
 
@@ -193,11 +197,12 @@ class WhatsAppBotService {
       return { isGroup: false, isRequesterAdmin: true, isBotAdmin: false };
     }
     try {
-      if (!this.sock || !this.sock.groupMetadata) {
+      const sock = this.currentDispatchSock || this.sock;
+      if (!sock || !sock.groupMetadata) {
         return { isGroup: true, isRequesterAdmin: false, isBotAdmin: false, error: 'Socket não pronto' };
       }
-      const metadata = await this.sock.groupMetadata(from);
-      const myNumber = this.sock.user?.id ? this.sock.user.id.split(':')[0] : '';
+      const metadata = await sock.groupMetadata(from);
+      const myNumber = sock.user?.id ? sock.user.id.split(':')[0] : '';
       const botParticipant = metadata?.participants?.find(p => p.id.includes(myNumber));
       const isBotAdmin = !!(botParticipant && (botParticipant.admin === 'admin' || botParticipant.admin === 'superadmin'));
 
@@ -222,16 +227,47 @@ class WhatsAppBotService {
   async handleIncomingMessage(msg, customSock = null) {
     const prevDispatchSock = this.currentDispatchSock;
     this.currentDispatchSock = customSock || this.sock;
-    const from = msg.key.remoteJid;
+    try {
+      return await this._processIncomingMessage(msg, customSock);
+    } finally {
+      this.currentDispatchSock = prevDispatchSock;
+    }
+  }
+
+  async _processIncomingMessage(msg, customSock = null) {
+    const activeSock = this.currentDispatchSock || this.sock || {
+      sendMessage: (jid, content) => this.sendMessage(jid, content),
+      groupParticipantsUpdate: (jid, participants, action) => this.sock?.groupParticipantsUpdate(jid, participants, action),
+      groupMetadata: (jid) => this.sock?.groupMetadata(jid)
+    };
+    const from = msg.key?.remoteJid;
+    if (!from) return;
     const isGroup = from.endsWith('@g.us');
-    const participantJid = msg.key.participant || from;
+    const participantJid = msg.key?.participant || from;
     const senderPhone = participantJid.split('@')[0].split(':')[0];
-    const isFromMe = !!msg.key.fromMe;
+    const isFromMe = !!msg.key?.fromMe;
     const senderName = msg.pushName || 'Cliente';
-    
+
+    // Rastreia atividade de participantes do grupo (para detector de membros fantasmas)
+    if (isGroup && senderPhone) {
+      gataFeatures.recordActivity(from, senderPhone);
+    }
+
+    // Interceptador Anti-View-Once: Revela fotos e vídeos de visualização única
+    if (!isFromMe) {
+      try {
+        await gataFeatures.handleAntiViewOnce(activeSock, msg, from);
+      } catch (err) {
+        console.error('[AntiViewOnce Erro]:', err.message);
+      }
+    }
+
     const text = (
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text ||
+      msg.message?.conversation ||
+      msg.message?.extendedTextMessage?.text ||
+      msg.message?.imageMessage?.caption ||
+      msg.message?.videoMessage?.caption ||
+      msg.message?.documentMessage?.caption ||
       ''
     ).trim();
 
@@ -460,16 +496,28 @@ class WhatsAppBotService {
 
         const isAntilink = models.getSetting(`ANTILINK_${from}`, 'false') === 'true';
         const isWelcome = models.getSetting(`WELCOME_${from}`, 'false') === 'true';
+        const isAntifake = models.getSetting(`ANTIFAKE_${from}`, 'false') === 'true';
+        const isAntiView = models.getSetting(`ANTIVIEWONCE_${from}`, 'true') === 'true';
 
         const adminMenu = `🛠️ *PAINEL DE GERENCIAMENTO DO GRUPO (ADMIN)*\n\n` +
           `• *Status do Bot:* ${botStatusBadge}\n` +
           `• *Anti-Link:* ${isAntilink ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Anti-Fake (+55):* ${isAntifake ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Anti-View-Once:* ${isAntiView ? '🟢 Ativado' : '🔴 Desativado'}\n` +
           `• *Boas-Vindas:* ${isWelcome ? '🟢 Ativado' : '🔴 Desativado'}\n\n` +
           `👢 *Gerenciamento de Membros:*\n` +
           `• *!ban* ou *!kick* (responda à mensagem ou use @número) — Remove participante\n` +
           `• *!promover* (responda ou mencione) — Promove participante a Administrador\n` +
           `• *!rebaixar* (responda ou mencione) — Remove cargo de Administrador\n` +
-          `• *!todos <aviso>* — Marca e notifica todos os participantes do grupo\n\n` +
+          `• *!todos <aviso>* — Marca e notifica todos os participantes do grupo\n` +
+          `• *!hidetag <aviso>* — Notificação silenciosa/invisível para todos os membros\n` +
+          `• *!fantasmas* — Escaneia membros inativos que nunca falaram\n\n` +
+          `🛡️ *Advertências & Segurança (Gata Nina):*\n` +
+          `• *!warn @usuario <motivo>* — Advertência (3 avisos = expulsão automática)\n` +
+          `• *!unwarn @usuario* — Remove última advertência\n` +
+          `• *!warns [@usuario]* — Consulta histórico de advertências\n` +
+          `• *!antifake on/off* — Expulsa números de DDI estrangeiro automaticamente\n` +
+          `• *!antiviewonce on/off* — Revela fotos e vídeos de visualização única\n\n` +
           `⚙️ *Configurações & Segurança:*\n` +
           `• *!fechar* — Tranca o grupo (apenas administradores falam)\n` +
           `• *!abrir* — Abre o grupo (todos os membros podem falar)\n` +
@@ -926,6 +974,180 @@ class WhatsAppBotService {
 
         return this.sendMessage(from, `✅ *MENSAGEM DE BOAS-VINDAS ATUALIZADA!*\n\nNovos participantes receberão:\n"${newMsg}"`);
       }
+
+      // 15. Advertência: !warn, !advertencia, !advertir
+      if (/^(?:!|\/)(?:warn|advertencia|advertir)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem advertir participantes.');
+        }
+
+        let targetPhone = null;
+        let reason = '';
+
+        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+        if (quotedParticipant) {
+          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+          reason = text.replace(/^(?:!|\/)(?:warn|advertencia|advertir)\s*/i, '').trim();
+        }
+        if (!targetPhone) {
+          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          if (mentioned && mentioned.length > 0) {
+            targetPhone = mentioned[0].split('@')[0].split(':')[0];
+            reason = text.replace(/^(?:!|\/)(?:warn|advertencia|advertir)\s*@?\d+\s*/i, '').trim();
+          }
+        }
+        if (!targetPhone) {
+          const matchNum = text.match(/(?:!|\/)(?:warn|advertencia|advertir)\s*@?(\+?[0-9]{8,20})(?:\s+(.*))?/i);
+          if (matchNum) {
+            targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+            reason = (matchNum[2] || '').trim();
+          }
+        }
+
+        if (!targetPhone) {
+          return this.sendMessage(from, `ℹ️ *Como advertir um membro:*\n• Responda à mensagem da pessoa com *!warn [motivo]*\n• Ou envie *!warn @usuario [motivo]*\n• Ou envie *!warn 5511999998888 [motivo]*\n\n> 💡 Ao atingir 3 advertências, o bot bane o participante automaticamente.`);
+        }
+
+        if (!reason) reason = 'Desrespeito às regras do grupo';
+        return gataFeatures.handleWarn(activeSock, from, targetPhone, reason, senderName, adminStatus.isBotAdmin);
+      }
+
+      // 16. Remover Advertência: !unwarn, !tiraraviso
+      if (/^(?:!|\/)(?:unwarn|tiraraviso|removeraviso)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem remover advertências.');
+        }
+
+        let targetPhone = null;
+        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+        if (quotedParticipant) {
+          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+        }
+        if (!targetPhone) {
+          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          if (mentioned && mentioned.length > 0) {
+            targetPhone = mentioned[0].split('@')[0].split(':')[0];
+          }
+        }
+        if (!targetPhone) {
+          const matchNum = text.match(/(?:!|\/)(?:unwarn|tiraraviso|removeraviso)\s*@?(\+?[0-9]{8,20})/i);
+          if (matchNum) {
+            targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+          }
+        }
+
+        if (!targetPhone) {
+          return this.sendMessage(from, `ℹ️ *Como remover advertência:*\n• Responda à mensagem do participante com *!unwarn*\n• Ou envie *!unwarn @usuario*`);
+        }
+
+        return gataFeatures.handleUnwarn(activeSock, from, targetPhone);
+      }
+
+      // 17. Consultar Advertências: !warns, !avisos
+      if (/^(?:!|\/)(?:warns|avisos)(?:\s.*)?$/i.test(lower)) {
+        let targetPhone = null;
+        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+        if (quotedParticipant) {
+          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+        }
+        if (!targetPhone) {
+          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          if (mentioned && mentioned.length > 0) {
+            targetPhone = mentioned[0].split('@')[0].split(':')[0];
+          }
+        }
+        if (!targetPhone) {
+          const matchNum = text.match(/(?:!|\/)(?:warns|avisos)\s*@?(\+?[0-9]{8,20})/i);
+          if (matchNum) {
+            targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+          }
+        }
+        if (!targetPhone) {
+          targetPhone = senderPhone;
+        }
+
+        return gataFeatures.handleWarnsList(activeSock, from, targetPhone);
+      }
+
+      // 18. Configurar Anti-Fake: !antifake on/off
+      if (/^(?:!|\/)(?:antifake|antiestrangeiro)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem configurar a proteção Anti-Fake.');
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const action = parts[1]?.toLowerCase();
+
+        if (action === 'on' || action === 'ativar' || action === '1') {
+          models.setSetting(`ANTIFAKE_${from}`, 'true');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'ANTIFAKE_ON',
+            details: 'Proteção Anti-Fake (+55 apenas) ativada'
+          });
+          return this.sendMessage(from, `🛡️ *PROTEÇÃO ANTI-FAKE ATIVADA!*\n\nNúmeros estrangeiros (DDI diferente de +55) serão banidos automaticamente ao entrarem no grupo.`);
+        } else if (action === 'off' || action === 'desativar' || action === '0') {
+          models.setSetting(`ANTIFAKE_${from}`, 'false');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'ANTIFAKE_OFF',
+            details: 'Proteção Anti-Fake desativada'
+          });
+          return this.sendMessage(from, `🔓 *PROTEÇÃO ANTI-FAKE DESATIVADA!*`);
+        } else {
+          const isAct = models.getSetting(`ANTIFAKE_${from}`, 'false') === 'true';
+          return this.sendMessage(from, `ℹ️ *Proteção Anti-Fake (+55):* ${isAct ? '🟢 Ativada' : '🔴 Desativada'}\n\nPara alterar: *!antifake on* ou *!antifake off*`);
+        }
+      }
+
+      // 19. Configurar Anti-View-Once: !antiviewonce on/off
+      if (/^(?:!|\/)(?:antiviewonce|antiview|antivi)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores podem configurar o Anti-View-Once.');
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const action = parts[1]?.toLowerCase();
+
+        if (action === 'on' || action === 'ativar' || action === '1') {
+          models.setSetting(`ANTIVIEWONCE_${from}`, 'true');
+          return this.sendMessage(from, `👁️ *ANTI-VIEW-ONCE ATIVADO!*\n\nFotos e vídeos de visualização única serão revelados permanentemente no chat.`);
+        } else if (action === 'off' || action === 'desativar' || action === '0') {
+          models.setSetting(`ANTIVIEWONCE_${from}`, 'false');
+          return this.sendMessage(from, `🙈 *ANTI-VIEW-ONCE DESATIVADO!*`);
+        } else {
+          const isAct = models.getSetting(`ANTIVIEWONCE_${from}`, 'true') === 'true';
+          return this.sendMessage(from, `ℹ️ *Anti-View-Once:* ${isAct ? '🟢 Ativado' : '🔴 Desativado'}\n\nPara alterar: *!antiviewonce on* ou *!antiviewonce off*`);
+        }
+      }
+
+      // 20. Hidetag: !hidetag <msg>
+      if (/^(?:!|\/)(?:hidetag|notificar)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem usar hidetag.');
+        }
+        return gataFeatures.handleHidetag(activeSock, from, text, adminStatus.metadata);
+      }
+
+      // 21. Membros Fantasmas: !fantasmas, !inativos
+      if (/^(?:!|\/)(?:fantasmas|inativos)$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem escanear membros fantasmas.');
+        }
+        return gataFeatures.handleFantasmas(activeSock, from, adminStatus.metadata);
+      }
     }
 
     // 0.2 SE O CHAT ESTIVER DESATIVADO (MUTED), NÃO RESPONDE MAIS NADA
@@ -997,6 +1219,112 @@ class WhatsAppBotService {
           }
         }
       }
+    }
+
+    // ==========================================
+    // 0.4 COMANDOS GATA BOT / GATA NINA (STICKERS, DOWNLOADERS, IA, GAMES)
+    // ==========================================
+
+    // 1. Criador de Figurinha: !s / !sticker
+    if (/^(?:!|\/)(?:s|sticker|fig|figurinha)$/i.test(lower)) {
+      return gataFeatures.handleSticker(activeSock, from, msg, senderName);
+    }
+
+    // 2. Texto para Figurinha: !attp / !ttp
+    if (/^(?:!|\/)(?:attp|ttp)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleTextToSticker(activeSock, from, text, senderName);
+    }
+
+    // 3. Figurinha para Imagem: !toimg
+    if (/^(?:!|\/)(?:toimg|paraimg)$/i.test(lower)) {
+      return gataFeatures.handleToImg(activeSock, from, msg);
+    }
+
+    // 4. Texto para Voz: !tts / !voz
+    if (/^(?:!|\/)(?:tts|voz)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleTTS(activeSock, from, text);
+    }
+
+    // 5. Downloader de Música YouTube: !play / !ytmp3
+    if (/^(?:!|\/)(?:play|ytmp3|musica)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handlePlayMusic(activeSock, from, text);
+    }
+
+    // 6. Downloader de TikTok: !tiktok / !tt
+    if (/^(?:!|\/)(?:tiktok|tt)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleTikTok(activeSock, from, text);
+    }
+
+    // 7. Downloader de Instagram: !ig / !instagram / !reels
+    if (/^(?:!|\/)(?:ig|instagram|reels)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleInstagram(activeSock, from, text);
+    }
+
+    // 8. Inteligência Artificial: !ia / !gpt / !gemini
+    if (/^(?:!|\/)(?:ia|gpt|gemini)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleAIChat(activeSock, from, text, senderName);
+    }
+
+    // 9. Gerador de Imagens IA: !imagine / !dalle / !desenhe
+    if (/^(?:!|\/)(?:imagine|dalle|desenhe)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleImagine(activeSock, from, text);
+    }
+
+    // 10. Tradutor Instantâneo: !traduzir / !translate
+    if (/^(?:!|\/)(?:traduzir|translate)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleTranslate(activeSock, from, text);
+    }
+
+    // 11. Perfil de Fidelidade: !perfil / !me / !nivel / !pontos
+    if (/^(?:!|\/)(?:perfil|me|nivel|pontos|carteira)$/i.test(lower)) {
+      return gataFeatures.handlePerfil(activeSock, from, senderPhone, senderName);
+    }
+
+    // 12. Resgatar Cupom de Fidelidade: !resgatar
+    if (/^(?:!|\/)(?:resgatar|resgate|trocarcupom)$/i.test(lower)) {
+      return gataFeatures.handleResgatar(activeSock, from, senderPhone);
+    }
+
+    // 13. Mini-game Dado: !dado / !dice
+    if (/^(?:!|\/)(?:dado|dice)$/i.test(lower)) {
+      return gataFeatures.handleDado(activeSock, from, senderPhone, senderName);
+    }
+
+    // 14. Mini-game Roleta: !roleta / !spin
+    if (/^(?:!|\/)(?:roleta|spin|cassino)$/i.test(lower)) {
+      return gataFeatures.handleRoleta(activeSock, from, senderPhone, senderName);
+    }
+
+    // 15. Menu Geral de Comandos Gata Nina + Loja: !comandos / !menu2 / !gatanina
+    if (/^(?:!|\/)(?:comandos|menu2|gatanina|ajudatudo)$/i.test(lower)) {
+      const gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
+        `🎨 *Figurinhas & Mídia:*\n` +
+        `• *!s* ou *!sticker* — Cria figurinha de foto ou vídeo\n` +
+        `• *!attp <texto>* — Cria figurinha animada com seu texto\n` +
+        `• *!toimg* — Converte figurinha em imagem JPG\n` +
+        `• *!tts <texto>* — Converte texto em áudio falado pelo bot\n\n` +
+        `📥 *Downloads Automáticos:*\n` +
+        `• *!play <música>* — Baixa música do YouTube em MP3\n` +
+        `• *!tiktok <link>* — Baixa vídeo do TikTok sem marca d'água\n` +
+        `• *!ig <link>* — Baixa fotos e reels do Instagram\n\n` +
+        `🤖 *Inteligência Artificial:*\n` +
+        `• *!ia <pergunta>* — Converse com o ChatGPT / Gemini integrado\n` +
+        `• *!imagine <ideia>* — Gera arte inédita com IA\n` +
+        `• *!traduzir <en|es|fr> <texto>* — Traduz instantaneamente\n\n` +
+        `🎮 *Gamificação & Fidelidade:*\n` +
+        `• *!perfil* — Exibe seu nível, XP e saldo de pontos\n` +
+        `• *!dado* — Role os dados e ganhe moedas e XP\n` +
+        `• *!roleta* — Gire a roleta da sorte para ganhar prêmios\n` +
+        `• *!resgatar* — Troque 100 pontos por um Cupom de 15% OFF na loja\n\n` +
+        `🛍️ *Vendas & Loja Automática:*\n` +
+        `• *MENU* — Ver catálogo completo de produtos\n` +
+        `• *P1, P2...* — Gerar PIX Copia e Cola instantâneo\n` +
+        `• *C1, C2...* — Pagar via Cripto / Binance Pay (USDT)\n` +
+        `• *STATUS* — Consultar andamento do seu pedido\n` +
+        `• *!suporte* — Solicitar atendimento humano\n\n` +
+        `🛡️ *Moderação de Grupos:* Envie *!admin* para ver comandos de gestão.`;
+
+      return this.sendMessage(from, gataMenu);
     }
 
     // Comandos de menu
@@ -1130,7 +1458,6 @@ class WhatsAppBotService {
       `Para ver nossos produtos e assinaturas com pagamento automático via *PIX* ou *Cripto (USDT)*, envie *MENU*.\n\n` +
       `Se precisar de suporte, envie *AJUDA*.`;
     await this.sendMessage(from, fallbackText);
-    this.currentDispatchSock = prevDispatchSock;
   }
 
   async sendMenu(to, senderName) {
@@ -1158,7 +1485,8 @@ class WhatsAppBotService {
       `Digite o *NÚMERO* do item desejado (Exemplo: *1* ou *2*).\n\n` +
       `💡 Ou escolha direto:\n` +
       `• Para pagar com *PIX*: envie *P1*, *P2*, etc.\n` +
-      `• Para pagar com *Cripto*: envie *C1*, *C2*, etc.`;
+      `• Para pagar com *Cripto*: envie *C1*, *C2*, etc.\n\n` +
+      `🐾 *Comandos Especiais & Lazer:* Envie *!comandos* para criar figurinhas (!s), baixar mídias (!play, !tiktok, !ig), IA (!ia, !imagine) e mini-jogos (!dado, !roleta).`;
 
     await this.sendMessage(to, menu);
   }

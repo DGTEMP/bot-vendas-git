@@ -1978,6 +1978,221 @@ async function main() {
     assert(!msgData.text.includes('{') && !msgData.text.includes('|'), 'Spintax deve ser processado e resolvido');
   });
 
+  // ----------------------------------------------------------------
+  // 14. Funcionalidades Gata Bot / Gata Nina (Stickers, Segurança, Anti-Fake, Anti-View-Once, IA, Fidelidade & Mini-Games)
+  // ----------------------------------------------------------------
+  console.log('\n🐾 14. Funcionalidades Gata Bot / Gata Nina (Stickers, Segurança, IA & Fidelidade):');
+
+  await runTest('Gata Nina: Sistema de Advertências (3-Strikes Auto-Ban)', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const testGroup = '120363011223344556@g.us';
+    const badUser = '5511977771234';
+
+    models.clearWarnings(testGroup, badUser);
+    assert.strictEqual(models.getWarningsCount(testGroup, badUser), 0);
+
+    // Advertência 1
+    const res1 = models.addWarning(testGroup, badUser, 'Primeiro aviso: spam', 'Admin Carlos');
+    assert.strictEqual(res1.count, 1);
+    assert.strictEqual(models.getWarningsCount(testGroup, badUser), 1);
+
+    // Advertência 2
+    const res2 = models.addWarning(testGroup, badUser, 'Segundo aviso: flood', 'Admin Carlos');
+    assert.strictEqual(res2.count, 2);
+
+    // Remoção de advertência (unwarn)
+    const removed = models.removeLastWarning(testGroup, badUser);
+    assert.strictEqual(removed, true);
+    assert.strictEqual(models.getWarningsCount(testGroup, badUser), 1);
+
+    // Execução do comando de aviso atingindo 3 strikes via handleWarn
+    let bannedJid = null;
+    let sentText = null;
+    const mockSock = {
+      groupParticipantsUpdate: async (jid, participants, action) => {
+        if (action === 'remove') bannedJid = participants[0];
+      },
+      sendMessage: async (jid, payload) => {
+        sentText = payload.text;
+        return true;
+      }
+    };
+
+    // Strike 2
+    await gataFeatures.handleWarn(mockSock, testGroup, badUser, 'Desrespeito', 'Admin Carlos', true);
+    assert(sentText.includes('ADVERTÊNCIA REGISTRADA (2/3)'));
+    assert.strictEqual(bannedJid, null);
+
+    // Strike 3 (Auto-ban)
+    await gataFeatures.handleWarn(mockSock, testGroup, badUser, 'Reincidência', 'Admin Carlos', true);
+    assert(sentText.includes('LIMITE DE ADVERTÊNCIAS ATINGIDO (3/3)'));
+    assert(sentText.includes('banido do grupo automaticamente'));
+    assert.strictEqual(bannedJid, `${badUser}@s.whatsapp.net`);
+    assert.strictEqual(models.getWarningsCount(testGroup, badUser), 0, 'Advertências devem ser zeradas após expulsão');
+  });
+
+  await runTest('Gata Nina: Proteção Anti-Fake (Ban de Números Estrangeiros Não +55)', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const testGroup = '120363099887766554@g.us';
+
+    models.setSetting(`ANTIFAKE_${testGroup}`, 'true');
+
+    let removedList = [];
+    let sentNotice = null;
+    const mockSock = {
+      groupParticipantsUpdate: async (jid, participants, action) => {
+        if (action === 'remove') removedList.push(...participants);
+      },
+      sendMessage: async (jid, payload) => {
+        sentNotice = payload.text;
+        return true;
+      }
+    };
+
+    // Cenário: Entram 2 participantes, um dos EUA (+1) e um do Brasil (+55)
+    const participants = [
+      '14155552671@s.whatsapp.net', // Número fake / estrangeiro
+      '5511999998888@s.whatsapp.net'  // Número brasileiro legítimo
+    ];
+
+    await gataFeatures.checkAntiFakeEntry(mockSock, testGroup, participants);
+
+    assert(removedList.includes('14155552671@s.whatsapp.net'), 'Número americano (+1) deve ser banido');
+    assert(!removedList.includes('5511999998888@s.whatsapp.net'), 'Número brasileiro (+55) NÃO deve ser banido');
+    assert(sentNotice.includes('ANTI-FAKE ATIVADO'), 'Deve emitir aviso no grupo');
+  });
+
+  await runTest('Gata Nina: Registro e Anti-View-Once (Visualização Única Revelada)', async () => {
+    const testGroup = '120363055443322110@g.us';
+    const sender = '5511988887777';
+
+    // 1. Registro no banco de dados
+    const logged = models.logViewOnceMedia(testGroup, sender, 'image', 'Foto secreta temporária');
+    assert(logged.id > 0);
+    assert.strictEqual(logged.media_type, 'image');
+
+    // 2. Consulta de logs
+    const logs = models.getViewOnceLogs(testGroup);
+    assert(logs.length > 0);
+    assert(logs.some(l => l.caption === 'Foto secreta temporária'));
+  });
+
+  await runTest('Gata Nina: Google TTS & Google Translate Instantâneo', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+
+    // 1. Tradução
+    let translatedMsg = null;
+    const mockSockTr = {
+      sendMessage: async (jid, payload) => {
+        translatedMsg = payload.text;
+        return true;
+      }
+    };
+
+    await gataFeatures.handleTranslate(mockSockTr, 'test_chat', '!traduzir en Olá bom dia amigo');
+    assert(translatedMsg.includes('TRADUÇÃO (EN)'));
+    assert(translatedMsg.toLowerCase().includes('good morning') || translatedMsg.toLowerCase().includes('hello') || translatedMsg.toLowerCase().includes('friend'));
+
+    // 2. TTS (Áudio do Google)
+    let audioPayload = null;
+    const mockSockTts = {
+      sendMessage: async (jid, payload) => {
+        audioPayload = payload;
+        return true;
+      }
+    };
+
+    await gataFeatures.handleTTS(mockSockTts, 'test_chat', '!tts Bem vindo ao PayBot');
+    assert(audioPayload && audioPayload.audio, 'Deve gerar buffer de áudio');
+    assert.strictEqual(audioPayload.ptt, true, 'Deve ser formatado como PTT (áudio de voz)');
+  });
+
+  await runTest('Gata Nina: Gamificação, Nível de Fidelidade & Resgate de Cupons', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const userPhone = '5511999112233';
+
+    // 1. Perfil Inicial
+    const initial = models.getUserLoyalty('whatsapp', userPhone, 'Jogador Teste');
+    assert.strictEqual(initial.points, 0);
+    assert.strictEqual(initial.level, 1);
+
+    // 2. Tentativa de resgate sem saldo suficiente
+    const failRedeem = models.redeemLoyaltyCoupon('whatsapp', userPhone, 100);
+    assert.strictEqual(failRedeem.success, false);
+    assert(failRedeem.error.includes('Saldo insuficiente'));
+
+    // 3. Mini-game de Dados (!dado) bonificando pontos e experiência
+    let dadoOutput = null;
+    const mockSockGame = {
+      sendMessage: async (jid, payload) => {
+        dadoOutput = payload.text;
+        return true;
+      }
+    };
+
+    await gataFeatures.handleDado(mockSockGame, 'test_chat', userPhone, 'Jogador Teste');
+    assert(dadoOutput.includes('JOGO DOS DADOS'));
+    assert(dadoOutput.includes('Moedas de Fidelidade'));
+
+    // 4. Adiciona saldo suficiente para resgate (120 pontos e 250 XP)
+    const updated = models.addLoyaltyPoints('whatsapp', userPhone, 120, 250, 'Jogador Teste');
+    assert(updated.points >= 120);
+    assert(updated.level >= 3, 'Deve subir para pelo menos nível 3 com 250+ XP');
+
+    // 5. Resgate de Cupom de 15% OFF
+    const redeemRes = models.redeemLoyaltyCoupon('whatsapp', userPhone, 100);
+    assert.strictEqual(redeemRes.success, true);
+    assert.strictEqual(redeemRes.discountPercent, 15);
+    assert(redeemRes.couponCode.startsWith('FIDELIDADE_'));
+
+    // Valida se o cupom criado pelo resgate é utilizável na loja
+    const couponInDb = models.getCouponByCode(redeemRes.couponCode);
+    assert(couponInDb !== null);
+    assert.strictEqual(couponInDb.discount_percent, 15);
+    assert.strictEqual(couponInDb.active, 1);
+  });
+
+  await runTest('Gata Nina: Roteamento de Comandos WhatsApp (!comandos, !perfil, !dado)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    let lastReply = null;
+    const origSend = whatsappBot.sendMessage;
+    whatsappBot.sendMessage = async (jid, payload) => {
+      lastReply = typeof payload === 'string' ? payload : payload.text;
+      return true;
+    };
+
+    // 1. Catálogo geral de comandos !comandos
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999112233@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!comandos' },
+      pushName: 'Cliente VIP'
+    });
+    assert(lastReply.includes('CATÁLOGO DE COMANDOS GATA NINA'));
+    assert(lastReply.includes('!s'));
+    assert(lastReply.includes('!play'));
+    assert(lastReply.includes('!ia'));
+
+    // 2. Consulta de Perfil !perfil
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999112233@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!perfil' },
+      pushName: 'Cliente VIP'
+    });
+    assert(lastReply.includes('PERFIL DO USUÁRIO'));
+    assert(lastReply.includes('Nível'));
+    assert(lastReply.includes('Moedas de Fidelidade'));
+
+    // 3. Mini-game de roleta !roleta
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999112233@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!roleta' },
+      pushName: 'Cliente VIP'
+    });
+    assert(lastReply.includes('ROLETA DA SORTE GATA NINA'));
+
+    whatsappBot.sendMessage = origSend;
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------
