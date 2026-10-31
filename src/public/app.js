@@ -1141,6 +1141,8 @@ function openProductModal() {
 
   renderProductSellersChecklist([]);
   toggleProductTypeFields();
+  const scrollBody = document.querySelector('#modalProduct .modal-body-scroll');
+  if (scrollBody) scrollBody.scrollTop = 0;
   document.getElementById('modalProduct').classList.add('active');
 }
 
@@ -1187,6 +1189,9 @@ async function openEditProductModal(id) {
 
     renderProductSellersChecklist(p.assigned_seller_ids || []);
     toggleProductTypeFields();
+
+    const scrollBody = document.querySelector('#modalProduct .modal-body-scroll');
+    if (scrollBody) scrollBody.scrollTop = 0;
 
     document.getElementById('modalProduct').classList.add('active');
   } catch (err) {
@@ -2787,3 +2792,51 @@ async function sendManualLeadReply(e) {
     alert('Erro de conexão: ' + err.message);
   }
 }
+
+// ====================================================================
+// CONTROLE GLOBAL DE MODAIS (FECHAR COM ESC OU CLICANDO NO BACKDROP)
+// ====================================================================
+const globalModalDismissMap = {
+  modalProduct: closeProductModal,
+  modalSeller: closeSellerModal,
+  modalAffiliate: closeAffiliateModal,
+  modalAffiliateLinks: closeLinksModal,
+  modalCompany: closeCompanyModal,
+  modalRequestAffiliation: closeRequestAffiliationModal,
+  modalPayCommission: closePayCommissionModal,
+  modalCoupon: closeCouponModal,
+  modalArmyInstance: closeArmyInstanceModal,
+  modalArmyQr: closeArmyQrModal,
+  modalAffiliateLink: closeAffiliateLinkModal,
+  modalCampaign: closeCampaignModal,
+  modalCampaignLeads: closeCampaignLeadsModal,
+  modalFunnelStages: closeFunnelStagesModal,
+  modalLeadsByStage: closeLeadsByStageModal,
+  modalLeadConversation: closeLeadConversationModal
+};
+
+function dismissActiveModal(modalEl) {
+  if (!modalEl) return;
+  if (globalModalDismissMap[modalEl.id]) {
+    globalModalDismissMap[modalEl.id]();
+  } else {
+    modalEl.classList.remove('active');
+  }
+}
+
+// Fechar modal ao clicar fora (backdrop escuro)
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('modal') && e.target.classList.contains('active')) {
+    dismissActiveModal(e.target);
+  }
+});
+
+// Fechar modal ao pressionar a tecla ESC
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' || e.key === 'Esc') {
+    const activeModal = document.querySelector('.modal.active');
+    if (activeModal) {
+      dismissActiveModal(activeModal);
+    }
+  }
+});
