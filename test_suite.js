@@ -888,6 +888,167 @@ async function main() {
     assert(previewRes.data.preview.includes('VIP Bot'));
   });
 
+  // ----------------------------------------------------------------
+  // 9. TESTES DO FUNIL CONVERSACIONAL DE AQUECIMENTO & GRÁFICO EM TEMPO REAL
+  // ----------------------------------------------------------------
+  console.log('\n🔥 9. Testes do Funil Conversacional de Aquecimento & Gráfico em Tempo Real:');
+
+  let testFunnelPhone = '5511988' + Math.floor(100000 + Math.random() * 900000);
+
+  runTest('Configuração e Leitura das Etapas do Funil (funnel_stages)', () => {
+    const stages = models.getFunnelStages();
+    assert(Array.isArray(stages));
+    assert(stages.length >= 5, 'Devem existir no mínimo 5 etapas configuradas no funil');
+
+    const stage1 = stages.find(s => s.stage_key === 'STAGE_1_DESCOBERTA');
+    assert(stage1, 'Etapa STAGE_1_DESCOBERTA deve existir');
+    assert.strictEqual(stage1.order_num, 1);
+
+    // Atualiza script com Spintax
+    models.updateFunnelStage('STAGE_1_DESCOBERTA', {
+      title: 'Descoberta Atualizada',
+      message_template: '{E aí|Opa} {nome}! Tudo bem por aí? Vi que você tem interesse em {produto}.',
+      followup_delay_minutes: 150
+    });
+
+    const updated = models.getFunnelStageByKey('STAGE_1_DESCOBERTA');
+    assert.strictEqual(updated.title, 'Descoberta Atualizada');
+    assert.strictEqual(updated.followup_delay_minutes, 150);
+  });
+
+  runTest('Inscrição, Avanço e Registro de Interações do Lead no Funil', () => {
+    // Inscreve um novo lead
+    const enrolled = models.enrollLeadInFunnel({
+      phone: testFunnelPhone,
+      lead_name: 'Carlos Aquecido',
+      product_name: 'Curso Viver de IA',
+      affiliate_url: 'https://hotm.art/viver-de-ia',
+      affiliate_link_id: testAffLink.id,
+      assigned_instance_id: testChip.id
+    });
+
+    assert(enrolled.id > 0);
+    assert.strictEqual(enrolled.current_stage, 'STAGE_1_DESCOBERTA');
+    assert.strictEqual(enrolled.phone, testFunnelPhone);
+
+    // Log de interação de entrada
+    models.logFunnelInteraction({
+      lead_phone: testFunnelPhone,
+      instance_id: testChip.id,
+      direction: 'IN',
+      stage: 'STAGE_1_DESCOBERTA',
+      message_text: 'Sim, tenho interesse! Como funciona?'
+    });
+
+    // Avança para o Estágio 2
+    const advanced = models.advanceLeadFunnelStage(testFunnelPhone, 'STAGE_2_INTERESSE');
+    assert.strictEqual(advanced.current_stage, 'STAGE_2_INTERESSE');
+
+    // Recupera histórico da conversa
+    const logs = models.getFunnelInteractionLogs(testFunnelPhone);
+    assert(logs.length >= 1);
+    assert.strictEqual(logs[0].direction, 'IN');
+    assert.strictEqual(logs[0].message_text, 'Sim, tenho interesse! Como funciona?');
+
+    // Converte o lead
+    const converted = models.markLeadConverted(testFunnelPhone);
+    assert.strictEqual(converted.current_stage, 'CONVERTED');
+    assert.strictEqual(converted.status, 'CONVERTED');
+    assert(converted.converted_at !== null);
+  });
+
+  await runAsyncTest('Fluxo Completo de Auto-Aquecimento e Detecção de Intenção de Compra', async () => {
+    const leadB = '5511977' + Math.floor(100000 + Math.random() * 900000);
+    // Lead entra em STAGE_1
+    models.enrollLeadInFunnel({
+      phone: leadB,
+      lead_name: 'Roberta Trader',
+      product_name: 'Robô VIP',
+      affiliate_url: 'https://paybot.test/robo-vip',
+      affiliate_link_id: testAffLink.id,
+      assigned_instance_id: testChip.id
+    });
+
+    // 1. Resposta normal avança para STAGE_2_INTERESSE
+    await whatsappArmyService.handleIncomingLeadMessage(`${leadB}@s.whatsapp.net`, 'Bacana, me conta mais sobre isso', testChip.id);
+    let conv = models.getLeadFunnelConversationByPhone(leadB);
+    assert.strictEqual(conv.current_stage, 'STAGE_2_INTERESSE');
+
+    // 2. Lead demonstra intenção de compra imediata ("onde compro, manda o link") -> Fast-Track para STAGE_4_OFERTA
+    await whatsappArmyService.handleIncomingLeadMessage(`${leadB}@s.whatsapp.net`, 'Adorei! Me passa o link para comprar agora', testChip.id);
+    conv = models.getLeadFunnelConversationByPhone(leadB);
+    assert.strictEqual(conv.current_stage, 'STAGE_4_OFERTA', 'Lead com intenção de compra deve ser acelerado diretamente para Oferta');
+
+    // 3. Lead confirma pagamento -> Converte
+    await whatsappArmyService.handleIncomingLeadMessage(`${leadB}@s.whatsapp.net`, 'Pronto, acabei de comprar pelo link!', testChip.id);
+    conv = models.getLeadFunnelConversationByPhone(leadB);
+    assert.strictEqual(conv.current_stage, 'CONVERTED');
+    assert.strictEqual(conv.status, 'CONVERTED');
+  });
+
+  runTest('Cálculo de Estatísticas e Taxas de Conversão do Funil em Tempo Real', () => {
+    const stats = models.getFunnelRealTimeStats();
+    assert(stats.totalLeads >= 2, 'Total de leads no funil deve ser contabilizado');
+    assert(stats.converted >= 2, 'Pelo menos 2 conversões devem ser registradas');
+    assert(typeof stats.replyRate === 'number');
+    assert(typeof stats.offerReachRate === 'number');
+    assert(typeof stats.conversionRate === 'number');
+    assert(stats.conversionRate > 0, 'Taxa de conversão deve ser positiva');
+    assert(stats.stage1 >= 0);
+  });
+
+  await runAsyncTest('Endpoints REST da API do Funil em Tempo Real (/api/army/funnel/*)', async () => {
+    // 1. Estatísticas do Funil em Tempo Real
+    const statsRes = await fetchApi('/api/army/funnel/stats');
+    assert.strictEqual(statsRes.status, 200);
+    assert(statsRes.data.totalLeads >= 2);
+    assert(typeof statsRes.data.conversionRate === 'number');
+
+    // 2. Consulta de Etapas
+    const stagesRes = await fetchApi('/api/army/funnel/stages');
+    assert.strictEqual(stagesRes.status, 200);
+    assert(Array.isArray(stagesRes.data));
+    assert(stagesRes.data.length >= 5);
+
+    // 3. Atualização de Etapa
+    const putStage = await fetchApi('/api/army/funnel/stages/STAGE_2_INTERESSE', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Interesse & Conexão Profunda',
+        followup_delay_minutes: 180
+      })
+    });
+    assert.strictEqual(putStage.status, 200);
+    assert.strictEqual(putStage.data.title, 'Interesse & Conexão Profunda');
+    assert.strictEqual(putStage.data.followup_delay_minutes, 180);
+
+    // 4. Listagem de Leads do Funil
+    const leadsRes = await fetchApi('/api/army/funnel/leads');
+    assert.strictEqual(leadsRes.status, 200);
+    assert(Array.isArray(leadsRes.data));
+    assert(leadsRes.data.some(l => l.phone === testFunnelPhone));
+
+    // 5. Histórico detalhado de um Lead
+    const leadDetailRes = await fetchApi(`/api/army/funnel/leads/${testFunnelPhone}`);
+    assert.strictEqual(leadDetailRes.status, 200);
+    assert(leadDetailRes.data.lead);
+    assert(Array.isArray(leadDetailRes.data.history));
+    assert(leadDetailRes.data.history.length >= 1);
+
+    // 6. Envio de mensagem manual do operador para o lead
+    const replyRes = await fetchApi('/api/army/funnel/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: testFunnelPhone,
+        message: 'Olá Carlos, sua dúvida foi sanada?'
+      })
+    });
+    assert.strictEqual(replyRes.status, 200);
+    assert.strictEqual(replyRes.data.success, true);
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

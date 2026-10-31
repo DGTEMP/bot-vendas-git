@@ -1097,6 +1097,69 @@ function createServer() {
     res.json({ preview: formatted });
   });
 
+  // 4. Funil de Aquecimento Conversacional & Métricas em Tempo Real
+  app.get('/api/army/funnel/stats', (req, res) => {
+    res.json(models.getFunnelRealTimeStats());
+  });
+
+  app.get('/api/army/funnel/stages', (req, res) => {
+    res.json(models.getFunnelStages());
+  });
+
+  app.put('/api/army/funnel/stages/:key', (req, res) => {
+    try {
+      const key = req.params.key;
+      const updated = models.updateFunnelStage(key, req.body);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/army/funnel/leads', (req, res) => {
+    const { stage, status, limit } = req.query;
+    res.json(models.getLeadFunnelConversations({ stage, status, limit: limit ? parseInt(limit, 10) : 100 }));
+  });
+
+  app.get('/api/army/funnel/leads/:phone', (req, res) => {
+    const phone = req.params.phone;
+    const lead = models.getLeadFunnelConversationByPhone(phone);
+    if (!lead) return res.status(404).json({ error: 'Lead não encontrado no funil' });
+    const history = models.getFunnelInteractionLogs(phone);
+    res.json({ lead, history });
+  });
+
+  app.post('/api/army/funnel/advance', (req, res) => {
+    try {
+      const { phone, targetStage } = req.body;
+      const updated = models.advanceLeadFunnelStage(phone, targetStage);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/army/funnel/reply', async (req, res) => {
+    try {
+      const { phone, text, message, instance_id } = req.body;
+      const messageText = text || message;
+      if (!phone || !messageText) return res.status(400).json({ error: 'Telefone e mensagem são obrigatórios' });
+      const instId = instance_id ? parseInt(instance_id, 10) : 1;
+      const sent = await whatsappArmyService.sendArmyMessage(instId, phone, messageText);
+      if (sent) {
+        models.logFunnelInteraction({
+          lead_phone: phone,
+          instance_id: instId,
+          direction: 'OUT',
+          message_text: messageText
+        });
+      }
+      res.json({ success: !!sent });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

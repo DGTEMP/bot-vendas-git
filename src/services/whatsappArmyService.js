@@ -280,7 +280,29 @@ class WhatsAppArmyService {
           sender_instance_id: selectedInstance.id,
           sent_at: new Date().toISOString()
         });
-        console.log(`[Exército WhatsApp ✅] Lead ${lead.phone} (${lead.name || 'Sem nome'}) enviado via ${selectedInstance.name}`);
+
+        // Inscreve o lead no Funil Conversacional de Aquecimento em Tempo Real
+        try {
+          models.enrollLeadInFunnel({
+            phone: lead.phone,
+            name: lead.name,
+            campaign_id: campaign.id,
+            affiliate_link_id: campaign.affiliate_link_id,
+            product_name: campaign.product_name,
+            affiliate_url: campaign.affiliate_url,
+            assigned_instance_id: selectedInstance.id
+          });
+
+          models.logFunnelInteraction({
+            lead_phone: lead.phone,
+            instance_id: selectedInstance.id,
+            direction: 'OUT',
+            stage: 'STAGE_1_DESCOBERTA',
+            message_text: formattedMessage
+          });
+        } catch (_) {}
+
+        console.log(`[Exército WhatsApp ✅] Lead ${lead.phone} (${lead.name || 'Sem nome'}) enviado via ${selectedInstance.name} e inscrito no Funil de Aquecimento`);
       } else {
         models.updateCampaignLead(lead.id, {
           status: 'FAILED',
@@ -312,44 +334,148 @@ class WhatsAppArmyService {
   }
 
   // ==========================================
-  // 4. AUTO-RESPOSTA INTELIGENTE DE CONVERSÃO
+  // 4. MOTOR CONVERSACIONAL DO FUNIL DE AQUECIMENTO
   // ==========================================
   async handleIncomingLeadMessage(fromJid, text, instanceId = 1) {
     const rawPhone = fromJid.replace(/[^0-9]/g, '');
-    const lower = text.toLowerCase();
+    const lower = text.trim().toLowerCase();
 
-    // Palavras-chave de interesse comercial
-    const intentRegex = /(quero|link|preço|preco|como funciona|comprar|tenho interesse|me manda|valor|qual o valor|desconto|chave|acesso)/i;
-    if (!intentRegex.test(lower)) return false;
+    // 1. Registra interação de entrada do lead
+    models.logFunnelInteraction({
+      lead_phone: rawPhone,
+      instance_id: instanceId,
+      direction: 'IN',
+      message_text: text
+    });
 
-    // Verifica se o lead pertence a uma campanha recente
-    const recentLead = models.getCampaignLeads(null, null, 1000);
-    // Busca na tabela de leads
+    // 2. Localiza estado do lead no funil de aquecimento
+    let leadConv = models.getLeadFunnelConversationByPhone(rawPhone);
+
+    // Se o lead ainda não foi cadastrado no funil, verifica campanhas ou links de afiliados
+    if (!leadConv) {
+      const db = require('../db/database');
+      const leadRecord = db.prepare(`
+        SELECT cl.*, ac.product_name, ac.affiliate_url, ac.affiliate_link_id
+        FROM campaign_leads cl
+        JOIN affiliate_campaigns ac ON cl.campaign_id = ac.id
+        WHERE cl.phone = ? OR cl.phone = ?
+        ORDER BY cl.id DESC LIMIT 1
+      `).get(rawPhone, rawPhone.slice(-8));
+
+      if (leadRecord) {
+        leadConv = models.enrollLeadInFunnel({
+          phone: rawPhone,
+          name: leadRecord.name,
+          campaign_id: leadRecord.campaign_id,
+          affiliate_link_id: leadRecord.affiliate_link_id,
+          product_name: leadRecord.product_name,
+          affiliate_url: leadRecord.affiliate_url,
+          assigned_instance_id: instanceId
+        });
+      }
+    }
+
+    if (!leadConv) {
+      // Verifica se é uma mensagem com palavras-chave comerciais gerais
+      const intentRegex = /(quero|link|preço|preco|como funciona|comprar|tenho interesse|me manda|valor|qual o valor|desconto|chave|acesso)/i;
+      if (!intentRegex.test(lower)) return false;
+
+      // Pega o primeiro link de afiliado disponível
+      const links = models.getAffiliateLinks();
+      const defaultLink = links[0] || {
+        title: 'Produto Especial',
+        affiliate_url: 'https://paybot.app',
+        pitch_copy: 'Conheça nossa solução completa: {link}'
+      };
+
+      leadConv = models.enrollLeadInFunnel({
+        phone: rawPhone,
+        product_name: defaultLink.title,
+        affiliate_url: defaultLink.affiliate_url,
+        affiliate_link_id: defaultLink.id,
+        assigned_instance_id: instanceId
+      });
+    }
+
+    // 3. Atualiza status de campanha se existir
     const db = require('../db/database');
-    const leadRecord = db.prepare(`
-      SELECT cl.*, ac.product_name, ac.affiliate_url, al.pitch_copy
-      FROM campaign_leads cl
-      JOIN affiliate_campaigns ac ON cl.campaign_id = ac.id
-      LEFT JOIN affiliate_links al ON ac.affiliate_link_id = al.id
-      WHERE cl.phone = ? OR cl.phone = ?
-      ORDER BY cl.id DESC LIMIT 1
-    `).get(rawPhone, rawPhone.slice(-8));
+    db.prepare("UPDATE campaign_leads SET status = 'REPLIED' WHERE phone = ? OR phone = ?").run(rawPhone, rawPhone.slice(-8));
 
-    if (leadRecord) {
-      models.updateCampaignLead(leadRecord.id, { status: 'REPLIED' });
-
-      const replyText = `🎉 *QUE ÓTIMO SEU INTERESSE!* 🚀\n\n` +
-        `Você perguntou sobre *${leadRecord.product_name}*!\n\n` +
-        `Para garantir sua vaga com condição promocional exclusiva, basta acessar o link oficial abaixo:\n` +
-        `🔗 ${leadRecord.affiliate_url}\n\n` +
-        `Se tiver qualquer dúvida na ativação, estou por aqui para te ajudar!`;
-
-      await this.sendArmyMessage(instanceId, rawPhone, replyText);
-      console.log(`[Exército WhatsApp 💬 Auto-Resposta] Lead ${rawPhone} atendido com link da campanha "${leadRecord.product_name}"`);
+    // 4. Reconhece confirmação de compra / conversão
+    const conversionRegex = /(já comprei|ja comprei|paguei|fiz a compra|comprei aqui|acabei de comprar)/i;
+    if (conversionRegex.test(lower)) {
+      models.markLeadConverted(rawPhone);
+      const thankYouMsg = `🎉 *PARABÉNS PELA SUA DECISÃO!* 🚀\n\nFicamos muito felizes em ter você conosco! Seu acesso está liberado. Se precisar de qualquer suporte, basta chamar por aqui!`;
+      await this.sendArmyMessage(instanceId, rawPhone, thankYouMsg);
+      models.logFunnelInteraction({
+        lead_phone: rawPhone,
+        instance_id: instanceId,
+        direction: 'OUT',
+        stage: 'CONVERTED',
+        message_text: thankYouMsg
+      });
+      console.log(`[Funil de Vendas 🏆 CONVERSÃO] Lead ${rawPhone} converteu com sucesso!`);
       return true;
     }
 
-    return false;
+    // 5. Intenção direta de compra / pedido de link (Fast-forward para Oferta)
+    const directOfferRegex = /(quero o link|manda o link|me passa o link|qual o link|onde compro|quero comprar|passa o link|como faço pra comprar)/i;
+    let nextStageKey = null;
+
+    if (directOfferRegex.test(lower)) {
+      nextStageKey = 'STAGE_4_OFERTA';
+    } else {
+      // Sequência natural de aquecimento conversacional
+      const current = leadConv.current_stage || 'STAGE_1_DESCOBERTA';
+      if (current === 'STAGE_1_DESCOBERTA') nextStageKey = 'STAGE_2_INTERESSE';
+      else if (current === 'STAGE_2_INTERESSE') nextStageKey = 'STAGE_3_SOLUCAO';
+      else if (current === 'STAGE_3_SOLUCAO') nextStageKey = 'STAGE_4_OFERTA';
+      else if (current === 'STAGE_4_OFERTA') nextStageKey = 'STAGE_5_FECHAMENTO';
+      else nextStageKey = 'STAGE_5_FECHAMENTO';
+    }
+
+    // Busca o template da etapa
+    const stageObj = models.getFunnelStageByKey(nextStageKey);
+    const template = stageObj ? stageObj.message_template : '{Olá|Oi} {nome}! {produto} com desconto aqui: {link}';
+
+    // Formata a mensagem persuasiva da etapa
+    const replyText = models.formatCampaignMessage(template, leadConv, {
+      product_name: leadConv.product_name,
+      affiliate_url: leadConv.affiliate_url
+    });
+
+    // Avança o lead para a nova etapa no banco de dados
+    models.advanceLeadFunnelStage(rawPhone, nextStageKey);
+
+    // Dispara a mensagem da etapa
+    await this.sendArmyMessage(instanceId, rawPhone, replyText);
+
+    // Registra a interação de saída
+    models.logFunnelInteraction({
+      lead_phone: rawPhone,
+      instance_id: instanceId,
+      direction: 'OUT',
+      stage: nextStageKey,
+      message_text: replyText
+    });
+
+    console.log(`[Funil de Aquecimento 📈] Lead ${rawPhone} avançou para ${nextStageKey} via Chip #${instanceId}`);
+    return true;
+  }
+
+  async initArmyCluster() {
+    try {
+      const instances = models.getArmyInstances();
+      for (const inst of instances) {
+        if (inst.active && !inst.is_main) {
+          const authPath = path.join(this.armyBaseFolder, `instance_${inst.id}`);
+          if (fs.existsSync(authPath)) {
+            console.log(`[Exército WhatsApp 📱] Reconectando chip #${inst.id} (${inst.name}) ao cluster...`);
+            this.startInstance(inst.id).catch(() => {});
+          }
+        }
+      }
+    } catch (_) {}
   }
 }
 

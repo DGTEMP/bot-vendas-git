@@ -919,6 +919,118 @@
             </div>
           </div>
 
+          <!-- GRÁFICO EM TEMPO REAL: FUNIL CONVERSACIONAL DE AQUECIMENTO -->
+          <div class="card" style="margin-bottom: 25px; border-top: 3px solid var(--primary-gold);">
+            <div class="card-header">
+              <div>
+                <h3><i class="fa-solid fa-chart-line gold"></i> Funil de Aquecimento & Conversão em Tempo Real</h3>
+                <p class="section-desc">Acompanhe a evolução de cada lead pelas 5 etapas de aquecimento conversacional até a compra final em USDT / PIX.</p>
+              </div>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <span class="live-dot" style="display:inline-block; width:8px; height:8px; background:#10b981; border-radius:50%; box-shadow:0 0 8px #10b981;"></span>
+                <span style="font-size:12px; color:var(--text-muted); font-weight:600;">AO VIVO</span>
+                <button class="btn btn-sm btn-secondary" onclick="loadFunnelStats()">
+                  <i class="fa-solid fa-rotate"></i> Atualizar
+                </button>
+                <button class="btn btn-sm btn-primary" onclick="openFunnelStagesModal()">
+                  <i class="fa-solid fa-sliders"></i> Scripts das Etapas
+                </button>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <!-- Métricas de Desempenho do Funil -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px;">
+                  <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Taxa de Resposta / Engajamento</span>
+                  <h3 id="funnelStatReplyRate" style="color: #3b82f6; margin-top: 5px;">0%</h3>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px;">
+                  <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Alcançaram a Oferta (Link)</span>
+                  <h3 id="funnelStatOfferRate" style="color: var(--primary-gold); margin-top: 5px;">0%</h3>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px;">
+                  <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Taxa de Conversão Final</span>
+                  <h3 id="funnelStatConversionRate" style="color: #10b981; margin-top: 5px;">0%</h3>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px;">
+                  <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Total de Leads no Funil</span>
+                  <h3 id="funnelStatTotalLeads" style="margin-top: 5px;">0 leads</h3>
+                </div>
+              </div>
+
+              <!-- Gráfico de Barras do Funil em Tempo Real -->
+              <div id="funnelVisualContainer" style="display: flex; flex-direction: column; gap: 14px; background: rgba(0,0,0,0.2); padding: 20px; border-radius: 10px; border: 1px solid var(--border-color);">
+                
+                <!-- Etapa 1 -->
+                <div class="funnel-step" style="cursor: pointer;" onclick="openLeadsByStageModal('STAGE_1_DESCOBERTA')" title="Clique para ver os leads nesta etapa">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                    <span><b>Etapa 1: Descoberta & Abertura</b> <small style="color:var(--text-muted);">(Pergunta aberta de quebra de gelo)</small></span>
+                    <span><b id="funnelCount1">0 leads</b> (<span id="funnelPct1">100%</span>)</span>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.06); height: 18px; border-radius: 9px; overflow: hidden; position: relative;">
+                    <div id="funnelBar1" style="height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 9px; transition: width 0.8s ease;"></div>
+                  </div>
+                </div>
+
+                <!-- Etapa 2 -->
+                <div class="funnel-step" style="cursor: pointer;" onclick="openLeadsByStageModal('STAGE_2_INTERESSE')" title="Clique para ver os leads nesta etapa">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                    <span><b>Etapa 2: Diagnóstico & Interesse</b> <small style="color:var(--text-muted);">(Validação do problema do cliente)</small></span>
+                    <span><b id="funnelCount2">0 leads</b> (<span id="funnelPct2">0%</span>)</span>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.06); height: 18px; border-radius: 9px; overflow: hidden; position: relative;">
+                    <div id="funnelBar2" style="height: 100%; width: 0%; background: linear-gradient(90deg, #8b5cf6, #a78bfa); border-radius: 9px; transition: width 0.8s ease;"></div>
+                  </div>
+                </div>
+
+                <!-- Etapa 3 -->
+                <div class="funnel-step" style="cursor: pointer;" onclick="openLeadsByStageModal('STAGE_3_SOLUCAO')" title="Clique para ver os leads nesta etapa">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                    <span><b>Etapa 3: Apresentação da Solução & Prova</b> <small style="color:var(--text-muted);">(Prova social e benefícios)</small></span>
+                    <span><b id="funnelCount3">0 leads</b> (<span id="funnelPct3">0%</span>)</span>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.06); height: 18px; border-radius: 9px; overflow: hidden; position: relative;">
+                    <div id="funnelBar3" style="height: 100%; width: 0%; background: linear-gradient(90deg, #ec4899, #f472b6); border-radius: 9px; transition: width 0.8s ease;"></div>
+                  </div>
+                </div>
+
+                <!-- Etapa 4 -->
+                <div class="funnel-step" style="cursor: pointer;" onclick="openLeadsByStageModal('STAGE_4_OFERTA')" title="Clique para ver os leads nesta etapa">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                    <span><b>Etapa 4: Oferta & Link de Afiliado</b> <small style="color:var(--text-muted);">(Link oficial entregue com bônus)</small></span>
+                    <span><b id="funnelCount4">0 leads</b> (<span id="funnelPct4">0%</span>)</span>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.06); height: 18px; border-radius: 9px; overflow: hidden; position: relative;">
+                    <div id="funnelBar4" style="height: 100%; width: 0%; background: linear-gradient(90deg, #f59e0b, #fbbf24); border-radius: 9px; transition: width 0.8s ease;"></div>
+                  </div>
+                </div>
+
+                <!-- Etapa 5 -->
+                <div class="funnel-step" style="cursor: pointer;" onclick="openLeadsByStageModal('STAGE_5_FECHAMENTO')" title="Clique para ver os leads nesta etapa">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                    <span><b>Etapa 5: Quebra de Objeções & Fechamento</b> <small style="color:var(--text-muted);">(Garantia, suporte e formas de pagamento)</small></span>
+                    <span><b id="funnelCount5">0 leads</b> (<span id="funnelPct5">0%</span>)</span>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.06); height: 18px; border-radius: 9px; overflow: hidden; position: relative;">
+                    <div id="funnelBar5" style="height: 100%; width: 0%; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 9px; transition: width 0.8s ease;"></div>
+                  </div>
+                </div>
+
+                <!-- Convertidos -->
+                <div class="funnel-step" style="cursor: pointer;" onclick="openLeadsByStageModal('CONVERTED')" title="Clique para ver os leads convertidos">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                    <span><b style="color: #10b981;"><i class="fa-solid fa-trophy"></i> Vendas Concluídas (Convertidos)</b></span>
+                    <span><b id="funnelCountConv" style="color: #10b981;">0 vendas</b> (<span id="funnelPctConv">0%</span>)</span>
+                  </div>
+                  <div style="background: rgba(255,255,255,0.06); height: 22px; border-radius: 11px; overflow: hidden; position: relative; border: 1px solid #10b98150;">
+                    <div id="funnelBarConv" style="height: 100%; width: 0%; background: linear-gradient(90deg, #059669, #10b981); border-radius: 11px; transition: width 0.8s ease;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 1. Gestão de Instâncias / Chips -->
           <div class="card" style="margin-bottom: 25px;">
             <div class="card-header">
@@ -1876,6 +1988,87 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" onclick="closeCampaignLeadsModal()">Fechar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL CONFIGURAÇÃO DAS ETAPAS DO FUNIL -->
+  <div id="modalFunnelStages" class="modal">
+    <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-sliders gold"></i> Configurar Scripts das Etapas do Funil de Aquecimento</h3>
+        <button class="btn-close" onclick="closeFunnelStagesModal()">&times;</button>
+      </div>
+      <div style="padding: 15px 0;">
+        <p class="section-desc" style="font-size: 13px; margin-bottom: 20px;">
+          Personalize as mensagens e o follow-up de cada uma das 5 etapas de aquecimento. Suporta <b>Spintax</b> <code>{Olá|Oi|E aí}</code> e tags dinâmicas <code>{nome}</code>, <code>{saudacao}</code>, <code>{produto}</code>, <code>{link}</code>.
+        </p>
+        <div id="funnelStagesList" style="display: flex; flex-direction: column; gap: 20px;">
+          <!-- Carregado dinamicamente via JS -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeFunnelStagesModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL LEADS POR ETAPA DO FUNIL -->
+  <div id="modalLeadsByStage" class="modal">
+    <div class="modal-content" style="max-width: 900px;">
+      <div class="modal-header">
+        <h3 id="modalLeadsByStageTitle">Leads nesta Etapa do Funil</h3>
+        <button class="btn-close" onclick="closeLeadsByStageModal()">&times;</button>
+      </div>
+      <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+        <table class="table" id="tableLeadsByStageList">
+          <thead>
+            <tr>
+              <th>Telefone</th>
+              <th>Nome</th>
+              <th>Chip Atribuído</th>
+              <th>Mensagens</th>
+              <th>Última Interação</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="text-center">Carregando leads da etapa...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeLeadsByStageModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL HISTÓRICO DE CONVERSA COM O LEAD & RESPOSTA MANUAL -->
+  <div id="modalLeadConversation" class="modal">
+    <div class="modal-content" style="max-width: 700px; display: flex; flex-direction: column; max-height: 90vh;">
+      <div class="modal-header">
+        <div>
+          <h3 id="modalLeadChatTitle">Conversa com Lead</h3>
+          <small id="modalLeadChatSubtitle" style="color: var(--text-muted);"></small>
+        </div>
+        <button class="btn-close" onclick="closeLeadConversationModal()">&times;</button>
+      </div>
+      
+      <!-- Thread de Mensagens -->
+      <div id="leadChatThread" style="flex: 1; min-height: 300px; max-height: 400px; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 15px; margin: 15px 0; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border-color);">
+        <!-- Bolhas de chat geradas via JS -->
+      </div>
+
+      <!-- Resposta Manual pelo Chip -->
+      <form id="formManualReply" onsubmit="sendManualLeadReply(event)" style="display: flex; gap: 10px; align-items: center;">
+        <input type="hidden" id="chatLeadPhone">
+        <select id="chatInstanceSelect" class="form-control" style="width: 170px;" title="Selecione o chip do exército para responder">
+          <!-- Chips gerados dinamicamente -->
+        </select>
+        <input type="text" id="chatReplyText" class="form-control" style="flex: 1;" placeholder="Digite uma mensagem humana para o lead..." required>
+        <button type="submit" class="btn btn-primary" style="white-space: nowrap;">
+          <i class="fa-solid fa-paper-plane"></i> Enviar
+        </button>
+      </form>
     </div>
   </div>
 

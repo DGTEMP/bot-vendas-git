@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(() => {
     loadMetrics();
     loadWhatsAppStatus();
+    loadFunnelStats();
   }, 8000);
 });
 
@@ -1881,7 +1882,8 @@ async function loadArmyData() {
   await Promise.all([
     loadArmyInstances(),
     loadArmyLinks(),
-    loadArmyCampaigns()
+    loadArmyCampaigns(),
+    loadFunnelStats()
   ]);
   updateArmyMetrics();
 }
@@ -2507,4 +2509,281 @@ async function openCampaignLeadsModal(campaignId) {
 
 function closeCampaignLeadsModal() {
   document.getElementById('modalCampaignLeads').classList.remove('active');
+}
+
+// ==========================================
+// 16. FUNIL DE AQUECIMENTO & GRÁFICO EM TEMPO REAL
+// ==========================================
+
+async function loadFunnelStats() {
+  try {
+    const res = await fetch('/api/army/funnel/stats');
+    if (!res.ok) return;
+    const stats = await res.json();
+
+    const elReply = document.getElementById('funnelStatReplyRate');
+    if (elReply) elReply.innerText = `${stats.replyRate}%`;
+
+    const elOffer = document.getElementById('funnelStatOfferRate');
+    if (elOffer) elOffer.innerText = `${stats.offerReachRate}%`;
+
+    const elConv = document.getElementById('funnelStatConversionRate');
+    if (elConv) elConv.innerText = `${stats.conversionRate}%`;
+
+    const elTotal = document.getElementById('funnelStatTotalLeads');
+    if (elTotal) elTotal.innerText = `${stats.totalLeads} leads`;
+
+    const total = stats.totalLeads > 0 ? stats.totalLeads : 1;
+
+    // Etapa 1
+    const p1 = stats.totalLeads > 0 ? 100 : 0;
+    const c1 = document.getElementById('funnelCount1');
+    if (c1) c1.innerText = `${stats.stage1} leads`;
+    const pct1 = document.getElementById('funnelPct1');
+    if (pct1) pct1.innerText = `${p1}%`;
+    const bar1 = document.getElementById('funnelBar1');
+    if (bar1) bar1.style.width = `${p1}%`;
+
+    // Etapa 2
+    const p2 = Math.round(((stats.stage2 + stats.stage3 + stats.stage4 + stats.stage5 + stats.converted) / total) * 100);
+    const c2 = document.getElementById('funnelCount2');
+    if (c2) c2.innerText = `${stats.stage2} leads`;
+    const pct2 = document.getElementById('funnelPct2');
+    if (pct2) pct2.innerText = `${p2}%`;
+    const bar2 = document.getElementById('funnelBar2');
+    if (bar2) bar2.style.width = `${p2}%`;
+
+    // Etapa 3
+    const p3 = Math.round(((stats.stage3 + stats.stage4 + stats.stage5 + stats.converted) / total) * 100);
+    const c3 = document.getElementById('funnelCount3');
+    if (c3) c3.innerText = `${stats.stage3} leads`;
+    const pct3 = document.getElementById('funnelPct3');
+    if (pct3) pct3.innerText = `${p3}%`;
+    const bar3 = document.getElementById('funnelBar3');
+    if (bar3) bar3.style.width = `${p3}%`;
+
+    // Etapa 4
+    const p4 = Math.round(((stats.stage4 + stats.stage5 + stats.converted) / total) * 100);
+    const c4 = document.getElementById('funnelCount4');
+    if (c4) c4.innerText = `${stats.stage4} leads`;
+    const pct4 = document.getElementById('funnelPct4');
+    if (pct4) pct4.innerText = `${p4}%`;
+    const bar4 = document.getElementById('funnelBar4');
+    if (bar4) bar4.style.width = `${p4}%`;
+
+    // Etapa 5
+    const p5 = Math.round(((stats.stage5 + stats.converted) / total) * 100);
+    const c5 = document.getElementById('funnelCount5');
+    if (c5) c5.innerText = `${stats.stage5} leads`;
+    const pct5 = document.getElementById('funnelPct5');
+    if (pct5) pct5.innerText = `${p5}%`;
+    const bar5 = document.getElementById('funnelBar5');
+    if (bar5) bar5.style.width = `${p5}%`;
+
+    // Convertidos
+    const pConv = Math.round((stats.converted / total) * 100);
+    const cConv = document.getElementById('funnelCountConv');
+    if (cConv) cConv.innerText = `${stats.converted} vendas`;
+    const pctConv = document.getElementById('funnelPctConv');
+    if (pctConv) pctConv.innerText = `${pConv}%`;
+    const barConv = document.getElementById('funnelBarConv');
+    if (barConv) barConv.style.width = `${pConv}%`;
+  } catch (err) {
+    console.error('Erro ao carregar estatísticas do funil:', err);
+  }
+}
+
+async function openFunnelStagesModal() {
+  const modal = document.getElementById('modalFunnelStages');
+  modal.classList.add('active');
+  const container = document.getElementById('funnelStagesList');
+  container.innerHTML = '<div style="padding: 20px; color: var(--text-muted); text-align: center;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Carregando etapas...</div>';
+
+  try {
+    const res = await fetch('/api/army/funnel/stages');
+    const stages = await res.json();
+
+    container.innerHTML = stages.map(s => `
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h4 style="margin: 0; color: var(--primary-gold);"><i class="fa-solid fa-circle-dot"></i> ${s.title}</h4>
+          <span class="badge" style="background: #3b82f620; color: #3b82f6;">Ordem #${s.order_num}</span>
+        </div>
+        <form onsubmit="saveFunnelStage('${s.stage_key}', event)">
+          <div class="form-group">
+            <label style="font-size: 12px;">Script / Mensagem do Bot nesta Etapa:</label>
+            <textarea id="stage_msg_${s.stage_key}" class="form-control" rows="3" required>${s.message_template || ''}</textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label style="font-size: 12px;">Mensagem de Follow-up (se o lead não responder):</label>
+              <textarea id="stage_follow_${s.stage_key}" class="form-control" rows="2">${s.followup_template || ''}</textarea>
+            </div>
+            <div class="form-group" style="width: 140px;">
+              <label style="font-size: 12px;">Tempo (min):</label>
+              <input type="number" id="stage_delay_${s.stage_key}" class="form-control" value="${s.followup_delay_minutes || 120}" min="5">
+            </div>
+          </div>
+          <div style="text-align: right;">
+            <button type="submit" class="btn btn-sm btn-primary">Salvar Script desta Etapa</button>
+          </div>
+        </form>
+      </div>
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<div class="text-danger">Erro ao carregar: ${err.message}</div>`;
+  }
+}
+
+function closeFunnelStagesModal() {
+  document.getElementById('modalFunnelStages').classList.remove('active');
+}
+
+async function saveFunnelStage(key, e) {
+  e.preventDefault();
+  const message_template = document.getElementById(`stage_msg_${key}`).value.trim();
+  const followup_template = document.getElementById(`stage_follow_${key}`).value.trim();
+  const followup_delay_minutes = parseInt(document.getElementById(`stage_delay_${key}`).value, 10) || 120;
+
+  try {
+    const res = await fetch(`/api/army/funnel/stages/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_template, followup_template, followup_delay_minutes })
+    });
+    if (res.ok) {
+      alert('Etapa do funil atualizada com sucesso!');
+    } else {
+      alert('Erro ao atualizar etapa');
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function openLeadsByStageModal(stageKey) {
+  const modal = document.getElementById('modalLeadsByStage');
+  modal.classList.add('active');
+  const stageTitles = {
+    STAGE_1_DESCOBERTA: 'Etapa 1: Descoberta & Abertura',
+    STAGE_2_INTERESSE: 'Etapa 2: Diagnóstico & Interesse',
+    STAGE_3_SOLUCAO: 'Etapa 3: Apresentação da Solução & Prova',
+    STAGE_4_OFERTA: 'Etapa 4: Oferta & Link de Afiliado',
+    STAGE_5_FECHAMENTO: 'Etapa 5: Quebra de Objeções & Fechamento',
+    CONVERTED: 'Vendas Concluídas (Convertidos)'
+  };
+  document.getElementById('modalLeadsByStageTitle').innerText = stageTitles[stageKey] || 'Leads do Funil';
+
+  const tbody = document.querySelector('#tableLeadsByStageList tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="text-center">Carregando leads da etapa...</td></tr>';
+
+  try {
+    const res = await fetch(`/api/army/funnel/leads?stage=${stageKey}`);
+    const leads = await res.json();
+
+    if (leads.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhum lead nesta etapa no momento.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = leads.map(l => `
+      <tr>
+        <td><b>${l.phone}</b></td>
+        <td>${l.name || '-'}</td>
+        <td>${l.assigned_instance_name ? `<span class="badge" style="background:#3b82f620; color:#3b82f6;">${l.assigned_instance_name}</span>` : 'Chip Principal'}</td>
+        <td><b>${l.messages_sent + l.messages_received}</b> msgs</td>
+        <td>${l.last_message_at ? new Date(l.last_message_at).toLocaleTimeString('pt-BR') : '-'}</td>
+        <td>
+          <button class="btn btn-sm btn-primary" onclick="openLeadConversationModal('${l.phone}')" title="Ver Histórico da Conversa">
+            <i class="fa-solid fa-comments"></i> Conversar
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+function closeLeadsByStageModal() {
+  document.getElementById('modalLeadsByStage').classList.remove('active');
+}
+
+async function openLeadConversationModal(phone) {
+  const modal = document.getElementById('modalLeadConversation');
+  modal.classList.add('active');
+  document.getElementById('chatLeadPhone').value = phone;
+
+  const thread = document.getElementById('leadChatThread');
+  thread.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Carregando conversa...</div>';
+
+  const instSelect = document.getElementById('chatInstanceSelect');
+  instSelect.innerHTML = currentArmyInstances.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+
+  try {
+    const res = await fetch(`/api/army/funnel/leads/${phone}`);
+    const data = await res.json();
+    const lead = data.lead;
+    const history = data.history;
+
+    document.getElementById('modalLeadChatTitle').innerText = `${lead.name || 'Lead'} (${lead.phone})`;
+    document.getElementById('modalLeadChatSubtitle').innerText = `Etapa: ${lead.current_stage_title || lead.current_stage} | Produto: ${lead.product_name}`;
+
+    if (history.length === 0) {
+      thread.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:30px;">Nenhuma mensagem registrada nesta conversa ainda.</div>';
+      return;
+    }
+
+    thread.innerHTML = history.map(h => {
+      const isOut = h.direction === 'OUT';
+      const align = isOut ? 'flex-end' : 'flex-start';
+      const bg = isOut ? 'rgba(240, 185, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)';
+      const border = isOut ? '1px solid var(--primary-gold)' : '1px solid var(--border-color)';
+      const sender = isOut ? `🤖 Bot (${h.instance_name || 'Chip'})` : `👤 ${lead.name || 'Lead'}`;
+
+      return `
+        <div style="align-self: ${align}; max-width: 80%; background: ${bg}; border: ${border}; border-radius: 8px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px; display: flex; justify-content: space-between; gap: 15px;">
+            <b>${sender}</b>
+            <span>${new Date(h.created_at).toLocaleTimeString('pt-BR')}</span>
+          </div>
+          <div style="font-size: 13px; line-height: 1.4; white-space: pre-wrap;">${h.message_text}</div>
+        </div>
+      `;
+    }).join('');
+
+    thread.scrollTop = thread.scrollHeight;
+  } catch (err) {
+    thread.innerHTML = `<div class="text-danger">Erro ao carregar histórico: ${err.message}</div>`;
+  }
+}
+
+function closeLeadConversationModal() {
+  document.getElementById('modalLeadConversation').classList.remove('active');
+}
+
+async function sendManualLeadReply(e) {
+  e.preventDefault();
+  const phone = document.getElementById('chatLeadPhone').value;
+  const instance_id = document.getElementById('chatInstanceSelect').value;
+  const input = document.getElementById('chatReplyText');
+  const text = input.value.trim();
+  if (!text) return;
+
+  try {
+    const res = await fetch('/api/army/funnel/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, text, instance_id })
+    });
+    if (res.ok) {
+      input.value = '';
+      openLeadConversationModal(phone);
+      loadFunnelStats();
+    } else {
+      alert('Falha ao enviar resposta manual');
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
 }

@@ -308,6 +308,57 @@ function initDatabase() {
     );
   `);
 
+  // 18. Tabela de Etapas do Funil de Aquecimento (Lead Warming Stages)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS funnel_stages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stage_key TEXT UNIQUE NOT NULL, -- 'STAGE_1_DESCOBERTA', 'STAGE_2_INTERESSE', 'STAGE_3_SOLUCAO', 'STAGE_4_OFERTA', 'STAGE_5_FECHAMENTO'
+      title TEXT NOT NULL,
+      order_num INTEGER NOT NULL,
+      message_template TEXT NOT NULL,
+      followup_template TEXT,
+      followup_delay_minutes INTEGER DEFAULT 120,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 19. Tabela de Conversações e Estado do Funil de Cada Lead (Lead Warming State)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lead_funnel_conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT UNIQUE NOT NULL,
+      name TEXT,
+      assigned_instance_id INTEGER REFERENCES whatsapp_army_instances(id),
+      campaign_id INTEGER REFERENCES affiliate_campaigns(id),
+      affiliate_link_id INTEGER REFERENCES affiliate_links(id),
+      product_name TEXT NOT NULL,
+      affiliate_url TEXT NOT NULL,
+      current_stage TEXT DEFAULT 'STAGE_1_DESCOBERTA',
+      status TEXT DEFAULT 'ACTIVE', -- 'ACTIVE', 'WAITING_REPLY', 'REPLIED', 'CONVERTED', 'LOST'
+      messages_sent INTEGER DEFAULT 0,
+      messages_received INTEGER DEFAULT 0,
+      last_message_text TEXT,
+      last_message_at TEXT,
+      next_followup_at TEXT,
+      converted_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 20. Tabela de Histórico de Interações do Funil (Lead Interactions History)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS funnel_interactions_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_phone TEXT NOT NULL,
+      instance_id INTEGER,
+      direction TEXT NOT NULL, -- 'OUT' ou 'IN'
+      stage TEXT,
+      message_text TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
@@ -426,6 +477,60 @@ function initDatabase() {
       50.0,
       97.00,
       '{Olá|Oi|E aí} {nome}! {Tudo bem?|Como você está?}\n\nLiberamos hoje uma condição exclusiva para entrar na *Sala VIP de Sinais Cripto* com 50% OFF!\n\nConfira todos os detalhes e garanta sua vaga aqui:\n{link}'
+    );
+  }
+
+  // Semeia etapas padrão do funil de aquecimento de leads se vazias
+  const stagesCount = db.prepare('SELECT COUNT(*) as count FROM funnel_stages').get().count;
+  if (stagesCount === 0) {
+    const insertStage = db.prepare(`
+      INSERT INTO funnel_stages (stage_key, title, order_num, message_template, followup_template, followup_delay_minutes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    insertStage.run(
+      'STAGE_1_DESCOBERTA',
+      '1. Descoberta & Abertura',
+      1,
+      '{Olá|Oi|E aí} {nome}! {Tudo bem?|Como vai?} Vi seu contato na nossa lista VIP de interessados em {produto}. Você já atua nessa área ou está querendo começar do zero?',
+      '{Oi|E aí} {nome}! Conseguiu ver a mensagem anterior? Fiquei curioso pra saber sua experiência com {produto}.',
+      120
+    );
+
+    insertStage.run(
+      'STAGE_2_INTERESSE',
+      '2. Diagnóstico & Interesse',
+      2,
+      '{Entendi perfeitamente|Muito bom saber|Com certeza}! Hoje muita gente tem dificuldade de ter consistência e aplicar o método certo. O que mais tem te travado para ter resultados hoje?',
+      '{Fala|Olá} {nome}, se você pudesse destravar seus resultados ainda essa semana, isso faria diferença pra você?',
+      120
+    );
+
+    insertStage.run(
+      'STAGE_3_SOLUCAO',
+      '3. Apresentação da Solução & Prova',
+      3,
+      '{Sensacional|Excelente}! É exatamente para isso que serve o *{produto}*. Na última semana, mais de 340 pessoas conseguiram transformar seus resultados com essa mesma metodologia prática. Quer que eu te envie o link oficial para você ver os detalhes?',
+      '{Oi|Olá} {nome}! Posso te mandar o link de apresentação rápida de 3 minutos?',
+      120
+    );
+
+    insertStage.run(
+      'STAGE_4_OFERTA',
+      '4. Oferta & Envio do Link',
+      4,
+      '{Perfeito|Maravilha}! Aqui está seu link com a condição exclusiva de 50% de desconto: {link}\n\nDá uma olhada nos bônus inclusos e me diz se você conseguiu abrir!',
+      '{Oi|E aí} {nome}! Conseguiu acessar o link? Restam poucas vagas com esse desconto promocional.',
+      120
+    );
+
+    insertStage.run(
+      'STAGE_5_FECHAMENTO',
+      '5. Quebra de Objeções & Fechamento',
+      5,
+      '{Sem problemas|Super compreensível}! O pagamento é 100% seguro via PIX ou USDT, e você tem garantia total incondicional de 7 dias: se não gostar, recebe todo o seu dinheiro de volta na hora. Quer ajuda para emitir seu acesso agora?',
+      '{Oi|Olá} {nome}! Posso gerar o código PIX ou link Binance Pay direto aqui pra você garantir antes do encerramento?',
+      120
     );
   }
 

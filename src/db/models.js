@@ -1490,6 +1490,218 @@ const models = {
       ORDER BY id DESC
       LIMIT 500
     `).all();
+  },
+
+  // ==========================================
+  // 17. FUNIL DE AQUECIMENTO CONVERSACIONAL (LEAD WARMING)
+  // ==========================================
+  getFunnelStages() {
+    return db.prepare('SELECT * FROM funnel_stages ORDER BY order_num ASC').all();
+  },
+
+  getFunnelStageByKey(key) {
+    return db.prepare('SELECT * FROM funnel_stages WHERE stage_key = ?').get(key);
+  },
+
+  updateFunnelStage(key, { title, message_template, followup_template, followup_delay_minutes, active }) {
+    const existing = models.getFunnelStageByKey(key);
+    if (!existing) throw new Error('Etapa de funil não encontrada');
+
+    db.prepare(`
+      UPDATE funnel_stages
+      SET title = COALESCE(?, title),
+          message_template = COALESCE(?, message_template),
+          followup_template = COALESCE(?, followup_template),
+          followup_delay_minutes = COALESCE(?, followup_delay_minutes),
+          active = COALESCE(?, active)
+      WHERE stage_key = ?
+    `).run(
+      title !== undefined ? title : null,
+      message_template !== undefined ? message_template : null,
+      followup_template !== undefined ? followup_template : null,
+      followup_delay_minutes !== undefined ? Number(followup_delay_minutes) : null,
+      active !== undefined ? (active ? 1 : 0) : null,
+      key
+    );
+
+    return models.getFunnelStageByKey(key);
+  },
+
+  getLeadFunnelConversations({ stage = null, status = null, limit = 100 } = {}) {
+    let sql = `
+      SELECT lfc.*, wai.name as assigned_instance_name, fs.title as current_stage_title
+      FROM lead_funnel_conversations lfc
+      LEFT JOIN whatsapp_army_instances wai ON lfc.assigned_instance_id = wai.id
+      LEFT JOIN funnel_stages fs ON lfc.current_stage = fs.stage_key
+      WHERE 1=1
+    `;
+    const params = [];
+    if (stage) {
+      sql += ' AND lfc.current_stage = ?';
+      params.push(stage);
+    }
+    if (status) {
+      sql += ' AND lfc.status = ?';
+      params.push(status);
+    }
+    sql += ' ORDER BY lfc.last_message_at DESC, lfc.id DESC LIMIT ?';
+    params.push(limit);
+    return db.prepare(sql).all(...params);
+  },
+
+  getLeadFunnelConversationByPhone(phone) {
+    const clean = String(phone).replace(/[^0-9]/g, '');
+    return db.prepare(`
+      SELECT lfc.*, wai.name as assigned_instance_name, fs.title as current_stage_title
+      FROM lead_funnel_conversations lfc
+      LEFT JOIN whatsapp_army_instances wai ON lfc.assigned_instance_id = wai.id
+      LEFT JOIN funnel_stages fs ON lfc.current_stage = fs.stage_key
+      WHERE lfc.phone = ? OR lfc.phone = ?
+    `).get(clean, clean.slice(-8));
+  },
+
+  enrollLeadInFunnel({ phone, name = null, campaign_id = null, affiliate_link_id = null, product_name, affiliate_url, assigned_instance_id = null }) {
+    const clean = String(phone).replace(/[^0-9]/g, '');
+    if (!clean || clean.length < 10) throw new Error('Número de telefone inválido.');
+
+    const existing = models.getLeadFunnelConversationByPhone(clean);
+    if (existing) {
+      db.prepare(`
+        UPDATE lead_funnel_conversations
+        SET name = COALESCE(?, name),
+            campaign_id = COALESCE(?, campaign_id),
+            affiliate_link_id = COALESCE(?, affiliate_link_id),
+            product_name = COALESCE(?, product_name),
+            affiliate_url = COALESCE(?, affiliate_url),
+            assigned_instance_id = COALESCE(?, assigned_instance_id)
+        WHERE id = ?
+      `).run(name, campaign_id, affiliate_link_id, product_name, affiliate_url, assigned_instance_id, existing.id);
+      return models.getLeadFunnelConversationByPhone(clean);
+    }
+
+    const res = db.prepare(`
+      INSERT INTO lead_funnel_conversations (
+        phone, name, campaign_id, affiliate_link_id, product_name, affiliate_url,
+        assigned_instance_id, current_stage, status, messages_sent, messages_received, last_message_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'STAGE_1_DESCOBERTA', 'WAITING_REPLY', 1, 0, datetime('now'))
+    `).run(
+      clean,
+      name || null,
+      campaign_id ? Number(campaign_id) : null,
+      affiliate_link_id ? Number(affiliate_link_id) : null,
+      product_name || 'Produto Especial',
+      affiliate_url || '',
+      assigned_instance_id ? Number(assigned_instance_id) : 1
+    );
+
+    return models.getLeadFunnelConversationByPhone(clean);
+  },
+
+  advanceLeadFunnelStage(phone, targetStage = null) {
+    const lead = models.getLeadFunnelConversationByPhone(phone);
+    if (!lead) return null;
+
+    const stagesOrder = [
+      'STAGE_1_DESCOBERTA',
+      'STAGE_2_INTERESSE',
+      'STAGE_3_SOLUCAO',
+      'STAGE_4_OFERTA',
+      'STAGE_5_FECHAMENTO',
+      'CONVERTED'
+    ];
+
+    let nextStage = targetStage;
+    if (!nextStage) {
+      const currentIndex = stagesOrder.indexOf(lead.current_stage);
+      if (currentIndex !== -1 && currentIndex < stagesOrder.length - 1) {
+        nextStage = stagesOrder[currentIndex + 1];
+      } else {
+        nextStage = 'STAGE_5_FECHAMENTO';
+      }
+    }
+
+    const isConverted = nextStage === 'CONVERTED';
+    const convertedAt = isConverted ? new Date().toISOString() : lead.converted_at;
+    const status = isConverted ? 'CONVERTED' : 'WAITING_REPLY';
+
+    db.prepare(`
+      UPDATE lead_funnel_conversations
+      SET current_stage = ?,
+          status = ?,
+          converted_at = ?,
+          messages_sent = messages_sent + 1,
+          last_message_at = datetime('now')
+      WHERE id = ?
+    `).run(nextStage, status, convertedAt, lead.id);
+
+    return models.getLeadFunnelConversationByPhone(phone);
+  },
+
+  markLeadConverted(phone) {
+    return models.advanceLeadFunnelStage(phone, 'CONVERTED');
+  },
+
+  logFunnelInteraction({ lead_phone, instance_id = null, direction = 'OUT', stage = null, message_text }) {
+    const clean = String(lead_phone).replace(/[^0-9]/g, '');
+    const stmt = db.prepare(`
+      INSERT INTO funnel_interactions_log (lead_phone, instance_id, direction, stage, message_text)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(clean, instance_id ? Number(instance_id) : null, direction, stage || null, message_text);
+    return db.prepare('SELECT * FROM funnel_interactions_log WHERE id = ?').get(Number(res.lastInsertRowid));
+  },
+
+  getFunnelInteractionLogs(phone, limit = 50) {
+    const clean = String(phone).replace(/[^0-9]/g, '');
+    return db.prepare(`
+      SELECT fil.*, wai.name as instance_name
+      FROM funnel_interactions_log fil
+      LEFT JOIN whatsapp_army_instances wai ON fil.instance_id = wai.id
+      WHERE fil.lead_phone = ? OR fil.lead_phone = ?
+      ORDER BY fil.id ASC LIMIT ?
+    `).all(clean, clean.slice(-8), limit);
+  },
+
+  getFunnelRealTimeStats() {
+    const totalLeads = db.prepare('SELECT COUNT(*) as count FROM lead_funnel_conversations').get().count;
+
+    const stagesCount = db.prepare(`
+      SELECT 
+        SUM(CASE WHEN current_stage = 'STAGE_1_DESCOBERTA' THEN 1 ELSE 0 END) as stage1,
+        SUM(CASE WHEN current_stage = 'STAGE_2_INTERESSE' THEN 1 ELSE 0 END) as stage2,
+        SUM(CASE WHEN current_stage = 'STAGE_3_SOLUCAO' THEN 1 ELSE 0 END) as stage3,
+        SUM(CASE WHEN current_stage = 'STAGE_4_OFERTA' THEN 1 ELSE 0 END) as stage4,
+        SUM(CASE WHEN current_stage = 'STAGE_5_FECHAMENTO' THEN 1 ELSE 0 END) as stage5,
+        SUM(CASE WHEN current_stage = 'CONVERTED' THEN 1 ELSE 0 END) as converted,
+        SUM(CASE WHEN status = 'REPLIED' OR messages_received > 0 THEN 1 ELSE 0 END) as engaged
+      FROM lead_funnel_conversations
+    `).get();
+
+    const stage1 = stagesCount.stage1 || 0;
+    const stage2 = stagesCount.stage2 || 0;
+    const stage3 = stagesCount.stage3 || 0;
+    const stage4 = stagesCount.stage4 || 0;
+    const stage5 = stagesCount.stage5 || 0;
+    const converted = stagesCount.converted || 0;
+    const engaged = stagesCount.engaged || 0;
+
+    const replyRate = totalLeads > 0 ? Number(((engaged / totalLeads) * 100).toFixed(1)) : 0;
+    const offerReachRate = totalLeads > 0 ? Number((((stage4 + stage5 + converted) / totalLeads) * 100).toFixed(1)) : 0;
+    const conversionRate = totalLeads > 0 ? Number(((converted / totalLeads) * 100).toFixed(1)) : 0;
+
+    return {
+      totalLeads,
+      stage1,
+      stage2,
+      stage3,
+      stage4,
+      stage5,
+      converted,
+      engaged,
+      replyRate,
+      offerReachRate,
+      conversionRate
+    };
   }
 };
 
