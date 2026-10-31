@@ -89,7 +89,10 @@ async function loadAllData() {
     loadCoupons(),
     loadArmyData(),
     loadChatControls(),
-    loadGroupAuditLogs()
+    loadGroupAuditLogs(),
+    loadChannelMetrics(),
+    loadSupportTickets(),
+    loadCustomTriggers()
   ]);
 }
 
@@ -3352,6 +3355,7 @@ async function loadNlpData() {
       });
       tbody.innerHTML = html;
     }
+    loadCustomTriggers();
   } catch (_) {}
 }
 
@@ -3722,5 +3726,267 @@ async function saveGroupSettings(e) {
     loadGroupAuditLogs();
   } catch (err) {
     alert('Erro ao salvar: ' + err.message);
+  }
+}
+
+// ==========================================
+// MÉTRICAS POR CANAL (WHATSAPP, TELEGRAM, INSTAGRAM, FACEBOOK)
+// ==========================================
+async function loadChannelMetrics() {
+  try {
+    const res = await fetch('/api/metrics/channels');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // WhatsApp
+    const wpp = data.whatsapp || {};
+    if (document.getElementById('chWppOrders')) document.getElementById('chWppOrders').innerText = `${wpp.ordersCount || 0} vendas`;
+    if (document.getElementById('chWppRev')) document.getElementById('chWppRev').innerText = `R$ ${(wpp.revenueBRL || 0).toFixed(2)}`;
+    if (document.getElementById('chWppUsdt')) document.getElementById('chWppUsdt').innerText = `${(wpp.revenueUSDT || 0).toFixed(2)} USDT`;
+    if (document.getElementById('chWppSubs')) document.getElementById('chWppSubs').innerText = wpp.activeSubscriptions || 0;
+
+    // Telegram
+    const tg = data.telegram || {};
+    if (document.getElementById('chTgOrders')) document.getElementById('chTgOrders').innerText = `${tg.ordersCount || 0} vendas`;
+    if (document.getElementById('chTgRev')) document.getElementById('chTgRev').innerText = `R$ ${(tg.revenueBRL || 0).toFixed(2)}`;
+    if (document.getElementById('chTgUsdt')) document.getElementById('chTgUsdt').innerText = `${(tg.revenueUSDT || 0).toFixed(2)} USDT`;
+    if (document.getElementById('chTgSubs')) document.getElementById('chTgSubs').innerText = tg.activeSubscriptions || 0;
+
+    // Instagram
+    const ig = data.instagram || {};
+    if (document.getElementById('chIgOrders')) document.getElementById('chIgOrders').innerText = `${ig.ordersCount || 0} vendas`;
+    if (document.getElementById('chIgRev')) document.getElementById('chIgRev').innerText = `R$ ${(ig.revenueBRL || 0).toFixed(2)}`;
+
+    // Facebook
+    const fb = data.facebook || {};
+    if (document.getElementById('chFbOrders')) document.getElementById('chFbOrders').innerText = `${fb.ordersCount || 0} vendas`;
+    if (document.getElementById('chFbRev')) document.getElementById('chFbRev').innerText = `R$ ${(fb.revenueBRL || 0).toFixed(2)}`;
+  } catch (_) {}
+}
+
+// ==========================================
+// CHAMADOS DE SUPORTE & TRANSBORDO HUMANO
+// ==========================================
+async function loadSupportTickets() {
+  const tbody = document.getElementById('tableSupportTicketsBody');
+  if (!tbody) return;
+
+  try {
+    const res = await fetch('/api/tickets?limit=20');
+    if (!res.ok) return;
+    const tickets = await res.json();
+
+    if (!tickets || tickets.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 15px; color: var(--text-muted);">Nenhum chamado aberto. Todos os clientes atendidos com sucesso!</td></tr>';
+      return;
+    }
+
+    let html = '';
+    tickets.forEach(t => {
+      const isWpp = t.platform === 'whatsapp';
+      const platBadge = isWpp 
+        ? '<span class="badge" style="background:#25d366; color:#0f172a; font-size:11px;"><i class="fa-brands fa-whatsapp"></i> WhatsApp</span>' 
+        : '<span class="badge" style="background:#229ed9; color:#fff; font-size:11px;"><i class="fa-brands fa-telegram"></i> Telegram</span>';
+
+      let statusBadge = '';
+      if (t.status === 'OPEN') statusBadge = '<span class="badge" style="background:#ef4444; color:#fff;">Aberto</span>';
+      else if (t.status === 'IN_PROGRESS') statusBadge = '<span class="badge" style="background:#f59e0b; color:#12161f;">Em Atendimento</span>';
+      else if (t.status === 'RESOLVED') statusBadge = '<span class="badge" style="background:#10b981; color:#fff;">Resolvido</span>';
+      else statusBadge = `<span class="badge">${t.status}</span>`;
+
+      const cleanPhone = (t.customer_id || '').replace(/[^0-9]/g, '');
+      const waLink = cleanPhone ? `https://wa.me/${cleanPhone}` : null;
+      const waBtn = waLink 
+        ? `<a href="${waLink}" target="_blank" class="btn btn-sm btn-outline" style="color:#25d366; border-color:#25d366;" title="Conversar no WhatsApp"><i class="fa-brands fa-whatsapp"></i> Chamar</a>` 
+        : '';
+
+      const resolveBtn = t.status !== 'RESOLVED'
+        ? `<button class="btn btn-sm btn-success" onclick="resolveSupportTicket(${t.id})" title="Marcar como resolvido"><i class="fa-solid fa-check"></i></button>`
+        : '';
+
+      html += `
+        <tr>
+          <td><b>#${t.id}</b></td>
+          <td>${platBadge}</td>
+          <td><b>${t.customer_name || 'Cliente'}</b><br><small class="text-muted">${t.customer_id}</small></td>
+          <td>${t.seller_name ? `<span class="badge-mini" style="background:rgba(59,130,246,0.15); color:#60a5fa;">${t.seller_name}</span>` : '<span class="text-muted">Aguardando</span>'}</td>
+          <td style="max-width: 250px; font-size: 11px;">${t.issue_summary || '-'}</td>
+          <td>${statusBadge}</td>
+          <td class="text-right" style="white-space: nowrap;">
+            ${waBtn}
+            ${resolveBtn}
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = html;
+  } catch (_) {}
+}
+
+async function resolveSupportTicket(id) {
+  try {
+    const res = await fetch(`/api/tickets/${id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'RESOLVED' })
+    });
+    if (res.ok) {
+      loadSupportTickets();
+    }
+  } catch (err) {
+    alert('Erro ao resolver chamado: ' + err.message);
+  }
+}
+
+// ==========================================
+// CENTRAL DE TRIGGERS INTELIGENTES & FAQ
+// ==========================================
+let allCustomTriggers = [];
+
+async function loadCustomTriggers() {
+  const tbody = document.getElementById('tableCustomTriggersBody');
+  if (!tbody) return;
+
+  try {
+    const res = await fetch('/api/triggers');
+    if (!res.ok) return;
+    const triggers = await res.json();
+    allCustomTriggers = triggers;
+
+    if (!triggers || triggers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 15px; color: var(--text-muted);">Nenhum trigger inteligente cadastrado ainda.</td></tr>';
+      return;
+    }
+
+    let html = '';
+    triggers.forEach(tr => {
+      const isAct = tr.active === 1;
+      const statusBadge = isAct 
+        ? '<span class="badge badge-paid">Ativo</span>' 
+        : '<span class="badge badge-expired">Pausado</span>';
+
+      let typeBadge = '';
+      if (tr.match_type === 'CONTAINS') typeBadge = '<span class="badge" style="background:#3b82f6; color:#fff;">Contém</span>';
+      else if (tr.match_type === 'EXACT') typeBadge = '<span class="badge" style="background:#8b5cf6; color:#fff;">Exata</span>';
+      else typeBadge = '<span class="badge" style="background:#ec4899; color:#fff;">Regex</span>';
+
+      html += `
+        <tr>
+          <td><b>${tr.keyword}</b></td>
+          <td>${typeBadge}</td>
+          <td><span class="badge-mini">${tr.category || 'Geral'}</span></td>
+          <td><span class="badge-mini">${tr.platform === 'all' ? 'Todos' : tr.platform}</span></td>
+          <td style="max-width: 250px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${tr.response_text}">${tr.response_text}</td>
+          <td><b style="color:#f59e0b;">${tr.usage_count || 0}</b></td>
+          <td>${statusBadge}</td>
+          <td class="text-right" style="white-space: nowrap;">
+            <button class="btn btn-sm btn-outline" onclick="openTriggerModal(${tr.id})" title="Editar Trigger"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn btn-sm btn-outline" onclick="toggleTriggerActive(${tr.id}, ${isAct ? 0 : 1})" title="${isAct ? 'Pausar' : 'Ativar'}"><i class="fa-solid ${isAct ? 'fa-pause' : 'fa-play'}"></i></button>
+            <button class="btn btn-sm btn-danger" onclick="deleteCustomTrigger(${tr.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = html;
+  } catch (_) {}
+}
+
+function openTriggerModal(id = null) {
+  const m = document.getElementById('modalCustomTrigger');
+  if (!m) return;
+  m.classList.add('active');
+
+  const form = document.getElementById('formCustomTrigger');
+  if (form) form.reset();
+
+  if (id) {
+    const tr = allCustomTriggers.find(t => t.id === id);
+    if (tr) {
+      document.getElementById('modalTriggerTitle').innerHTML = '<i class="fa-solid fa-pen" style="color: #38bdf8;"></i> Editar Trigger Inteligente';
+      document.getElementById('trigId').value = tr.id;
+      document.getElementById('trigKeyword').value = tr.keyword;
+      document.getElementById('trigMatchType').value = tr.match_type || 'CONTAINS';
+      document.getElementById('trigCategory').value = tr.category || '';
+      document.getElementById('trigPlatform').value = tr.platform || 'all';
+      document.getElementById('trigResponseText').value = tr.response_text;
+      document.getElementById('trigActive').checked = tr.active === 1;
+      return;
+    }
+  }
+
+  document.getElementById('modalTriggerTitle').innerHTML = '<i class="fa-solid fa-bolt" style="color: #38bdf8;"></i> Novo Trigger Inteligente';
+  document.getElementById('trigId').value = '';
+  document.getElementById('trigActive').checked = true;
+}
+
+function closeTriggerModal() {
+  const m = document.getElementById('modalCustomTrigger');
+  if (m) m.classList.remove('active');
+}
+
+async function saveCustomTrigger(e) {
+  e.preventDefault();
+  const id = document.getElementById('trigId')?.value;
+  const keyword = document.getElementById('trigKeyword')?.value?.trim();
+  const matchType = document.getElementById('trigMatchType')?.value;
+  const category = document.getElementById('trigCategory')?.value?.trim();
+  const platform = document.getElementById('trigPlatform')?.value;
+  const responseText = document.getElementById('trigResponseText')?.value?.trim();
+  const active = document.getElementById('trigActive')?.checked ? 1 : 0;
+
+  if (!keyword || !responseText) {
+    return alert('Preencha a palavra-chave e o texto de resposta.');
+  }
+
+  const payload = { keyword, matchType, category, platform, responseText, active };
+  try {
+    let res = null;
+    if (id) {
+      res = await fetch(`/api/triggers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      res = await fetch('/api/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao salvar trigger.');
+
+    closeTriggerModal();
+    loadCustomTriggers();
+  } catch (err) {
+    alert('Erro ao salvar trigger: ' + err.message);
+  }
+}
+
+async function toggleTriggerActive(id, newActive) {
+  try {
+    const res = await fetch(`/api/triggers/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: newActive })
+    });
+    if (res.ok) {
+      loadCustomTriggers();
+    }
+  } catch (err) {
+    alert('Erro ao alterar status: ' + err.message);
+  }
+}
+
+async function deleteCustomTrigger(id) {
+  if (!confirm('Deseja realmente excluir este trigger inteligente?')) return;
+  try {
+    const res = await fetch(`/api/triggers/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadCustomTriggers();
+    }
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
   }
 }

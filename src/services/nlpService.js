@@ -227,6 +227,27 @@ class NaturalLanguageService {
     let replyText = '';
     let directAction = null; // 'TRIGGER_PIX', 'TRIGGER_BINANCE', 'SHOW_MENU', 'APPLY_COUPON', 'TRIGGER_UPSELL'
 
+    // 0. Verifica se há algum Trigger Inteligente Personalizado cadastrado no banco de dados
+    const customTrigger = models.findMatchingTrigger(text, platform);
+    if (customTrigger) {
+      const trigReply = customTrigger.response_text
+        .replace(/\{nome\}/gi, firstName)
+        .replace(/\{produto\}/gi, defaultProduct.name)
+        .replace(/\{preco_brl\}/gi, Number(defaultProduct.price_brl || defaultProduct.price).toFixed(2))
+        .replace(/\{preco_usdt\}/gi, Number(defaultProduct.price_usdt || (defaultProduct.price / 5.5)).toFixed(2));
+
+      return {
+        intent: 'CUSTOM_TRIGGER',
+        confidence: 0.99,
+        replyText: trigReply,
+        matchedProduct,
+        couponCode,
+        refCode,
+        triggerId: customTrigger.id,
+        triggerCategory: customTrigger.category
+      };
+    }
+
     switch (intent) {
       case 'DEACTIVATE_BOT':
         directAction = 'DEACTIVATE_BOT';

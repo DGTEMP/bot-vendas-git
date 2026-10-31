@@ -254,8 +254,22 @@ class TelegramBotService {
         statusText += `\n`;
       }
 
-      statusText += `_Comandos úteis: /desativar, /ativar, /bloquear, /desbloquear, /admin_`;
+      statusText += `_Comandos úteis: /desativar, /ativar, /bloquear, /desbloquear, /admin, /suporte_`;
       return ctx.reply(statusText, { parse_mode: 'Markdown' });
+    });
+
+    // Comando de Suporte Humano / Transbordo
+    this.bot.command(['suporte', 'humano', 'atendente', 'ajudahumana'], async (ctx) => {
+      const userId = String(ctx.from.id);
+      const userName = ctx.from.first_name || 'Cliente';
+      const ticket = models.createSupportTicket({
+        platform: 'telegram',
+        customerId: userId,
+        customerName: userName,
+        issueSummary: 'Solicitado via comando /suporte no Telegram'
+      });
+      const sellerInfo = ticket.seller_name ? `O atendente *${ticket.seller_name}*` : 'Um especialista da nossa equipe';
+      return ctx.reply(`🛎️ *Chamado de Suporte Aberto (#${ticket.id})*\n\n${sellerInfo} foi notificado para te atender com prioridade! Por favor, descreva sua solicitação ou envie o comprovante abaixo.`, { parse_mode: 'Markdown' });
     });
 
     // ==========================================
@@ -1302,6 +1316,15 @@ class TelegramBotService {
             await ctx.reply(nlp.replyText, { parse_mode: 'Markdown' });
           }
           return this.showProductDetails(ctx, nlp.entities.matchedProduct, false);
+        }
+
+        if (nlp.intent === 'SUPPORT_HUMAN') {
+          models.createSupportTicket({
+            platform: 'telegram',
+            customerId: String(ctx.from.id),
+            customerName: userName,
+            issueSummary: text
+          });
         }
 
         if (nlp.replyText) {

@@ -1709,6 +1709,152 @@ async function main() {
     assert.strictEqual(logsAfterClear.length, 0);
   });
 
+  await runAsyncTest('Triggers Inteligentes & FAQ: Criação, Correspondência e Resposta Dinâmica', async () => {
+    const nlpService = require('./src/services/nlpService');
+
+    // 1. Criação no Model
+    const createdTrig = models.createCustomTrigger({
+      keyword: 'metodo comprovado',
+      matchType: 'CONTAINS',
+      responseText: 'Olá {nome}! O {produto} é 100% comprovado por mais de mil clientes!',
+      category: 'Prova Social',
+      platform: 'all'
+    });
+    assert(createdTrig.id > 0);
+    assert.strictEqual(createdTrig.keyword, 'metodo comprovado');
+
+    // 2. Matching no Model
+    const match = models.findMatchingTrigger('esse metodo comprovado funciona mesmo?');
+    assert(match, 'Deve encontrar o trigger cadastrado');
+    assert.strictEqual(match.id, createdTrig.id);
+
+    // 3. Resposta formatada no nlpService
+    const nlpRes = await nlpService.processMessage({
+      text: 'Quero saber se esse metodo comprovado funciona',
+      customerName: 'Renato',
+      platform: 'whatsapp'
+    });
+    assert.strictEqual(nlpRes.intent, 'CUSTOM_TRIGGER');
+    assert(nlpRes.replyText.includes('Renato'));
+    assert(nlpRes.replyText.includes('comprovado por mais de mil clientes'));
+
+    // 4. REST API: GET, PUT, DELETE /api/triggers
+    const getTrigs = await fetchApi('/api/triggers');
+    assert.strictEqual(getTrigs.status, 200);
+    assert(Array.isArray(getTrigs.data));
+    assert(getTrigs.data.some(t => t.id === createdTrig.id));
+
+    const putTrig = await fetchApi(`/api/triggers/${createdTrig.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: 0 })
+    });
+    assert.strictEqual(putTrig.status, 200);
+    assert.strictEqual(putTrig.data.active, 0);
+
+    const delTrig = await fetchApi(`/api/triggers/${createdTrig.id}`, { method: 'DELETE' });
+    assert.strictEqual(delTrig.status, 200);
+    assert.strictEqual(delTrig.data.success, true);
+  });
+
+  await runAsyncTest('Atendimento Humano: Tickets de Suporte, Roleta de Vendedores e Comandos', async () => {
+    // 1. Abertura de Ticket com atribuição da roleta de vendedores
+    const ticket = models.createSupportTicket({
+      platform: 'whatsapp',
+      customerId: '5511999887766',
+      customerName: 'Cliente Teste Suporte',
+      issueSummary: 'Dúvida sobre ativação do bot'
+    });
+    assert(ticket.id > 0);
+    assert.strictEqual(ticket.status, 'OPEN');
+    assert(ticket.seller_id > 0, 'Deve atribuir um vendedor ativo da roleta');
+
+    // 2. Atualização de Status
+    const resolved = models.updateSupportTicketStatus(ticket.id, 'RESOLVED');
+    assert.strictEqual(resolved.status, 'RESOLVED');
+
+    // 3. REST API /api/tickets
+    const apiTickets = await fetchApi(`/api/tickets?status=RESOLVED`);
+    assert.strictEqual(apiTickets.status, 200);
+    assert(apiTickets.data.some(t => t.id === ticket.id));
+
+    // 4. Comando !suporte no WhatsApp
+    const whatsappBot = require('./src/bots/whatsappBot');
+    let lastMsg = null;
+    const origSend = whatsappBot.sendMessage;
+    whatsappBot.sendMessage = async (jid, text) => {
+      lastMsg = text;
+      return true;
+    };
+
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999887766@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!suporte' },
+      pushName: 'Cliente Suporte Wpp'
+    });
+    assert(lastMsg.includes('CHAMADO DE SUPORTE ABERTO'));
+
+    whatsappBot.sendMessage = origSend;
+  });
+
+  await runAsyncTest('Métricas Detalhadas por Canal (/api/metrics/channels)', async () => {
+    const res = await fetchApi('/api/metrics/channels');
+    assert.strictEqual(res.status, 200);
+    const data = res.data;
+    assert('whatsapp' in data);
+    assert('telegram' in data);
+    assert('instagram' in data);
+    assert('facebook' in data);
+    assert('ordersCount' in data.whatsapp);
+    assert('revenueBRL' in data.whatsapp);
+  });
+
+  await runAsyncTest('Moderação de Grupos: Proteção Anti-Flood', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const testGroup = '120363066666666666@g.us';
+    const spammerPhone = '5511977776666';
+    const spammerJid = `${spammerPhone}@s.whatsapp.net`;
+
+    let deletedMsgs = 0;
+    let warned = false;
+
+    const origSock = whatsappBot.sock;
+    const origSend = whatsappBot.sendMessage;
+
+    whatsappBot.sock = {
+      user: { id: '5511900000000:1@s.whatsapp.net' },
+      groupMetadata: async () => ({
+        participants: [
+          { id: '5511900000000@s.whatsapp.net', admin: 'admin' },
+          { id: spammerJid, admin: null }
+        ]
+      }),
+      sendMessage: async (jid, content) => {
+        if (content.delete) deletedMsgs++;
+        return true;
+      }
+    };
+
+    whatsappBot.sendMessage = async (jid, text) => {
+      if (text.includes('anti-flood')) warned = true;
+      return true;
+    };
+
+    // Dispara 7 mensagens em sequência rápida do mesmo membro comum no grupo
+    for (let i = 0; i < 7; i++) {
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: spammerJid, fromMe: false, id: `MSG_${i}` },
+        message: { conversation: `Spam mensagem ${i}` }
+      });
+    }
+
+    assert(deletedMsgs >= 1, 'Deve apagar mensagens que excederem o limite de flood');
+    assert(warned, 'Deve avisar o participante sobre o anti-flood');
+
+    whatsappBot.sock = origSock;
+    whatsappBot.sendMessage = origSend;
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

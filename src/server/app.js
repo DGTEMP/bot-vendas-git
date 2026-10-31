@@ -1469,6 +1469,131 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // TRIGGERS INTELIGENTES & FAQ (REST API)
+  // ==========================================
+  app.get('/api/triggers', (req, res) => {
+    try {
+      const activeOnly = req.query.active === 'true';
+      const platform = req.query.platform || null;
+      res.json(models.getCustomTriggers({ activeOnly, platform }));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/triggers', (req, res) => {
+    try {
+      const { keyword, matchType, responseText, category, platform, active } = req.body;
+      const trigger = models.createCustomTrigger({
+        keyword,
+        matchType,
+        responseText,
+        category,
+        platform,
+        active
+      });
+      res.status(201).json(trigger);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/triggers/:id', (req, res) => {
+    try {
+      const updated = models.updateCustomTrigger(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Trigger não encontrado.' });
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/triggers/:id', (req, res) => {
+    try {
+      const result = models.deleteCustomTrigger(req.params.id);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // ATENDIMENTO & TICKETS DE SUPORTE (REST API)
+  // ==========================================
+  app.get('/api/tickets', (req, res) => {
+    try {
+      const { status, platform, sellerId, limit } = req.query;
+      const tickets = models.getSupportTickets({
+        status: status || null,
+        platform: platform || null,
+        sellerId: sellerId ? parseInt(sellerId, 10) : null,
+        limit: limit ? parseInt(limit, 10) : 50
+      });
+      res.json(tickets);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tickets/:id', (req, res) => {
+    try {
+      const ticket = models.getSupportTicketById(req.params.id);
+      if (!ticket) return res.status(404).json({ error: 'Ticket não encontrado.' });
+      res.json(ticket);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tickets', (req, res) => {
+    try {
+      const { platform, customerId, customerName, issueSummary, priority, sellerId } = req.body;
+      const ticket = models.createSupportTicket({
+        platform,
+        customerId,
+        customerName,
+        issueSummary,
+        priority,
+        sellerId
+      });
+      res.status(201).json(ticket);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/tickets/:id/status', (req, res) => {
+    try {
+      const { status } = req.body;
+      const updated = models.updateSupportTicketStatus(req.params.id, status);
+      res.json({ success: true, ...updated });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/tickets/:id/assign', (req, res) => {
+    try {
+      const { sellerId } = req.body;
+      const updated = models.assignSupportTicket(req.params.id, sellerId);
+      res.json({ success: true, ...updated });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // MÉTRICAS DETALHADAS POR CANAL / PLATAFORMA
+  // ==========================================
+  app.get('/api/metrics/channels', (req, res) => {
+    try {
+      res.json(models.getChannelMetrics());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

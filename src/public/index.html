@@ -258,6 +258,86 @@
             </div>
           </div>
 
+          
+          <!-- CARD DE MÉTRICAS POR CANAL -->
+          <div class="card mt-4" style="border-top: 3px solid #3b82f6;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3><i class="fa-solid fa-chart-pie" style="color: #3b82f6;"></i> Desempenho e Vendas por Canal</h3>
+                <small style="color: var(--text-muted);">Acompanhamento consolidado de vendas, receitas e chamados entre WhatsApp, Telegram, Instagram e Facebook</small>
+              </div>
+              <button class="btn btn-sm btn-secondary" onclick="loadChannelMetrics()">
+                <i class="fa-solid fa-rotate"></i> Atualizar
+              </button>
+            </div>
+            <div class="card-body">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px;">
+                <!-- WhatsApp -->
+                <div style="background: rgba(37, 211, 102, 0.08); border: 1px solid rgba(37, 211, 102, 0.3); border-radius: 8px; padding: 14px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <b style="color: #25d366;"><i class="fa-brands fa-whatsapp"></i> WhatsApp</b>
+                    <span id="chWppOrders" class="badge badge-paid">0 vendas</span>
+                  </div>
+                  <div id="chWppRev" style="font-size: 20px; font-weight: 700; color: #f8fafc; margin-top: 8px;">R$ 0,00</div>
+                  <small style="color: var(--text-muted); font-size: 11px;"><span id="chWppUsdt">0 USDT</span> • <span id="chWppSubs">0</span> assinaturas</small>
+                </div>
+                <!-- Telegram -->
+                <div style="background: rgba(34, 158, 217, 0.08); border: 1px solid rgba(34, 158, 217, 0.3); border-radius: 8px; padding: 14px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <b style="color: #229ed9;"><i class="fa-brands fa-telegram"></i> Telegram</b>
+                    <span id="chTgOrders" class="badge badge-paid">0 vendas</span>
+                  </div>
+                  <div id="chTgRev" style="font-size: 20px; font-weight: 700; color: #f8fafc; margin-top: 8px;">R$ 0,00</div>
+                  <small style="color: var(--text-muted); font-size: 11px;"><span id="chTgUsdt">0 USDT</span> • <span id="chTgSubs">0</span> assinaturas</small>
+                </div>
+                <!-- Instagram -->
+                <div style="background: rgba(225, 48, 108, 0.08); border: 1px solid rgba(225, 48, 108, 0.3); border-radius: 8px; padding: 14px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <b style="color: #e1306c;"><i class="fa-brands fa-instagram"></i> Instagram</b>
+                    <span id="chIgOrders" class="badge" style="background:#e1306c; color:#fff;">0 vendas</span>
+                  </div>
+                  <div id="chIgRev" style="font-size: 20px; font-weight: 700; color: #f8fafc; margin-top: 8px;">R$ 0,00</div>
+                  <small style="color: var(--text-muted); font-size: 11px;">Direct automatizado ativo</small>
+                </div>
+                <!-- Facebook -->
+                <div style="background: rgba(24, 119, 242, 0.08); border: 1px solid rgba(24, 119, 242, 0.3); border-radius: 8px; padding: 14px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <b style="color: #1877f2;"><i class="fa-brands fa-facebook"></i> Facebook</b>
+                    <span id="chFbOrders" class="badge" style="background:#1877f2; color:#fff;">0 vendas</span>
+                  </div>
+                  <div id="chFbRev" style="font-size: 20px; font-weight: 700; color: #f8fafc; margin-top: 8px;">R$ 0,00</div>
+                  <small style="color: var(--text-muted); font-size: 11px;">Messenger conectado</small>
+                </div>
+              </div>
+
+              <!-- FILA DE CHAMADOS DE SUPORTE HUMANO -->
+              <div style="border-top: 1px dashed var(--border-color); padding-top: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <h4 style="margin: 0; font-size: 14px;"><i class="fa-solid fa-headset gold"></i> Chamados de Atendimento &amp; Transbordo Humano</h4>
+                  <button class="btn btn-sm btn-outline" onclick="loadSupportTickets()"><i class="fa-solid fa-rotate"></i> Atualizar Chamados</button>
+                </div>
+                <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                  <table class="table" style="font-size: 12px;">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Canal</th>
+                        <th>Cliente</th>
+                        <th>Atendente Atribuído</th>
+                        <th>Assunto / Mensagem</th>
+                        <th>Status</th>
+                        <th class="text-right">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tableSupportTicketsBody">
+                      <tr><td colspan="7" class="text-center">Nenhum chamado aberto. Todos os clientes atendidos!</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- CARD DE MODERAÇÃO & CONTROLE DE CHATS -->
           <div class="card mt-4" style="border-top: 3px solid #ef4444;">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -1820,6 +1900,46 @@
               </div>
             </div>
           </div>
+        
+          <!-- CARD CENTRAL DE TRIGGERS INTELIGENTES & FAQ -->
+          <div class="card mt-4" style="border-top: 3px solid #38bdf8;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3><i class="fa-solid fa-bolt" style="color: #38bdf8;"></i> Triggers Inteligentes &amp; Respostas Rápidas (FAQ)</h3>
+                <small style="color: var(--text-muted);">Defina gatilhos semânticos para responder dúvidas instantaneamente em todos os canais com tags dinâmicas</small>
+              </div>
+              <div style="display: flex; gap: 10px;">
+                <button type="button" class="btn btn-sm btn-primary" onclick="openTriggerModal()" style="background: #38bdf8; border-color: #38bdf8; color: #0f172a; font-weight: 600;">
+                  <i class="fa-solid fa-plus"></i> Novo Trigger Inteligente
+                </button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="loadCustomTriggers()">
+                  <i class="fa-solid fa-rotate"></i> Atualizar
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+                <table class="table" style="font-size: 13px;">
+                  <thead>
+                    <tr>
+                      <th>Palavra-Chave / Gatilho</th>
+                      <th>Tipo</th>
+                      <th>Categoria</th>
+                      <th>Canal</th>
+                      <th>Resposta Automática</th>
+                      <th>Usos</th>
+                      <th>Status</th>
+                      <th class="text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tableCustomTriggersBody">
+                    <tr><td colspan="8" class="text-center">Carregando triggers inteligentes...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
         </section>
 
       </div>
@@ -2760,6 +2880,70 @@
         <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
           <button type="button" class="btn btn-secondary" onclick="closeGroupSettingsModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary" style="background: #3b82f6; border-color: #3b82f6;">Salvar Configurações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- MODAL DE TRIGGER INTELIGENTE -->
+  <div id="modalCustomTrigger" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="modalTriggerTitle"><i class="fa-solid fa-bolt" style="color: #38bdf8;"></i> Novo Trigger Inteligente</h3>
+        <button type="button" class="btn-close" onclick="closeTriggerModal()">&times;</button>
+      </div>
+      <form id="formCustomTrigger" onsubmit="saveCustomTrigger(event)">
+        <input type="hidden" id="trigId">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group flex-2">
+              <label>Palavra-Chave ou Expressão Gatilho *</label>
+              <input type="text" id="trigKeyword" class="form-control" required placeholder="Ex: reclame aqui, garantia, como recebo, download">
+            </div>
+            <div class="form-group flex-1">
+              <label>Correspondência</label>
+              <select id="trigMatchType" class="form-control">
+                <option value="CONTAINS">Contém (Recomendado)</option>
+                <option value="EXACT">Exata</option>
+                <option value="REGEX">Expressão Regular (Regex)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Categoria</label>
+              <input type="text" id="trigCategory" class="form-control" placeholder="Ex: Dúvidas Frequentes, Confiança, Entregas">
+            </div>
+            <div class="form-group flex-1">
+              <label>Canal de Aplicação</label>
+              <select id="trigPlatform" class="form-control">
+                <option value="all">Todos os Canais</option>
+                <option value="whatsapp">Apenas WhatsApp</option>
+                <option value="telegram">Apenas Telegram</option>
+                <option value="instagram">Apenas Instagram</option>
+                <option value="facebook">Apenas Facebook</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Resposta Persuasiva Automática *</label>
+            <textarea id="trigResponseText" class="form-control" rows="4" required placeholder="Olá {nome}! Temos 7 dias de garantia incondicional no {produto}..."></textarea>
+            <small style="color: var(--text-muted); font-size: 11px;">Tags dinâmicas: <code>{nome}</code>, <code>{produto}</code>, <code>{preco_brl}</code>, <code>{preco_usdt}</code></small>
+          </div>
+
+          <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="trigActive" checked>
+              <span><b>Trigger Ativo</b> (responder automaticamente)</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeTriggerModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #38bdf8; border-color: #38bdf8; color: #0f172a; font-weight: 600;">Salvar Trigger</button>
         </div>
       </form>
     </div>

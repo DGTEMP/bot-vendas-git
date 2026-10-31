@@ -429,6 +429,42 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_group_audit_logs ON group_admin_audit_logs(platform, group_id, action, created_at);
   `);
 
+  // 25. Tabela de Triggers Inteligentes Customizados (FAQ & Objeções Rápidas)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS custom_triggers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      keyword TEXT NOT NULL,
+      match_type TEXT DEFAULT 'CONTAINS', -- 'CONTAINS', 'EXACT', 'REGEX'
+      response_text TEXT NOT NULL,
+      category TEXT DEFAULT 'Dúvidas Frequentes',
+      platform TEXT DEFAULT 'all', -- 'all', 'whatsapp', 'telegram', 'instagram', 'facebook'
+      active INTEGER DEFAULT 1,
+      usage_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_custom_triggers ON custom_triggers(active, platform);
+  `);
+
+  // 26. Tabela de Chamados / Transbordo para Suporte Humano
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL, -- 'whatsapp', 'telegram', 'instagram', 'facebook'
+      customer_id TEXT NOT NULL, -- telefone ou id
+      customer_name TEXT,
+      seller_id INTEGER,
+      issue_summary TEXT,
+      status TEXT DEFAULT 'OPEN', -- 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CANCELLED'
+      priority TEXT DEFAULT 'NORMAL', -- 'LOW', 'NORMAL', 'HIGH', 'URGENT'
+      last_message TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (seller_id) REFERENCES sellers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_support_tickets ON support_tickets(status, platform, seller_id);
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
@@ -613,6 +649,19 @@ function initDatabase() {
     `);
     insertSocial.run('instagram', '@paybot.oficial', '17841400000000001', 'CONNECTED', 1, 14, 14);
     insertSocial.run('facebook', 'Página Oficial PayBot Cripto', '109876543210987', 'CONNECTED', 1, 8, 8);
+  }
+
+  // Semeia triggers inteligentes customizados se a tabela estiver vazia
+  const triggersCount = db.prepare('SELECT COUNT(*) as count FROM custom_triggers').get().count;
+  if (triggersCount === 0) {
+    const insertTrig = db.prepare(`
+      INSERT INTO custom_triggers (keyword, match_type, response_text, category, platform, active)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `);
+    insertTrig.run('reclame aqui', 'CONTAINS', 'Olá {nome}! Nossa reputação é impecável com nota máxima e índice de satisfação superior a 98%. Todos os nossos clientes contam com liberação imediata e garantia incondicional de 7 dias.', 'Confiança', 'all');
+    insertTrig.run('formas de pagamento', 'CONTAINS', 'Aceitamos pagamentos instantâneos via *PIX* (com liberação em segundos) e *USDT* via Binance Pay sem nenhuma taxa de transferência. Qual opção você prefere?', 'Financeiro', 'all');
+    insertTrig.run('prazo de entrega', 'CONTAINS', 'A entrega é 100% digital e imediata, {nome}! Assim que o pagamento via PIX ou Binance Pay é identificado, nosso sistema envia sua chave e link de acesso na mesma hora.', 'Entregas', 'all');
+    insertTrig.run('como funciona a garantia', 'CONTAINS', 'Você conta com 7 dias de garantia incondicional! Se dentro desse prazo você sentir que o {produto} não atendeu suas expectativas, devolvemos 100% do seu dinheiro.', 'Garantia', 'all');
   }
 
   console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados e Redes Sociais!');

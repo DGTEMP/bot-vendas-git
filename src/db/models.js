@@ -2056,6 +2056,232 @@ const models = {
       this.setSetting(`WELCOME_MSG_${groupId}`, String(welcomeMsg));
     }
     return this.getGroupSettings(platform, groupId);
+  },
+
+  // ==========================================
+  // TRIGGERS INTELIGENTES CUSTOMIZADOS (FAQ / OBJEÇÕES RÁPIDAS)
+  // ==========================================
+  getCustomTriggers({ activeOnly = false, platform = null } = {}) {
+    let query = `SELECT * FROM custom_triggers WHERE 1=1`;
+    const params = [];
+    if (activeOnly) {
+      query += ` AND active = 1`;
+    }
+    if (platform && platform !== 'all') {
+      query += ` AND (platform = ? OR platform = 'all')`;
+      params.push(platform);
+    }
+    query += ` ORDER BY id DESC`;
+    return db.prepare(query).all(...params);
+  },
+
+  getCustomTriggerById(id) {
+    return db.prepare(`SELECT * FROM custom_triggers WHERE id = ?`).get(id);
+  },
+
+  createCustomTrigger({ keyword, matchType = 'CONTAINS', responseText, category = 'Dúvidas Frequentes', platform = 'all', active = 1 }) {
+    if (!keyword || !responseText) {
+      throw new Error('Palavra-chave e texto de resposta são obrigatórios.');
+    }
+    const stmt = db.prepare(`
+      INSERT INTO custom_triggers (keyword, match_type, response_text, category, platform, active)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      keyword.trim(),
+      matchType ? matchType.toUpperCase() : 'CONTAINS',
+      responseText.trim(),
+      category ? category.trim() : 'Dúvidas Frequentes',
+      platform || 'all',
+      active !== undefined ? (active ? 1 : 0) : 1
+    );
+    return this.getCustomTriggerById(info.lastInsertRowid);
+  },
+
+  updateCustomTrigger(id, data = {}) {
+    const current = this.getCustomTriggerById(id);
+    if (!current) return null;
+
+    const keyword = data.keyword !== undefined ? data.keyword.trim() : current.keyword;
+    const matchType = data.matchType !== undefined ? data.matchType.toUpperCase() : current.match_type;
+    const responseText = data.responseText !== undefined ? data.responseText.trim() : current.response_text;
+    const category = data.category !== undefined ? data.category.trim() : current.category;
+    const platform = data.platform !== undefined ? data.platform : current.platform;
+    const active = data.active !== undefined ? (data.active ? 1 : 0) : current.active;
+
+    db.prepare(`
+      UPDATE custom_triggers
+      SET keyword = ?, match_type = ?, response_text = ?, category = ?, platform = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(keyword, matchType, responseText, category, platform, active, id);
+
+    return this.getCustomTriggerById(id);
+  },
+
+  deleteCustomTrigger(id) {
+    const info = db.prepare(`DELETE FROM custom_triggers WHERE id = ?`).run(id);
+    return { deleted: info.changes > 0 };
+  },
+
+  incrementTriggerUsage(id) {
+    db.prepare(`UPDATE custom_triggers SET usage_count = usage_count + 1 WHERE id = ?`).run(id);
+  },
+
+  findMatchingTrigger(text, platform = 'all') {
+    if (!text || typeof text !== 'string') return null;
+    const triggers = this.getCustomTriggers({ activeOnly: true, platform });
+    const normalizedInput = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+    for (const t of triggers) {
+      const kw = t.keyword.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      if (!kw) continue;
+
+      if (t.match_type === 'EXACT') {
+        if (normalizedInput === kw) {
+          this.incrementTriggerUsage(t.id);
+          return t;
+        }
+      } else if (t.match_type === 'REGEX') {
+        try {
+          const reg = new RegExp(t.keyword, 'i');
+          if (reg.test(text)) {
+            this.incrementTriggerUsage(t.id);
+            return t;
+          }
+        } catch (_) {}
+      } else {
+        // CONTAINS (Padrão)
+        if (normalizedInput.includes(kw)) {
+          this.incrementTriggerUsage(t.id);
+          return t;
+        }
+      }
+    }
+    return null;
+  },
+
+  // ==========================================
+  // TRANSBORDO & CHAMADOS DE SUPORTE HUMANO (SUPPORT TICKETS)
+  // ==========================================
+  createSupportTicket({ platform, customerId, customerName = null, issueSummary = null, priority = 'NORMAL', sellerId = null }) {
+    if (!platform || !customerId) {
+      throw new Error('Plataforma e ID do cliente são obrigatórios para abrir ticket.');
+    }
+
+    // Se não tiver vendedor especificado, usa a rotação do time de vendedores
+    let assignedSellerId = sellerId;
+    if (!assignedSellerId) {
+      const nextSeller = this.getNextRoundRobinSeller();
+      if (nextSeller) assignedSellerId = nextSeller.id;
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO support_tickets (platform, customer_id, customer_name, seller_id, issue_summary, status, priority, last_message)
+      VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)
+    `);
+    const info = stmt.run(
+      platform,
+      String(customerId),
+      customerName ? String(customerName) : null,
+      assignedSellerId || null,
+      issueSummary ? String(issueSummary) : 'Solicitação de atendimento humano',
+      priority || 'NORMAL',
+      issueSummary ? String(issueSummary) : null
+    );
+    return this.getSupportTicketById(info.lastInsertRowid);
+  },
+
+  getSupportTickets({ status = null, platform = null, sellerId = null, limit = 50 } = {}) {
+    let query = `
+      SELECT t.*, s.name as seller_name, s.phone as seller_phone
+      FROM support_tickets t
+      LEFT JOIN sellers s ON t.seller_id = s.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (status) {
+      query += ` AND t.status = ?`;
+      params.push(status);
+    }
+    if (platform) {
+      query += ` AND t.platform = ?`;
+      params.push(platform);
+    }
+    if (sellerId) {
+      query += ` AND t.seller_id = ?`;
+      params.push(sellerId);
+    }
+    query += ` ORDER BY t.id DESC LIMIT ?`;
+    params.push(Number(limit) || 50);
+    return db.prepare(query).all(...params);
+  },
+
+  getSupportTicketById(id) {
+    return db.prepare(`
+      SELECT t.*, s.name as seller_name, s.phone as seller_phone
+      FROM support_tickets t
+      LEFT JOIN sellers s ON t.seller_id = s.id
+      WHERE t.id = ?
+    `).get(id);
+  },
+
+  updateSupportTicketStatus(id, status) {
+    const valid = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CANCELLED'];
+    if (!valid.includes(status)) throw new Error('Status de ticket inválido.');
+    db.prepare(`
+      UPDATE support_tickets
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(status, id);
+    return this.getSupportTicketById(id);
+  },
+
+  assignSupportTicket(id, sellerId) {
+    db.prepare(`
+      UPDATE support_tickets
+      SET seller_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(sellerId, id);
+    return this.getSupportTicketById(id);
+  },
+
+  // ==========================================
+  // MÉTRICAS CONSOLIDADAS POR CANAL / PLATAFORMA
+  // ==========================================
+  getChannelMetrics() {
+    const platforms = ['whatsapp', 'telegram', 'instagram', 'facebook'];
+    const metrics = {};
+
+    platforms.forEach(p => {
+      // Pedidos Pagos
+      const orders = db.prepare(`
+        SELECT COUNT(*) as count, 
+               COALESCE(SUM(CASE WHEN currency = 'BRL' THEN amount ELSE 0 END), 0) as total_brl,
+               COALESCE(SUM(CASE WHEN currency = 'USDT' THEN amount ELSE 0 END), 0) as total_usdt
+        FROM orders
+        WHERE platform = ? AND status = 'PAID'
+      `).get(p);
+
+      // Assinaturas Ativas
+      const subs = db.prepare(`
+        SELECT COUNT(*) as count FROM subscriptions WHERE platform = ? AND status = 'ACTIVE'
+      `).get(p);
+
+      // Tickets de Suporte Abertos
+      const openTickets = db.prepare(`
+        SELECT COUNT(*) as count FROM support_tickets WHERE platform = ? AND status = 'OPEN'
+      `).get(p);
+
+      metrics[p] = {
+        ordersCount: orders.count,
+        revenueBRL: orders.total_brl,
+        revenueUSDT: orders.total_usdt,
+        activeSubscriptions: subs.count,
+        openTickets: openTickets.count
+      };
+    });
+
+    return metrics;
   }
 };
 

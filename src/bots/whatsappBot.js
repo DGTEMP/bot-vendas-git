@@ -21,6 +21,7 @@ class WhatsAppBotService {
     this.userSessions = new Map();
     this.userReferrals = new Map(); // Armazena affiliate_id e ref_code por jid
     this.userCoupons = new Map(); // Armazena cupom ativo por jid
+    this.userFloodTracking = new Map(); // Anti-flood tracking por chat e participante
   }
 
   async stop() {
@@ -353,8 +354,54 @@ class WhatsAppBotService {
         statusText += `\n`;
       }
 
-      statusText += `_Comandos úteis: !desativar, !ativar, !bloquear, !desbloquear, !admin_`;
+      statusText += `_Comandos úteis: !desativar, !ativar, !bloquear, !desbloquear, !admin, !suporte_`;
       return this.sendMessage(from, statusText);
+    }
+
+    // ==========================================
+    // 0.15 SUPORTE HUMANO & TRANSBORDO: !suporte / !humano
+    // ==========================================
+    if (/^(?:!|\/)(?:suporte|humano|atendente|ajudahumana)$/i.test(lower)) {
+      const ticket = models.createSupportTicket({
+        platform: 'whatsapp',
+        customerId: senderPhone,
+        customerName: senderName,
+        issueSummary: 'Solicitado via comando !suporte'
+      });
+      const sellerInfo = ticket.seller_name ? `O especialista *${ticket.seller_name}*` : 'Um especialista da nossa equipe';
+      return this.sendMessage(from, `🛎️ *CHAMADO DE SUPORTE ABERTO (#${ticket.id})*\n\n${sellerInfo} foi notificado para dar continuidade ao seu atendimento com prioridade!\n\nPor favor, envie sua dúvida ou comprovante aqui abaixo.`);
+    }
+
+    // ==========================================
+    // 0.16 PROTEÇÃO ANTI-FLOOD EM GRUPOS
+    // ==========================================
+    if (isGroup && !isAdmin) {
+      const now = Date.now();
+      const floodKey = `${from}_${senderPhone}`;
+      const userHistory = (this.userFloodTracking.get(floodKey) || []).filter(t => now - t < 6000);
+      userHistory.push(now);
+      this.userFloodTracking.set(floodKey, userHistory);
+
+      if (userHistory.length > 5) {
+        try {
+          if (this.sock) {
+            await this.sock.sendMessage(from, { delete: msg.key });
+            if (userHistory.length === 6) {
+              await this.sendMessage(from, `⚠️ @${senderPhone}, por favor evite mensagens consecutivas em excesso (anti-flood ativado)!`, { mentions: [participantJid] });
+              models.logGroupAdminAction({
+                platform: 'whatsapp',
+                groupId: from,
+                adminId: 'system_bot',
+                adminName: 'PayBot Anti-Flood',
+                action: 'FLOOD_WARNING',
+                targetId: senderPhone,
+                details: 'Mensagem apagada por flood excessivo (mais de 5 msgs em 6s)'
+              });
+            }
+            return;
+          }
+        } catch (_) {}
+      }
     }
 
     // ==========================================
@@ -1048,6 +1095,14 @@ class WhatsAppBotService {
               }
             }
           }
+        }
+        if (nlp.intent === 'SUPPORT_HUMAN') {
+          models.createSupportTicket({
+            platform: 'whatsapp',
+            customerId: senderPhone,
+            customerName: senderName,
+            issueSummary: text
+          });
         }
         if (nlp.replyText) {
           return this.sendMessage(from, nlp.replyText);
