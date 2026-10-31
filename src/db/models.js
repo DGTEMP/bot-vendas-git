@@ -1702,6 +1702,140 @@ const models = {
       offerReachRate,
       conversionRate
     };
+  },
+
+  // ==========================================
+  // 10. REDES SOCIAIS (INSTAGRAM DIRECT & FACEBOOK MESSENGER)
+  // ==========================================
+  getSocialAccounts({ platform = null, status = null } = {}) {
+    let sql = 'SELECT s.*, c.name as company_name FROM social_accounts s LEFT JOIN companies c ON s.assigned_company_id = c.id WHERE 1=1';
+    const params = [];
+    if (platform) {
+      sql += ' AND s.platform = ?';
+      params.push(platform);
+    }
+    if (status) {
+      sql += ' AND s.status = ?';
+      params.push(status);
+    }
+    sql += ' ORDER BY s.id DESC';
+    return db.prepare(sql).all(...params);
+  },
+
+  getSocialAccountById(id) {
+    return db.prepare('SELECT * FROM social_accounts WHERE id = ?').get(id);
+  },
+
+  getSocialAccountByAccountId(accountId) {
+    return db.prepare('SELECT * FROM social_accounts WHERE account_id = ?').get(accountId);
+  },
+
+  createSocialAccount({ platform, name, account_id, access_token = null, app_secret = null, auto_reply_enabled = 1, assigned_company_id = null }) {
+    const info = db.prepare(`
+      INSERT INTO social_accounts (platform, name, account_id, access_token, app_secret, auto_reply_enabled, assigned_company_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      platform,
+      name,
+      account_id,
+      access_token,
+      app_secret,
+      auto_reply_enabled !== undefined ? (auto_reply_enabled ? 1 : 0) : 1,
+      assigned_company_id || null
+    );
+    return models.getSocialAccountById(info.lastInsertRowid);
+  },
+
+  updateSocialAccount(id, { name, account_id, access_token, app_secret, auto_reply_enabled, status, assigned_company_id }) {
+    const existing = models.getSocialAccountById(id);
+    if (!existing) throw new Error('Conta social não encontrada');
+
+    db.prepare(`
+      UPDATE social_accounts
+      SET name = COALESCE(?, name),
+          account_id = COALESCE(?, account_id),
+          access_token = COALESCE(?, access_token),
+          app_secret = COALESCE(?, app_secret),
+          auto_reply_enabled = COALESCE(?, auto_reply_enabled),
+          status = COALESCE(?, status),
+          assigned_company_id = COALESCE(?, assigned_company_id)
+      WHERE id = ?
+    `).run(
+      name !== undefined ? name : null,
+      account_id !== undefined ? account_id : null,
+      access_token !== undefined ? access_token : null,
+      app_secret !== undefined ? app_secret : null,
+      auto_reply_enabled !== undefined ? (auto_reply_enabled ? 1 : 0) : null,
+      status !== undefined ? status : null,
+      assigned_company_id !== undefined ? assigned_company_id : null,
+      id
+    );
+    return models.getSocialAccountById(id);
+  },
+
+  deleteSocialAccount(id) {
+    db.prepare('DELETE FROM social_messages_log WHERE social_account_id = ?').run(id);
+    return db.prepare('DELETE FROM social_accounts WHERE id = ?').run(id);
+  },
+
+  incrementSocialAccountCounters(id, { received = 0, sent = 0 } = {}) {
+    if (received > 0) {
+      db.prepare('UPDATE social_accounts SET total_messages_received = total_messages_received + ? WHERE id = ?').run(received, id);
+    }
+    if (sent > 0) {
+      db.prepare('UPDATE social_accounts SET total_messages_sent = total_messages_sent + ? WHERE id = ?').run(sent, id);
+    }
+  },
+
+  logSocialMessage({ social_account_id, platform, sender_id, sender_name = null, message_text, direction, stage = null }) {
+    const info = db.prepare(`
+      INSERT INTO social_messages_log (social_account_id, platform, sender_id, sender_name, message_text, direction, stage)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      social_account_id || null,
+      platform,
+      sender_id,
+      sender_name,
+      message_text,
+      direction,
+      stage
+    );
+    return info.lastInsertRowid;
+  },
+
+  getSocialMessagesLog({ account_id = null, limit = 50 } = {}) {
+    let sql = `
+      SELECT m.*, a.name as account_name
+      FROM social_messages_log m
+      LEFT JOIN social_accounts a ON m.social_account_id = a.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (account_id) {
+      sql += ' AND m.social_account_id = ?';
+      params.push(account_id);
+    }
+    sql += ' ORDER BY m.id DESC LIMIT ?';
+    params.push(limit);
+    return db.prepare(sql).all(...params);
+  },
+
+  getSocialStats() {
+    const totalAccounts = db.prepare('SELECT COUNT(*) as count FROM social_accounts').get().count;
+    const igAccounts = db.prepare("SELECT COUNT(*) as count FROM social_accounts WHERE platform = 'instagram'").get().count;
+    const fbAccounts = db.prepare("SELECT COUNT(*) as count FROM social_accounts WHERE platform = 'facebook'").get().count;
+    const totalReceived = db.prepare('SELECT SUM(total_messages_received) as sum FROM social_accounts').get().sum || 0;
+    const totalSent = db.prepare('SELECT SUM(total_messages_sent) as sum FROM social_accounts').get().sum || 0;
+    const totalMessagesLogged = db.prepare('SELECT COUNT(*) as count FROM social_messages_log').get().count;
+
+    return {
+      totalAccounts,
+      igAccounts,
+      fbAccounts,
+      totalReceived,
+      totalSent,
+      totalMessagesLogged
+    };
   }
 };
 

@@ -47,7 +47,12 @@ class WhatsAppArmyService {
     try {
       models.updateArmyInstance(instanceId, { status: 'CONNECTING' });
       const { state, saveCreds } = await useMultiFileAuthState(folder);
-      const { version } = await fetchLatestBaileysVersion();
+      
+      let version = [2, 3000, 1043857760];
+      try {
+        const v = await fetchLatestBaileysVersion();
+        if (v && v.version) version = v.version;
+      } catch (_) {}
 
       const sock = makeWASocket({
         version,
@@ -65,7 +70,8 @@ class WhatsAppArmyService {
         if (qr) {
           try {
             const qrDataUrl = await QRCode.toDataURL(qr);
-            this.instanceQrs.set(instanceId, { qr, qrDataUrl });
+            const prev = this.instanceQrs.get(instanceId) || {};
+            this.instanceQrs.set(instanceId, { ...prev, qr, qrDataUrl });
             models.updateArmyInstance(instanceId, { status: 'WAITING_QR' });
           } catch (_) {}
         }
@@ -81,7 +87,6 @@ class WhatsAppArmyService {
         }
 
         if (connection === 'close') {
-          this.instanceQrs.delete(instanceId);
           const statusCode = lastDisconnect?.error?.output?.statusCode;
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
@@ -90,6 +95,8 @@ class WhatsAppArmyService {
 
           if (shouldReconnect) {
             setTimeout(() => this.startInstance(instanceId).catch(() => {}), 5000);
+          } else {
+            this.instanceQrs.delete(instanceId);
           }
         }
       });
@@ -128,17 +135,77 @@ class WhatsAppArmyService {
     models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
   }
 
+  async resetInstanceSession(instanceId) {
+    await this.stopInstance(instanceId);
+    const folder = path.join(this.armyBaseFolder, `instance_${instanceId}`);
+    if (fs.existsSync(folder)) {
+      try {
+        fs.rmSync(folder, { recursive: true, force: true });
+      } catch (_) {}
+    }
+    this.instanceQrs.delete(instanceId);
+    models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
+    return { success: true };
+  }
+
+  async requestPairingCode(instanceId, phone) {
+    const cleanPhone = String(phone).replace(/[^0-9]/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      throw new Error('Informe o telefone com DDI e DDD (ex: 5511999998888)');
+    }
+
+    models.updateArmyInstance(instanceId, { phone: cleanPhone });
+
+    let sock = this.activeSockets.get(instanceId);
+    if (!sock) {
+      await this.startInstance(instanceId);
+      sock = this.activeSockets.get(instanceId);
+    }
+
+    if (!sock) {
+      throw new Error('Não foi possível inicializar a conexão WhatsApp.');
+    }
+
+    if (this.isSimulationMode) {
+      const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const simCode = `${p1}-${p2}`;
+      const prev = this.instanceQrs.get(instanceId) || {};
+      this.instanceQrs.set(instanceId, { ...prev, pairingCode: simCode });
+      return { pairingCode: simCode, simulated: true };
+    }
+
+    try {
+      await new Promise(r => setTimeout(r, 1200));
+      const code = await sock.requestPairingCode(cleanPhone);
+      const prev = this.instanceQrs.get(instanceId) || {};
+      this.instanceQrs.set(instanceId, { ...prev, pairingCode: code });
+      return { pairingCode: code };
+    } catch (err) {
+      throw new Error('Falha ao gerar código de pareamento: ' + err.message);
+    }
+  }
+
   getInstanceQr(instanceId) {
     const inst = models.getArmyInstanceById(instanceId);
     if (inst && inst.is_main) {
       const whatsappBot = require('../bots/whatsappBot');
-      return whatsappBot.getConnectionStatus();
+      const st = whatsappBot.getConnectionStatus();
+      return {
+        connected: st.connected,
+        hasQr: st.hasQr,
+        qrDataUrl: st.qrDataUrl,
+        status: st.connected ? 'CONNECTED' : (st.hasQr ? 'WAITING_QR' : 'DISCONNECTED'),
+        pairingCode: null
+      };
     }
     const data = this.instanceQrs.get(instanceId);
     return {
       connected: inst ? inst.status === 'CONNECTED' : false,
       hasQr: !!data?.qrDataUrl,
-      qrDataUrl: data?.qrDataUrl || null
+      qrDataUrl: data?.qrDataUrl || null,
+      pairingCode: data?.pairingCode || null,
+      status: inst ? inst.status : 'DISCONNECTED'
     };
   }
 

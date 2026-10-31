@@ -359,6 +359,40 @@ function initDatabase() {
     );
   `);
 
+  // 21. Tabela de Contas das Redes Sociais (Instagram Direct & Facebook Pages)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL, -- 'instagram' ou 'facebook'
+      name TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      access_token TEXT,
+      app_secret TEXT,
+      webhook_verify_token TEXT DEFAULT 'paybot_meta_token_2026',
+      auto_reply_enabled INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'CONNECTED', -- 'CONNECTED', 'DISCONNECTED', 'PAUSED'
+      total_messages_received INTEGER DEFAULT 0,
+      total_messages_sent INTEGER DEFAULT 0,
+      assigned_company_id INTEGER REFERENCES companies(id),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 22. Tabela de Histórico de Mensagens Sociais (Direct & Messenger)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_messages_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      social_account_id INTEGER REFERENCES social_accounts(id),
+      platform TEXT NOT NULL, -- 'instagram' ou 'facebook'
+      sender_id TEXT NOT NULL,
+      sender_name TEXT,
+      message_text TEXT NOT NULL,
+      direction TEXT NOT NULL, -- 'IN' ou 'OUT'
+      stage TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
@@ -534,7 +568,18 @@ function initDatabase() {
     );
   }
 
-  console.log('✅ Banco de dados atualizado com Times de Vendedores e Afiliados!');
+  // Semeia contas de redes sociais de exemplo se vazias
+  const socialCount = db.prepare('SELECT COUNT(*) as count FROM social_accounts').get().count;
+  if (socialCount === 0) {
+    const insertSocial = db.prepare(`
+      INSERT INTO social_accounts (platform, name, account_id, status, auto_reply_enabled, total_messages_received, total_messages_sent)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertSocial.run('instagram', '@paybot.oficial', '17841400000000001', 'CONNECTED', 1, 14, 14);
+    insertSocial.run('facebook', 'Página Oficial PayBot Cripto', '109876543210987', 'CONNECTED', 1, 8, 8);
+  }
+
+  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados e Redes Sociais!');
 }
 
 initDatabase();

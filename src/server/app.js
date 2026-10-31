@@ -8,6 +8,7 @@ const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
 const updatesChannel = require('../services/updatesChannel');
 const whatsappArmyService = require('../services/whatsappArmyService');
+const socialMediaService = require('../services/socialMediaService');
 const whatsappBot = require('../bots/whatsappBot');
 const telegramBot = require('../bots/telegramBot');
 
@@ -975,6 +976,27 @@ function createServer() {
     }
   });
 
+  app.post('/api/army/instances/:id/pairing-code', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { phone } = req.body;
+      const result = await whatsappArmyService.requestPairingCode(id, phone);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/army/instances/:id/reset', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await whatsappArmyService.resetInstanceSession(id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 2. Links de Afiliados
   app.get('/api/army/links', (req, res) => {
     res.json(models.getAffiliateLinks());
@@ -1157,6 +1179,108 @@ function createServer() {
       res.json({ success: !!sent });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // 11. REDES SOCIAIS (INSTAGRAM DIRECT & FACEBOOK MESSENGER)
+  // ==========================================
+  app.get('/api/social/accounts', (req, res) => {
+    const { platform, status } = req.query;
+    res.json(models.getSocialAccounts({ platform, status }));
+  });
+
+  app.post('/api/social/accounts', (req, res) => {
+    try {
+      const { platform, name, account_id, access_token, app_secret, auto_reply_enabled, assigned_company_id } = req.body;
+      if (!platform || !name || !account_id) {
+        return res.status(400).json({ error: 'Plataforma, nome de exibição e ID da conta são obrigatórios.' });
+      }
+      const created = models.createSocialAccount({
+        platform,
+        name,
+        account_id,
+        access_token,
+        app_secret,
+        auto_reply_enabled,
+        assigned_company_id
+      });
+      res.json(created);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/social/accounts/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const updated = models.updateSocialAccount(id, req.body);
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/social/accounts/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      models.deleteSocialAccount(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/social/stats', (req, res) => {
+    res.json(models.getSocialStats());
+  });
+
+  app.get('/api/social/messages', (req, res) => {
+    const accountId = req.query.account_id ? parseInt(req.query.account_id, 10) : null;
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+    res.json(models.getSocialMessagesLog({ account_id: accountId, limit }));
+  });
+
+  app.post('/api/social/simulate', async (req, res) => {
+    try {
+      const { accountId, platform, senderId, senderName, text } = req.body;
+      if (!text) return res.status(400).json({ error: 'Texto da mensagem é obrigatório.' });
+
+      const result = await socialMediaService.handleIncomingMessage({
+        platform: platform || 'instagram',
+        accountId: accountId ? parseInt(accountId, 10) : null,
+        senderId: senderId || `user_${Date.now().toString().slice(-6)}`,
+        senderName: senderName || 'Lead Social Teste',
+        text
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Meta Webhook Verification (Instagram & Facebook Messenger)
+  app.get('/api/social/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    const responseChallenge = socialMediaService.verifyWebhook(mode, token, challenge);
+    if (responseChallenge) {
+      console.log('✅ [Meta Webhook] Verificação do webhook aprovada com sucesso!');
+      return res.status(200).send(responseChallenge);
+    }
+    res.status(403).send('Forbidden');
+  });
+
+  // Meta Webhook Ingestion (Instagram Direct & Facebook Messenger)
+  app.post('/api/social/webhook', async (req, res) => {
+    try {
+      // Retorna 200 OK imediatamente para a Meta não reenviar
+      res.status(200).send('EVENT_RECEIVED');
+      await socialMediaService.processWebhookPayload(req.body);
+    } catch (err) {
+      console.error('[Meta Webhook Error]:', err.message);
     }
   });
 

@@ -8,6 +8,7 @@ const binancePay = require('./src/services/binancePay');
 const pixPayment = require('./src/services/pixPayment');
 const subscriptionCron = require('./src/services/subscriptionCron');
 const whatsappArmyService = require('./src/services/whatsappArmyService');
+const socialMediaService = require('./src/services/socialMediaService');
 
 let passedTests = 0;
 let failedTests = 0;
@@ -1047,6 +1048,153 @@ async function main() {
     });
     assert.strictEqual(replyRes.status, 200);
     assert.strictEqual(replyRes.data.success, true);
+  });
+
+  // ----------------------------------------------------------------
+  // 10. TESTES DE CONEXÃO MULTI-CHIP WHATSAPP (PAIRING CODE) E REDES SOCIAIS (META)
+  // ----------------------------------------------------------------
+  console.log('\n📱 10. Testes de Conexão WhatsApp (Pairing Code & Reset) e Redes Sociais:');
+
+  await runAsyncTest('Geração de Código de Pareamento de 8 Dígitos (Pairing Code) & Reset de Sessão', async () => {
+    // 1. Gera código de pareamento
+    const pairingRes = await whatsappArmyService.requestPairingCode(testChip.id, '5511999991234');
+    assert(pairingRes.pairingCode, 'Deve retornar código de pareamento');
+    assert(pairingRes.pairingCode.length >= 8, 'Código de pareamento deve conter ao menos 8 caracteres');
+
+    // 2. Verifica se status do QR inclui pairingCode
+    const qrData = whatsappArmyService.getInstanceQr(testChip.id);
+    assert.strictEqual(qrData.pairingCode, pairingRes.pairingCode);
+
+    // 3. Reset de sessão
+    const resetRes = await whatsappArmyService.resetInstanceSession(testChip.id);
+    assert.strictEqual(resetRes.success, true);
+  });
+
+  runTest('Gerenciamento de Contas Sociais (Instagram & Facebook) no Banco de Dados', () => {
+    // 1. Cria conta do Instagram
+    const igAccount = models.createSocialAccount({
+      platform: 'instagram',
+      name: '@loja.cripto.pro',
+      account_id: '17841499999999999',
+      auto_reply_enabled: 1
+    });
+    assert(igAccount.id > 0);
+    assert.strictEqual(igAccount.platform, 'instagram');
+    assert.strictEqual(igAccount.name, '@loja.cripto.pro');
+
+    // 2. Atualiza conta
+    const updated = models.updateSocialAccount(igAccount.id, {
+      name: '@loja.cripto.vip',
+      auto_reply_enabled: 0
+    });
+    assert.strictEqual(updated.name, '@loja.cripto.vip');
+    assert.strictEqual(updated.auto_reply_enabled, 0);
+
+    // 3. Consulta contas
+    const accounts = models.getSocialAccounts({ platform: 'instagram' });
+    assert(accounts.some(a => a.id === igAccount.id));
+
+    // 4. Estatísticas
+    const stats = models.getSocialStats();
+    assert(stats.totalAccounts >= 2);
+    assert(stats.igAccounts >= 1);
+  });
+
+  await runAsyncTest('Auto-Resposta e Aquecimento de Direct (Instagram & Facebook Messenger)', async () => {
+    const igAcc = models.createSocialAccount({
+      platform: 'instagram',
+      name: '@canal.vendas.bot',
+      account_id: '17841488888888888',
+      auto_reply_enabled: 1
+    });
+
+    // 1. Mensagem comum
+    const resultGreeting = await socialMediaService.handleIncomingMessage({
+      platform: 'instagram',
+      accountId: igAcc.id,
+      senderId: 'ig_user_123',
+      senderName: 'Marcos Silva',
+      text: 'Olá, boa tarde!'
+    });
+    assert.strictEqual(resultGreeting.handled, true);
+    assert.strictEqual(resultGreeting.replied, true);
+    assert(resultGreeting.replyText.includes('Marcos'));
+
+    // 2. Mensagem com intenção de compra / valor
+    const resultBuying = await socialMediaService.handleIncomingMessage({
+      platform: 'instagram',
+      accountId: igAcc.id,
+      senderId: 'ig_user_123',
+      senderName: 'Marcos Silva',
+      text: 'Qual o valor e o link para comprar agora?'
+    });
+    assert.strictEqual(resultBuying.handled, true);
+    assert.strictEqual(resultBuying.replied, true);
+    assert(resultBuying.replyText.includes('desconto'));
+    assert(resultBuying.replyText.includes('http'));
+
+    // 3. Verificação do Webhook Meta
+    const challenge = socialMediaService.verifyWebhook('subscribe', 'paybot_meta_token_2026', 'challenge_test_code_123');
+    assert.strictEqual(challenge, 'challenge_test_code_123');
+
+    // 4. Ingestão de Webhook Payload
+    const webhookRes = await socialMediaService.processWebhookPayload({
+      object: 'instagram',
+      entry: [{
+        id: igAcc.account_id,
+        messaging: [{
+          sender: { id: 'ig_user_456' },
+          message: { text: 'Quero saber mais sobre o VIP' }
+        }]
+      }]
+    });
+    assert.strictEqual(webhookRes.processed, 1);
+  });
+
+  await runAsyncTest('Endpoints REST das Redes Sociais (/api/social/*)', async () => {
+    // 1. Listagem de contas
+    const listRes = await fetchApi('/api/social/accounts');
+    assert.strictEqual(listRes.status, 200);
+    assert(Array.isArray(listRes.data));
+
+    // 2. Criação via API
+    const createRes = await fetchApi('/api/social/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'facebook',
+        name: 'Página Facebook Teste API',
+        account_id: '9988776655443322'
+      })
+    });
+    assert.strictEqual(createRes.status, 200);
+    assert.strictEqual(createRes.data.name, 'Página Facebook Teste API');
+
+    // 3. Simulação de mensagem Direct via API
+    const simRes = await fetchApi('/api/social/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'facebook',
+        accountId: createRes.data.id,
+        senderName: 'Cliente Facebook',
+        text: 'Qual o valor do bot?'
+      })
+    });
+    assert.strictEqual(simRes.status, 200);
+    assert.strictEqual(simRes.data.handled, true);
+    assert(simRes.data.replyText.length > 0);
+
+    // 4. Webhook GET verification
+    const rawWebhook = await fetch(`http://localhost:${testPort}/api/social/webhook?hub.mode=subscribe&hub.verify_token=paybot_meta_token_2026&hub.challenge=test_challenge_999`);
+    assert.strictEqual(rawWebhook.status, 200);
+    const challengeText = await rawWebhook.text();
+    assert.strictEqual(challengeText, 'test_challenge_999');
+
+    // 5. Estatísticas
+    const statsRes = await fetchApi('/api/social/stats');
+    assert.strictEqual(statsRes.status, 200);
+    assert(statsRes.data.totalAccounts >= 2);
   });
 
   await new Promise(resolve => testServer.close(resolve));

@@ -66,6 +66,7 @@ function switchTab(tabName) {
   if (tabName === 'channel') loadChannelTab();
   if (tabName === 'coupons') loadCoupons();
   if (tabName === 'army') loadArmyData();
+  if (tabName === 'social') loadSocialData();
 }
 
 // 2. CARREGAMENTO GERAL
@@ -2053,16 +2054,119 @@ async function disconnectArmyInstance(id) {
   }
 }
 
+let currentArmyQrInstanceId = null;
+
+function switchArmyConnectTab(tab) {
+  const tabQr = document.getElementById('armyTabQr');
+  const tabPairing = document.getElementById('armyTabPairing');
+  const btnQr = document.getElementById('tabBtnQr');
+  const btnPairing = document.getElementById('tabBtnPairing');
+
+  if (tab === 'qr') {
+    if (tabQr) tabQr.style.display = 'block';
+    if (tabPairing) tabPairing.style.display = 'none';
+    if (btnQr) btnQr.className = 'btn btn-sm btn-primary';
+    if (btnPairing) btnPairing.className = 'btn btn-sm btn-secondary';
+  } else {
+    if (tabQr) tabQr.style.display = 'none';
+    if (tabPairing) tabPairing.style.display = 'block';
+    if (btnQr) btnQr.className = 'btn btn-sm btn-secondary';
+    if (btnPairing) btnPairing.className = 'btn btn-sm btn-primary';
+  }
+}
+
+async function refreshArmyQr() {
+  if (!currentArmyQrInstanceId) return;
+  const container = document.getElementById('armyQrContainer');
+  if (container) {
+    container.innerHTML = '<div style="padding: 35px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Gerando novo QR Code...</div>';
+  }
+  try {
+    await fetch(`/api/army/instances/${currentArmyQrInstanceId}/connect`, { method: 'POST' });
+  } catch (_) {}
+}
+
+async function requestArmyPairingCode() {
+  if (!currentArmyQrInstanceId) return;
+  const phoneInput = document.getElementById('armyPairingPhone');
+  const phone = phoneInput ? phoneInput.value.trim() : '';
+  if (!phone) {
+    alert('Informe o número de telefone completo com DDI e DDD (ex: 5511999998888)');
+    return;
+  }
+
+  const codeBox = document.getElementById('armyPairingCodeBox');
+  const codeText = document.getElementById('armyPairingCodeText');
+  if (codeText) codeText.innerText = 'GERANDO...';
+  if (codeBox) codeBox.style.display = 'block';
+
+  try {
+    const res = await fetch(`/api/army/instances/${currentArmyQrInstanceId}/pairing-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (res.ok && data.pairingCode) {
+      if (codeText) codeText.innerText = data.pairingCode;
+    } else {
+      if (codeText) codeText.innerText = 'ERRO';
+      alert('Erro ao gerar código de pareamento: ' + (data.error || 'Falha na resposta do servidor'));
+    }
+  } catch (err) {
+    if (codeText) codeText.innerText = 'ERRO';
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+function copyPairingCode() {
+  const codeEl = document.getElementById('armyPairingCodeText');
+  const code = codeEl ? codeEl.innerText.trim() : '';
+  if (code && code !== '----' && code !== 'GERANDO...' && code !== 'ERRO') {
+    navigator.clipboard.writeText(code).then(() => {
+      alert('Código ' + code + ' copiado com sucesso! Digite no seu WhatsApp.');
+    });
+  }
+}
+
+async function resetCurrentArmyInstanceSession() {
+  if (!currentArmyQrInstanceId) return;
+  if (!confirm('Deseja resetar e limpar todos os arquivos de sessão deste chip? Use isto se o chip estiver travado ou não conectar.')) return;
+  try {
+    await fetch(`/api/army/instances/${currentArmyQrInstanceId}/reset`, { method: 'POST' });
+    alert('Sessão resetada com sucesso! Você pode conectar agora.');
+    closeArmyQrModal();
+    loadArmyInstances();
+  } catch (err) {
+    alert('Erro ao resetar sessão: ' + err.message);
+  }
+}
+
 function openArmyQrModal(instanceId) {
+  currentArmyQrInstanceId = instanceId;
   const modal = document.getElementById('modalArmyQr');
   const container = document.getElementById('armyQrContainer');
   const statusText = document.getElementById('armyQrStatusText');
-  document.getElementById('modalArmyQrTitle').innerText = `QR Code - Chip #${instanceId}`;
+  const pairingInput = document.getElementById('armyPairingPhone');
+  const codeBox = document.getElementById('armyPairingCodeBox');
+
+  // Preenche telefone se cadastrado
+  const inst = currentArmyInstances.find(i => i.id === instanceId);
+  if (inst && inst.phone && pairingInput) {
+    pairingInput.value = inst.phone;
+  }
+  if (codeBox) codeBox.style.display = 'none';
+
+  switchArmyConnectTab('qr');
+  document.getElementById('modalArmyQrTitle').innerHTML = `<i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Conectar Chip #${instanceId}`;
   modal.classList.add('active');
 
-  container.innerHTML = '<div style="padding: 40px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Carregando status do WhatsApp...</div>';
+  container.innerHTML = '<div style="padding: 40px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Inicializando conexão WhatsApp...</div>';
 
   if (armyQrPollingInterval) clearInterval(armyQrPollingInterval);
+
+  // Inicia conexão caso ainda não tenha sido iniciada
+  fetch(`/api/army/instances/${instanceId}/connect`, { method: 'POST' }).catch(() => {});
 
   const checkQr = async () => {
     try {
@@ -2078,7 +2182,13 @@ function openArmyQrModal(instanceId) {
         container.innerHTML = `<img src="${data.qrDataUrl}" alt="QR Code WhatsApp" style="width: 250px; height: 250px; border-radius: 8px; border: 4px solid var(--border-color); background: #fff; padding: 10px;">`;
         statusText.innerText = 'Aponte a câmera do WhatsApp para escanear e autenticar este chip.';
       } else {
-        container.innerHTML = '<div style="padding: 35px; color: var(--text-muted);"><i class="fa-solid fa-rotate fa-spin fa-2x"></i><br><br>Aguardando resposta do Baileys...</div>';
+        container.innerHTML = '<div style="padding: 35px; color: var(--text-muted);"><i class="fa-solid fa-rotate fa-spin fa-2x"></i><br><br>Aguardando QR Code do Baileys...</div>';
+      }
+
+      if (data.pairingCode && codeBox && codeBox.style.display === 'none') {
+        const codeText = document.getElementById('armyPairingCodeText');
+        if (codeText) codeText.innerText = data.pairingCode;
+        codeBox.style.display = 'block';
       }
     } catch (_) {}
   };
@@ -2794,6 +2904,327 @@ async function sendManualLeadReply(e) {
 }
 
 // ====================================================================
+// 8. REDES SOCIAIS (INSTAGRAM DIRECT & FACEBOOK MESSENGER)
+// ====================================================================
+let currentSocialAccounts = [];
+
+async function loadSocialData() {
+  await Promise.all([
+    loadSocialAccounts(),
+    loadSocialStats(),
+    loadSocialMessages()
+  ]);
+}
+
+async function loadSocialAccounts() {
+  try {
+    const res = await fetch('/api/social/accounts');
+    currentSocialAccounts = await res.json();
+
+    const tbody = document.querySelector('#tableSocialAccounts tbody');
+    const simSelect = document.getElementById('simSocialAccountId');
+
+    if (simSelect) {
+      simSelect.innerHTML = currentSocialAccounts.map(a => `
+        <option value="${a.id}">[${a.platform.toUpperCase()}] ${a.name}</option>
+      `).join('') || '<option value="">Nenhuma conta cadastrada</option>';
+    }
+
+    if (!tbody) return;
+
+    if (currentSocialAccounts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 30px; color: var(--text-muted);">Nenhuma conta do Instagram ou Facebook conectada ainda. Clique no botão acima para adicionar.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = currentSocialAccounts.map(a => {
+      const isIg = a.platform === 'instagram';
+      const platIcon = isIg 
+        ? '<span style="color: #e1306c; font-weight: bold;"><i class="fa-brands fa-instagram fa-lg"></i> Instagram</span>' 
+        : '<span style="color: #1877f2; font-weight: bold;"><i class="fa-brands fa-facebook fa-lg"></i> Facebook</span>';
+      
+      const statusBadge = a.status === 'CONNECTED'
+        ? '<span class="badge badge-success">Conectado</span>'
+        : '<span class="badge" style="background: rgba(255,255,255,0.1); color: var(--text-muted);">Pausado</span>';
+
+      const autoReplyBadge = a.auto_reply_enabled === 1
+        ? '<span class="badge badge-success"><i class="fa-solid fa-bolt"></i> Ativo</span>'
+        : '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">Desativado</span>';
+
+      return `
+        <tr>
+          <td>${platIcon}</td>
+          <td><b>${a.name}</b></td>
+          <td><code style="font-size: 11px;">${a.account_id}</code></td>
+          <td>${statusBadge}</td>
+          <td>
+            <a href="javascript:void(0)" onclick="toggleSocialAutoReply(${a.id}, ${a.auto_reply_enabled ? 0 : 1})" style="text-decoration: none;">
+              ${autoReplyBadge}
+            </a>
+          </td>
+          <td>
+            <span title="Recebidas"><i class="fa-solid fa-arrow-down" style="color: #10b981;"></i> ${a.total_messages_received || 0}</span>
+            &nbsp;|&nbsp;
+            <span title="Respostas"><i class="fa-solid fa-arrow-up" style="color: #3b82f6;"></i> ${a.total_messages_sent || 0}</span>
+          </td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm btn-primary" onclick="prepareSocialSimulation(${a.id})" title="Testar Direct desta Conta">
+                <i class="fa-solid fa-paper-plane"></i> Testar
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="editSocialAccount(${a.id})" title="Editar Conta">
+                <i class="fa-solid fa-pen"></i>
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deleteSocialAccount(${a.id})" title="Remover Conta">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar contas sociais:', err);
+  }
+}
+
+async function loadSocialStats() {
+  try {
+    const res = await fetch('/api/social/stats');
+    const data = await res.json();
+    document.getElementById('socialStatAccounts').innerText = `${data.totalAccounts || 0} contas`;
+    document.getElementById('socialStatReceived').innerText = `${data.totalReceived || 0} DMs`;
+    document.getElementById('socialStatSent').innerText = `${data.totalSent || 0} disparos`;
+    document.getElementById('socialStatLogged').innerText = `${data.totalMessagesLogged || 0} logs`;
+  } catch (_) {}
+}
+
+async function loadSocialMessages() {
+  try {
+    const res = await fetch('/api/social/messages?limit=25');
+    const messages = await res.json();
+    const feed = document.getElementById('socialMessagesFeed');
+    if (!feed) return;
+
+    if (messages.length === 0) {
+      feed.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 30px;">Nenhuma mensagem registrada ainda. Envie um teste pelo simulador ao lado!</div>';
+      return;
+    }
+
+    feed.innerHTML = messages.map(m => {
+      const isOut = m.direction === 'OUT';
+      const isIg = m.platform === 'instagram';
+      const platColor = isIg ? '#e1306c' : '#1877f2';
+      const dirBadge = isOut 
+        ? '<span style="color: #38bdf8; font-size: 11px; font-weight: bold;"><i class="fa-solid fa-robot"></i> PayBot Respondeu</span>'
+        : `<span style="color: ${platColor}; font-size: 11px; font-weight: bold;"><i class="fa-solid fa-user"></i> ${m.sender_name || 'Lead Social'}</span>`;
+
+      return `
+        <div style="background: rgba(255,255,255,0.02); border-left: 3px solid ${isOut ? '#38bdf8' : platColor}; border-radius: 6px; padding: 10px 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            ${dirBadge}
+            <small style="color: var(--text-muted); font-size: 10px;">${new Date(m.created_at).toLocaleTimeString()}</small>
+          </div>
+          <div style="font-size: 12px; color: var(--text-white); white-space: pre-wrap;">${m.message_text}</div>
+        </div>
+      `;
+    }).join('');
+  } catch (_) {}
+}
+
+function openSocialAccountModal() {
+  document.getElementById('formSocialAccount').reset();
+  document.getElementById('socialId').value = '';
+  document.getElementById('modalSocialTitle').innerHTML = '<i class="fa-brands fa-meta" style="color: #0668e1;"></i> Conectar Nova Conta Social';
+  populateSocialCompaniesDropdown();
+  onSocialPlatformChange();
+  document.getElementById('modalSocialAccount').classList.add('active');
+}
+
+function closeSocialAccountModal() {
+  document.getElementById('modalSocialAccount').classList.remove('active');
+}
+
+function onSocialPlatformChange() {
+  const plat = document.getElementById('socialPlatform').value;
+  const lblName = document.getElementById('lblSocialName');
+  const lblId = document.getElementById('lblSocialAccountId');
+  const nameInput = document.getElementById('socialName');
+  const idInput = document.getElementById('socialAccountId');
+
+  if (plat === 'instagram') {
+    lblName.innerText = 'Handle do Instagram (@username) *';
+    nameInput.placeholder = 'Ex: @minhaloja.oficial';
+    lblId.innerText = 'Instagram Business Account ID *';
+    idInput.placeholder = 'Ex: 17841400000000001';
+  } else {
+    lblName.innerText = 'Nome da Página do Facebook *';
+    nameInput.placeholder = 'Ex: Página Oficial Minha Loja';
+    lblId.innerText = 'Facebook Page ID *';
+    idInput.placeholder = 'Ex: 109876543210987';
+  }
+}
+
+async function populateSocialCompaniesDropdown() {
+  const select = document.getElementById('socialCompanyId');
+  if (!select) return;
+  try {
+    const res = await fetch('/api/companies');
+    const companies = await res.json();
+    select.innerHTML = '<option value="">Geral (Sem empresa vinculada)</option>' +
+      companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  } catch (_) {}
+}
+
+function editSocialAccount(id) {
+  const account = currentSocialAccounts.find(a => a.id === id);
+  if (!account) return;
+
+  document.getElementById('formSocialAccount').reset();
+  document.getElementById('socialId').value = account.id;
+  document.getElementById('socialPlatform').value = account.platform;
+  document.getElementById('socialName').value = account.name;
+  document.getElementById('socialAccountId').value = account.account_id;
+  document.getElementById('socialAccessToken').value = account.access_token || '';
+  document.getElementById('socialAutoReply').checked = account.auto_reply_enabled === 1;
+
+  populateSocialCompaniesDropdown().then(() => {
+    document.getElementById('socialCompanyId').value = account.assigned_company_id || '';
+  });
+
+  onSocialPlatformChange();
+  document.getElementById('modalSocialTitle').innerHTML = `<i class="fa-brands fa-meta" style="color: #0668e1;"></i> Editar Conta Social #${account.id}`;
+  document.getElementById('modalSocialAccount').classList.add('active');
+}
+
+async function saveSocialAccount(e) {
+  e.preventDefault();
+  const id = document.getElementById('socialId').value;
+  const platform = document.getElementById('socialPlatform').value;
+  const name = document.getElementById('socialName').value.trim();
+  const account_id = document.getElementById('socialAccountId').value.trim();
+  const access_token = document.getElementById('socialAccessToken').value.trim();
+  const auto_reply_enabled = document.getElementById('socialAutoReply').checked ? 1 : 0;
+  const assigned_company_id = document.getElementById('socialCompanyId').value;
+
+  const payload = {
+    platform,
+    name,
+    account_id,
+    access_token: access_token || null,
+    auto_reply_enabled,
+    assigned_company_id: assigned_company_id ? parseInt(assigned_company_id, 10) : null
+  };
+
+  try {
+    const url = id ? `/api/social/accounts/${id}` : '/api/social/accounts';
+    const method = id ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      closeSocialAccountModal();
+      await loadSocialAccounts();
+      loadSocialStats();
+    } else {
+      const err = await res.json();
+      alert('Erro ao salvar conta: ' + (err.error || 'Falha ao salvar'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function toggleSocialAutoReply(id, enabled) {
+  try {
+    await fetch(`/api/social/accounts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_reply_enabled: enabled })
+    });
+    loadSocialAccounts();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function deleteSocialAccount(id) {
+  if (!confirm('Deseja realmente remover esta conta das redes sociais?')) return;
+  try {
+    await fetch(`/api/social/accounts/${id}`, { method: 'DELETE' });
+    await loadSocialAccounts();
+    loadSocialStats();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+function prepareSocialSimulation(accountId) {
+  const select = document.getElementById('simSocialAccountId');
+  if (select) select.value = accountId;
+  const input = document.getElementById('simSocialText');
+  if (input) {
+    input.focus();
+    input.scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
+async function submitSimulateSocialMessage(e) {
+  e.preventDefault();
+  const accountId = document.getElementById('simSocialAccountId').value;
+  const senderName = document.getElementById('simSocialSenderName').value.trim();
+  const text = document.getElementById('simSocialText').value.trim();
+  const btn = document.getElementById('btnSimulateSocial');
+  const resultBox = document.getElementById('simSocialResultBox');
+  const resultText = document.getElementById('simSocialResultText');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
+
+  try {
+    const res = await fetch('/api/social/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountId,
+        senderName,
+        text
+      })
+    });
+    const data = await res.json();
+    if (res.ok && data.replyText) {
+      resultText.innerText = data.replyText;
+      resultBox.style.display = 'block';
+      loadSocialAccounts();
+      loadSocialStats();
+      loadSocialMessages();
+    } else {
+      alert('Erro na simulação: ' + (data.error || 'Sem resposta gerada'));
+    }
+  } catch (err) {
+    alert('Erro ao simular direct: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Enviar Mensagem de Teste';
+  }
+}
+
+function copySocialWebhookUrl() {
+  const url = window.location.origin + '/api/social/webhook';
+  navigator.clipboard.writeText(url).then(() => {
+    alert('URL do Webhook copiada: ' + url);
+  });
+}
+
+function copySocialVerifyToken() {
+  navigator.clipboard.writeText('paybot_meta_token_2026').then(() => {
+    alert('Token de Verificação copiado: paybot_meta_token_2026');
+  });
+}
+
+// ====================================================================
 // CONTROLE GLOBAL DE MODAIS (FECHAR COM ESC OU CLICANDO NO BACKDROP)
 // ====================================================================
 const globalModalDismissMap = {
@@ -2812,7 +3243,8 @@ const globalModalDismissMap = {
   modalCampaignLeads: closeCampaignLeadsModal,
   modalFunnelStages: closeFunnelStagesModal,
   modalLeadsByStage: closeLeadsByStageModal,
-  modalLeadConversation: closeLeadConversationModal
+  modalLeadConversation: closeLeadConversationModal,
+  modalSocialAccount: closeSocialAccountModal
 };
 
 function dismissActiveModal(modalEl) {
