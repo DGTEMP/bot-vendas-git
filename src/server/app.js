@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const config = require('../config');
+const db = require('../db/database');
 const models = require('../db/models');
 const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
@@ -1589,6 +1590,144 @@ function createServer() {
   app.get('/api/metrics/channels', (req, res) => {
     try {
       res.json(models.getChannelMetrics());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // FACILIDADES DE USO: BUSCA GLOBAL & AÇÕES RÁPIDAS
+  // ==========================================
+  app.get('/api/search', (req, res) => {
+    try {
+      const q = (req.query.q || '').trim().toLowerCase();
+      if (!q) return res.json({ orders: [], products: [], sellers: [], affiliates: [], tickets: [] });
+
+      const orders = db.prepare(`
+        SELECT id, trade_no, product_name, amount, currency, status, platform, platform_user_name, created_at
+        FROM orders
+        WHERE LOWER(trade_no) LIKE '%' || ? || '%' 
+           OR LOWER(product_name) LIKE '%' || ? || '%' 
+           OR LOWER(platform_user_name) LIKE '%' || ? || '%'
+           OR LOWER(platform_user_id) LIKE '%' || ? || '%'
+        ORDER BY id DESC LIMIT 5
+      `).all(q, q, q, q);
+
+      const products = db.prepare(`
+        SELECT id, name, category, price_brl, price_usdt, active
+        FROM products
+        WHERE LOWER(name) LIKE '%' || ? || '%' OR LOWER(category) LIKE '%' || ? || '%'
+        ORDER BY id DESC LIMIT 5
+      `).all(q, q);
+
+      const sellers = db.prepare(`
+        SELECT id, name, phone, email, active
+        FROM sellers
+        WHERE LOWER(name) LIKE '%' || ? || '%' OR phone LIKE '%' || ? || '%'
+        ORDER BY id DESC LIMIT 5
+      `).all(q, q);
+
+      const affiliates = db.prepare(`
+        SELECT id, name, ref_code, phone, status
+        FROM affiliates
+        WHERE LOWER(name) LIKE '%' || ? || '%' OR LOWER(ref_code) LIKE '%' || ? || '%'
+        ORDER BY id DESC LIMIT 5
+      `).all(q, q);
+
+      const tickets = db.prepare(`
+        SELECT id, platform, customer_name, customer_id, issue_summary, status
+        FROM support_tickets
+        WHERE LOWER(customer_name) LIKE '%' || ? || '%' OR customer_id LIKE '%' || ? || '%' OR LOWER(issue_summary) LIKE '%' || ? || '%'
+        ORDER BY id DESC LIMIT 5
+      `).all(q, q, q);
+
+      res.json({ orders, products, sellers, affiliates, tickets });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/quick-charge', async (req, res) => {
+    try {
+      const { productId, gateway = 'pix', customerName = 'Cliente Rápido', customerId = 'admin_quick' } = req.body;
+      const product = models.getProductById(productId);
+      if (!product) return res.status(404).json({ error: 'Produto não encontrado.' });
+
+      const tradeNo = `ORD_QUICK_${Date.now()}`;
+      const amount = gateway === 'pix' ? (product.price_brl || product.price) : (product.price_usdt || (product.price / 5.5));
+
+      let pixCode = null;
+      let qrContent = null;
+      let checkoutUrl = null;
+
+      if (gateway === 'pix') {
+        const pixRes = await pixPayment.createPixCharge({
+          merchantTradeNo: tradeNo,
+          amount,
+          goodsName: product.name,
+          payerName: customerName
+        });
+        pixCode = pixRes.pixCode;
+        qrContent = pixRes.qrContent;
+      } else {
+        const binRes = await binancePay.createOrder({
+          merchantTradeNo: tradeNo,
+          amount,
+          currency: 'USDT',
+          goodsName: product.name,
+          goodsDetail: product.description
+        });
+        checkoutUrl = binRes.checkoutUrl || binRes.universalUrl;
+        qrContent = binRes.qrContent;
+      }
+
+      models.createOrder({
+        trade_no: tradeNo,
+        product_id: product.id,
+        product_name: product.name,
+        platform: 'whatsapp',
+        platform_user_id: customerId,
+        platform_user_name: customerName,
+        gateway,
+        amount,
+        currency: gateway === 'pix' ? 'BRL' : 'USDT',
+        status: 'PENDING',
+        pix_code: pixCode,
+        qr_content: qrContent,
+        checkout_url: checkoutUrl
+      });
+
+      res.json({
+        success: true,
+        tradeNo,
+        amount,
+        currency: gateway === 'pix' ? 'BRL' : 'USDT',
+        productName: product.name,
+        pixCode,
+        qrContent,
+        checkoutUrl
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/quick-message', async (req, res) => {
+    try {
+      const { phone, message } = req.body;
+      if (!phone || !message) return res.status(400).json({ error: 'Telefone e mensagem são obrigatórios.' });
+
+      const cleanPhone = phone.replace(/[^0-9]/g, '');
+      const parsedText = whatsappArmyService.parseSpintax(message, { name: 'Cliente' });
+
+      if (whatsappBot.isConnected) {
+        await whatsappBot.sendMessage(`${cleanPhone}@s.whatsapp.net`, parsedText);
+        return res.json({ success: true, sentVia: 'whatsapp_matrix', phone: cleanPhone, text: parsedText });
+      }
+
+      // Se matriz não conectada, envia através do serviço do exército (simulado ou chip)
+      await whatsappArmyService.sendMessageViaInstance(1, `${cleanPhone}@s.whatsapp.net`, parsedText);
+      res.json({ success: true, sentVia: 'whatsapp_army', phone: cleanPhone, text: parsedText });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

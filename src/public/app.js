@@ -3990,3 +3990,293 @@ async function deleteCustomTrigger(id) {
     alert('Erro ao excluir: ' + err.message);
   }
 }
+
+
+// ==========================================
+// FACILIDADES DE USO: BUSCA GLOBAL & ATALHOS RÁPIDOS
+// ==========================================
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    openGlobalSearchModal();
+  }
+  if (e.key === 'Escape') {
+    closeGlobalSearchModal();
+    closeQuickChargeModal();
+    closeLinkBuilderModal();
+  }
+});
+
+function openGlobalSearchModal() {
+  const m = document.getElementById('modalGlobalSearch');
+  if (m) {
+    m.classList.add('active');
+    setTimeout(() => {
+      const inp = document.getElementById('modalSearchField');
+      if (inp) inp.focus();
+    }, 50);
+  }
+}
+
+function closeGlobalSearchModal() {
+  const m = document.getElementById('modalGlobalSearch');
+  if (m) m.classList.remove('active');
+}
+
+let searchDebounceTimer = null;
+function onGlobalSearch(query) {
+  clearTimeout(searchDebounceTimer);
+  const container = document.getElementById('globalSearchResults');
+  if (!container) return;
+
+  const cleanQ = (query || '').trim();
+  if (!cleanQ) {
+    container.innerHTML = '<div style="padding: 30px; text-align: center; color: var(--text-muted);">Digite um termo acima para buscar em pedidos, produtos, clientes e afiliados.</div>';
+    return;
+  }
+
+  container.innerHTML = '<div style="padding: 20px; text-align: center;"><i class="fa-solid fa-spinner fa-spin"></i> Pesquisando...</div>';
+
+  searchDebounceTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(cleanQ)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      let html = '';
+      let hasResults = false;
+
+      // Pedidos
+      if (data.orders && data.orders.length > 0) {
+        hasResults = true;
+        html += `<div style="margin-bottom: 15px;"><b style="font-size: 11px; text-transform: uppercase; color: #38bdf8;">📦 Pedidos Encontrados (${data.orders.length})</b>`;
+        data.orders.forEach(o => {
+          html += `
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <b>#${o.trade_no}</b> — ${o.product_name}<br>
+                <small class="text-muted">${o.platform_user_name || 'Cliente'} (${o.platform}) • ${new Date(o.created_at).toLocaleDateString('pt-BR')}</small>
+              </div>
+              <div style="text-align: right;">
+                <b>${o.currency === 'BRL' ? 'R$ ' + o.amount.toFixed(2) : o.amount.toFixed(2) + ' USDT'}</b><br>
+                <span class="badge ${o.status === 'PAID' ? 'badge-paid' : 'badge-expired'}">${o.status}</span>
+              </div>
+            </div>
+          `;
+        });
+        html += `</div>`;
+      }
+
+      // Produtos
+      if (data.products && data.products.length > 0) {
+        hasResults = true;
+        html += `<div style="margin-bottom: 15px;"><b style="font-size: 11px; text-transform: uppercase; color: #10b981;">🛍️ Produtos & Assinaturas (${data.products.length})</b>`;
+        data.products.forEach(p => {
+          html += `
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <b>${p.name}</b> <small class="text-muted">(${p.category || 'Geral'})</small>
+              </div>
+              <div>
+                <b style="color: #10b981;">R$ ${(p.price_brl || 0).toFixed(2)}</b> / <b style="color: #f59e0b;">${(p.price_usdt || 0).toFixed(2)} USDT</b>
+              </div>
+            </div>
+          `;
+        });
+        html += `</div>`;
+      }
+
+      // Vendedores
+      if (data.sellers && data.sellers.length > 0) {
+        hasResults = true;
+        html += `<div style="margin-bottom: 15px;"><b style="font-size: 11px; text-transform: uppercase; color: #f59e0b;">👔 Vendedores (${data.sellers.length})</b>`;
+        data.sellers.forEach(s => {
+          html += `
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <b>${s.name}</b> <small class="text-muted">${s.phone || '-'}</small>
+              </div>
+              <span class="badge ${s.active ? 'badge-paid' : 'badge-expired'}">${s.active ? 'Ativo' : 'Pausado'}</span>
+            </div>
+          `;
+        });
+        html += `</div>`;
+      }
+
+      // Afiliados
+      if (data.affiliates && data.affiliates.length > 0) {
+        hasResults = true;
+        html += `<div style="margin-bottom: 15px;"><b style="font-size: 11px; text-transform: uppercase; color: #ec4899;">🤝 Afiliados (${data.affiliates.length})</b>`;
+        data.affiliates.forEach(a => {
+          html += `
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <b>${a.name}</b> — Código: <code>${a.ref_code}</code>
+              </div>
+              <span class="badge ${a.status === 'ACTIVE' ? 'badge-paid' : 'badge-expired'}">${a.status}</span>
+            </div>
+          `;
+        });
+        html += `</div>`;
+      }
+
+      // Chamados de Suporte
+      if (data.tickets && data.tickets.length > 0) {
+        hasResults = true;
+        html += `<div style="margin-bottom: 15px;"><b style="font-size: 11px; text-transform: uppercase; color: #ef4444;">🛎️ Chamados de Atendimento (${data.tickets.length})</b>`;
+        data.tickets.forEach(t => {
+          html += `
+            <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <b>#${t.id} - ${t.customer_name || 'Cliente'}</b> <small class="text-muted">(${t.platform})</small><br>
+                <small>${t.issue_summary || '-'}</small>
+              </div>
+              <span class="badge ${t.status === 'RESOLVED' ? 'badge-paid' : 'badge-expired'}">${t.status}</span>
+            </div>
+          `;
+        });
+        html += `</div>`;
+      }
+
+      if (!hasResults) {
+        html = `<div style="padding: 25px; text-align: center; color: var(--text-muted);">Nenhum resultado encontrado para "<b>${cleanQ}</b>".</div>`;
+      }
+
+      container.innerHTML = html;
+    } catch (_) {}
+  }, 250);
+}
+
+// ==========================================
+// COBRANÇA RÁPIDA (PIX & CRIPTO)
+// ==========================================
+function openQuickChargeModal() {
+  const m = document.getElementById('modalQuickCharge');
+  if (!m) return;
+  m.classList.add('active');
+
+  // Popula produtos
+  const sel = document.getElementById('quickChargeProduct');
+  if (sel) {
+    const products = allProducts || [];
+    let opts = '';
+    products.forEach(p => {
+      opts += `<option value="${p.id}">${p.name} — R$ ${(p.price_brl || p.price).toFixed(2)} (${(p.price_usdt || (p.price / 5.5)).toFixed(2)} USDT)</option>`;
+    });
+    sel.innerHTML = opts;
+  }
+
+  document.getElementById('quickChargeResult').style.display = 'none';
+  document.getElementById('btnGenerateQuickCharge').disabled = false;
+  document.getElementById('btnGenerateQuickCharge').innerHTML = '<i class="fa-solid fa-bolt"></i> Gerar Cobrança Agora';
+}
+
+function closeQuickChargeModal() {
+  const m = document.getElementById('modalQuickCharge');
+  if (m) m.classList.remove('active');
+}
+
+async function generateQuickCharge(e) {
+  e.preventDefault();
+  const productId = document.getElementById('quickChargeProduct')?.value;
+  const gateway = document.getElementById('quickChargeGateway')?.value;
+  const customerName = document.getElementById('quickChargeCustomer')?.value?.trim() || 'Cliente Rápido';
+
+  if (!productId) return alert('Selecione um produto.');
+
+  const btn = document.getElementById('btnGenerateQuickCharge');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+
+  try {
+    const res = await fetch('/api/quick-charge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productId, gateway, customerName })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao gerar cobrança rápida.');
+
+    const resBox = document.getElementById('quickChargeResult');
+    resBox.style.display = 'block';
+
+    document.getElementById('quickChargeTradeNo').innerText = `#${data.tradeNo}`;
+    document.getElementById('quickChargeAmountBadge').innerText = data.currency === 'BRL' ? `R$ ${data.amount.toFixed(2)}` : `${data.amount.toFixed(2)} USDT`;
+
+    if (gateway === 'pix') {
+      document.getElementById('quickPixContainer').style.display = 'block';
+      document.getElementById('quickBinanceContainer').style.display = 'none';
+      document.getElementById('quickPixCode').value = data.pixCode || 'PIX_SIMULADO';
+    } else {
+      document.getElementById('quickPixContainer').style.display = 'none';
+      document.getElementById('quickBinanceContainer').style.display = 'block';
+      document.getElementById('quickBinanceUrl').value = data.checkoutUrl || 'https://pay.binance.com/checkout';
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Cobrança Gerada!';
+    loadOrders();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Tentar Novamente';
+  }
+}
+
+// ==========================================
+// GERADOR DE LINKS DE VENDA DIRETA
+// ==========================================
+function openLinkBuilderModal() {
+  const m = document.getElementById('modalLinkBuilder');
+  if (!m) return;
+  m.classList.add('active');
+
+  const sel = document.getElementById('linkProduct');
+  if (sel) {
+    const products = allProducts || [];
+    let opts = '';
+    products.forEach(p => {
+      opts += `<option value="${p.id}" data-name="${p.name}">${p.name} — R$ ${(p.price_brl || p.price).toFixed(2)}</option>`;
+    });
+    sel.innerHTML = opts;
+  }
+  buildDirectLinks();
+}
+
+function closeLinkBuilderModal() {
+  const m = document.getElementById('modalLinkBuilder');
+  if (m) m.classList.remove('active');
+}
+
+function buildDirectLinks() {
+  const prodSel = document.getElementById('linkProduct');
+  const prodId = prodSel?.value || 1;
+  const prodName = prodSel?.selectedOptions[0]?.getAttribute('data-name') || 'Produto';
+  const refCode = document.getElementById('linkAffiliateCode')?.value?.trim().toUpperCase();
+  const coupon = document.getElementById('linkCouponCode')?.value?.trim().toUpperCase();
+
+  // Link WhatsApp: https://wa.me/?text=Ola...
+  let wppMsg = `Olá! Quero adquirir o *${prodName}*`;
+  if (refCode) wppMsg += ` (ref_${refCode})`;
+  if (coupon) wppMsg += ` com o cupom *${coupon}*`;
+
+  const wppLink = `https://wa.me/?text=${encodeURIComponent(wppMsg)}`;
+  const tgLink = `https://t.me/PayBotCriptoBot?start=buy_${prodId}${refCode ? `_ref_${refCode}` : ''}${coupon ? `_cupom_${coupon}` : ''}`;
+
+  if (document.getElementById('builtWppLink')) document.getElementById('builtWppLink').value = wppLink;
+  if (document.getElementById('builtTgLink')) document.getElementById('builtTgLink').value = tgLink;
+}
+
+function copyQuickField(elementId) {
+  const inp = document.getElementById(elementId);
+  if (!inp) return;
+  inp.select();
+  inp.setSelectionRange(0, 99999);
+  navigator.clipboard.writeText(inp.value).then(() => {
+    alert('Copiado para a área de transferência com sucesso!');
+  }).catch(() => {
+    document.execCommand('copy');
+    alert('Copiado!');
+  });
+}
+

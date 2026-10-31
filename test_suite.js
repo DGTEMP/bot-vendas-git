@@ -1855,6 +1855,77 @@ async function main() {
     whatsappBot.sendMessage = origSend;
   });
 
+  // ----------------------------------------------------------------
+  // 13. Testes de Facilidades de Uso, Busca Global & Ações Rápidas
+  // ----------------------------------------------------------------
+  console.log('\n⚡ 13. Testes de Facilidades de Uso, Busca Global & Ações Rápidas:');
+
+  await runTest('Busca Global Instantânea (/api/search)', async () => {
+    const emptyRes = await fetch(`${baseUrl}/api/search?q=`);
+    const emptyData = await emptyRes.json();
+    assert(Array.isArray(emptyData.products) && emptyData.products.length === 0, 'Busca vazia deve retornar array vazio');
+
+    const prodRes = await fetch(`${baseUrl}/api/search?q=Licen`);
+    const prodData = await prodRes.json();
+    assert(Array.isArray(prodData.products) && prodData.products.length > 0, 'Deve encontrar produtos com termo "Licen"');
+    assert(Array.isArray(prodData.orders), 'Deve retornar lista de pedidos');
+    assert(Array.isArray(prodData.sellers), 'Deve retornar lista de vendedores');
+    assert(Array.isArray(prodData.affiliates), 'Deve retornar lista de afiliados');
+    assert(Array.isArray(prodData.tickets), 'Deve retornar lista de tickets');
+  });
+
+  await runTest('Cobrança Instantânea Pix & Cripto (/api/quick-charge)', async () => {
+    const products = models.getProducts();
+    assert(products.length > 0, 'Deve ter produtos cadastrados');
+    const p = products[0];
+
+    const pixRes = await fetch(`${baseUrl}/api/quick-charge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        productId: p.id,
+        gateway: 'pix',
+        customerName: 'Cliente Rápido Teste',
+        customerId: 'quick_test_123'
+      })
+    });
+    const pixData = await pixRes.json();
+    assert(pixData.success === true, 'Cobrança rápida Pix deve ser gerada com sucesso');
+    assert(pixData.tradeNo && pixData.tradeNo.startsWith('ORD_QUICK_'), 'Deve conter tradeNo gerado');
+    assert(pixData.pixCode, 'Deve conter código Pix');
+    assert(pixData.currency === 'BRL', 'Moeda deve ser BRL');
+
+    const binRes = await fetch(`${baseUrl}/api/quick-charge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        productId: p.id,
+        gateway: 'binancepay',
+        customerName: 'Cliente Cripto Teste',
+        customerId: 'quick_test_456'
+      })
+    });
+    const binData = await binRes.json();
+    assert(binData.success === true, 'Cobrança rápida Binance Pay deve ser gerada com sucesso');
+    assert(binData.currency === 'USDT', 'Moeda deve ser USDT');
+    assert(binData.checkoutUrl || binData.qrContent, 'Deve retornar checkoutUrl ou qrContent');
+  });
+
+  await runTest('Envio Rápido de Mensagem com Spintax (/api/quick-message)', async () => {
+    const msgRes = await fetch(`${baseUrl}/api/quick-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: '5511999998888',
+        message: '{Olá|Oi|E aí} {Cliente|Amigo}, temos novidades!'
+      })
+    });
+    const msgData = await msgRes.json();
+    assert(msgData.success === true, 'Mensagem rápida deve ser enviada com sucesso');
+    assert(msgData.phone === '5511999998888', 'Telefone deve ser sanitizado');
+    assert(!msgData.text.includes('{') && !msgData.text.includes('|'), 'Spintax deve ser processado e resolvido');
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------
