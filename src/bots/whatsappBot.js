@@ -142,26 +142,35 @@ class WhatsAppBotService {
     }
   }
 
-  async checkIsAdmin(from, participantJid, isFromMe) {
-    if (isFromMe) return true;
-    const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
-    const cleanParticipant = (participantJid || '').split('@')[0].split(':')[0];
-    if (adminPhoneSetting && (adminPhoneSetting.includes(cleanParticipant) || cleanParticipant.includes(adminPhoneSetting))) {
-      return true;
-    }
+  async getGroupAdminStatus(from, participantJid, isFromMe) {
     if (!from.endsWith('@g.us')) {
-      return true; // Na conversa privada, o usuário é dono da própria conversa para desativar/parar
+      return { isGroup: false, isRequesterAdmin: true, isBotAdmin: false };
     }
     try {
-      if (this.sock && this.sock.groupMetadata) {
-        const metadata = await this.sock.groupMetadata(from);
-        const p = metadata?.participants?.find(x => x.id.includes(cleanParticipant));
-        if (p && (p.admin === 'admin' || p.admin === 'superadmin')) {
-          return true;
-        }
+      if (!this.sock || !this.sock.groupMetadata) {
+        return { isGroup: true, isRequesterAdmin: false, isBotAdmin: false, error: 'Socket não pronto' };
       }
-    } catch (_) {}
-    return false;
+      const metadata = await this.sock.groupMetadata(from);
+      const myNumber = this.sock.user?.id ? this.sock.user.id.split(':')[0] : '';
+      const botParticipant = metadata?.participants?.find(p => p.id.includes(myNumber));
+      const isBotAdmin = !!(botParticipant && (botParticipant.admin === 'admin' || botParticipant.admin === 'superadmin'));
+
+      const senderPhone = (participantJid || '').split('@')[0].split(':')[0];
+      const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
+      const isGlobalAdmin = isFromMe || !!(adminPhoneSetting && (adminPhoneSetting.includes(senderPhone) || senderPhone.includes(adminPhoneSetting)));
+
+      const requesterParticipant = metadata?.participants?.find(p => p.id.includes(senderPhone));
+      const isRequesterAdmin = isGlobalAdmin || !!(requesterParticipant && (requesterParticipant.admin === 'admin' || requesterParticipant.admin === 'superadmin'));
+
+      return { isGroup: true, isRequesterAdmin, isBotAdmin, metadata };
+    } catch (err) {
+      return { isGroup: true, isRequesterAdmin: false, isBotAdmin: false, error: err.message };
+    }
+  }
+
+  async checkIsAdmin(from, participantJid, isFromMe) {
+    const status = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+    return !status.isGroup ? true : status.isRequesterAdmin;
   }
 
   async handleIncomingMessage(msg) {
@@ -310,8 +319,348 @@ class WhatsAppBotService {
         statusText += `\n`;
       }
 
-      statusText += `_Comandos úteis: !desativar, !ativar, !bloquear, !desbloquear_`;
+      statusText += `_Comandos úteis: !desativar, !ativar, !bloquear, !desbloquear, !admin_`;
       return this.sendMessage(from, statusText);
+    }
+
+    // ==========================================
+    // 0.2 PROTEÇÃO ANTI-LINK EM GRUPOS
+    // ==========================================
+    if (isGroup && models.getSetting(`ANTILINK_${from}`, 'false') === 'true' && !isAdmin) {
+      const linkRegex = /(?:chat\.whatsapp\.com|wa\.me|t\.me|telegram\.me|discord\.gg)\/[a-zA-Z0-9_\-]+/i;
+      if (linkRegex.test(text)) {
+        console.log(`[WhatsApp 🛡️ Anti-Link] Link proibido detectado de ${senderPhone} no grupo ${from}`);
+        try {
+          if (this.sock) {
+            await this.sock.sendMessage(from, { delete: msg.key });
+            await this.sendMessage(from, `⚠️ @${senderPhone}, links de outros grupos não são permitidos neste grupo!`, { mentions: [participantJid] });
+            return;
+          }
+        } catch (_) {}
+      }
+    }
+
+    // ==========================================
+    // 0.3 FUNÇÕES DE GERENCIAMENTO DE GRUPOS (ADMIN COM BOT ADMIN)
+    // ==========================================
+    if (isGroup) {
+      // 1. Menu de Gestão: !admin, !gestao, !adminhelp
+      if (/^(?:!|\/)(?:admin|gestao|adminhelp|gerenciamento)$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem acessar o painel de gestão.');
+        }
+
+        const botStatusBadge = adminStatus.isBotAdmin 
+          ? '🟢 *Bot é Administrador* (Todas as funções liberadas)' 
+          : '⚠️ *Bot NÃO é Administrador* (Promova o bot a admin para executar ban, fechamento, etc.)';
+
+        const adminMenu = `🛠️ *PAINEL DE GERENCIAMENTO DO GRUPO (ADMIN)*\n\n` +
+          `• *Status do Bot:* ${botStatusBadge}\n\n` +
+          `👢 *Gerenciamento de Membros:*\n` +
+          `• *!ban* ou *!kick* (responda à mensagem ou use @número) — Remove participante\n` +
+          `• *!promover* (responda ou mencione) — Promove participante a Administrador\n` +
+          `• *!rebaixar* (responda ou mencione) — Remove cargo de Administrador\n` +
+          `• *!todos <aviso>* — Marca e notifica todos os participantes do grupo\n\n` +
+          `⚙️ *Configurações & Segurança:*\n` +
+          `• *!fechar* — Tranca o grupo (apenas administradores falam)\n` +
+          `• *!abrir* — Abre o grupo (todos os membros podem falar)\n` +
+          `• *!nome <novo nome>* — Altera o nome do grupo\n` +
+          `• *!descricao <texto>* — Altera a descrição e regras do grupo\n` +
+          `• *!link* — Exibe o link de convite oficial do grupo\n` +
+          `• *!revogar_link* — Cancela o link atual e gera um novo\n` +
+          `• *!antilink on/off* — Ativa ou desativa proteção contra links externos\n\n` +
+          `🛑 *Moderação do Bot:*\n` +
+          `• *!desativar* / *!ativar* — Pausa ou reativa o bot neste grupo\n` +
+          `• *!bloquear* / *!desbloquear* — Bloqueia participante de interagir com o bot\n` +
+          `• *!statusbot* — Consulta status de moderação e bloqueios`;
+
+        return this.sendMessage(from, adminMenu);
+      }
+
+      // 2. Remover Participante: !ban, !kick, !remover
+      if (/^(?:!|\/)(?:ban|kick|remover)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem remover participantes.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para remover membros!*\n\nPromova o bot a admin do grupo nas configurações do WhatsApp.');
+        }
+
+        let targetPhone = null;
+        let targetJid = null;
+
+        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+        if (quotedParticipant) {
+          targetJid = quotedParticipant;
+          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+        }
+        if (!targetJid) {
+          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          if (mentioned && mentioned.length > 0) {
+            targetJid = mentioned[0];
+            targetPhone = targetJid.split('@')[0].split(':')[0];
+          }
+        }
+        if (!targetJid) {
+          const matchNum = text.match(/(?:!|\/)(?:ban|kick|remover)\s*@?(\+?[0-9]{8,20})/i);
+          if (matchNum) {
+            targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+            targetJid = `${targetPhone}@s.whatsapp.net`;
+          }
+        }
+
+        if (!targetJid) {
+          return this.sendMessage(from, `ℹ️ *Como remover um membro:*\n• Responda à mensagem da pessoa com *!ban*\n• Ou envie *!ban @usuario*\n• Ou envie *!ban 5511999998888*`);
+        }
+
+        try {
+          await this.sock.groupParticipantsUpdate(from, [targetJid], 'remove');
+          return this.sendMessage(from, `👢 *MEMBRO REMOVIDO COM SUCESSO!*\n\nO participante *${targetPhone}* foi expulso do grupo por um administrador.`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Falha ao remover membro: ${err.message}`);
+        }
+      }
+
+      // 3. Promover a Administrador: !promover, !promote
+      if (/^(?:!|\/)(?:promover|promote)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem promover novos admins.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para promover membros!*');
+        }
+
+        let targetJid = null;
+        let targetPhone = null;
+        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+        if (quotedParticipant) {
+          targetJid = quotedParticipant;
+          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+        }
+        if (!targetJid) {
+          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          if (mentioned && mentioned.length > 0) {
+            targetJid = mentioned[0];
+            targetPhone = targetJid.split('@')[0].split(':')[0];
+          }
+        }
+        if (!targetJid) {
+          const matchNum = text.match(/(?:!|\/)(?:promover|promote)\s*@?(\+?[0-9]{8,20})/i);
+          if (matchNum) {
+            targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+            targetJid = `${targetPhone}@s.whatsapp.net`;
+          }
+        }
+
+        if (!targetJid) {
+          return this.sendMessage(from, `ℹ️ *Como promover:* responda à mensagem da pessoa com *!promover* ou envie *!promover @usuario*`);
+        }
+
+        try {
+          await this.sock.groupParticipantsUpdate(from, [targetJid], 'promote');
+          return this.sendMessage(from, `⭐ *ADMINISTRADOR PROMOVIDO!*\n\nO participante *${targetPhone}* agora é um Administrador deste grupo! 🎉`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Falha ao promover membro: ${err.message}`);
+        }
+      }
+
+      // 4. Rebaixar Administrador: !rebaixar, !demote
+      if (/^(?:!|\/)(?:rebaixar|demote)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem rebaixar admins.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar cargos!*');
+        }
+
+        let targetJid = null;
+        let targetPhone = null;
+        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+        if (quotedParticipant) {
+          targetJid = quotedParticipant;
+          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+        }
+        if (!targetJid) {
+          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          if (mentioned && mentioned.length > 0) {
+            targetJid = mentioned[0];
+            targetPhone = targetJid.split('@')[0].split(':')[0];
+          }
+        }
+        if (!targetJid) {
+          const matchNum = text.match(/(?:!|\/)(?:rebaixar|demote)\s*@?(\+?[0-9]{8,20})/i);
+          if (matchNum) {
+            targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+            targetJid = `${targetPhone}@s.whatsapp.net`;
+          }
+        }
+
+        if (!targetJid) {
+          return this.sendMessage(from, `ℹ️ *Como rebaixar:* responda à mensagem da pessoa com *!rebaixar* ou envie *!rebaixar @usuario*`);
+        }
+
+        try {
+          await this.sock.groupParticipantsUpdate(from, [targetJid], 'demote');
+          return this.sendMessage(from, `🔽 *ADMINISTRADOR REBAIXADO!*\n\nO participante *${targetPhone}* não é mais administrador.`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Falha ao rebaixar membro: ${err.message}`);
+        }
+      }
+
+      // 5. Fechar Grupo: !fechar, !lock
+      if (/^(?:!|\/)(?:fechar|lock|mutargrupo)$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem fechar o chat.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar configurações!*\n\nPromova o bot para permitir fechar/abrir o grupo.');
+        }
+
+        try {
+          await this.sock.groupSettingUpdate(from, 'announcement');
+          return this.sendMessage(from, `🔒 *GRUPO FECHADO!*\n\nAgora apenas administradores podem enviar mensagens no grupo.`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Erro ao fechar grupo: ${err.message}`);
+        }
+      }
+
+      // 6. Abrir Grupo: !abrir, !unlock
+      if (/^(?:!|\/)(?:abrir|unlock|desmutargrupo)$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem abrir o chat.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar configurações!*');
+        }
+
+        try {
+          await this.sock.groupSettingUpdate(from, 'not_announcement');
+          return this.sendMessage(from, `🔓 *GRUPO ABERTO!*\n\nTodos os membros do grupo agora podem enviar mensagens livremente!`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Erro ao abrir grupo: ${err.message}`);
+        }
+      }
+
+      // 7. Alterar Nome do Grupo: !nome <novo nome>
+      if (/^(?:!|\/)(?:nome|titulo)\s+/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores podem alterar o nome do grupo.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar o nome!*');
+        }
+
+        const newTitle = text.replace(/^(?:!|\/)(?:nome|titulo)\s+/i, '').trim();
+        if (!newTitle) return this.sendMessage(from, 'ℹ️ Uso: *!nome Novo Título do Grupo*');
+
+        try {
+          await this.sock.groupUpdateSubject(from, newTitle);
+          return this.sendMessage(from, `✏️ *NOME DO GRUPO ALTERADO!*\n\nNovo nome: *${newTitle}*`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Erro ao alterar nome: ${err.message}`);
+        }
+      }
+
+      // 8. Alterar Descrição do Grupo: !descricao <texto>
+      if (/^(?:!|\/)(?:descricao|desc|regras)\s+/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores podem alterar a descrição do grupo.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar a descrição!*');
+        }
+
+        const newDesc = text.replace(/^(?:!|\/)(?:descricao|desc|regras)\s+/i, '').trim();
+        if (!newDesc) return this.sendMessage(from, 'ℹ️ Uso: *!descricao Novas Regras e Avisos*');
+
+        try {
+          await this.sock.groupUpdateDescription(from, newDesc);
+          return this.sendMessage(from, `📝 *DESCRIÇÃO DO GRUPO ATUALIZADA COM SUCESSO!*`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Erro ao alterar descrição: ${err.message}`);
+        }
+      }
+
+      // 9. Obter Link de Convite: !link, !convite
+      if (/^(?:!|\/)(?:link|convite)$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem solicitar o link oficial.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador do grupo para obter o link de convite!*');
+        }
+
+        try {
+          const code = await this.sock.groupInviteCode(from);
+          return this.sendMessage(from, `🔗 *LINK DE CONVITE OFICIAL DO GRUPO:*\n\nhttps://chat.whatsapp.com/${code}\n\n_Para cancelar este link e gerar um novo: !revogar_link_`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Erro ao obter link de convite: ${err.message}`);
+        }
+      }
+
+      // 10. Revogar Link de Convite: !revogar_link
+      if (/^(?:!|\/)(?:revogar_link|revogarlink|resetlink)$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores podem revogar o link de convite.');
+        }
+        if (!adminStatus.isBotAdmin) {
+          return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador do grupo para revogar o link!*');
+        }
+
+        try {
+          const newCode = await this.sock.groupRevokeInvite(from);
+          return this.sendMessage(from, `🔄 *LINK DE CONVITE ANTERIOR REVOGADO!*\n\nNovo link oficial gerado:\nhttps://chat.whatsapp.com/${newCode}`);
+        } catch (err) {
+          return this.sendMessage(from, `❌ Erro ao revogar link: ${err.message}`);
+        }
+      }
+
+      // 11. Marcar Todos os Membros: !todos, !marcartodos, !aviso <msg>
+      if (/^(?:!|\/)(?:todos|marcartodos|aviso)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem marcar todos os membros.');
+        }
+
+        const customMsg = text.replace(/^(?:!|\/)(?:todos|marcartodos|aviso)\s*/i, '').trim();
+        const noticeText = customMsg || 'Atenção membros!';
+        const mentions = adminStatus.metadata?.participants ? adminStatus.metadata.participants.map(p => p.id) : [];
+
+        const tagText = `📢 *AVISO GERAL DOS ADMINISTRADORES:*\n\n${noticeText}`;
+        return this.sendMessage(from, tagText, { mentions });
+      }
+
+      // 12. Configurar Proteção Anti-Link: !antilink on/off
+      if (/^(?:!|\/)(?:antilink)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem configurar o anti-link.');
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const action = parts[1]?.toLowerCase();
+
+        if (action === 'on' || action === 'ativar' || action === '1') {
+          models.setSetting(`ANTILINK_${from}`, 'true');
+          return this.sendMessage(from, `🛡️ *PROTEÇÃO ANTI-LINK ATIVADA!*\n\nMensagens com links de outros grupos serão apagadas automaticamente.`);
+        } else if (action === 'off' || action === 'desativar' || action === '0') {
+          models.setSetting(`ANTILINK_${from}`, 'false');
+          return this.sendMessage(from, `🔓 *PROTEÇÃO ANTI-LINK DESATIVADA!*`);
+        } else {
+          const isAct = models.getSetting(`ANTILINK_${from}`, 'false') === 'true';
+          return this.sendMessage(from, `ℹ️ *Proteção Anti-Link:* ${isAct ? '🟢 Ativada' : '🔴 Desativada'}\n\nPara alterar: *!antilink on* ou *!antilink off*`);
+        }
+      }
     }
 
     // 0.2 SE O CHAT ESTIVER DESATIVADO (MUTED), NÃO RESPONDE MAIS NADA
@@ -764,14 +1113,18 @@ class WhatsAppBotService {
     await this.sendMessage(to, help);
   }
 
-  async sendMessage(jid, text) {
+  async sendMessage(jid, text, options = {}) {
     if (!this.sock || !this.isConnected) {
-      console.log(`[WhatsApp ⚠️] Não conectado. Mensagem para ${jid} não enviada: ${text.slice(0, 40)}...`);
+      console.log(`[WhatsApp ⚠️] Não conectado. Mensagem para ${jid} não enviada: ${typeof text === 'string' ? text.slice(0, 40) : 'objeto'}...`);
       return false;
     }
 
     try {
-      await this.sock.sendMessage(jid, { text });
+      if (typeof text === 'object' && text !== null) {
+        await this.sock.sendMessage(jid, text);
+      } else {
+        await this.sock.sendMessage(jid, { text, ...options });
+      }
       return true;
     } catch (err) {
       console.error(`[WhatsApp ❌ Falha ao enviar para ${jid}]:`, err.message);

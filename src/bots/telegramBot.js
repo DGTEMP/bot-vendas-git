@@ -59,15 +59,32 @@ class TelegramBotService {
     }
   }
 
-  async checkTelegramAdmin(ctx) {
-    if (!ctx.chat) return false;
-    if (ctx.chat.type === 'private') return true;
-    try {
-      const chatMember = await ctx.getChatMember(ctx.from.id);
-      return chatMember.status === 'creator' || chatMember.status === 'administrator';
-    } catch (_) {
-      return false;
+  async getTelegramAdminStatus(ctx) {
+    if (!ctx.chat || ctx.chat.type === 'private') {
+      return { isGroup: false, isRequesterAdmin: true, isBotAdmin: false };
     }
+    try {
+      let isBotAdmin = false;
+      if (ctx.botInfo?.id) {
+        const botMember = await ctx.getChatMember(ctx.botInfo.id);
+        isBotAdmin = botMember.status === 'administrator';
+      }
+
+      let isRequesterAdmin = false;
+      if (ctx.from?.id) {
+        const requesterMember = await ctx.getChatMember(ctx.from.id);
+        isRequesterAdmin = requesterMember.status === 'creator' || requesterMember.status === 'administrator';
+      }
+
+      return { isGroup: true, isRequesterAdmin, isBotAdmin };
+    } catch (err) {
+      return { isGroup: true, isRequesterAdmin: false, isBotAdmin: false, error: err.message };
+    }
+  }
+
+  async checkTelegramAdmin(ctx) {
+    const status = await this.getTelegramAdminStatus(ctx);
+    return !status.isGroup ? true : status.isRequesterAdmin;
   }
 
   setupHandlers() {
@@ -87,6 +104,26 @@ class TelegramBotService {
         const isReactivateCmd = /^\/(?:ativar|despausar|unmute|startbot)(?:@\w+)?(?:\s.*)?$/i.test(text);
         if (!isReactivateCmd) {
           return; // Chat mutado: silêncio para todas as mensagens exceto reativação
+        }
+      }
+
+      // 3. Verificação de Anti-Link em Grupos
+      if (chatId && ctx.chat?.type !== 'private') {
+        const isAntiLink = models.getSetting(`ANTILINK_${chatId}`, 'false') === 'true';
+        if (isAntiLink) {
+          const text = (ctx.message?.text || '').trim();
+          const linkRegex = /(?:t\.me|telegram\.me|chat\.whatsapp\.com|wa\.me|discord\.gg)\/[a-zA-Z0-9_\-]+/i;
+          if (linkRegex.test(text)) {
+            const adminStatus = await this.getTelegramAdminStatus(ctx);
+            if (!adminStatus.isRequesterAdmin) {
+              try {
+                await ctx.deleteMessage();
+                const userTag = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Usuário');
+                await ctx.reply(`⚠️ ${userTag}, links de outros canais ou grupos não são permitidos aqui!`);
+                return;
+              } catch (_) {}
+            }
+          }
         }
       }
 
@@ -208,8 +245,269 @@ class TelegramBotService {
         statusText += `\n`;
       }
 
-      statusText += `_Comandos úteis: /desativar, /ativar, /bloquear, /desbloquear_`;
+      statusText += `_Comandos úteis: /desativar, /ativar, /bloquear, /desbloquear, /admin_`;
       return ctx.reply(statusText, { parse_mode: 'Markdown' });
+    });
+
+    // ==========================================
+    // FUNÇÕES DE GERENCIAMENTO DE GRUPOS (TELEGRAM)
+    // ==========================================
+    // 1. Menu de Gestão: /admin, /gestao, /adminhelp
+    this.bot.command(['admin', 'gestao', 'adminhelp'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (adminStatus.isGroup && !adminStatus.isRequesterAdmin) {
+        return ctx.reply('⚠️ Apenas administradores do grupo podem ver o painel de gestão.');
+      }
+
+      const botBadge = adminStatus.isBotAdmin 
+        ? '🟢 *Bot é Administrador* (Todas as funções liberadas)' 
+        : '⚠️ *Bot NÃO é Administrador* (Promova o bot a admin no grupo para executar ações)';
+
+      const adminMenu = `🛠️ *PAINEL DE GERENCIAMENTO DO GRUPO (TELEGRAM)*\n\n` +
+        `• *Status do Bot:* ${botBadge}\n\n` +
+        `👢 *Gerenciamento de Membros:*\n` +
+        `• \`/ban\` ou \`/kick\` (responda à mensagem ou use ID) — Remove membro\n` +
+        `• \`/promover\` (responda ou use ID) — Promove membro a Administrador\n` +
+        `• \`/rebaixar\` (responda ou use ID) — Remove privilégios de Admin\n\n` +
+        `⚙️ *Configurações & Segurança:*\n` +
+        `• \`/fechar\` — Tranca o grupo (apenas administradores falam)\n` +
+        `• \`/abrir\` — Abre o grupo (todos os membros podem falar)\n` +
+        `• \`/nome <novo nome>\` — Altera o título do grupo\n` +
+        `• \`/descricao <texto>\` — Altera a descrição do grupo\n` +
+        `• \`/link\` — Exibe o link oficial de convite do grupo\n` +
+        `• \`/antilink on/off\` — Ativa ou desativa proteção contra links externos\n\n` +
+        `🛑 *Moderação do Bot:*\n` +
+        `• \`/desativar\` — Pausa respostas automáticas do bot neste grupo\n` +
+        `• \`/ativar\` — Reativa o bot neste grupo\n` +
+        `• \`/bloquear\` / \`/desbloquear\` — Bloqueia participante de interagir com o bot\n` +
+        `• \`/statusbot\` — Consulta status da moderação`;
+
+      return ctx.reply(adminMenu, { parse_mode: 'Markdown' });
+    });
+
+    // 2. Remover / Banir Membro: /ban, /kick, /remover
+    this.bot.command(['ban', 'kick', 'remover'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem remover participantes.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador deste grupo para remover membros!*');
+
+      let targetId = null;
+      let targetName = null;
+
+      if (ctx.message?.reply_to_message?.from) {
+        const u = ctx.message.reply_to_message.from;
+        targetId = u.id;
+        targetName = u.username ? `@${u.username}` : (u.first_name || targetId);
+      } else {
+        const parts = ctx.message.text.trim().split(/\s+/);
+        if (parts.length > 1) {
+          targetId = parseInt(parts[1].replace(/[^0-9]/g, ''), 10);
+          targetName = targetId;
+        }
+      }
+
+      if (!targetId) {
+        return ctx.reply('ℹ️ Responda à mensagem da pessoa com `/ban` ou envie `/ban ID_DO_USUARIO`', { parse_mode: 'Markdown' });
+      }
+
+      try {
+        await ctx.banChatMember(targetId);
+        await ctx.unbanChatMember(targetId); // Desbane para que funcione como kick (pode voltar se tiver link)
+        return ctx.reply(`👢 *Membro removido com sucesso!*\n\nO participante *${targetName}* foi removido do grupo por um administrador.`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao remover membro: ${err.message}`);
+      }
+    });
+
+    // 3. Promover a Administrador: /promover, /promote
+    this.bot.command(['promover', 'promote'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem promover membros.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador do grupo para promover membros!*');
+
+      let targetId = null;
+      let targetName = null;
+
+      if (ctx.message?.reply_to_message?.from) {
+        const u = ctx.message.reply_to_message.from;
+        targetId = u.id;
+        targetName = u.username ? `@${u.username}` : (u.first_name || targetId);
+      } else {
+        const parts = ctx.message.text.trim().split(/\s+/);
+        if (parts.length > 1) {
+          targetId = parseInt(parts[1].replace(/[^0-9]/g, ''), 10);
+          targetName = targetId;
+        }
+      }
+
+      if (!targetId) {
+        return ctx.reply('ℹ️ Responda à mensagem com `/promover` ou envie `/promover ID_DO_USUARIO`', { parse_mode: 'Markdown' });
+      }
+
+      try {
+        await ctx.promoteChatMember(targetId, {
+          can_manage_chat: true,
+          can_delete_messages: true,
+          can_restrict_members: true,
+          can_invite_users: true,
+          can_pin_messages: true
+        });
+        return ctx.reply(`⭐ *Administrador Promovido!*\n\nO participante *${targetName}* agora é um Administrador deste grupo!`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao promover membro: ${err.message}`);
+      }
+    });
+
+    // 4. Rebaixar Administrador: /rebaixar, /demote
+    this.bot.command(['rebaixar', 'demote'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem rebaixar membros.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador do grupo para alterar cargos!*');
+
+      let targetId = null;
+      let targetName = null;
+
+      if (ctx.message?.reply_to_message?.from) {
+        const u = ctx.message.reply_to_message.from;
+        targetId = u.id;
+        targetName = u.username ? `@${u.username}` : (u.first_name || targetId);
+      } else {
+        const parts = ctx.message.text.trim().split(/\s+/);
+        if (parts.length > 1) {
+          targetId = parseInt(parts[1].replace(/[^0-9]/g, ''), 10);
+          targetName = targetId;
+        }
+      }
+
+      if (!targetId) {
+        return ctx.reply('ℹ️ Responda à mensagem com `/rebaixar` ou envie `/rebaixar ID_DO_USUARIO`', { parse_mode: 'Markdown' });
+      }
+
+      try {
+        await ctx.promoteChatMember(targetId, {
+          can_manage_chat: false,
+          can_delete_messages: false,
+          can_restrict_members: false,
+          can_invite_users: false,
+          can_pin_messages: false
+        });
+        return ctx.reply(`🔽 *Administrador Rebaixado!*\n\nO usuário *${targetName}* não possui mais privilégios de administrador.`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao rebaixar membro: ${err.message}`);
+      }
+    });
+
+    // 5. Fechar Grupo: /fechar, /lock
+    this.bot.command(['fechar', 'lock'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem fechar o grupo.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador do grupo para trancar o chat!*');
+
+      try {
+        await ctx.setChatPermissions({ can_send_messages: false });
+        return ctx.reply('🔒 *GRUPO FECHADO!*\n\nAgora apenas administradores podem enviar mensagens no grupo.', { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao fechar grupo: ${err.message}`);
+      }
+    });
+
+    // 6. Abrir Grupo: /abrir, /unlock
+    this.bot.command(['abrir', 'unlock'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem abrir o grupo.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador do grupo para abrir o chat!*');
+
+      try {
+        await ctx.setChatPermissions({
+          can_send_messages: true,
+          can_send_media_messages: true,
+          can_send_other_messages: true,
+          can_add_web_page_previews: true
+        });
+        return ctx.reply('🔓 *GRUPO ABERTO!*\n\nTodos os membros do grupo agora podem enviar mensagens livremente.', { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao abrir grupo: ${err.message}`);
+      }
+    });
+
+    // 7. Alterar Nome do Grupo: /nome <novo nome>
+    this.bot.command(['nome', 'titulo'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem alterar o nome do grupo.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador para alterar o nome do grupo!*');
+
+      const parts = ctx.message.text.trim().split(/\s+/);
+      const newTitle = parts.slice(1).join(' ').trim();
+      if (!newTitle) return ctx.reply('ℹ️ Uso: `/nome Novo Nome do Grupo`', { parse_mode: 'Markdown' });
+
+      try {
+        await ctx.setChatTitle(newTitle);
+        return ctx.reply(`✏️ *Nome do Grupo Atualizado!*\n\nNovo título: *${newTitle}*`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao alterar nome: ${err.message}`);
+      }
+    });
+
+    // 8. Alterar Descrição: /descricao <texto>
+    this.bot.command(['descricao', 'desc'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem alterar a descrição.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador para alterar a descrição!*');
+
+      const parts = ctx.message.text.trim().split(/\s+/);
+      const newDesc = parts.slice(1).join(' ').trim();
+      if (!newDesc) return ctx.reply('ℹ️ Uso: `/descricao Regras e Informações`', { parse_mode: 'Markdown' });
+
+      try {
+        await ctx.setChatDescription(newDesc);
+        return ctx.reply('📝 *Descrição do Grupo Atualizada com Sucesso!*', { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao alterar descrição: ${err.message}`);
+      }
+    });
+
+    // 9. Obter Link de Convite: /link, /convite
+    this.bot.command(['link', 'convite'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem solicitar o link de convite.');
+      if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador para gerar o link de convite!*');
+
+      try {
+        const link = await ctx.exportChatInviteLink();
+        return ctx.reply(`🔗 *Link de Convite Oficial do Grupo:*\n\n${link}`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao obter link de convite: ${err.message}`);
+      }
+    });
+
+    // 10. Configurar Anti-Link: /antilink on/off
+    this.bot.command('antilink', async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem configurar o anti-link.');
+
+      const parts = ctx.message.text.trim().split(/\s+/);
+      const action = parts[1]?.toLowerCase();
+      const chatId = String(ctx.chat.id);
+
+      if (action === 'on' || action === 'ativar' || action === '1') {
+        models.setSetting(`ANTILINK_${chatId}`, 'true');
+        return ctx.reply('🛡️ *Proteção Anti-Link Ativada!*\n\nMensagens com links externos serão apagadas automaticamente.', { parse_mode: 'Markdown' });
+      } else if (action === 'off' || action === 'desativar' || action === '0') {
+        models.setSetting(`ANTILINK_${chatId}`, 'false');
+        return ctx.reply('🔓 *Proteção Anti-Link Desativada!*', { parse_mode: 'Markdown' });
+      } else {
+        const isAct = models.getSetting(`ANTILINK_${chatId}`, 'false') === 'true';
+        return ctx.reply(`ℹ️ *Anti-Link neste grupo:* ${isAct ? '🟢 Ativado' : '🔴 Desativado'}\n\nPara alterar: \`/antilink on\` ou \`/antilink off\``, { parse_mode: 'Markdown' });
+      }
     });
 
     // /start com suporte a Links de Afiliados e Ofertas (Deep-Linking: /start ref_CODIGO ou /start buy_ID)

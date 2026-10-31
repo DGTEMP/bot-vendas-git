@@ -1431,6 +1431,175 @@ async function main() {
     assert.strictEqual(models.isUserBlocked('whatsapp', '5511977771111'), false);
   });
 
+  // ================================================================
+  // 15. TESTES DE GERENCIAMENTO DE GRUPOS (FUNÇÕES ADMIN)
+  // ================================================================
+  await runAsyncTest('Gestão de Grupos: Resolução de Privilégios (Bot Admin & Requester Admin)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const testGroup = '120363088888888888@g.us';
+
+    // 1. Mock do socket Baileys com participantes
+    const originalSock = whatsappBot.sock;
+    whatsappBot.sock = {
+      user: { id: '5511900000000:1@s.whatsapp.net' },
+      groupMetadata: async (jid) => ({
+        id: jid,
+        subject: 'Grupo Teste VIP',
+        participants: [
+          { id: '5511900000000@s.whatsapp.net', admin: 'admin' }, // O Bot é Admin
+          { id: '5511911111111@s.whatsapp.net', admin: 'admin' }, // Admin 1
+          { id: '5511922222222@s.whatsapp.net', admin: null }    // Membro Comum
+        ]
+      })
+    };
+
+    // Caso A: Admin do grupo solicita comando e bot é admin
+    const statusA = await whatsappBot.getGroupAdminStatus(testGroup, '5511911111111@s.whatsapp.net', false);
+    assert.strictEqual(statusA.isGroup, true);
+    assert.strictEqual(statusA.isRequesterAdmin, true);
+    assert.strictEqual(statusA.isBotAdmin, true);
+
+    // Caso B: Membro comum solicita comando
+    const statusB = await whatsappBot.getGroupAdminStatus(testGroup, '5511922222222@s.whatsapp.net', false);
+    assert.strictEqual(statusB.isGroup, true);
+    assert.strictEqual(statusB.isRequesterAdmin, false);
+    assert.strictEqual(statusB.isBotAdmin, true);
+
+    // Caso C: Bot NÃO é admin do grupo
+    whatsappBot.sock.groupMetadata = async (jid) => ({
+      id: jid,
+      subject: 'Grupo Sem Bot Admin',
+      participants: [
+        { id: '5511900000000@s.whatsapp.net', admin: null },    // Bot NÃO é admin
+        { id: '5511911111111@s.whatsapp.net', admin: 'admin' }, // Admin 1
+        { id: '5511922222222@s.whatsapp.net', admin: null }
+      ]
+    });
+
+    const statusC = await whatsappBot.getGroupAdminStatus(testGroup, '5511911111111@s.whatsapp.net', false);
+    assert.strictEqual(statusC.isGroup, true);
+    assert.strictEqual(statusC.isRequesterAdmin, true);
+    assert.strictEqual(statusC.isBotAdmin, false);
+
+    whatsappBot.sock = originalSock;
+  });
+
+  await runAsyncTest('Gestão de Grupos: Execução de Comandos de Grupo no WhatsApp', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const testGroup = '120363077777777777@g.us';
+
+    let lastSentMsg = null;
+    let lastAction = null;
+
+    const originalSock = whatsappBot.sock;
+    const originalSendMessage = whatsappBot.sendMessage;
+    whatsappBot.sendMessage = async (jid, text, opt) => {
+      lastSentMsg = { jid, text, opt };
+      return true;
+    };
+
+    whatsappBot.sock = {
+      user: { id: '5511900000000:1@s.whatsapp.net' },
+      groupMetadata: async () => ({
+        participants: [
+          { id: '5511900000000@s.whatsapp.net', admin: 'admin' },
+          { id: '5511911111111@s.whatsapp.net', admin: 'admin' },
+          { id: '5511922222222@s.whatsapp.net', admin: null }
+        ]
+      }),
+      groupParticipantsUpdate: async (jid, participants, action) => {
+        lastAction = { jid, participants, action };
+      },
+      groupSettingUpdate: async (jid, setting) => {
+        lastAction = { jid, setting };
+      },
+      groupUpdateSubject: async (jid, subject) => {
+        lastAction = { jid, subject };
+      },
+      groupInviteCode: async () => 'INVITE123'
+    };
+
+    // 1. Comando !admin (Menu de Gestão)
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!admin' },
+      pushName: 'Admin Grupo'
+    });
+    assert(lastSentMsg.text.includes('PAINEL DE GERENCIAMENTO'));
+    assert(lastSentMsg.text.includes('Bot é Administrador'));
+
+    // 2. Comando !fechar (Trancar grupo para admins)
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!fechar' }
+    });
+    assert.strictEqual(lastAction.setting, 'announcement');
+    assert(lastSentMsg.text.includes('GRUPO FECHADO'));
+
+    // 3. Comando !abrir (Destrancar grupo)
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!abrir' }
+    });
+    assert.strictEqual(lastAction.setting, 'not_announcement');
+    assert(lastSentMsg.text.includes('GRUPO ABERTO'));
+
+    // 4. Comando !ban (Remover membro pelo número)
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!ban 5511922222222' }
+    });
+    assert.strictEqual(lastAction.action, 'remove');
+    assert.strictEqual(lastAction.participants[0], '5511922222222@s.whatsapp.net');
+    assert(lastSentMsg.text.includes('MEMBRO REMOVIDO'));
+
+    // 5. Bloqueio para não-admins
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511922222222@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!ban 5511911111111' }
+    });
+    assert(lastSentMsg.text.includes('Apenas administradores'));
+
+    // 6. Anti-link toggle
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!antilink on' }
+    });
+    assert.strictEqual(models.getSetting(`ANTILINK_${testGroup}`), 'true');
+    assert(lastSentMsg.text.includes('ANTI-LINK ATIVADA'));
+
+    whatsappBot.sock = originalSock;
+    whatsappBot.sendMessage = originalSendMessage;
+  });
+
+  await runAsyncTest('Gestão de Grupos: Resolução de Privilégios no Telegram Bot', async () => {
+    const telegramBot = require('./src/bots/telegramBot');
+    const mockCtx = {
+      chat: { id: -1001988887777, type: 'supergroup' },
+      from: { id: 987654 },
+      botInfo: { id: 555666 },
+      getChatMember: async (id) => {
+        if (id === 555666) return { status: 'administrator' }; // Bot é admin
+        if (id === 987654) return { status: 'administrator' }; // Usuário é admin
+        return { status: 'member' };
+      }
+    };
+
+    const status = await telegramBot.getTelegramAdminStatus(mockCtx);
+    assert.strictEqual(status.isGroup, true);
+    assert.strictEqual(status.isRequesterAdmin, true);
+    assert.strictEqual(status.isBotAdmin, true);
+
+    // Quando bot NÃO é admin
+    mockCtx.getChatMember = async (id) => {
+      if (id === 555666) return { status: 'member' };
+      return { status: 'administrator' };
+    };
+    const statusNoBotAdmin = await telegramBot.getTelegramAdminStatus(mockCtx);
+    assert.strictEqual(statusNoBotAdmin.isBotAdmin, false);
+    assert.strictEqual(statusNoBotAdmin.isRequesterAdmin, true);
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------
