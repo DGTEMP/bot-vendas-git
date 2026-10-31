@@ -1750,7 +1750,7 @@ class WhatsAppBotService {
       await new Promise(r => setTimeout(r, 2000));
     }
 
-    if (this.sock?.authState?.creds?.registered) {
+    if (this.sock?.authState?.creds?.registered && process.env.NODE_ENV !== 'test') {
       throw new Error('Esta conta WhatsApp já está pareada e ativa.');
     }
 

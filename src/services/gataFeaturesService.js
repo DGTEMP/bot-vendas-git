@@ -193,36 +193,172 @@ class GataFeaturesService {
   // 2. MÓDULO DE BAIXADORES (DOWNLOADERS)
   // ==========================================
 
+  // Helper: Extrai áudio de vídeo do YouTube usando yt-dlp ou fallbacks
+  async downloadYouTubeAudio(videoUrl) {
+    // 1. Tenta extração via yt-dlp nativo
+    try {
+      const { spawn } = require('child_process');
+      const buf = await new Promise((resolve, reject) => {
+        const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'ba[ext=m4a]/ba/b', '-o', '-', videoUrl]);
+        const chunks = [];
+        let errData = '';
+
+        proc.stdout.on('data', chunk => chunks.push(chunk));
+        proc.stderr.on('data', d => { errData += d.toString(); });
+
+        proc.on('error', err => reject(err));
+        proc.on('close', code => {
+          if (code === 0 && chunks.length > 0) {
+            resolve(Buffer.concat(chunks));
+          } else {
+            reject(new Error(`yt-dlp falhou (${code}): ${errData.slice(0, 100)}`));
+          }
+        });
+
+        setTimeout(() => {
+          try { proc.kill(); } catch (_) {}
+          reject(new Error('Tempo limite excedido'));
+        }, 40000);
+      });
+
+      if (buf && buf.length > 5000) {
+        return { buffer: buf, mimetype: 'audio/mp4', ext: 'm4a' };
+      }
+    } catch (err) {
+      console.warn('[GataFeatures ⚠️ Falha no yt-dlp stdout]:', err.message);
+    }
+
+    // 2. Tenta extração de URL direta do stream via yt-dlp --get-url
+    try {
+      const { execSync } = require('child_process');
+      const directUrl = execSync(`python -m yt_dlp -f "ba[ext=m4a]/ba" --get-url "${videoUrl}"`, { timeout: 15000, encoding: 'utf8' }).trim();
+      const firstUrl = directUrl.split('\n')[0].trim();
+      if (firstUrl && firstUrl.startsWith('http')) {
+        const res = await fetch(firstUrl, { signal: AbortSignal.timeout(20000) });
+        if (res.ok) {
+          const arrayBuf = await res.arrayBuffer();
+          return { buffer: Buffer.from(arrayBuf), mimetype: 'audio/mp4', ext: 'm4a' };
+        }
+      }
+    } catch (_) {}
+
+    // 3. Fallbacks de APIs web públicas
+    const webApis = [
+      `https://api.vreden.my.id/api/ytmp3?url=${encodeURIComponent(videoUrl)}`,
+      `https://widipe.com/download/ytdl?url=${encodeURIComponent(videoUrl)}`,
+      `https://api.dhamzxploit.my.id/api/ytmp3?url=${encodeURIComponent(videoUrl)}`
+    ];
+
+    for (const api of webApis) {
+      try {
+        const res = await fetch(api, { signal: AbortSignal.timeout(6000) });
+        const json = await res.json();
+        const dlUrl = json?.result?.mp3 || json?.result?.download?.url || json?.data?.url || json?.result?.url;
+        if (dlUrl) {
+          const audioRes = await fetch(dlUrl, { signal: AbortSignal.timeout(15000) });
+          if (audioRes.ok) {
+            const arrayBuf = await audioRes.arrayBuffer();
+            return { buffer: Buffer.from(arrayBuf), mimetype: 'audio/mp4', ext: 'mp3' };
+          }
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
   // Comando !play / !ytmp3 (Busca e baixa música do YouTube)
   async handlePlayMusic(sock, from, query) {
     const cleanQ = query.replace(/^(?:!|\/)(?:play|ytmp3|musica)\s*/i, '').trim();
     if (!cleanQ) {
-      return sock.sendMessage(from, { text: `🎵 Digite o nome da música ou o link do YouTube! Exemplo: *!play Imagine Dragons Believer*` });
+      return sock.sendMessage(from, {
+        text: `🎵 *REPRODUTOR DE MÚSICAS YOUTUBE*\n\n` +
+          `Digite o nome da música ou link do YouTube após o comando!\n\n` +
+          `Exemplos:\n` +
+          `• *!play Imagine Dragons Believer*\n` +
+          `• *!play Alok Hear Me Now*\n` +
+          `• *!play https://www.youtube.com/watch?v=...*`
+      });
     }
 
-    await sock.sendMessage(from, { text: `🔎 *Buscando música:* "${cleanQ}"...\n⏳ Aguarde enquanto preparamos seu áudio!` });
-
     try {
-      // Endpoint público de download de áudio
-      const apiUrl = `https://api.siputzx.my.id/api/d/ytmp3?url=${encodeURIComponent(cleanQ)}`;
-      const res = await fetch(apiUrl);
-      const data = await res.json();
+      const yts = require('yt-search');
+      let video = null;
+      const isYtUrl = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i.test(cleanQ);
 
-      if (data?.data?.dl) {
-        const audioRes = await fetch(data.data.dl);
-        const audioBuf = Buffer.from(await audioRes.arrayBuffer());
+      if (isYtUrl) {
+        const match = cleanQ.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+        const videoId = match ? match[1] : null;
+        if (videoId) {
+          try {
+            const searchRes = await yts({ videoId });
+            video = searchRes;
+          } catch (_) {
+            video = {
+              title: 'Música do YouTube',
+              url: `https://www.youtube.com/watch?v=${videoId}`,
+              videoId,
+              timestamp: 'Áudio',
+              thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              author: { name: 'YouTube' }
+            };
+          }
+        }
+      } else {
+        const searchRes = await yts(cleanQ);
+        if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+          video = searchRes.videos[0];
+        }
+      }
+
+      if (!video || !video.url) {
+        return sock.sendMessage(from, { text: `❌ Nenhuma música encontrada para "*${cleanQ}*". Tente com outro termo ou envie o link direto do YouTube.` });
+      }
+
+      const cardText = `🎵 *YOUTUBE PLAY (MÚSICA)* 🎵\n\n` +
+        `📌 *Título:* ${video.title}\n` +
+        `⏱️ *Duração:* ${video.timestamp || 'Desconhecida'}\n` +
+        `👤 *Canal:* ${video.author?.name || 'YouTube'}\n` +
+        `🔗 *Link:* ${video.url}\n\n` +
+        `⏳ *Baixando áudio em alta qualidade...* Aguarde alguns instantes!`;
+
+      try {
+        if (video.thumbnail) {
+          await sock.sendMessage(from, {
+            image: { url: video.thumbnail },
+            caption: cardText
+          });
+        } else {
+          await sock.sendMessage(from, { text: cardText });
+        }
+      } catch (_) {
+        await sock.sendMessage(from, { text: cardText });
+      }
+
+      // Baixa áudio do YouTube
+      const audioData = await this.downloadYouTubeAudio(video.url);
+
+      if (audioData && audioData.buffer) {
+        const safeTitle = (video.title || 'musica').replace(/[\\/:*?"<>|]/g, '').slice(0, 60);
         await sock.sendMessage(from, {
-          audio: audioBuf,
-          mimetype: 'audio/mp4',
-          fileName: `${data.data.title || 'musica'}.mp3`
+          audio: audioData.buffer,
+          mimetype: audioData.mimetype || 'audio/mp4',
+          fileName: `${safeTitle}.mp3`,
+          ptt: false
         });
+
+        // Bonifica usuário com pontos de fidelidade
+        const senderPhone = from.split('@')[0].split(':')[0];
+        models.addLoyaltyPoints('whatsapp', senderPhone, 5, 5);
       } else {
         await sock.sendMessage(from, {
-          text: `🎶 *Música Encontrada:* ${cleanQ}\n\nVocê pode ouvir e baixar diretamente através do link oficial no YouTube ou usar um link direto com *!ytmp3 <link>*.`
+          text: `⚠️ *Não foi possível extrair o áudio de:* "${video.title}".\n\n` +
+            `🔗 Você pode ouvir diretamente no link oficial:\n${video.url}`
         });
       }
     } catch (err) {
-      await sock.sendMessage(from, { text: `⚠️ Não foi possível baixar no momento. Tente com outro termo ou link direto.` });
+      console.error('[GataFeatures ❌ Erro em handlePlayMusic]:', err.message);
+      await sock.sendMessage(from, { text: `❌ Erro ao buscar ou baixar música: ${err.message}` });
     }
   }
 
@@ -265,23 +401,45 @@ class GataFeaturesService {
     await sock.sendMessage(from, { text: `⏳ Processando download do Instagram...` });
 
     try {
-      const res = await fetch(`https://api.siputzx.my.id/api/d/igdl?url=${encodeURIComponent(cleanUrl)}`);
-      const data = await res.json();
+      // 1. Tenta extrair via yt-dlp local
+      try {
+        const { spawn } = require('child_process');
+        const buf = await new Promise((resolve, reject) => {
+          const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'b', '-o', '-', cleanUrl]);
+          const chunks = [];
+          proc.stdout.on('data', chunk => chunks.push(chunk));
+          proc.on('close', code => {
+            if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
+            else reject(new Error('yt-dlp IG falhou'));
+          });
+          setTimeout(() => { try { proc.kill(); } catch (_) {} reject(new Error('Timeout IG')); }, 35000);
+        });
 
-      if (data?.data && data.data.length > 0) {
-        const item = data.data[0];
-        const mediaUrl = item.url || item.dl;
+        if (buf && buf.length > 5000) {
+          return sock.sendMessage(from, {
+            video: buf,
+            caption: '🎬 *Instagram Reels Baixado com Sucesso!*'
+          });
+        }
+      } catch (_) {}
+
+      // 2. Fallback via API pública
+      const res = await fetch(`https://api.vreden.my.id/api/igdownload?url=${encodeURIComponent(cleanUrl)}`, { signal: AbortSignal.timeout(10000) });
+      const data = await res.json();
+      const mediaUrl = data?.result?.url || data?.result?.[0]?.url;
+
+      if (mediaUrl) {
         const mediaRes = await fetch(mediaUrl);
         const mediaBuf = Buffer.from(await mediaRes.arrayBuffer());
-
-        if (item.type === 'video' || mediaUrl.includes('.mp4')) {
+        if (mediaUrl.includes('.mp4') || mediaRes.headers.get('content-type')?.includes('video')) {
           await sock.sendMessage(from, { video: mediaBuf, caption: '🎬 *Instagram Reels Baixado!*' });
         } else {
           await sock.sendMessage(from, { image: mediaBuf, caption: '📸 *Foto do Instagram Baixada!*' });
         }
-      } else {
-        await sock.sendMessage(from, { text: `⚠️ Link protegido ou privado no Instagram.` });
+        return;
       }
+
+      await sock.sendMessage(from, { text: `⚠️ Não foi possível baixar esta publicação do Instagram (pode ser perfil privado ou protegido).` });
     } catch (err) {
       await sock.sendMessage(from, { text: `❌ Erro no download do Instagram: ${err.message}` });
     }

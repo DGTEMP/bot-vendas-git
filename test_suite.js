@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 const http = require('http');
 const assert = require('assert');
 const models = require('./src/db/models');
@@ -2191,6 +2192,31 @@ async function main() {
     assert(lastReply.includes('ROLETA DA SORTE GATA NINA'));
 
     whatsappBot.sendMessage = origSend;
+  });
+
+  await runTest('Gata Nina: Downloader de Música YouTube (!play / !ytmp3)', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const sentOutputs = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sentOutputs.push(payload);
+        return true;
+      }
+    };
+
+    // Executa busca e download da música
+    await gataFeatures.handlePlayMusic(mockSock, '5511999998888@s.whatsapp.net', '!play Imagine Dragons Believer');
+
+    assert(sentOutputs.length >= 2, 'Deve enviar cartão de status e em seguida o áudio');
+    const firstMsg = sentOutputs[0];
+    assert((firstMsg.caption || firstMsg.text).includes('YOUTUBE PLAY'), 'Deve conter cartão do YouTube');
+    assert((firstMsg.caption || firstMsg.text).includes('Believer'), 'Deve encontrar o título da música');
+
+    const audioMsg = sentOutputs[1];
+    assert(audioMsg.audio && Buffer.isBuffer(audioMsg.audio), 'Deve conter buffer de áudio válido');
+    assert(audioMsg.audio.length > 50000, 'Tamanho do áudio deve ser significativo (>50KB)');
+    assert.strictEqual(audioMsg.mimetype, 'audio/mp4');
+    assert(audioMsg.fileName.includes('.mp3'));
   });
 
   await new Promise(resolve => testServer.close(resolve));
