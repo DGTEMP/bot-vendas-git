@@ -177,6 +177,92 @@ function stopQrPolling() {
   }
 }
 
+function switchWppConnectTab(tab) {
+  const tabQr = document.getElementById('wppTabQr');
+  const tabPairing = document.getElementById('wppTabPairing');
+  const btnQr = document.getElementById('tabBtnWppQr');
+  const btnPairing = document.getElementById('tabBtnWppPairing');
+
+  if (tab === 'qr') {
+    if (tabQr) tabQr.style.display = 'block';
+    if (tabPairing) tabPairing.style.display = 'none';
+    if (btnQr) btnQr.className = 'btn btn-sm btn-primary';
+    if (btnPairing) btnPairing.className = 'btn btn-sm btn-secondary';
+  } else {
+    if (tabQr) tabQr.style.display = 'none';
+    if (tabPairing) tabPairing.style.display = 'block';
+    if (btnQr) btnQr.className = 'btn btn-sm btn-secondary';
+    if (btnPairing) btnPairing.className = 'btn btn-sm btn-primary';
+  }
+}
+
+async function requestWppPairingCode() {
+  const phoneInput = document.getElementById('wppPairingPhone');
+  const phone = phoneInput ? phoneInput.value.trim() : '';
+  if (!phone) {
+    alert('Informe o número de telefone completo com DDI e DDD (ex: 5511999998888)');
+    return;
+  }
+
+  const codeBox = document.getElementById('wppPairingCodeBox');
+  const codeText = document.getElementById('wppPairingCodeText');
+  if (codeText) codeText.innerText = 'GERANDO...';
+  if (codeBox) codeBox.style.display = 'block';
+
+  try {
+    const res = await fetch('/api/whatsapp/pairing-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (res.ok && data.pairingCode) {
+      if (codeText) codeText.innerText = data.pairingCode;
+    } else {
+      if (codeText) codeText.innerText = 'ERRO';
+      alert('Erro ao gerar código de pareamento: ' + (data.error || 'Falha na resposta do servidor'));
+    }
+  } catch (err) {
+    if (codeText) codeText.innerText = 'ERRO';
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+function copyWppPairingCode() {
+  const codeEl = document.getElementById('wppPairingCodeText');
+  const code = codeEl ? codeEl.innerText.trim() : '';
+  if (code && code !== '----' && code !== 'GERANDO...' && code !== 'ERRO') {
+    navigator.clipboard.writeText(code).then(() => {
+      alert('Código copiado com sucesso! Digite no seu WhatsApp celular.');
+    }).catch(() => {
+      alert('Código: ' + code);
+    });
+  }
+}
+
+async function resetWppSession() {
+  if (!confirm('Deseja realmente limpar a sessão do WhatsApp Matriz? Isso desconectará o aparelho e gerará um novo QR/Código.')) return;
+  try {
+    const res = await fetch('/api/whatsapp/reset', { method: 'POST' });
+    if (res.ok) {
+      alert('Sessão limpa com sucesso! Um novo QR Code e código já estão disponíveis.');
+      loadWhatsAppStatus();
+    }
+  } catch (err) {
+    alert('Erro ao resetar sessão: ' + err.message);
+  }
+}
+
+async function reconnectWppSession() {
+  try {
+    await fetch('/api/whatsapp/reconnect', { method: 'POST' });
+    alert('Reconexão solicitada com sucesso! Aguarde alguns instantes.');
+    loadWhatsAppStatus();
+  } catch (err) {
+    alert('Erro ao reconectar: ' + err.message);
+  }
+}
+
 async function loadWhatsAppStatus() {
   try {
     const res = await fetch('/api/whatsapp/status');
@@ -185,29 +271,39 @@ async function loadWhatsAppStatus() {
     const wppBadge = document.getElementById('wppBadge');
     const wppText = document.getElementById('wppStatusText');
     const qrBox = document.getElementById('wppQrContainer');
+    const codeBox = document.getElementById('wppPairingCodeBox');
+    const codeText = document.getElementById('wppPairingCodeText');
 
     if (data.connected) {
       wppBadge.className = 'badge badge-paid';
-      wppBadge.innerText = 'Conectado';
-      wppText.innerText = 'Seu WhatsApp está autenticado e pronto para vender!';
+      const phoneText = data.phone ? ` (+${data.phone})` : '';
+      wppBadge.innerText = 'Conectado' + phoneText;
+      wppText.innerText = 'Seu WhatsApp Matriz está autenticado e pronto para vender!';
       qrBox.innerHTML = `
         <i class="fa-solid fa-circle-check" style="font-size: 64px; color: var(--color-green); margin-bottom: 12px;"></i>
-        <h4 style="color: #12161f;">WhatsApp Conectado</h4>
-        <span style="font-size: 12px; color: #64748b;">Recebendo mensagens normalmente</span>
+        <h4 style="color: #12161f;">WhatsApp Matriz Conectado</h4>
+        <span style="font-size: 12px; color: #64748b;">Recebendo e respondendo mensagens normalmente</span>
       `;
-    } else if (data.qrDataUrl) {
-      wppBadge.className = 'badge badge-pending';
-      wppBadge.innerText = 'Aguardando Leitura';
-      wppText.innerText = 'Aponte a câmera do seu WhatsApp para o QR Code abaixo:';
-      qrBox.innerHTML = `<img src="${data.qrDataUrl}" alt="QR Code WhatsApp" />`;
     } else {
-      wppBadge.className = 'badge badge-canceled';
-      wppBadge.innerText = 'Desconectado';
-      wppText.innerText = data.statusMessage || 'Inicializando serviço Baileys...';
-      qrBox.innerHTML = `
-        <div class="spinner"></div>
-        <span>Gerando QR Code...</span>
-      `;
+      if (data.pairingCode && codeText) {
+        codeText.innerText = data.pairingCode;
+        if (codeBox) codeBox.style.display = 'block';
+      }
+
+      if (data.qrDataUrl) {
+        wppBadge.className = 'badge badge-pending';
+        wppBadge.innerText = 'Aguardando Leitura';
+        wppText.innerText = 'Aponte a câmera do seu WhatsApp para o QR Code abaixo ou use o Código de 8 Dígitos:';
+        qrBox.innerHTML = `<img src="${data.qrDataUrl}" alt="QR Code WhatsApp" />`;
+      } else {
+        wppBadge.className = 'badge badge-canceled';
+        wppBadge.innerText = 'Desconectado';
+        wppText.innerText = data.statusMessage || 'Inicializando serviço Baileys...';
+        qrBox.innerHTML = `
+          <div class="spinner"></div>
+          <span>Gerando QR Code...</span>
+        `;
+      }
     }
   } catch (err) {
     console.error('Erro no status do WhatsApp:', err);

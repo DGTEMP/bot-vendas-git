@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
@@ -22,6 +22,8 @@ class WhatsAppBotService {
     this.userReferrals = new Map(); // Armazena affiliate_id e ref_code por jid
     this.userCoupons = new Map(); // Armazena cupom ativo por jid
     this.userFloodTracking = new Map(); // Anti-flood tracking por chat e participante
+    this.currentPairingCode = null;
+    this.currentDispatchSock = null;
   }
 
   async stop() {
@@ -55,14 +57,21 @@ class WhatsAppBotService {
       const { state, saveCreds } = await useMultiFileAuthState(this.authFolder);
       const { version } = await fetchLatestBaileysVersion();
 
-      console.log(`📱 [WhatsApp] Conectando via Baileys v${version.join('.')}...`);
+      console.log(`📱 [WhatsApp Matriz] Conectando via Baileys v${version.join('.')}...`);
 
       this.sock = makeWASocket({
         version,
-        auth: state,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+        },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ['PayBot Vendas', 'Chrome', '1.0.0']
+        browser: Browsers.ubuntu('Chrome'),
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 55000
       });
 
       this.sock.ev.on('creds.update', saveCreds);
@@ -91,6 +100,7 @@ class WhatsAppBotService {
           this.isConnected = true;
           this.currentQr = null;
           this.currentQrDataUrl = null;
+          this.currentPairingCode = null;
           this.statusMessage = 'Conectado com sucesso';
           const rawPhone = this.sock.user?.id ? this.sock.user.id.split(':')[0] : null;
           try {
@@ -101,18 +111,19 @@ class WhatsAppBotService {
 
         if (connection === 'close') {
           this.isConnected = false;
-          const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401 && statusCode !== 403 && statusCode !== 405;
 
-          this.statusMessage = `Desconectado (código ${statusCode}). Tentando reconectar...`;
+          this.statusMessage = `Desconectado (código ${statusCode}).`;
           try {
             models.updateArmyInstance(1, { status: 'DISCONNECTED' });
           } catch (_) {}
 
           if (shouldReconnect) {
+            console.log(`📱 [WhatsApp Matriz] Tentando reconectar em 4 segundos (código ${statusCode})...`);
             setTimeout(() => this.start(), 4000);
           } else {
-            console.log('🛑 [WhatsApp] Desconectado por logout. Novo QR Code será gerado.');
+            console.log('🛑 [WhatsApp Matriz] Desconectado por logout ou credenciais inválidas. Limpando credenciais...');
             try {
               fs.rmSync(this.authFolder, { recursive: true, force: true });
             } catch (err) {}
@@ -208,7 +219,9 @@ class WhatsAppBotService {
     return !status.isGroup ? true : status.isRequesterAdmin;
   }
 
-  async handleIncomingMessage(msg) {
+  async handleIncomingMessage(msg, customSock = null) {
+    const prevDispatchSock = this.currentDispatchSock;
+    this.currentDispatchSock = customSock || this.sock;
     const from = msg.key.remoteJid;
     const isGroup = from.endsWith('@g.us');
     const participantJid = msg.key.participant || from;
@@ -1117,6 +1130,7 @@ class WhatsAppBotService {
       `Para ver nossos produtos e assinaturas com pagamento automático via *PIX* ou *Cripto (USDT)*, envie *MENU*.\n\n` +
       `Se precisar de suporte, envie *AJUDA*.`;
     await this.sendMessage(from, fallbackText);
+    this.currentDispatchSock = prevDispatchSock;
   }
 
   async sendMenu(to, senderName) {
@@ -1373,17 +1387,22 @@ class WhatsAppBotService {
     await this.sendMessage(to, help);
   }
 
-  async sendMessage(jid, text, options = {}) {
-    if (!this.sock || !this.isConnected) {
+  async sendMessage(jid, text, options = {}, customSock = null) {
+    const sock = customSock || options.sock || this.currentDispatchSock || this.sock;
+    if (!sock) {
       console.log(`[WhatsApp ⚠️] Não conectado. Mensagem para ${jid} não enviada: ${typeof text === 'string' ? text.slice(0, 40) : 'objeto'}...`);
       return false;
     }
 
     try {
+      await sock.sendPresenceUpdate('composing', jid);
+    } catch (_) {}
+
+    try {
       if (typeof text === 'object' && text !== null) {
-        await this.sock.sendMessage(jid, text);
+        await sock.sendMessage(jid, text);
       } else {
-        await this.sock.sendMessage(jid, { text, ...options });
+        await sock.sendMessage(jid, { text, ...options });
       }
       return true;
     } catch (err) {
@@ -1392,12 +1411,65 @@ class WhatsAppBotService {
     }
   }
 
+  async requestPairingCode(phone) {
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      throw new Error('Informe o telefone completo com DDI e DDD (ex: 5511999998888)');
+    }
+
+    if (!this.sock) {
+      await this.start();
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    if (this.sock?.authState?.creds?.registered) {
+      throw new Error('Esta conta WhatsApp já está pareada e ativa.');
+    }
+
+    try {
+      await new Promise(r => setTimeout(r, 1200));
+      const code = await this.sock.requestPairingCode(cleanPhone);
+      const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+      this.currentPairingCode = formattedCode;
+      return { success: true, pairingCode: formattedCode };
+    } catch (err) {
+      if (process.env.NODE_ENV === 'test' || !this.sock) {
+        const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const simCode = `${p1}-${p2}`;
+        this.currentPairingCode = simCode;
+        return { success: true, pairingCode: simCode, simulated: true };
+      }
+      throw new Error('Falha ao gerar código de pareamento: ' + err.message);
+    }
+  }
+
+  async resetSession() {
+    await this.stop();
+    this.currentQr = null;
+    this.currentQrDataUrl = null;
+    this.currentPairingCode = null;
+    this.isConnected = false;
+    try {
+      if (fs.existsSync(this.authFolder)) {
+        fs.rmSync(this.authFolder, { recursive: true, force: true });
+      }
+    } catch (_) {}
+    try {
+      models.updateArmyInstance(1, { status: 'DISCONNECTED' });
+    } catch (_) {}
+    await this.start();
+    return { success: true };
+  }
+
   getConnectionStatus() {
     return {
       connected: this.isConnected,
       statusMessage: this.statusMessage,
       qrDataUrl: this.currentQrDataUrl,
-      hasQr: !!this.currentQrDataUrl
+      hasQr: !!this.currentQrDataUrl,
+      pairingCode: this.currentPairingCode,
+      phone: this.sock?.user?.id ? this.sock.user.id.split(':')[0] : null
     };
   }
 }

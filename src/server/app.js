@@ -245,9 +245,37 @@ function createServer() {
     });
   });
 
-  // WhatsApp QR Code & Status
+  // WhatsApp Matriz QR Code, Pairing Code & Gestão de Sessão
   app.get('/api/whatsapp/status', (req, res) => {
     res.json(whatsappBot.getConnectionStatus());
+  });
+
+  app.post('/api/whatsapp/pairing-code', async (req, res) => {
+    try {
+      const { phone } = req.body;
+      const result = await whatsappBot.requestPairingCode(phone);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/reset', async (req, res) => {
+    try {
+      const result = await whatsappBot.resetSession();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/reconnect', async (req, res) => {
+    try {
+      await whatsappBot.start();
+      res.json({ success: true, message: 'Reconexão iniciada' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Produtos & Categorias

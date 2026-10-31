@@ -1068,6 +1068,58 @@ async function main() {
     // 3. Reset de sessão
     const resetRes = await whatsappArmyService.resetInstanceSession(testChip.id);
     assert.strictEqual(resetRes.success, true);
+
+    // 4. Teste de Código de Pareamento do WhatsApp Matriz (/api/whatsapp/pairing-code)
+    const localBaseUrl = `http://localhost:${testPort}`;
+    const wppPairingRes = await fetch(`${localBaseUrl}/api/whatsapp/pairing-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '5511977778888' })
+    });
+    const wppPairingData = await wppPairingRes.json();
+    assert(wppPairingData.pairingCode, 'Deve gerar código de pareamento para o WhatsApp Matriz');
+    assert(wppPairingData.pairingCode.length >= 8, 'Código do WhatsApp Matriz deve ter ao menos 8 dígitos');
+
+    // 5. Status do WhatsApp Matriz deve refletir o código gerado
+    const wppStatusRes = await fetch(`${localBaseUrl}/api/whatsapp/status`);
+    const wppStatusData = await wppStatusRes.json();
+    assert.strictEqual(wppStatusData.pairingCode, wppPairingData.pairingCode);
+
+    // 6. Reset do WhatsApp Matriz (/api/whatsapp/reset)
+    const wppResetRes = await fetch(`${localBaseUrl}/api/whatsapp/reset`, { method: 'POST' });
+    const wppResetData = await wppResetRes.json();
+    assert.strictEqual(wppResetData.success, true);
+  });
+
+  await runAsyncTest('Múltiplas Instâncias de WhatsApp com Cérebro Compartilhado (Multi-Device Shared Brain)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    // Simula mensagem chegando em chip secundário e sendo respondida com catálogo/vendas
+    let capturedReply = null;
+    const mockChipSock = {
+      user: { id: '5511988887777:1@s.whatsapp.net' },
+      sendPresenceUpdate: async () => {},
+      sendMessage: async (jid, payload) => {
+        capturedReply = { jid, payload };
+        return { key: { id: 'msg_chip_mock' } };
+      }
+    };
+
+    const incomingMsg = {
+      key: {
+        remoteJid: '5511911112222@s.whatsapp.net',
+        fromMe: false,
+        id: 'mock_incoming_123'
+      },
+      pushName: 'Cliente MultiChip',
+      message: {
+        conversation: 'menu'
+      }
+    };
+
+    await whatsappBot.handleIncomingMessage(incomingMsg, mockChipSock);
+    assert(capturedReply !== null, 'Chip secundário deve responder a mensagem através do seu próprio socket');
+    assert.strictEqual(capturedReply.jid, '5511911112222@s.whatsapp.net');
+    assert(capturedReply.payload.text.includes('CATÁLOGO DE PRODUTOS') || capturedReply.payload.text.includes('MENU') || capturedReply.payload.text.includes('Olá'), 'Deve responder com o catálogo de produtos');
   });
 
   runTest('Gerenciamento de Contas Sociais (Instagram & Facebook) no Banco de Dados', () => {

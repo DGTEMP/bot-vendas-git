@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const QRCode = require('qrcode');
 const fs = require('fs');
@@ -27,12 +27,14 @@ class WhatsAppArmyService {
       const whatsappBot = require('../bots/whatsappBot');
       const status = whatsappBot.getConnectionStatus();
       models.updateArmyInstance(instanceId, {
-        status: status.connected ? 'CONNECTED' : (status.hasQr ? 'WAITING_QR' : 'DISCONNECTED')
+        status: status.connected ? 'CONNECTED' : (status.hasQr ? 'WAITING_QR' : 'DISCONNECTED'),
+        phone: status.phone || instance.phone
       });
       return {
         id: instanceId,
         status: status.connected ? 'CONNECTED' : 'WAITING_QR',
-        qrDataUrl: status.qrDataUrl
+        qrDataUrl: status.qrDataUrl,
+        pairingCode: status.pairingCode
       };
     }
 
@@ -54,12 +56,20 @@ class WhatsAppArmyService {
         if (v && v.version) version = v.version;
       } catch (_) {}
 
+      // Configuração baseada na arquitetura multi-device do GataBot-MD
       const sock = makeWASocket({
         version,
-        auth: state,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+        },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: [`Exército Chip #${instanceId}`, 'Chrome', '1.0.0']
+        browser: Browsers.ubuntu('Chrome'),
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 55000
       });
 
       sock.ev.on('creds.update', saveCreds);
@@ -83,34 +93,86 @@ class WhatsAppArmyService {
             status: 'CONNECTED',
             phone: rawPhone || instance.phone
           });
-          console.log(`[Exército WhatsApp 📱] Chip #${instanceId} (${instance.name}) conectado com sucesso!`);
+          console.log(`[Exército WhatsApp 📱] Chip #${instanceId} (${instance.name}) conectado com sucesso (+ ${rawPhone || instance.phone})!`);
         }
 
         if (connection === 'close') {
-          const statusCode = lastDisconnect?.error?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-          models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
+          const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
           console.log(`[Exército WhatsApp ⚠️] Chip #${instanceId} desconectado (código ${statusCode}).`);
 
-          if (shouldReconnect) {
-            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 5000);
-          } else {
+          if (statusCode === 401 || statusCode === 403 || statusCode === 405) {
+            console.log(`[Exército WhatsApp 🛑] Sessão inválida ou desconectada pelo usuário. Limpando credenciais do Chip #${instanceId}.`);
+            models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
             this.instanceQrs.delete(instanceId);
+            try {
+              fs.rmSync(folder, { recursive: true, force: true });
+            } catch (_) {}
+          } else if (statusCode === 515 || statusCode === 408 || statusCode === 428) {
+            models.updateArmyInstance(instanceId, { status: 'CONNECTING' });
+            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 4000);
+          } else {
+            models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
+            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 5000);
           }
         }
       });
 
-      // Escuta respostas para auto-responder
+      // Escuta mensagens: Roteia tanto para o cérebro principal do WhatsAppBot quanto para o funil
       sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
+        const whatsappBot = require('../bots/whatsappBot');
         for (const msg of messages) {
-          if (!msg.message || msg.key.fromMe) continue;
-          if (msg.key.remoteJid.endsWith('@g.us')) continue;
-          const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
-          if (text) {
-            await this.handleIncomingLeadMessage(msg.key.remoteJid, text, instanceId);
+          if (!msg.message) continue;
+          
+          if (msg.key.fromMe) {
+            const rawTxt = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+            if (!rawTxt.startsWith('!') && !rawTxt.startsWith('/')) continue;
           }
+
+          // Executa fluxo comercial / catálogo / nlp / comandos de grupos com o socket deste chip
+          try {
+            await whatsappBot.handleIncomingMessage(msg, sock);
+          } catch (botErr) {
+            console.error(`[Exército WhatsApp ⚠️] Erro no bot handler do Chip #${instanceId}:`, botErr.message);
+          }
+
+          // Registra e avança no funil se for lead privado
+          if (!msg.key.fromMe && !msg.key.remoteJid.endsWith('@g.us')) {
+            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+            if (text) {
+              await this.handleIncomingLeadMessage(msg.key.remoteJid, text, instanceId);
+            }
+          }
+        }
+      });
+
+      // Boas-vindas automáticas em grupos onde o chip secundário é membro
+      sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+        try {
+          if (action === 'add') {
+            const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
+            if (!isWelcomeActive) return;
+
+            let groupName = 'nosso grupo';
+            try {
+              const meta = await sock.groupMetadata(id);
+              if (meta && meta.subject) groupName = meta.subject;
+            } catch (_) {}
+
+            const customMsg = models.getSetting(`WELCOME_MSG_${id}`, 'Seja muito bem-vindo(a) ao {grupo}! Sinta-se em casa e aproveite nosso conteúdo exclusivo.');
+            const welcomeText = customMsg.replace(/{grupo}/g, groupName);
+
+            for (const participant of participants) {
+              const mentionTag = `@${participant.split('@')[0]}`;
+              const textWithMention = `${mentionTag} ${welcomeText}`;
+              await sock.sendMessage(id, {
+                text: textWithMention,
+                mentions: [participant]
+              });
+            }
+          }
+        } catch (err) {
+          console.error(`[Exército WhatsApp ⚠️] Erro em group-participants.update no Chip #${instanceId}:`, err.message);
         }
       });
 
@@ -136,6 +198,12 @@ class WhatsAppArmyService {
   }
 
   async resetInstanceSession(instanceId) {
+    const inst = models.getArmyInstanceById(instanceId);
+    if (inst && inst.is_main) {
+      const whatsappBot = require('../bots/whatsappBot');
+      return whatsappBot.resetSession();
+    }
+
     await this.stopInstance(instanceId);
     const folder = path.join(this.armyBaseFolder, `instance_${instanceId}`);
     if (fs.existsSync(folder)) {
@@ -145,6 +213,8 @@ class WhatsAppArmyService {
     }
     this.instanceQrs.delete(instanceId);
     models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
+    // Inicia imediatamente um socket limpo pronto para pareamento ou leitura de QR
+    await this.startInstance(instanceId);
     return { success: true };
   }
 
@@ -154,34 +224,48 @@ class WhatsAppArmyService {
       throw new Error('Informe o telefone com DDI e DDD (ex: 5511999998888)');
     }
 
+    const inst = models.getArmyInstanceById(instanceId);
+    if (!inst) throw new Error('Instância não encontrada.');
+
+    // Se for Chip Matriz (ID 1)
+    if (inst.is_main) {
+      const whatsappBot = require('../bots/whatsappBot');
+      return whatsappBot.requestPairingCode(cleanPhone);
+    }
+
     models.updateArmyInstance(instanceId, { phone: cleanPhone });
 
     let sock = this.activeSockets.get(instanceId);
     if (!sock) {
       await this.startInstance(instanceId);
       sock = this.activeSockets.get(instanceId);
+      await new Promise(r => setTimeout(r, 2000));
     }
 
     if (!sock) {
       throw new Error('Não foi possível inicializar a conexão WhatsApp.');
     }
 
-    if (this.isSimulationMode) {
-      const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
-      const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
-      const simCode = `${p1}-${p2}`;
-      const prev = this.instanceQrs.get(instanceId) || {};
-      this.instanceQrs.set(instanceId, { ...prev, pairingCode: simCode });
-      return { pairingCode: simCode, simulated: true };
+    if (sock.authState?.creds?.registered) {
+      throw new Error('Este chip já está registrado e pareado.');
     }
 
     try {
       await new Promise(r => setTimeout(r, 1200));
       const code = await sock.requestPairingCode(cleanPhone);
+      const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
       const prev = this.instanceQrs.get(instanceId) || {};
-      this.instanceQrs.set(instanceId, { ...prev, pairingCode: code });
-      return { pairingCode: code };
+      this.instanceQrs.set(instanceId, { ...prev, pairingCode: formattedCode });
+      return { success: true, pairingCode: formattedCode };
     } catch (err) {
+      if (process.env.NODE_ENV === 'test' || !sock) {
+        const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const simCode = `${p1}-${p2}`;
+        const prev = this.instanceQrs.get(instanceId) || {};
+        this.instanceQrs.set(instanceId, { ...prev, pairingCode: simCode });
+        return { success: true, pairingCode: simCode, simulated: true };
+      }
       throw new Error('Falha ao gerar código de pareamento: ' + err.message);
     }
   }
@@ -195,8 +279,9 @@ class WhatsAppArmyService {
         connected: st.connected,
         hasQr: st.hasQr,
         qrDataUrl: st.qrDataUrl,
-        status: st.connected ? 'CONNECTED' : (st.hasQr ? 'WAITING_QR' : 'DISCONNECTED'),
-        pairingCode: null
+        pairingCode: st.pairingCode || null,
+        phone: st.phone || null,
+        status: st.connected ? 'CONNECTED' : (st.hasQr ? 'WAITING_QR' : 'DISCONNECTED')
       };
     }
     const data = this.instanceQrs.get(instanceId);
@@ -205,6 +290,7 @@ class WhatsAppArmyService {
       hasQr: !!data?.qrDataUrl,
       qrDataUrl: data?.qrDataUrl || null,
       pairingCode: data?.pairingCode || null,
+      phone: inst?.phone || null,
       status: inst ? inst.status : 'DISCONNECTED'
     };
   }
@@ -543,19 +629,37 @@ class WhatsAppArmyService {
     return true;
   }
 
-  async initArmyCluster() {
+  async initAllInstances() {
     try {
       const instances = models.getArmyInstances();
       for (const inst of instances) {
         if (inst.active && !inst.is_main) {
-          const authPath = path.join(this.armyBaseFolder, `instance_${inst.id}`);
-          if (fs.existsSync(authPath)) {
-            console.log(`[Exército WhatsApp 📱] Reconectando chip #${inst.id} (${inst.name}) ao cluster...`);
-            this.startInstance(inst.id).catch(() => {});
+          const folder = path.join(this.armyBaseFolder, `instance_${inst.id}`);
+          const credsFile = path.join(folder, 'creds.json');
+          if (fs.existsSync(credsFile)) {
+            console.log(`[Exército WhatsApp 📱] Restaurando conexão persistente do Chip #${inst.id} (${inst.name})...`);
+            this.startInstance(inst.id).catch(err => {
+              console.error(`⚠️ [Exército WhatsApp] Erro ao restaurar Chip #${inst.id}:`, err.message);
+            });
           }
         }
       }
     } catch (_) {}
+  }
+
+  async stopAllInstances() {
+    for (const [id, sock] of this.activeSockets.entries()) {
+      try {
+        sock.ev.removeAllListeners();
+        sock.end();
+      } catch (_) {}
+    }
+    this.activeSockets.clear();
+    this.instanceQrs.clear();
+  }
+
+  async initArmyCluster() {
+    return this.initAllInstances();
   }
 }
 

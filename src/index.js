@@ -37,11 +37,17 @@ async function bootstrap() {
 
   // 4. Inicia Bot do WhatsApp (Baileys)
   if (config.whatsapp.enabled) {
-    console.log('📱 [WhatsApp] Inicializando cliente Baileys...');
+    console.log('📱 [WhatsApp Matriz] Inicializando cliente Baileys...');
     whatsappBot.start().catch(err => {
-      console.error('❌ [WhatsApp] Erro ao iniciar:', err.message);
+      console.error('❌ [WhatsApp Matriz] Erro ao iniciar:', err.message);
     });
   }
+
+  // 5. Inicia e Restaura Chips Persistentes do Exército de WhatsApp (Multi-Device)
+  const whatsappArmyService = require('./services/whatsappArmyService');
+  whatsappArmyService.initAllInstances().catch(err => {
+    console.error('❌ [Exército WhatsApp] Erro ao restaurar chips:', err.message);
+  });
 
   // Graceful shutdown
   const shutdown = async () => {
@@ -49,6 +55,7 @@ async function bootstrap() {
     subscriptionCron.stop();
     await telegramBot.stop();
     await whatsappBot.stop();
+    await whatsappArmyService.stopAllInstances();
     server.close(() => {
       console.log('👋 Servidor finalizado com segurança.');
       process.exit(0);
