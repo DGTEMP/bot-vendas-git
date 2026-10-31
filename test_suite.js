@@ -1197,6 +1197,90 @@ async function main() {
     assert(statsRes.data.totalAccounts >= 2);
   });
 
+  // ================================================================
+  // 13. PROCESSAMENTO DE LINGUAGEM NATURAL PT-BR (NLU / NLP)
+  // ================================================================
+  await runAsyncTest('NLP PT-BR: Normalização de gírias e abreviações brasileiras', async () => {
+    const nlpService = require('./src/services/nlpService');
+    const input = 'Opa blz vc tbm vai querer o zap agr pfv vlw ctz';
+    const normalized = nlpService.normalizeText(input);
+    assert.strictEqual(normalized, 'olá beleza você também vai querer o whatsapp agora por favor valeu certeza');
+
+    const repLetter = nlpService.normalizeText('oiiiiiii amiiiiiigo');
+    assert.strictEqual(repLetter, 'oi amigo');
+  });
+
+  await runAsyncTest('NLP PT-BR: Classificação de intenções e quebra de objeções', async () => {
+    const nlpService = require('./src/services/nlpService');
+    
+    // Objeção de segurança/golpe
+    const trust = await nlpService.processMessage({ text: 'é seguro comprar aqui ou é golpe? tem garantia?' });
+    assert.strictEqual(trust.intent, 'TRUST_AND_GUARANTEE');
+    assert(trust.confidence >= 0.90);
+    assert(trust.replyText.includes('GARANTIA INCONDICIONAL'));
+
+    // Pagamento Pix
+    const pix = await nlpService.processMessage({ text: 'manda a chave pix pfv' });
+    assert.strictEqual(pix.intent, 'PAYMENT_PIX');
+    assert.strictEqual(pix.directAction, 'TRIGGER_PIX');
+
+    // Confirmação de pagamento
+    const confirm = await nlpService.processMessage({ text: 'já fiz o pix aqui tá pago olha o comprovante' });
+    assert.strictEqual(confirm.intent, 'CONFIRM_PURCHASE');
+    assert(confirm.replyText.includes('PARABÉNS PELA COMPRA'));
+
+    // Consulta de desconto
+    const discount = await nlpService.processMessage({ text: 'tem algum cupom de desconto?' });
+    assert.strictEqual(discount.intent, 'DISCOUNT_QUERY');
+
+    // Suporte humano
+    const support = await nlpService.processMessage({ text: 'quero falar com atendente humano' });
+    assert.strictEqual(support.intent, 'SUPPORT_HUMAN');
+  });
+
+  await runAsyncTest('NLP PT-BR: Extração dinâmica de produtos e cupons', async () => {
+    const nlpService = require('./src/services/nlpService');
+    
+    // Menção ao plano 1
+    const res1 = await nlpService.processMessage({ text: 'quanto tá o plano 1?' });
+    assert.strictEqual(res1.intent, 'PRICE_QUERY');
+    assert.strictEqual(res1.entities.extractedNumber, 1);
+    assert(res1.entities.matchedProduct !== null);
+
+    // Menção ao VIP
+    const resVip = await nlpService.processMessage({ text: 'qto custa o vip?' });
+    assert.strictEqual(resVip.intent, 'PRICE_QUERY');
+    assert(resVip.entities.matchedProduct !== null);
+    assert(resVip.entities.matchedProduct.name.toLowerCase().includes('vip'));
+
+    // Código de Cupom com filtro de stop words
+    const resCoupon = await nlpService.processMessage({ text: 'ativar cupom PROMO50' });
+    assert.strictEqual(resCoupon.entities.couponCode, 'PROMO50');
+  });
+
+  await runAsyncTest('API REST NLU: POST /api/nlp/analyze & GET /api/nlp/info', async () => {
+    const { status, data } = await fetchApi('/api/nlp/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: 'manda a chave pix pro 1 pfv',
+        customerName: 'Mariana Silva',
+        platform: 'whatsapp'
+      })
+    });
+    assert.strictEqual(status, 200);
+    assert.strictEqual(data.intent, 'PAYMENT_PIX');
+    assert.strictEqual(data.directAction, 'TRIGGER_PIX');
+    assert(data.replyText.includes('Mariana'));
+    assert.strictEqual(data.entities.extractedNumber, 1);
+
+    const infoRes = await fetchApi('/api/nlp/info');
+    assert.strictEqual(infoRes.status, 200);
+    assert(Array.isArray(infoRes.data.intents));
+    assert(typeof infoRes.data.dictionary === 'object');
+    assert.strictEqual(infoRes.data.dictionary['vc'], 'você');
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

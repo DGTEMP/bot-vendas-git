@@ -598,6 +598,39 @@ class TelegramBotService {
         ...Markup.inlineKeyboard(buttons)
       });
     });
+
+    // Atendimento Inteligente em Linguagem Natural PT-BR
+    this.bot.on('text', async (ctx) => {
+      const text = ctx.message?.text?.trim() || '';
+      if (text.startsWith('/')) return; // Deixa comandos /start, /produtos, /cupom para os handlers de comando
+
+      const userName = ctx.from.first_name || 'Cliente';
+      try {
+        const nlpService = require('../services/nlpService');
+        const nlp = await nlpService.processMessage({
+          text,
+          customerName: userName,
+          platform: 'telegram'
+        });
+
+        if (nlp.directAction === 'SHOW_MENU') {
+          return this.showProducts(ctx, false);
+        }
+
+        if (nlp.entities?.matchedProduct && (nlp.directAction === 'TRIGGER_PIX' || nlp.directAction === 'TRIGGER_BINANCE' || nlp.intent === 'BUY_INTENT')) {
+          if (nlp.replyText) {
+            await ctx.reply(nlp.replyText, { parse_mode: 'Markdown' });
+          }
+          return this.showProductDetails(ctx, nlp.entities.matchedProduct, false);
+        }
+
+        if (nlp.replyText) {
+          await ctx.reply(nlp.replyText, { parse_mode: 'Markdown' });
+        }
+      } catch (err) {
+        console.error('[Telegram NLP Error]:', err.message);
+      }
+    });
   }
 
   async showProducts(ctx, isSubscription = false) {

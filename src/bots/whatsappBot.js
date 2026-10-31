@@ -266,6 +266,51 @@ class WhatsAppBotService {
       }
     }
 
+    // 6. Processamento de Linguagem Natural em Português Brasileiro (NLP / NLU PT-BR)
+    try {
+      const nlpService = require('../services/nlpService');
+      const nlp = await nlpService.processMessage({
+        text,
+        customerName: senderName,
+        platform: 'whatsapp'
+      });
+
+      if (nlp && nlp.intent !== 'UNKNOWN') {
+        if (nlp.directAction === 'TRIGGER_PIX' && nlp.entities?.matchedProduct) {
+          return this.processPixPurchase(from, senderName, nlp.entities.matchedProduct);
+        }
+        if (nlp.directAction === 'TRIGGER_BINANCE' && nlp.entities?.matchedProduct) {
+          return this.processBinancePurchase(from, senderName, nlp.entities.matchedProduct);
+        }
+        if (nlp.directAction === 'SHOW_MENU') {
+          return this.sendMenu(from, senderName);
+        }
+        if (nlp.directAction === 'TRIGGER_UPSELL') {
+          const lastOrder = models.getAllOrders(10).find(o => o.platform === 'whatsapp' && o.platform_user_id === from && o.status === 'PAID');
+          if (lastOrder) {
+            const baseProduct = models.getProductById(lastOrder.product_id);
+            if (baseProduct && baseProduct.upsell_product_id) {
+              const upsellProd = models.getProductById(baseProduct.upsell_product_id);
+              if (upsellProd && upsellProd.active) {
+                const discount = baseProduct.upsell_discount_percent || 20.0;
+                const discountedBrl = Number((upsellProd.price_brl * (1 - discount / 100)).toFixed(2));
+                return this.processPixPurchase(from, senderName, {
+                  ...upsellProd,
+                  price_brl: discountedBrl,
+                  is_upsell: 1
+                });
+              }
+            }
+          }
+        }
+        if (nlp.replyText) {
+          return this.sendMessage(from, nlp.replyText);
+        }
+      }
+    } catch (nlpErr) {
+      console.error('[WhatsApp NLP Error]:', nlpErr.message);
+    }
+
     // Fallback
     const fallbackText = `Olá, *${senderName}*! 👋\n\n` +
       `Para ver nossos produtos e assinaturas com pagamento automático via *PIX* ou *Cripto (USDT)*, envie *MENU*.\n\n` +

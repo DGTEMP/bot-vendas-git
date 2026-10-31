@@ -67,6 +67,7 @@ function switchTab(tabName) {
   if (tabName === 'coupons') loadCoupons();
   if (tabName === 'army') loadArmyData();
   if (tabName === 'social') loadSocialData();
+  if (tabName === 'nlp') loadNlpData();
 }
 
 // 2. CARREGAMENTO GERAL
@@ -3272,3 +3273,81 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+
+// ==========================================
+// 17. PROCESSAMENTO DE LINGUAGEM NATURAL (NLP PT-BR)
+// ==========================================
+function setNlpExample(text) {
+  const input = document.getElementById('nlpTestInput');
+  if (input) {
+    input.value = text;
+    runNlpTest();
+  }
+}
+
+async function runNlpTest() {
+  const input = document.getElementById('nlpTestInput');
+  const customerName = document.getElementById('nlpTestCustomerName')?.value || 'Carlos Eduardo';
+  const platform = document.getElementById('nlpTestPlatform')?.value || 'whatsapp';
+  const text = input ? input.value.trim() : '';
+
+  if (!text) {
+    alert('Por favor, digite uma mensagem ou selecione um dos exemplos acima para testar.');
+    return;
+  }
+
+  const resultCard = document.getElementById('nlpResultCard');
+  if (resultCard) resultCard.style.display = 'block';
+
+  try {
+    const res = await fetch('/api/nlp/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, customerName, platform })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro na análise NLU');
+
+    const intentEl = document.getElementById('nlpResultIntent');
+    const confEl = document.getElementById('nlpResultConfidence');
+    const actionEl = document.getElementById('nlpResultAction');
+    const prodEl = document.getElementById('nlpResultProduct');
+    const normEl = document.getElementById('nlpResultNormalized');
+    const replyEl = document.getElementById('nlpResultReplyBox');
+
+    if (intentEl) intentEl.innerText = data.intent;
+    if (confEl) confEl.innerText = `${Math.round((data.confidence || 0) * 100)}%`;
+    if (actionEl) actionEl.innerText = data.directAction || 'Nenhuma (Resposta Conversacional)';
+    if (prodEl) {
+      if (data.entities?.matchedProduct) {
+        prodEl.innerText = `${data.entities.matchedProduct.name} (R$ ${Number(data.entities.matchedProduct.price_brl || data.entities.matchedProduct.price).toFixed(2)})`;
+      } else {
+        prodEl.innerText = 'Nenhum identificado especificamente';
+      }
+    }
+    if (normEl) normEl.innerText = `"${data.normalized}"`;
+    if (replyEl) replyEl.innerText = data.replyText || 'Sem resposta gerada.';
+
+  } catch (err) {
+    alert('Erro ao testar NLU: ' + err.message);
+  }
+}
+
+async function loadNlpData() {
+  try {
+    const res = await fetch('/api/nlp/info');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const tbody = document.getElementById('nlpSlangTableBody');
+    if (tbody && data.dictionary) {
+      const entries = Object.entries(data.dictionary);
+      let html = '';
+      entries.forEach(([slang, meaning]) => {
+        html += `<tr><td><code>${slang}</code></td><td>${meaning}</td></tr>`;
+      });
+      tbody.innerHTML = html;
+    }
+  } catch (_) {}
+}

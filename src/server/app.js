@@ -9,6 +9,7 @@ const fulfillment = require('../services/fulfillment');
 const updatesChannel = require('../services/updatesChannel');
 const whatsappArmyService = require('../services/whatsappArmyService');
 const socialMediaService = require('../services/socialMediaService');
+const nlpService = require('../services/nlpService');
 const whatsappBot = require('../bots/whatsappBot');
 const telegramBot = require('../bots/telegramBot');
 
@@ -1281,6 +1282,38 @@ function createServer() {
       await socialMediaService.processWebhookPayload(req.body);
     } catch (err) {
       console.error('[Meta Webhook Error]:', err.message);
+    }
+  });
+
+  // ==========================================
+  // NLP / NLU EM PORTUGUÊS BRASILEIRO (ANÁLISE & DIAGNÓSTICO)
+  // ==========================================
+  app.post('/api/nlp/analyze', async (req, res) => {
+    try {
+      const { text, customerName, platform } = req.body;
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({ error: 'O texto para análise é obrigatório.' });
+      }
+      const result = await nlpService.processMessage({
+        text,
+        customerName: customerName || 'Cliente',
+        platform: platform || 'whatsapp'
+      });
+      res.json(result);
+    } catch (err) {
+      console.error('[API NLP Error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/nlp/info', (req, res) => {
+    try {
+      res.json({
+        dictionary: nlpService.getDictionary(),
+        intents: nlpService.getIntents()
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
   });
 

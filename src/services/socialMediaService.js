@@ -48,7 +48,7 @@ class SocialMediaService {
     }
 
     // Processa intenção e gera resposta pelo motor de conversão
-    const replyText = this.generateConversationalReply(cleanText, senderName);
+    const replyText = await this.generateConversationalReply(cleanText, senderName);
 
     // Envia resposta (Graph API ou Simulação)
     const sent = await this.sendMessage({
@@ -82,11 +82,15 @@ class SocialMediaService {
   }
 
   // ==============================================================
-  // 2. MOTOR DE RESPOSTA CONVERSACIONAL DE AQUECIMENTO SOCIAL
+  // 2. MOTOR DE RESPOSTA CONVERSACIONAL DE AQUECIMENTO SOCIAL (NLU PT-BR)
   // ==============================================================
-  generateConversationalReply(text, senderName) {
-    const lower = text.toLowerCase();
+  async generateConversationalReply(text, senderName) {
     const name = senderName ? senderName.split(' ')[0] : 'amigo(a)';
+    let nlp = null;
+    try {
+      const nlpService = require('./nlpService');
+      nlp = await nlpService.processMessage({ text, customerName: senderName, platform: 'social' });
+    } catch (_) {}
 
     // Busca primeiro link de afiliado ou produto padrão
     const links = models.getAffiliateLinks();
@@ -94,25 +98,25 @@ class SocialMediaService {
     const linkUrl = defaultLink ? defaultLink.affiliate_url : 'https://paybot.app/oferta-vip';
     const productName = defaultLink ? defaultLink.title : 'nosso Produto VIP';
 
-    // 1. Intenção direta de compra / link / valor
-    const buyingRegex = /(valor|preço|preco|quanto custa|link|onde compro|quero comprar|passa o link|manda o link|pix)/i;
-    if (buyingRegex.test(lower)) {
-      return `Olá ${name}! 🎉 Tudo bem?\n\nLiberamos uma condição especial de 50% de desconto hoje para o *${productName}*!\n\nAcesse todos os detalhes e garanta sua vaga aqui:\n👉 ${linkUrl}\n\nQualquer dúvida sobre a ativação, pode me chamar por aqui!`;
+    if (nlp) {
+      if (nlp.intent === 'CONFIRM_PURCHASE') {
+        return `Sensacional, ${name}! Parabéns pela sua decisão! 🚀 Seu acesso está liberado. Se precisar de qualquer suporte, nossa equipe está pronta para te ajudar!`;
+      }
+      if (nlp.intent === 'TRUST_AND_GUARANTEE') {
+        return `Pode ficar 100% seguro(a), ${name}! 🛡️ Nossa entrega é imediata e você conta com garantia incondicional de 7 dias com reembolso total sem burocracia. O link oficial é: ${linkUrl}`;
+      }
+      if (nlp.intent === 'BUY_INTENT' || nlp.intent === 'PAYMENT_PIX' || nlp.intent === 'PAYMENT_CRYPTO' || nlp.intent === 'PRICE_QUERY') {
+        return `Olá ${name}! 🎉 Tudo bem?\n\nLiberamos uma condição especial com 50% de desconto hoje para o *${productName}*!\n\nAcesse todos os detalhes e garanta seu acesso aqui:\n👉 ${linkUrl}\n\nQualquer dúvida sobre a ativação, pode me chamar por aqui!`;
+      }
+      if (nlp.intent === 'DISCOUNT_QUERY') {
+        return `Olá ${name}! 🎁 Temos uma condição promocional exclusiva ativada hoje para o *${productName}*! Acesse o link oficial para garantir seu desconto:\n👉 ${linkUrl}`;
+      }
+      if (nlp.intent === 'GREETING') {
+        return `Olá ${name}! Que bom ter você por aqui no nosso Direct! 😊\n\nVocê já conhece o *${productName}* ou gostaria de saber como ele funciona na prática para acelerar seus resultados?`;
+      }
     }
 
-    // 2. Confirmação de compra
-    const conversionRegex = /(já comprei|ja comprei|paguei|fiz a compra|comprei)/i;
-    if (conversionRegex.test(lower)) {
-      return `Sensacional, ${name}! Parabéns pela sua decisão! 🚀 Seu acesso está liberado. Se precisar de qualquer suporte, nossa equipe está pronta para te ajudar!`;
-    }
-
-    // 3. Dúvida geral / Saudações
-    const greetingRegex = /(oi|olá|ola|bom dia|boa tarde|boa noite|opa|e aí|e ai)/i;
-    if (greetingRegex.test(lower)) {
-      return `Olá ${name}! Que bom ter você por aqui no nosso Direct! 😊\n\nVocê já conhece o *${productName}* ou está querendo saber como ele funciona na prática para acelerar seus resultados?`;
-    }
-
-    // 4. Default amigável
+    // Default amigável
     return `Olá ${name}! Obrigado por entrar em contato! Como posso te ajudar hoje com relação ao *${productName}*? Se quiser ver a página oficial com a condição exclusiva, o link é: ${linkUrl}`;
   }
 

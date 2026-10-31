@@ -468,11 +468,22 @@ class WhatsAppArmyService {
     const db = require('../db/database');
     db.prepare("UPDATE campaign_leads SET status = 'REPLIED' WHERE phone = ? OR phone = ?").run(rawPhone, rawPhone.slice(-8));
 
-    // 4. Reconhece confirmação de compra / conversão
-    const conversionRegex = /(já comprei|ja comprei|paguei|fiz a compra|comprei aqui|acabei de comprar)/i;
-    if (conversionRegex.test(lower)) {
+    // 4. Análise NLU / NLP em Português Brasileiro
+    let nlp = null;
+    try {
+      const nlpService = require('./nlpService');
+      nlp = await nlpService.processMessage({
+        text,
+        customerName: leadConv?.name,
+        platform: 'whatsapp'
+      });
+    } catch (_) {}
+
+    // Reconhece confirmação de compra / conversão
+    const isConfirmedPurchase = nlp?.intent === 'CONFIRM_PURCHASE' || /(já comprei|ja comprei|paguei|fiz a compra|comprei aqui|acabei de comprar|ta pago|ja fiz o pix)/i.test(lower);
+    if (isConfirmedPurchase) {
       models.markLeadConverted(rawPhone);
-      const thankYouMsg = `🎉 *PARABÉNS PELA SUA DECISÃO!* 🚀\n\nFicamos muito felizes em ter você conosco! Seu acesso está liberado. Se precisar de qualquer suporte, basta chamar por aqui!`;
+      const thankYouMsg = (nlp && nlp.replyText) ? nlp.replyText : `🎉 *PARABÉNS PELA SUA DECISÃO!* 🚀\n\nFicamos muito felizes em ter você conosco! Seu acesso está liberado. Se precisar de qualquer suporte, basta chamar por aqui!`;
       await this.sendArmyMessage(instanceId, rawPhone, thankYouMsg);
       models.logFunnelInteraction({
         lead_phone: rawPhone,
@@ -489,8 +500,10 @@ class WhatsAppArmyService {
     const directOfferRegex = /(quero o link|manda o link|me passa o link|qual o link|onde compro|quero comprar|passa o link|como faço pra comprar)/i;
     let nextStageKey = null;
 
-    if (directOfferRegex.test(lower)) {
+    if (nlp?.intent === 'BUY_INTENT' || nlp?.intent === 'PAYMENT_PIX' || nlp?.intent === 'PAYMENT_CRYPTO' || directOfferRegex.test(lower)) {
       nextStageKey = 'STAGE_4_OFERTA';
+    } else if (nlp?.intent === 'DISCOUNT_QUERY') {
+      nextStageKey = 'STAGE_5_FECHAMENTO';
     } else {
       // Sequência natural de aquecimento conversacional
       const current = leadConv.current_stage || 'STAGE_1_DESCOBERTA';

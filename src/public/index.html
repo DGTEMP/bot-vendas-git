@@ -56,6 +56,9 @@
         <a href="#" class="nav-item" data-tab="social">
           <i class="fa-brands fa-instagram" style="color: #e1306c;"></i> Redes Sociais (Meta)
         </a>
+        <a href="#" class="nav-item" data-tab="nlp">
+          <i class="fa-solid fa-brain" style="color: #38bdf8;"></i> Linguagem Natural (NLP)
+        </a>
         <a href="#" class="nav-item" data-tab="products">
           <i class="fa-solid fa-box-open"></i> Produtos & VIP
         </a>
@@ -1492,6 +1495,193 @@
                 <button class="btn btn-primary mt-3" onclick="switchTab('settings')">
                   <i class="fa-solid fa-gear"></i> Ir para Central de Configurações
                 </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+
+        <!-- TAB 17: LINGUAGEM NATURAL PT-BR (NLU / NLP) -->
+        <section id="tab-nlp" class="tab-pane">
+          <div class="section-header">
+            <div>
+              <h2><i class="fa-solid fa-brain" style="color: #38bdf8;"></i> Inteligência Conversacional &amp; NLU (Português Brasil)</h2>
+              <p class="section-desc">
+                Compreensão total de português coloquial, gírias comerciais, abreviações (<i>vc, tbm, qto, blz, agr, pfv, ctz</i>), quebra de objeções (<i>garantia, golpe, segurança</i>), intenção de compra e pagamento automático via PIX e Cripto em todos os canais.
+              </p>
+            </div>
+            <div>
+              <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #38bdf8; padding: 6px 14px; font-weight: 600; font-size: 13px;">
+                <i class="fa-solid fa-bolt"></i> NLU Semântico Ativo (Zero Latência)
+              </span>
+            </div>
+          </div>
+
+          <!-- PLAYGROUND DE TESTE INTERATIVO -->
+          <div class="card mb-4" style="border-top: 3px solid #38bdf8;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h3><i class="fa-solid fa-flask" style="color: #38bdf8;"></i> Simulador &amp; Testador de Frases em Tempo Real</h3>
+              <small style="color: var(--text-muted);">Teste qualquer frase em português como se fosse um cliente real</small>
+            </div>
+            <div class="card-body">
+              <div class="form-row mb-3">
+                <div class="form-group flex-1">
+                  <label>Nome do Cliente Simulado</label>
+                  <input type="text" id="nlpTestCustomerName" class="form-control" value="Carlos Eduardo">
+                </div>
+                <div class="form-group flex-1">
+                  <label>Canal de Origem</label>
+                  <select id="nlpTestPlatform" class="form-control">
+                    <option value="whatsapp">WhatsApp Bot (Chip Principal)</option>
+                    <option value="army">Exército de WhatsApp (Chips do Funil)</option>
+                    <option value="instagram">Instagram Direct (Meta)</option>
+                    <option value="telegram">Telegram Bot</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group mb-2">
+                <label>Mensagem Enviada pelo Cliente</label>
+                <textarea id="nlpTestInput" class="form-control" rows="2" placeholder="Digite uma mensagem com gírias ou abreviações (ex: 'qto ta o plano vip?', 'manda a chave pix pro 1 pfv', 'ja fiz o pix aqui')..."></textarea>
+              </div>
+
+              <!-- Exemplos rápidos em chips -->
+              <div style="margin-bottom: 16px;">
+                <span style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">Exemplos rápidos de teste (clique para testar):</span>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('qto ta o plano vip?')">
+                    💬 "qto ta o plano vip?"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('manda a chave pix pro 1 pfv')">
+                    💸 "manda a chave pix pro 1 pfv"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('e seguro comprar aqui ou e golpe? tem garantia?')">
+                    🛡️ "e seguro ou e golpe? tem garantia?"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('tem algum cupom de desconto?')">
+                    🏷️ "tem algum cupom de desconto?"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('ja fiz o pix aqui ta pago')">
+                    ⚡ "ja fiz o pix aqui ta pago"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('vcs aceitam pagamento com cripto usdt?')">
+                    🪙 "vcs aceitam usdt via binance?"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('como funciona a entrega do produto?')">
+                    📦 "como funciona a entrega?"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('quero falar com um atendente humano')">
+                    👤 "falar com atendente humano"
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="setNlpExample('quero o combo com desconto')">
+                    🚀 "quero o combo com desconto"
+                  </button>
+                </div>
+              </div>
+
+              <button type="button" class="btn btn-primary" onclick="runNlpTest()" style="background: #0284c7; border-color: #0284c7;">
+                <i class="fa-solid fa-magnifying-glass"></i> Analisar Linguagem Natural &amp; Gerar Resposta
+              </button>
+            </div>
+          </div>
+
+          <!-- RESULTADO DO DIAGNÓSTICO -->
+          <div id="nlpResultCard" class="card mb-4" style="display: none; border-left: 4px solid #38bdf8;">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-chart-simple" style="color: #38bdf8;"></i> Diagnóstico NLU &amp; Ação Executada</h3>
+            </div>
+            <div class="card-body">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px;">
+                <div style="background: rgba(0,0,0,0.25); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Intenção Detectada</span>
+                  <div id="nlpResultIntent" style="font-size: 16px; font-weight: 700; color: #38bdf8; margin-top: 4px;">-</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.25); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Grau de Confiança</span>
+                  <div id="nlpResultConfidence" style="font-size: 16px; font-weight: 700; color: #10b981; margin-top: 4px;">-</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.25); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Ação Automática</span>
+                  <div id="nlpResultAction" style="font-size: 16px; font-weight: 700; color: #f59e0b; margin-top: 4px;">-</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.25); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Produto Vinculado</span>
+                  <div id="nlpResultProduct" style="font-size: 14px; font-weight: 600; color: #e2e8f0; margin-top: 4px;">-</div>
+                </div>
+              </div>
+
+              <div style="margin-bottom: 16px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 6px;">
+                <b style="font-size: 12px; color: var(--text-muted);">Normalização de Gírias PT-BR:</b>
+                <div id="nlpResultNormalized" style="font-family: monospace; font-size: 13px; color: #cbd5e1; margin-top: 4px;">-</div>
+              </div>
+
+              <div>
+                <b style="font-size: 13px; display: block; margin-bottom: 8px;">Prévia da Resposta Enviada pelo Bot ao Cliente:</b>
+                <div id="nlpResultReplyBox" style="background: #1e293b; border-left: 3px solid #10b981; padding: 15px; border-radius: 8px; color: #f8fafc; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
+                  <!-- Resposta formatada -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- GRID DE REFERÊNCIA: DICIONÁRIO & MATRIZ DE INTENÇÕES -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <!-- CARD DICIONÁRIO -->
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-spell-check" style="color: #38bdf8;"></i> Dicionário de Gírias &amp; Abreviações PT-BR</h3>
+              </div>
+              <div class="card-body" style="max-height: 380px; overflow-y: auto;">
+                <table class="table" style="font-size: 13px;">
+                  <thead>
+                    <tr>
+                      <th>Gíria / Abreviação</th>
+                      <th>Expansão Semântica</th>
+                    </tr>
+                  </thead>
+                  <tbody id="nlpSlangTableBody">
+                    <tr><td><code>vc</code> / <code>vcs</code></td><td>você / vocês</td></tr>
+                    <tr><td><code>tbm</code> / <code>tb</code></td><td>também</td></tr>
+                    <tr><td><code>qto</code> / <code>qnto</code></td><td>quanto</td></tr>
+                    <tr><td><code>oq</code> / <code>pq</code></td><td>o que / porque</td></tr>
+                    <tr><td><code>blz</code></td><td>beleza</td></tr>
+                    <tr><td><code>agr</code></td><td>agora</td></tr>
+                    <tr><td><code>pfv</code> / <code>plz</code></td><td>por favor</td></tr>
+                    <tr><td><code>obg</code> / <code>vlw</code></td><td>obrigado / valeu</td></tr>
+                    <tr><td><code>ctz</code></td><td>certeza</td></tr>
+                    <tr><td><code>mto</code> / <code>mt</code></td><td>muito</td></tr>
+                    <tr><td><code>zap</code> / <code>wpp</code></td><td>whatsapp</td></tr>
+                    <tr><td><code>tmj</code></td><td>estamos juntos</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- CARD MATRIZ DE INTENÇÕES -->
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-list-check" style="color: #38bdf8;"></i> Matriz de Intenções Conversacionais</h3>
+              </div>
+              <div class="card-body" style="max-height: 380px; overflow-y: auto;">
+                <table class="table" style="font-size: 13px;">
+                  <thead>
+                    <tr>
+                      <th>Intenção</th>
+                      <th>Gatilho / Significado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td><b style="color: #10b981;">CONFIRM_PURCHASE</b></td><td>Comprovantes, "já paguei", "fiz o pix"</td></tr>
+                    <tr><td><b style="color: #38bdf8;">PAYMENT_PIX</b></td><td>Chave PIX, copia e cola, QR code</td></tr>
+                    <tr><td><b style="color: #f59e0b;">PAYMENT_CRYPTO</b></td><td>Binance Pay, USDT, carteira cripto</td></tr>
+                    <tr><td><b style="color: #ec4899;">DISCOUNT_QUERY</b></td><td>Pedidos de cupom, desconto, promoção</td></tr>
+                    <tr><td><b style="color: #a855f7;">TRUST_AND_GUARANTEE</b></td><td>Objeções: é confiável?, é golpe?, garantia</td></tr>
+                    <tr><td><b style="color: #06b6d4;">BUY_INTENT</b></td><td>Quero comprar, manda o link, fechar</td></tr>
+                    <tr><td><b style="color: #e2e8f0;">PRICE_QUERY</b></td><td>Quanto custa, qual o valor, tabela</td></tr>
+                    <tr><td><b style="color: #64748b;">HOW_IT_WORKS</b></td><td>Entrega na hora, como recebo o acesso</td></tr>
+                    <tr><td><b style="color: #ef4444;">SUPPORT_HUMAN</b></td><td>Atendente, humano, ajuda, suporte</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
