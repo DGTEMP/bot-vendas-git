@@ -76,6 +76,7 @@ class WhatsAppBotService {
           
           try {
             this.currentQrDataUrl = await QRCode.toDataURL(qr);
+            models.updateArmyInstance(1, { status: 'WAITING_QR' });
           } catch (e) {}
 
           console.log('\n======================================================');
@@ -90,6 +91,10 @@ class WhatsAppBotService {
           this.currentQr = null;
           this.currentQrDataUrl = null;
           this.statusMessage = 'Conectado com sucesso';
+          const rawPhone = this.sock.user?.id ? this.sock.user.id.split(':')[0] : null;
+          try {
+            models.updateArmyInstance(1, { status: 'CONNECTED', phone: rawPhone });
+          } catch (_) {}
           console.log('✅ [WhatsApp] Sessão conectada e pronta para receber pedidos!');
         }
 
@@ -99,6 +104,9 @@ class WhatsAppBotService {
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
           this.statusMessage = `Desconectado (código ${statusCode}). Tentando reconectar...`;
+          try {
+            models.updateArmyInstance(1, { status: 'DISCONNECTED' });
+          } catch (_) {}
 
           if (shouldReconnect) {
             setTimeout(() => this.start(), 4000);
@@ -141,6 +149,13 @@ class WhatsAppBotService {
 
     if (!text) return;
     const lower = text.toLowerCase();
+
+    // Auto-resposta do Exército de WhatsApp se for lead de campanha de divulgação
+    try {
+      const whatsappArmyService = require('../services/whatsappArmyService');
+      const handled = await whatsappArmyService.handleIncomingLeadMessage(from, text, 1);
+      if (handled) return;
+    } catch (_) {}
 
     // 0. Detecta indicação de afiliado via link ou mensagem (ex: ref_TOPVIP ou cupom TOPVIP)
     const refMatch = text.match(/(?:ref_|afiliado[:\s]+)([a-zA-Z0-9_-]+)/i);

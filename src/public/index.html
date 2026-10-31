@@ -50,6 +50,9 @@
         <a href="#" class="nav-item" data-tab="coupons">
           <i class="fa-solid fa-ticket"></i> Cupons de Desconto
         </a>
+        <a href="#" class="nav-item" data-tab="army">
+          <i class="fa-solid fa-tower-broadcast gold"></i> Exército WhatsApp
+        </a>
         <a href="#" class="nav-item" data-tab="products">
           <i class="fa-solid fa-box-open"></i> Produtos & VIP
         </a>
@@ -882,6 +885,135 @@
           </div>
         </section>
 
+        <!-- TAB EXÉRCITO WHATSAPP & DIVULGAÇÃO DE AFILIADOS -->
+        <section id="tab-army" class="tab-pane">
+          <!-- Métricas do Exército -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon green"><i class="fa-brands fa-whatsapp"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Chips Conectados</span>
+                <h3 id="armyStatConnected">0 / 0</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon gold"><i class="fa-solid fa-paper-plane"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Disparos Hoje</span>
+                <h3 id="armyStatSentToday">0 envios</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon blue"><i class="fa-solid fa-link"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Links de Afiliado</span>
+                <h3 id="armyStatTotalLinks">0 links</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon purple"><i class="fa-solid fa-bullhorn"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Campanhas Ativas</span>
+                <h3 id="armyStatActiveCampaigns">0 ativas</h3>
+              </div>
+            </div>
+          </div>
+
+          <!-- 1. Gestão de Instâncias / Chips -->
+          <div class="card" style="margin-bottom: 25px;">
+            <div class="card-header">
+              <div>
+                <h3><i class="fa-solid fa-shield-halved gold"></i> Instâncias do Exército de WhatsApp (Chips)</h3>
+                <p class="section-desc">Conecte e rotacione múltiplos números de WhatsApp para divulgar seus links de afiliado com proteção anti-ban e cotas diárias.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openArmyInstanceModal()">
+                <i class="fa-solid fa-plus"></i> Conectar Novo Chip
+              </button>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableArmyInstances">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Identificação / Nome</th>
+                    <th>Número</th>
+                    <th>Status</th>
+                    <th>Disparos Hoje</th>
+                    <th>Limite Diário</th>
+                    <th>Modo</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="8" class="text-center">Carregando instâncias do exército...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 2. Catálogo de Links de Afiliado -->
+          <div class="card" style="margin-bottom: 25px;">
+            <div class="card-header">
+              <div>
+                <h3><i class="fa-solid fa-tags gold"></i> Seus Links de Afiliado (Produtos que Você Promove)</h3>
+                <p class="section-desc">Cadastre produtos e links de qualquer plataforma (Hotmart, Kiwify, Monetizze, Braip, Cakto, PayBot) para divulgar em massa com Spintax.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openAffiliateLinkModal()">
+                <i class="fa-solid fa-plus"></i> Novo Link de Afiliado
+              </button>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableArmyLinks">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Produto / Título</th>
+                    <th>Plataforma</th>
+                    <th>Link de Afiliado</th>
+                    <th>Comissão Est.</th>
+                    <th>Preço Ref.</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="7" class="text-center">Carregando links de afiliado...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 3. Campanhas de Divulgação em Massa (Anti-Ban Broadcast) -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3><i class="fa-solid fa-tower-broadcast gold"></i> Campanhas de Divulgação em Massa</h3>
+                <p class="section-desc">Disparos automatizados para listas de leads com Spintax aleatório, rotação entre chips, pausas humanas e auto-resposta de conversão.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openCampaignModal()">
+                <i class="fa-solid fa-rocket"></i> Criar Nova Campanha
+              </button>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableArmyCampaigns">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Nome da Campanha</th>
+                    <th>Produto Promovido</th>
+                    <th>Progresso dos Leads</th>
+                    <th>Intervalo Anti-Ban</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="7" class="text-center">Carregando campanhas de divulgação...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <!-- TAB 6: PRODUTOS & ASSINATURAS -->
         <section id="tab-products" class="tab-pane">
           <div class="card">
@@ -1525,6 +1657,225 @@
           <button type="submit" class="btn btn-primary">Cadastrar na Fila</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- MODAL INSTÂNCIA DO EXÉRCITO (CHIP) -->
+  <div id="modalArmyInstance" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalArmyInstanceTitle">Conectar Novo Chip do Exército</h3>
+        <button class="btn-close" onclick="closeArmyInstanceModal()">&times;</button>
+      </div>
+      <form id="formArmyInstance" onsubmit="saveArmyInstance(event)">
+        <input type="hidden" id="armyInstId">
+        <div class="form-group">
+          <label>Identificação / Nome do Chip *</label>
+          <input type="text" id="armyInstName" class="form-control" required placeholder="Ex: Chip 02 - Divulgador Hotmart">
+        </div>
+        <div class="form-group">
+          <label>Número do WhatsApp (Opcional se for ler QR Code)</label>
+          <input type="text" id="armyInstPhone" class="form-control" placeholder="5511999998888">
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Limite de Envios por Dia (Anti-Ban) *</label>
+            <input type="number" id="armyInstDailyLimit" class="form-control" value="50" min="10" max="300" required>
+            <small class="hint">Recomendamos entre 30 e 80 mensagens/dia por chip para evitar banimentos.</small>
+          </div>
+          <div class="form-group flex-1" style="display:flex; flex-direction:column; justify-content:center;">
+            <label style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" id="armyInstWarmup">
+              <span><b>Modo Aquecimento (Warm-up)</b></span>
+            </label>
+            <small class="hint">Aumenta o volume de disparos progressivamente ao longo dos dias para chips novos.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeArmyInstanceModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Chip</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL LINK DE AFILIADO -->
+  <div id="modalAffiliateLink" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalAffiliateLinkTitle">Novo Link de Afiliado</h3>
+        <button class="btn-close" onclick="closeAffiliateLinkModal()">&times;</button>
+      </div>
+      <form id="formAffiliateLink" onsubmit="saveAffiliateLink(event)">
+        <input type="hidden" id="armyLinkId">
+        <div class="form-group">
+          <label>Título / Nome do Produto *</label>
+          <input type="text" id="armyLinkTitle" class="form-control" required placeholder="Ex: Método Trader Consistente">
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Plataforma *</label>
+            <select id="armyLinkPlatform" class="form-control">
+              <option value="Hotmart">Hotmart</option>
+              <option value="Kiwify">Kiwify</option>
+              <option value="Monetizze">Monetizze</option>
+              <option value="Braip">Braip</option>
+              <option value="Cakto">Cakto</option>
+              <option value="PayBot">PayBot Próprio</option>
+              <option value="Outro">Outra Plataforma</option>
+            </select>
+          </div>
+          <div class="form-group flex-1">
+            <label>Comissão Estimada (%)</label>
+            <input type="number" step="1" min="1" max="100" id="armyLinkCommission" class="form-control" value="50">
+          </div>
+          <div class="form-group flex-1">
+            <label>Preço do Produto (R$)</label>
+            <input type="number" step="0.01" min="0" id="armyLinkPrice" class="form-control" placeholder="97.00">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Seu Link de Afiliado Direto (com UTM se desejar) *</label>
+          <input type="url" id="armyLinkUrl" class="form-control" required placeholder="https://hotm.art/seu-link-afiliado">
+        </div>
+        <div class="form-group">
+          <label>Copy / Pitch Padrão de Divulgação (Opcional)</label>
+          <textarea id="armyLinkPitch" class="form-control" rows="3" placeholder="{Olá|Oi|E aí} {nome}! Conheça o método que está mudando vidas: {link}"></textarea>
+          <small class="hint">Aceita Spintax {opcao1|opcao2} e tags {nome}, {saudacao}, {produto}, {link}.</small>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeAffiliateLinkModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Link</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL CAMPANHA DE DIVULGAÇÃO EM MASSA -->
+  <div id="modalCampaign" class="modal">
+    <div class="modal-content" style="max-width: 750px;">
+      <div class="modal-header">
+        <h3 id="modalCampaignTitle">Nova Campanha de Divulgação em Massa</h3>
+        <button class="btn-close" onclick="closeCampaignModal()">&times;</button>
+      </div>
+      <form id="formCampaign" onsubmit="saveCampaign(event)">
+        <input type="hidden" id="campId">
+        <div class="form-group">
+          <label>Nome da Campanha *</label>
+          <input type="text" id="campName" class="form-control" required placeholder="Ex: Disparo Sinais VIP - Lista Quente">
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Vincular a Link de Afiliado Cadastrado (Opcional)</label>
+            <select id="campLinkSelect" class="form-control" onchange="onCampaignLinkSelectChange()">
+              <option value="">Digitação Manual</option>
+            </select>
+          </div>
+          <div class="form-group flex-1">
+            <label>Nome do Produto Divulgado *</label>
+            <input type="text" id="campProductName" class="form-control" required placeholder="Ex: Sinais VIP Cripto">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Link de Afiliado *</label>
+          <input type="url" id="campAffiliateUrl" class="form-control" required placeholder="https://hotm.art/seu-link">
+        </div>
+        <div class="form-group">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+            <label style="margin-bottom:0;">Modelo de Mensagem (Spintax Inteligente Anti-Ban) *</label>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="btn btn-sm btn-secondary" onclick="insertSpintaxTag('{nome}')">+ {nome}</button>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="insertSpintaxTag('{saudacao}')">+ {saudacao}</button>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="insertSpintaxTag('{produto}')">+ {produto}</button>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="insertSpintaxTag('{link}')">+ {link}</button>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="insertSpintaxTag('{Olá|Oi|E aí|Tudo bem?}')">+ Variação</button>
+            </div>
+          </div>
+          <textarea id="campMessageTemplate" class="form-control" rows="4" required placeholder="{Olá|Oi|E aí} {nome}! {Tudo bem?|Como você está?}&#10;&#10;Liberamos uma vaga especial para o *{produto}* com desconto exclusivo!&#10;&#10;Acesse e confira antes que expire: {link}"></textarea>
+          <div style="margin-top: 8px; display: flex; gap: 10px; align-items: center;">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="testSpintaxPreview()">
+              <i class="fa-solid fa-wand-magic-sparkles gold"></i> Testar Prévia de Variação
+            </button>
+            <div id="campSpintaxPreview" style="flex:1; font-size:12px; color:var(--text-muted); font-style:italic; border-left:2px solid var(--primary-gold); padding-left:8px;">Clique ao lado para testar uma variação gerada.</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Intervalo Mínimo Anti-Ban (segundos)</label>
+            <input type="number" id="campDelayMin" class="form-control" value="20" min="5" max="180">
+          </div>
+          <div class="form-group flex-1">
+            <label>Intervalo Máximo Anti-Ban (segundos)</label>
+            <input type="number" id="campDelayMax" class="form-control" value="45" min="10" max="300">
+          </div>
+        </div>
+        <div class="form-group">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+            <label style="margin-bottom:0;">Lista de Leads / Telefones Destinatários</label>
+            <button type="button" class="btn btn-sm btn-primary" onclick="importPayBotCustomersToCampaign()">
+              <i class="fa-solid fa-users"></i> ⚡ Puxar Clientes Anteriores do PayBot
+            </button>
+          </div>
+          <textarea id="campLeadsText" class="form-control" rows="4" placeholder="Cole um número por linha (com DDD). Exemplos:&#10;5511999998888&#10;5521988887777, João Silva&#10;5531977776666, Marcos"></textarea>
+          <small class="hint">Aceita formato internacional (5511...) ou com DDD local (11...). Pode incluir nome após vírgula.</small>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeCampaignModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar e Preparar Disparos</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL QR CODE DO CHIP -->
+  <div id="modalArmyQr" class="modal">
+    <div class="modal-content text-center" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 id="modalArmyQrTitle">Escanear QR Code do Chip</h3>
+        <button class="btn-close" onclick="closeArmyQrModal()">&times;</button>
+      </div>
+      <div style="padding: 20px 10px;">
+        <div id="armyQrContainer" style="margin-bottom: 15px;">
+          <div style="padding: 40px; color: var(--text-muted);">
+            <i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>
+            Gerando QR Code de conexão...
+          </div>
+        </div>
+        <p id="armyQrStatusText" style="font-size: 13px; color: var(--text-muted);">Abra o WhatsApp no seu celular > Dispositivos Conectados > Conectar Dispositivo e aponte para a tela.</p>
+      </div>
+      <div class="modal-footer" style="justify-content: center;">
+        <button type="button" class="btn btn-secondary" onclick="closeArmyQrModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL LEADS DA CAMPANHA -->
+  <div id="modalCampaignLeads" class="modal">
+    <div class="modal-content" style="max-width: 850px;">
+      <div class="modal-header">
+        <h3 id="modalCampaignLeadsTitle">Fila de Leads da Campanha</h3>
+        <button class="btn-close" onclick="closeCampaignLeadsModal()">&times;</button>
+      </div>
+      <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+        <table class="table" id="tableCampaignLeadsList">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Telefone</th>
+              <th>Nome</th>
+              <th>Status</th>
+              <th>Mensagem Enviada</th>
+              <th>Enviado Em</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="text-center">Carregando leads da campanha...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeCampaignLeadsModal()">Fechar</button>
+      </div>
     </div>
   </div>
 

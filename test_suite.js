@@ -7,6 +7,7 @@ const updatesChannel = require('./src/services/updatesChannel');
 const binancePay = require('./src/services/binancePay');
 const pixPayment = require('./src/services/pixPayment');
 const subscriptionCron = require('./src/services/subscriptionCron');
+const whatsappArmyService = require('./src/services/whatsappArmyService');
 
 let passedTests = 0;
 let failedTests = 0;
@@ -759,6 +760,132 @@ async function main() {
     });
     assert.strictEqual(postSellersRes.status, 200);
     assert(Array.isArray(postSellersRes.data));
+  });
+
+  // ----------------------------------------------------------------
+  // 8. TESTES DO EXÉRCITO DE WHATSAPP & DIVULGAÇÃO DE AFILIADOS
+  // ----------------------------------------------------------------
+  console.log('\n🤖 8. Testes do Exército de WhatsApp & Divulgação de Afiliados:');
+
+  let testChip, testAffLink, testArmyCamp;
+
+  runTest('Gerenciamento de Instâncias / Chips do Exército (whatsapp_army_instances)', () => {
+    testChip = models.createArmyInstance({
+      name: 'Chip 02 - Divulgador de Teste',
+      phone: '5511988887777',
+      daily_limit: 40,
+      warmup_mode: 1
+    });
+
+    assert(testChip.id > 0);
+    assert.strictEqual(testChip.name, 'Chip 02 - Divulgador de Teste');
+    assert.strictEqual(testChip.daily_limit, 40);
+    assert.strictEqual(testChip.warmup_mode, 1);
+
+    // Simula chip conectado
+    models.updateArmyInstance(testChip.id, { status: 'CONNECTED' });
+    const available = models.getAvailableArmyInstances();
+    assert(available.some(i => i.id === testChip.id));
+  });
+
+  runTest('Cadastro e Consulta de Links de Afiliado (affiliate_links)', () => {
+    testAffLink = models.createAffiliateLink({
+      title: 'Método Trader Pro 2026',
+      platform: 'Hotmart',
+      affiliate_url: 'https://hotm.art/trader-pro-test',
+      commission_percent: 60.0,
+      product_price: 197.00,
+      pitch_copy: '{Olá|Oi} {nome}! Conheça o {produto}: {link}'
+    });
+
+    assert(testAffLink.id > 0);
+    assert.strictEqual(testAffLink.title, 'Método Trader Pro 2026');
+    assert.strictEqual(testAffLink.platform, 'Hotmart');
+    assert.strictEqual(testAffLink.commission_percent, 60.0);
+  });
+
+  runTest('Parser de Spintax e Formatação Dinâmica de Mensagens', () => {
+    const template = '{Olá|Oi|E aí} {nome}! {Tudo bem?|Como vai?} Veja {produto}: {link}';
+    const parsed1 = models.formatCampaignMessage(template, { name: 'Lucas' }, { product_name: 'Curso Cripto', affiliate_url: 'https://link.com/af' });
+    const parsed2 = models.formatCampaignMessage(template, { name: 'Lucas' }, { product_name: 'Curso Cripto', affiliate_url: 'https://link.com/af' });
+
+    assert(parsed1.includes('Lucas'));
+    assert(parsed1.includes('Curso Cripto'));
+    assert(parsed1.includes('https://link.com/af'));
+    assert(!parsed1.includes('{nome}'));
+    assert(!parsed1.includes('{produto}'));
+    assert(!parsed1.includes('{link}'));
+    assert(!parsed1.includes('{Olá|Oi|E aí}'));
+  });
+
+  await runAsyncTest('Criação e Execução de Campanha de Divulgação em Massa com Rotação de Chips', async () => {
+    testArmyCamp = models.createAffiliateCampaign({
+      name: 'Campanha Teste Disparo Rápido',
+      affiliate_link_id: testAffLink.id,
+      product_name: testAffLink.title,
+      affiliate_url: testAffLink.affiliate_url,
+      message_template: '{Olá|Oi} {nome}! Confira {produto}: {link}',
+      delay_min_seconds: 1,
+      delay_max_seconds: 1,
+      leads: [
+        { phone: '5511999990011', name: 'Lead Um' },
+        { phone: '5511999990022', name: 'Lead Dois' }
+      ]
+    });
+
+    assert(testArmyCamp.id > 0);
+    assert.strictEqual(testArmyCamp.total_leads, 2);
+
+    // Inicia a campanha através do serviço
+    const startResult = await whatsappArmyService.startCampaign(testArmyCamp.id);
+    assert.strictEqual(startResult.status, 'RUNNING');
+
+    // Aguarda processamento dos leads em modo teste rápido
+    await new Promise(r => setTimeout(r, 200));
+
+    const updatedCamp = models.getAffiliateCampaignById(testArmyCamp.id);
+    assert(updatedCamp.sent_count >= 1, 'Ao menos um lead deve ter sido processado');
+
+    const leads = models.getCampaignLeads(testArmyCamp.id);
+    assert(leads.some(l => l.status === 'SENT'));
+  });
+
+  await runAsyncTest('Auto-Resposta Inteligente de Conversão para Leads Interessados', async () => {
+    // Lead que acabou de receber mensagem manda "quero o link por favor"
+    const handled = await whatsappArmyService.handleIncomingLeadMessage('5511999990011@s.whatsapp.net', 'quero saber mais sobre o valor', testChip.id);
+    assert.strictEqual(handled, true, 'Auto-resposta deve identificar interesse comercial do lead');
+
+    const leads = models.getCampaignLeads(testArmyCamp.id);
+    const repliedLead = leads.find(l => l.phone === '5511999990011');
+    assert.strictEqual(repliedLead.status, 'REPLIED');
+  });
+
+  await runAsyncTest('Endpoints REST da API do Exército de WhatsApp (/api/army/*)', async () => {
+    // 1. Instâncias
+    const getInst = await fetchApi('/api/army/instances');
+    assert.strictEqual(getInst.status, 200);
+    assert(Array.isArray(getInst.data));
+    assert(getInst.data.some(i => i.id === testChip.id));
+
+    // 2. Links
+    const getLinks = await fetchApi('/api/army/links');
+    assert.strictEqual(getLinks.status, 200);
+    assert(Array.isArray(getLinks.data));
+    assert(getLinks.data.some(l => l.id === testAffLink.id));
+
+    // 3. Spintax Preview
+    const previewRes = await fetchApi('/api/army/spintax-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        template: '{Oi|Olá} {nome}! {produto} em {link}',
+        lead: { name: 'Ana' },
+        campaign: { product_name: 'VIP Bot', affiliate_url: 'https://paybot.test' }
+      })
+    });
+    assert.strictEqual(previewRes.status, 200);
+    assert(previewRes.data.preview.includes('Ana'));
+    assert(previewRes.data.preview.includes('VIP Bot'));
   });
 
   await new Promise(resolve => testServer.close(resolve));

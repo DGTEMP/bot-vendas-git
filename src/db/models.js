@@ -1107,6 +1107,389 @@ const models = {
 
     // Se o modo estrito/restringido estiver desativado, o afiliado ativo tem acesso se não houver recusa explícita
     return !restricted;
+  },
+
+  // ==========================================
+  // 14. EXÉRCITO DE WHATSAPP (MULTI-INSTÂNCIAS / CHIPS)
+  // ==========================================
+  getArmyInstances() {
+    return db.prepare('SELECT * FROM whatsapp_army_instances ORDER BY is_main DESC, id ASC').all();
+  },
+
+  getArmyInstanceById(id) {
+    return db.prepare('SELECT * FROM whatsapp_army_instances WHERE id = ?').get(id);
+  },
+
+  createArmyInstance({ name, phone = null, daily_limit = 50, warmup_mode = 0 }) {
+    const count = db.prepare('SELECT COUNT(*) as count FROM whatsapp_army_instances').get().count;
+    const sessionId = `session_${Date.now()}_${count + 1}`;
+    const stmt = db.prepare(`
+      INSERT INTO whatsapp_army_instances (name, phone, session_id, status, daily_limit, warmup_mode, is_main, active)
+      VALUES (?, ?, ?, 'DISCONNECTED', ?, ?, 0, 1)
+    `);
+    const res = stmt.run(name, phone || null, sessionId, Number(daily_limit || 50), warmup_mode ? 1 : 0);
+    return models.getArmyInstanceById(Number(res.lastInsertRowid));
+  },
+
+  updateArmyInstance(id, data = {}) {
+    const existing = models.getArmyInstanceById(id);
+    if (!existing) throw new Error('Instância do exército não encontrada');
+
+    const name = data.name !== undefined ? data.name : existing.name;
+    const phone = data.phone !== undefined ? data.phone : existing.phone;
+    const status = data.status !== undefined ? data.status : existing.status;
+    const daily_limit = data.daily_limit !== undefined ? Number(data.daily_limit) : existing.daily_limit;
+    const messages_sent_today = data.messages_sent_today !== undefined ? Number(data.messages_sent_today) : existing.messages_sent_today;
+    const warmup_mode = data.warmup_mode !== undefined ? (data.warmup_mode ? 1 : 0) : existing.warmup_mode;
+    const active = data.active !== undefined ? (data.active ? 1 : 0) : existing.active;
+
+    db.prepare(`
+      UPDATE whatsapp_army_instances
+      SET name = ?, phone = ?, status = ?, daily_limit = ?, messages_sent_today = ?, warmup_mode = ?, active = ?
+      WHERE id = ?
+    `).run(name, phone || null, status, daily_limit, messages_sent_today, warmup_mode, active, id);
+
+    return models.getArmyInstanceById(id);
+  },
+
+  deleteArmyInstance(id) {
+    const inst = models.getArmyInstanceById(id);
+    if (inst && inst.is_main) {
+      throw new Error('Não é permitido remover a instância Matriz Principal.');
+    }
+    return db.prepare('DELETE FROM whatsapp_army_instances WHERE id = ?').run(id);
+  },
+
+  incrementInstanceSentCount(id) {
+    db.prepare(`
+      UPDATE whatsapp_army_instances
+      SET messages_sent_today = messages_sent_today + 1, last_sent_at = datetime('now')
+      WHERE id = ?
+    `).run(id);
+    return models.getArmyInstanceById(id);
+  },
+
+  resetArmyDailyCounts() {
+    return db.prepare('UPDATE whatsapp_army_instances SET messages_sent_today = 0').run();
+  },
+
+  getAvailableArmyInstances(targetIds = null) {
+    let sql = `
+      SELECT * FROM whatsapp_army_instances 
+      WHERE active = 1 AND status = 'CONNECTED' AND messages_sent_today < daily_limit
+    `;
+    const params = [];
+    if (Array.isArray(targetIds) && targetIds.length > 0) {
+      sql += ` AND id IN (${targetIds.map(() => '?').join(',')})`;
+      params.push(...targetIds);
+    }
+    sql += ' ORDER BY messages_sent_today ASC, last_sent_at ASC';
+    return db.prepare(sql).all(...params);
+  },
+
+  // ==========================================
+  // 15. CATÁLOGO DE LINKS DE AFILIADO
+  // ==========================================
+  getAffiliateLinks() {
+    return db.prepare('SELECT * FROM affiliate_links ORDER BY id DESC').all();
+  },
+
+  getAffiliateLinkById(id) {
+    return db.prepare('SELECT * FROM affiliate_links WHERE id = ?').get(id);
+  },
+
+  createAffiliateLink({ title, platform = 'Hotmart', affiliate_url, commission_percent = 50.0, product_price = 0.0, currency = 'BRL', pitch_copy = null }) {
+    if (!title || !affiliate_url) throw new Error('Título e Link de Afiliado são obrigatórios.');
+    const stmt = db.prepare(`
+      INSERT INTO affiliate_links (title, platform, affiliate_url, commission_percent, product_price, currency, pitch_copy)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(title, platform, affiliate_url, Number(commission_percent || 50.0), Number(product_price || 0.0), currency, pitch_copy || null);
+    return models.getAffiliateLinkById(Number(res.lastInsertRowid));
+  },
+
+  updateAffiliateLink(id, data = {}) {
+    const existing = models.getAffiliateLinkById(id);
+    if (!existing) throw new Error('Link de afiliado não encontrado');
+
+    const title = data.title !== undefined ? data.title : existing.title;
+    const platform = data.platform !== undefined ? data.platform : existing.platform;
+    const affiliate_url = data.affiliate_url !== undefined ? data.affiliate_url : existing.affiliate_url;
+    const commission_percent = data.commission_percent !== undefined ? Number(data.commission_percent) : existing.commission_percent;
+    const product_price = data.product_price !== undefined ? Number(data.product_price) : existing.product_price;
+    const currency = data.currency !== undefined ? data.currency : existing.currency;
+    const pitch_copy = data.pitch_copy !== undefined ? data.pitch_copy : existing.pitch_copy;
+    const active = data.active !== undefined ? (data.active ? 1 : 0) : existing.active;
+
+    db.prepare(`
+      UPDATE affiliate_links
+      SET title = ?, platform = ?, affiliate_url = ?, commission_percent = ?, product_price = ?, currency = ?, pitch_copy = ?, active = ?
+      WHERE id = ?
+    `).run(title, platform, affiliate_url, commission_percent, product_price, currency, pitch_copy || null, active, id);
+
+    return models.getAffiliateLinkById(id);
+  },
+
+  deleteAffiliateLink(id) {
+    return db.prepare('DELETE FROM affiliate_links WHERE id = ?').run(id);
+  },
+
+  trackAffiliateLinkClick(id) {
+    return db.prepare('UPDATE affiliate_links SET clicks_count = clicks_count + 1 WHERE id = ?').run(id);
+  },
+
+  // ==========================================
+  // 16. CAMPANHAS DE DIVULGAÇÃO & SPINTAX (AFFILIATE BROADCAST)
+  // ==========================================
+  parseSpintax(text) {
+    if (!text) return '';
+    let result = text;
+    const regex = /\{([^{}]*\|[^{}]*)\}/;
+    let matches;
+    while ((matches = regex.exec(result)) !== null) {
+      const options = matches[1].split('|');
+      const randomOption = options[Math.floor(Math.random() * options.length)];
+      result = result.replace(matches[0], randomOption);
+    }
+    return result;
+  },
+
+  formatCampaignMessage(template, lead = {}, campaign = {}) {
+    let msg = template || '';
+    const greeting = new Date().getHours() < 12 ? 'Bom dia' : (new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite');
+    msg = msg.replace(/\{nome\}/gi, lead.name || 'amigo(a)');
+    msg = msg.replace(/\{saudacao\}/gi, greeting);
+    msg = msg.replace(/\{produto\}/gi, campaign.product_name || 'Produto Especial');
+    msg = msg.replace(/\{link\}/gi, campaign.affiliate_url || '');
+    return models.parseSpintax(msg);
+  },
+
+  getAffiliateCampaigns() {
+    const campaigns = db.prepare(`
+      SELECT c.*, l.title as affiliate_link_title, l.platform as affiliate_platform
+      FROM affiliate_campaigns c
+      LEFT JOIN affiliate_links l ON c.affiliate_link_id = l.id
+      ORDER BY c.id DESC
+    `).all();
+
+    for (const c of campaigns) {
+      const counts = db.prepare(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'SENT' THEN 1 ELSE 0 END) as sent,
+          SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failed,
+          SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending
+        FROM campaign_leads WHERE campaign_id = ?
+      `).get(c.id);
+
+      c.total_leads = counts.total || 0;
+      c.sent_count = counts.sent || 0;
+      c.failed_count = counts.failed || 0;
+      c.pending_count = counts.pending || 0;
+    }
+    return campaigns;
+  },
+
+  getAffiliateCampaignById(id) {
+    const campaign = db.prepare(`
+      SELECT c.*, l.title as affiliate_link_title, l.platform as affiliate_platform
+      FROM affiliate_campaigns c
+      LEFT JOIN affiliate_links l ON c.affiliate_link_id = l.id
+      WHERE c.id = ?
+    `).get(id);
+
+    if (campaign) {
+      const counts = db.prepare(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'SENT' THEN 1 ELSE 0 END) as sent,
+          SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failed,
+          SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending
+        FROM campaign_leads WHERE campaign_id = ?
+      `).get(id);
+
+      campaign.total_leads = counts.total || 0;
+      campaign.sent_count = counts.sent || 0;
+      campaign.failed_count = counts.failed || 0;
+      campaign.pending_count = counts.pending || 0;
+    }
+    return campaign;
+  },
+
+  createAffiliateCampaign({ name, affiliate_link_id = null, product_name, affiliate_url, message_template, delay_min_seconds = 20, delay_max_seconds = 45, target_instances = null, leads = [] }) {
+    if (!name || !message_template) throw new Error('Nome da campanha e modelo de mensagem são obrigatórios.');
+    
+    let prodName = product_name;
+    let affUrl = affiliate_url;
+
+    if (affiliate_link_id) {
+      const link = models.getAffiliateLinkById(affiliate_link_id);
+      if (link) {
+        if (!prodName) prodName = link.title;
+        if (!affUrl) affUrl = link.affiliate_url;
+      }
+    }
+
+    if (!affUrl) throw new Error('Link de afiliado é obrigatório.');
+
+    const targetJson = Array.isArray(target_instances) ? JSON.stringify(target_instances) : null;
+
+    const stmt = db.prepare(`
+      INSERT INTO affiliate_campaigns (name, affiliate_link_id, product_name, affiliate_url, message_template, delay_min_seconds, delay_max_seconds, target_instances, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
+    `);
+    const res = stmt.run(
+      name, 
+      affiliate_link_id ? Number(affiliate_link_id) : null, 
+      prodName || 'Produto Afiliado', 
+      affUrl, 
+      message_template, 
+      Number(delay_min_seconds || 20), 
+      Number(delay_max_seconds || 45), 
+      targetJson
+    );
+    const campaignId = Number(res.lastInsertRowid);
+
+    if (Array.isArray(leads) && leads.length > 0) {
+      models.addCampaignLeads(campaignId, leads);
+    }
+
+    return models.getAffiliateCampaignById(campaignId);
+  },
+
+  updateAffiliateCampaign(id, data = {}) {
+    const existing = models.getAffiliateCampaignById(id);
+    if (!existing) throw new Error('Campanha não encontrada');
+
+    const name = data.name !== undefined ? data.name : existing.name;
+    const affiliate_link_id = data.affiliate_link_id !== undefined ? (data.affiliate_link_id ? Number(data.affiliate_link_id) : null) : existing.affiliate_link_id;
+    const product_name = data.product_name !== undefined ? data.product_name : existing.product_name;
+    const affiliate_url = data.affiliate_url !== undefined ? data.affiliate_url : existing.affiliate_url;
+    const message_template = data.message_template !== undefined ? data.message_template : existing.message_template;
+    const status = data.status !== undefined ? data.status : existing.status;
+    const delay_min_seconds = data.delay_min_seconds !== undefined ? Number(data.delay_min_seconds) : existing.delay_min_seconds;
+    const delay_max_seconds = data.delay_max_seconds !== undefined ? Number(data.delay_max_seconds) : existing.delay_max_seconds;
+    const target_instances = data.target_instances !== undefined ? (Array.isArray(data.target_instances) ? JSON.stringify(data.target_instances) : null) : existing.target_instances;
+    const completed_at = data.completed_at !== undefined ? data.completed_at : existing.completed_at;
+
+    db.prepare(`
+      UPDATE affiliate_campaigns
+      SET name = ?, affiliate_link_id = ?, product_name = ?, affiliate_url = ?, message_template = ?, status = ?, delay_min_seconds = ?, delay_max_seconds = ?, target_instances = ?, completed_at = ?
+      WHERE id = ?
+    `).run(name, affiliate_link_id, product_name, affiliate_url, message_template, status, delay_min_seconds, delay_max_seconds, target_instances, completed_at, id);
+
+    return models.getAffiliateCampaignById(id);
+  },
+
+  deleteAffiliateCampaign(id) {
+    db.prepare('DELETE FROM campaign_leads WHERE campaign_id = ?').run(id);
+    return db.prepare('DELETE FROM affiliate_campaigns WHERE id = ?').run(id);
+  },
+
+  getCampaignLeads(campaignId, status = null, limit = 500) {
+    let sql = 'SELECT * FROM campaign_leads WHERE campaign_id = ?';
+    const params = [campaignId];
+    if (status) {
+      sql += ' AND status = ?';
+      params.push(status);
+    }
+    sql += ' ORDER BY id ASC LIMIT ?';
+    params.push(limit);
+    return db.prepare(sql).all(...params);
+  },
+
+  addCampaignLeads(campaignId, leads = []) {
+    const insert = db.prepare(`
+      INSERT INTO campaign_leads (campaign_id, phone, name, status)
+      VALUES (?, ?, ?, 'PENDING')
+    `);
+    let added = 0;
+    for (const lead of leads) {
+      const rawPhone = String(lead.phone || lead).trim().replace(/[^0-9]/g, '');
+      if (rawPhone.length >= 10) {
+        insert.run(campaignId, rawPhone, lead.name ? String(lead.name).trim() : null);
+        added++;
+      }
+    }
+    models.updateCampaignProgress(campaignId);
+    return added;
+  },
+
+  updateCampaignLead(id, data = {}) {
+    const existing = db.prepare('SELECT * FROM campaign_leads WHERE id = ?').get(id);
+    if (!existing) return null;
+
+    const status = data.status !== undefined ? data.status : existing.status;
+    const sent_message = data.sent_message !== undefined ? data.sent_message : existing.sent_message;
+    const sender_instance_id = data.sender_instance_id !== undefined ? data.sender_instance_id : existing.sender_instance_id;
+    const sent_at = data.sent_at !== undefined ? data.sent_at : existing.sent_at;
+    const error_message = data.error_message !== undefined ? data.error_message : existing.error_message;
+
+    db.prepare(`
+      UPDATE campaign_leads
+      SET status = ?, sent_message = ?, sender_instance_id = ?, sent_at = ?, error_message = ?
+      WHERE id = ?
+    `).run(status, sent_message, sender_instance_id, sent_at, error_message, id);
+
+    models.updateCampaignProgress(existing.campaign_id);
+    return db.prepare('SELECT * FROM campaign_leads WHERE id = ?').get(id);
+  },
+
+  getNextPendingLead(campaignId) {
+    return db.prepare(`
+      SELECT * FROM campaign_leads 
+      WHERE campaign_id = ? AND status = 'PENDING' 
+      ORDER BY id ASC 
+      LIMIT 1
+    `).get(campaignId);
+  },
+
+  updateCampaignProgress(campaignId) {
+    const counts = db.prepare(`
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'SENT' THEN 1 ELSE 0 END) as sent,
+        SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failed
+      FROM campaign_leads WHERE campaign_id = ?
+    `).get(campaignId);
+
+    const total = counts.total || 0;
+    const sent = counts.sent || 0;
+    const failed = counts.failed || 0;
+
+    let newStatus = undefined;
+    let completedAt = undefined;
+
+    if (total > 0 && (sent + failed) >= total) {
+      newStatus = 'COMPLETED';
+      completedAt = new Date().toISOString();
+    }
+
+    if (newStatus) {
+      db.prepare(`
+        UPDATE affiliate_campaigns
+        SET total_leads = ?, sent_count = ?, failed_count = ?, status = ?, completed_at = ?
+        WHERE id = ?
+      `).run(total, sent, failed, newStatus, completedAt, campaignId);
+    } else {
+      db.prepare(`
+        UPDATE affiliate_campaigns
+        SET total_leads = ?, sent_count = ?, failed_count = ?
+        WHERE id = ?
+      `).run(total, sent, failed, campaignId);
+    }
+  },
+
+  getPayBotCustomerLeads() {
+    return db.prepare(`
+      SELECT DISTINCT 
+        REPLACE(REPLACE(REPLACE(platform_user_id, '@s.whatsapp.net', ''), '@c.us', ''), '+', '') as phone,
+        platform_user_name as name
+      FROM orders
+      WHERE platform = 'whatsapp' AND platform_user_id IS NOT NULL AND length(platform_user_id) >= 10
+      ORDER BY id DESC
+      LIMIT 500
+    `).all();
   }
 };
 

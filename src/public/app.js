@@ -4,7 +4,11 @@ let currentProducts = [];
 let currentCompanies = [];
 let currentAffiliates = [];
 let currentSellers = [];
+let currentArmyInstances = [];
+let currentArmyLinks = [];
+let currentArmyCampaigns = [];
 let qrPollingInterval = null;
+let armyQrPollingInterval = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initNav();
@@ -60,6 +64,7 @@ function switchTab(tabName) {
   if (tabName === 'commissions') loadCommissions();
   if (tabName === 'channel') loadChannelTab();
   if (tabName === 'coupons') loadCoupons();
+  if (tabName === 'army') loadArmyData();
 }
 
 // 2. CARREGAMENTO GERAL
@@ -77,7 +82,8 @@ async function loadAllData() {
     loadAffiliationQueue(),
     loadCommissions(),
     loadOffers(),
-    loadCoupons()
+    loadCoupons(),
+    loadArmyData()
   ]);
 }
 
@@ -1865,4 +1871,640 @@ async function deleteCoupon(id) {
   } catch (err) {
     alert('Erro ao excluir cupom: ' + err.message);
   }
+}
+
+// ==========================================
+// 15. EXÉRCITO DE WHATSAPP & DIVULGAÇÃO DE AFILIADOS
+// ==========================================
+
+async function loadArmyData() {
+  await Promise.all([
+    loadArmyInstances(),
+    loadArmyLinks(),
+    loadArmyCampaigns()
+  ]);
+  updateArmyMetrics();
+}
+
+function updateArmyMetrics() {
+  const connectedCount = currentArmyInstances.filter(i => i.status === 'CONNECTED').length;
+  const totalInstances = currentArmyInstances.length;
+  const elConn = document.getElementById('armyStatConnected');
+  if (elConn) elConn.innerText = `${connectedCount} / ${totalInstances}`;
+
+  const sentToday = currentArmyInstances.reduce((acc, i) => acc + (i.messages_sent_today || 0), 0);
+  const totalLimit = currentArmyInstances.reduce((acc, i) => acc + (i.daily_limit || 50), 0);
+  const elSent = document.getElementById('armyStatSentToday');
+  if (elSent) elSent.innerText = `${sentToday} / ${totalLimit} max`;
+
+  const elLinks = document.getElementById('armyStatTotalLinks');
+  if (elLinks) elLinks.innerText = `${currentArmyLinks.length} cadastrados`;
+
+  const activeCamps = currentArmyCampaigns.filter(c => c.status === 'RUNNING').length;
+  const elCamps = document.getElementById('armyStatActiveCampaigns');
+  if (elCamps) elCamps.innerText = `${activeCamps} ativas`;
+}
+
+// --- 1. INSTÂNCIAS / CHIPS DO EXÉRCITO ---
+
+async function loadArmyInstances() {
+  try {
+    const res = await fetch('/api/army/instances');
+    currentArmyInstances = await res.json();
+
+    const tbody = document.querySelector('#tableArmyInstances tbody');
+    if (!tbody) return;
+
+    if (currentArmyInstances.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum chip conectado ainda. Clique em "Conectar Novo Chip" acima.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = currentArmyInstances.map(inst => {
+      let statusBadge = '';
+      if (inst.status === 'CONNECTED') {
+        statusBadge = '<span class="badge badge-paid"><i class="fa-solid fa-circle-check"></i> Conectado</span>';
+      } else if (inst.status === 'WAITING_QR') {
+        statusBadge = '<span class="badge" style="background:#f59e0b20; color:#f59e0b"><i class="fa-solid fa-qrcode"></i> Aguardando QR</span>';
+      } else if (inst.status === 'CONNECTING') {
+        statusBadge = '<span class="badge" style="background:#3b82f620; color:#3b82f6"><i class="fa-solid fa-spinner fa-spin"></i> Conectando...</span>';
+      } else {
+        statusBadge = '<span class="badge badge-canceled"><i class="fa-solid fa-circle-xmark"></i> Desconectado</span>';
+      }
+
+      const mainBadge = inst.is_main ? '<span class="badge" style="background:#f0b90b20; color:#f0b90b; margin-left: 6px;"><i class="fa-solid fa-crown"></i> Matriz</span>' : '';
+      const warmupBadge = inst.warmup_mode ? '<span class="badge" style="background:#10b98120; color:#10b981">Aquecimento</span>' : '<span style="color:var(--text-muted); font-size:12px;">Normal</span>';
+
+      return `
+        <tr>
+          <td>#${inst.id}</td>
+          <td><b>${inst.name}</b>${mainBadge}</td>
+          <td>${inst.phone ? `<b>${inst.phone}</b>` : '<span style="color:var(--text-muted)">Aguardando leitura</span>'}</td>
+          <td>${statusBadge}</td>
+          <td><b>${inst.messages_sent_today || 0}</b> envios</td>
+          <td>${inst.daily_limit} / dia</td>
+          <td>${warmupBadge}</td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm btn-secondary" onclick="openArmyQrModal(${inst.id})" title="Ver QR Code / Status">
+                <i class="fa-solid fa-qrcode"></i> QR
+              </button>
+              ${inst.status !== 'CONNECTED' ? `
+                <button class="btn btn-sm btn-primary" onclick="connectArmyInstance(${inst.id})" title="Conectar / Reconectar">
+                  <i class="fa-solid fa-play"></i>
+                </button>
+              ` : `
+                <button class="btn btn-sm btn-secondary" onclick="disconnectArmyInstance(${inst.id})" title="Desconectar">
+                  <i class="fa-solid fa-pause"></i>
+                </button>
+              `}
+              ${!inst.is_main ? `
+                <button class="btn btn-sm btn-danger" onclick="deleteArmyInstance(${inst.id})" title="Excluir Chip">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar instâncias do exército:', err);
+  }
+}
+
+function openArmyInstanceModal() {
+  document.getElementById('formArmyInstance').reset();
+  document.getElementById('armyInstId').value = '';
+  document.getElementById('armyInstName').value = `Chip 0${currentArmyInstances.length + 1} - Divulgador`;
+  document.getElementById('armyInstDailyLimit').value = '50';
+  document.getElementById('modalArmyInstance').classList.add('active');
+}
+
+function closeArmyInstanceModal() {
+  document.getElementById('modalArmyInstance').classList.remove('active');
+}
+
+async function saveArmyInstance(e) {
+  e.preventDefault();
+  const name = document.getElementById('armyInstName').value.trim();
+  const phone = document.getElementById('armyInstPhone').value.trim();
+  const daily_limit = parseInt(document.getElementById('armyInstDailyLimit').value, 10) || 50;
+  const warmup_mode = document.getElementById('armyInstWarmup').checked ? 1 : 0;
+
+  try {
+    const res = await fetch('/api/army/instances', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, daily_limit, warmup_mode })
+    });
+    if (res.ok) {
+      closeArmyInstanceModal();
+      await loadArmyInstances();
+      updateArmyMetrics();
+    } else {
+      const err = await res.json();
+      alert('Erro ao salvar chip: ' + (err.error || 'Falha ao salvar'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function deleteArmyInstance(id) {
+  if (!confirm('Deseja realmente remover esta instância do exército?')) return;
+  try {
+    const res = await fetch(`/api/army/instances/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      await loadArmyInstances();
+      updateArmyMetrics();
+    } else {
+      const err = await res.json();
+      alert('Erro: ' + err.error);
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function connectArmyInstance(id) {
+  try {
+    openArmyQrModal(id);
+    await fetch(`/api/army/instances/${id}/connect`, { method: 'POST' });
+  } catch (err) {
+    alert('Erro ao conectar chip: ' + err.message);
+  }
+}
+
+async function disconnectArmyInstance(id) {
+  try {
+    await fetch(`/api/army/instances/${id}/disconnect`, { method: 'POST' });
+    await loadArmyInstances();
+    updateArmyMetrics();
+  } catch (err) {
+    alert('Erro ao desconectar chip: ' + err.message);
+  }
+}
+
+function openArmyQrModal(instanceId) {
+  const modal = document.getElementById('modalArmyQr');
+  const container = document.getElementById('armyQrContainer');
+  const statusText = document.getElementById('armyQrStatusText');
+  document.getElementById('modalArmyQrTitle').innerText = `QR Code - Chip #${instanceId}`;
+  modal.classList.add('active');
+
+  container.innerHTML = '<div style="padding: 40px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Carregando status do WhatsApp...</div>';
+
+  if (armyQrPollingInterval) clearInterval(armyQrPollingInterval);
+
+  const checkQr = async () => {
+    try {
+      const res = await fetch(`/api/army/instances/${instanceId}/qr`);
+      const data = await res.json();
+
+      if (data.connected) {
+        container.innerHTML = '<div style="padding: 30px; color: #10b981;"><i class="fa-solid fa-circle-check fa-3x"></i><h4 style="margin-top: 15px;">Chip Conectado com Sucesso!</h4></div>';
+        statusText.innerText = 'Este número já está online e pronto para receber comandos e disparar campanhas.';
+        loadArmyInstances();
+        updateArmyMetrics();
+      } else if (data.qrDataUrl) {
+        container.innerHTML = `<img src="${data.qrDataUrl}" alt="QR Code WhatsApp" style="width: 250px; height: 250px; border-radius: 8px; border: 4px solid var(--border-color); background: #fff; padding: 10px;">`;
+        statusText.innerText = 'Aponte a câmera do WhatsApp para escanear e autenticar este chip.';
+      } else {
+        container.innerHTML = '<div style="padding: 35px; color: var(--text-muted);"><i class="fa-solid fa-rotate fa-spin fa-2x"></i><br><br>Aguardando resposta do Baileys...</div>';
+      }
+    } catch (_) {}
+  };
+
+  checkQr();
+  armyQrPollingInterval = setInterval(checkQr, 3000);
+}
+
+function closeArmyQrModal() {
+  if (armyQrPollingInterval) {
+    clearInterval(armyQrPollingInterval);
+    armyQrPollingInterval = null;
+  }
+  document.getElementById('modalArmyQr').classList.remove('active');
+  loadArmyInstances();
+  updateArmyMetrics();
+}
+
+// --- 2. LINKS DE AFILIADO ---
+
+async function loadArmyLinks() {
+  try {
+    const res = await fetch('/api/army/links');
+    currentArmyLinks = await res.json();
+
+    const tbody = document.querySelector('#tableArmyLinks tbody');
+    if (!tbody) return;
+
+    if (currentArmyLinks.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center">Nenhum link de afiliado cadastrado. Clique em "Novo Link de Afiliado" acima.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = currentArmyLinks.map(l => {
+      const platformColors = {
+        Hotmart: '#f04e23',
+        Kiwify: '#00cc66',
+        Monetizze: '#1a56db',
+        Braip: '#9333ea',
+        Cakto: '#f59e0b',
+        PayBot: '#f0b90b',
+        Outro: '#64748b'
+      };
+      const pColor = platformColors[l.platform] || '#64748b';
+
+      return `
+        <tr>
+          <td>#${l.id}</td>
+          <td><b>${l.title}</b></td>
+          <td><span class="badge" style="background:${pColor}20; color:${pColor}; font-weight:600;"><i class="fa-solid fa-tag"></i> ${l.platform}</span></td>
+          <td>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <code style="background:rgba(255,255,255,0.05); padding:3px 6px; border-radius:4px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${l.affiliate_url}</code>
+              <button class="btn btn-sm btn-secondary" onclick="copyAffiliateLink('${l.affiliate_url}')" title="Copiar Link">
+                <i class="fa-solid fa-copy"></i>
+              </button>
+            </div>
+          </td>
+          <td><b style="color:var(--primary-gold)">${l.commission_percent}%</b></td>
+          <td>${l.product_price ? `R$ ${Number(l.product_price).toFixed(2)}` : '-'}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-sm btn-primary" onclick="openCampaignWithLink(${l.id})" title="Criar Campanha para este Link">
+                <i class="fa-solid fa-bullhorn"></i> Disparar
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deleteAffiliateLink(${l.id})" title="Excluir Link">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar links de afiliado:', err);
+  }
+}
+
+function openAffiliateLinkModal() {
+  document.getElementById('formAffiliateLink').reset();
+  document.getElementById('armyLinkId').value = '';
+  document.getElementById('modalAffiliateLinkTitle').innerText = 'Novo Link de Afiliado';
+  document.getElementById('modalAffiliateLink').classList.add('active');
+}
+
+function closeAffiliateLinkModal() {
+  document.getElementById('modalAffiliateLink').classList.remove('active');
+}
+
+async function saveAffiliateLink(e) {
+  e.preventDefault();
+  const title = document.getElementById('armyLinkTitle').value.trim();
+  const platform = document.getElementById('armyLinkPlatform').value;
+  const affiliate_url = document.getElementById('armyLinkUrl').value.trim();
+  const commission_percent = parseFloat(document.getElementById('armyLinkCommission').value) || 50;
+  const product_price = parseFloat(document.getElementById('armyLinkPrice').value) || 0;
+  const pitch_copy = document.getElementById('armyLinkPitch').value.trim();
+
+  try {
+    const res = await fetch('/api/army/links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, platform, affiliate_url, commission_percent, product_price, pitch_copy })
+    });
+    if (res.ok) {
+      closeAffiliateLinkModal();
+      await loadArmyLinks();
+      updateArmyMetrics();
+    } else {
+      const err = await res.json();
+      alert('Erro ao salvar link: ' + (err.error || 'Falha ao salvar'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function deleteAffiliateLink(id) {
+  if (!confirm('Deseja realmente remover este link de afiliado?')) return;
+  try {
+    await fetch(`/api/army/links/${id}`, { method: 'DELETE' });
+    await loadArmyLinks();
+    updateArmyMetrics();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+function copyAffiliateLink(url) {
+  navigator.clipboard.writeText(url).then(() => {
+    alert('Link de afiliado copiado para a área de transferência!');
+  });
+}
+
+function openCampaignWithLink(linkId) {
+  openCampaignModal();
+  const select = document.getElementById('campLinkSelect');
+  if (select) {
+    select.value = String(linkId);
+    onCampaignLinkSelectChange();
+  }
+}
+
+// --- 3. CAMPANHAS DE DIVULGAÇÃO EM MASSA (BROADCAST) ---
+
+async function loadArmyCampaigns() {
+  try {
+    const res = await fetch('/api/army/campaigns');
+    currentArmyCampaigns = await res.json();
+
+    const tbody = document.querySelector('#tableArmyCampaigns tbody');
+    if (!tbody) return;
+
+    if (currentArmyCampaigns.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center">Nenhuma campanha criada ainda. Clique em "Criar Nova Campanha" acima.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = currentArmyCampaigns.map(c => {
+      let statusBadge = '';
+      if (c.status === 'RUNNING') {
+        statusBadge = '<span class="badge" style="background:#10b98120; color:#10b981"><i class="fa-solid fa-play fa-fade"></i> Em Andamento</span>';
+      } else if (c.status === 'PAUSED') {
+        statusBadge = '<span class="badge" style="background:#f59e0b20; color:#f59e0b"><i class="fa-solid fa-pause"></i> Pausada</span>';
+      } else if (c.status === 'COMPLETED') {
+        statusBadge = '<span class="badge badge-paid"><i class="fa-solid fa-check-double"></i> Concluída</span>';
+      } else {
+        statusBadge = '<span class="badge" style="background:#64748b20; color:#94a3b8">Rascunho</span>';
+      }
+
+      const percent = c.total_leads > 0 ? Math.round(((c.sent_count + c.failed_count) / c.total_leads) * 100) : 0;
+
+      return `
+        <tr>
+          <td>#${c.id}</td>
+          <td><b>${c.name}</b></td>
+          <td><b>${c.product_name}</b><br><small style="color:var(--text-muted)"><a href="${c.affiliate_url}" target="_blank" style="color:var(--primary-gold)">Ver link</a></small></td>
+          <td>
+            <div style="min-width: 140px;">
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                <span><b>${c.sent_count}</b> / ${c.total_leads} enviados</span>
+                <span><b>${percent}%</b></span>
+              </div>
+              <div style="background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
+                <div style="width:${percent}%; background:#10b981; height:100%;"></div>
+              </div>
+            </div>
+          </td>
+          <td>${c.delay_min_seconds}s a ${c.delay_max_seconds}s</td>
+          <td>${statusBadge}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              ${c.status !== 'RUNNING' && c.status !== 'COMPLETED' ? `
+                <button class="btn btn-sm btn-primary" onclick="startCampaign(${c.id})" title="Iniciar Disparos">
+                  <i class="fa-solid fa-play"></i> Iniciar
+                </button>
+              ` : ''}
+              ${c.status === 'RUNNING' ? `
+                <button class="btn btn-sm btn-secondary" onclick="pauseCampaign(${c.id})" title="Pausar Disparos">
+                  <i class="fa-solid fa-pause"></i> Pausar
+                </button>
+              ` : ''}
+              <button class="btn btn-sm btn-secondary" onclick="openCampaignLeadsModal(${c.id})" title="Ver Leads / Fila">
+                <i class="fa-solid fa-list"></i> Leads
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deleteCampaign(${c.id})" title="Excluir Campanha">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar campanhas:', err);
+  }
+}
+
+function openCampaignModal() {
+  document.getElementById('formCampaign').reset();
+  document.getElementById('campId').value = '';
+  document.getElementById('modalCampaignTitle').innerText = 'Nova Campanha de Divulgação em Massa';
+
+  const select = document.getElementById('campLinkSelect');
+  if (select) {
+    select.innerHTML = '<option value="">Digitação Manual (Sem vínculo prévio)</option>' +
+      currentArmyLinks.map(l => `<option value="${l.id}">${l.title} (${l.platform})</option>`).join('');
+  }
+
+  document.getElementById('campDelayMin').value = '20';
+  document.getElementById('campDelayMax').value = '45';
+  document.getElementById('modalCampaign').classList.add('active');
+}
+
+function closeCampaignModal() {
+  document.getElementById('modalCampaign').classList.remove('active');
+}
+
+function onCampaignLinkSelectChange() {
+  const select = document.getElementById('campLinkSelect');
+  const selectedId = select.value;
+  if (!selectedId) return;
+
+  const link = currentArmyLinks.find(l => l.id === Number(selectedId));
+  if (link) {
+    document.getElementById('campProductName').value = link.title;
+    document.getElementById('campAffiliateUrl').value = link.affiliate_url;
+    if (link.pitch_copy) {
+      document.getElementById('campMessageTemplate').value = link.pitch_copy;
+    }
+  }
+}
+
+function insertSpintaxTag(tag) {
+  const textarea = document.getElementById('campMessageTemplate');
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = textarea.value;
+  textarea.value = text.substring(0, start) + tag + text.substring(end);
+  textarea.focus();
+  textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+}
+
+async function testSpintaxPreview() {
+  const template = document.getElementById('campMessageTemplate').value;
+  const product = document.getElementById('campProductName').value || 'Produto Especial';
+  const link = document.getElementById('campAffiliateUrl').value || 'https://link.exemplo/afiliado';
+
+  try {
+    const res = await fetch('/api/army/spintax-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        template,
+        lead: { name: 'João' },
+        campaign: { product_name: product, affiliate_url: link }
+      })
+    });
+    const data = await res.json();
+    document.getElementById('campSpintaxPreview').innerText = `"${data.preview}"`;
+  } catch (_) {}
+}
+
+async function importPayBotCustomersToCampaign() {
+  try {
+    const res = await fetch('/api/army/customer-leads');
+    const customers = await res.json();
+    if (customers.length === 0) {
+      alert('Nenhum cliente anterior via WhatsApp encontrado na base do PayBot.');
+      return;
+    }
+
+    const lines = customers.map(c => c.name ? `${c.phone}, ${c.name}` : c.phone).join('\n');
+    const textarea = document.getElementById('campLeadsText');
+    textarea.value = (textarea.value ? textarea.value.trim() + '\n' : '') + lines;
+    alert(`Sucesso! ${customers.length} contatos de compradores anteriores do PayBot foram adicionados à lista da campanha!`);
+  } catch (err) {
+    alert('Erro ao importar contatos: ' + err.message);
+  }
+}
+
+async function saveCampaign(e) {
+  e.preventDefault();
+  const name = document.getElementById('campName').value.trim();
+  const affiliate_link_id = document.getElementById('campLinkSelect').value ? parseInt(document.getElementById('campLinkSelect').value, 10) : null;
+  const product_name = document.getElementById('campProductName').value.trim();
+  const affiliate_url = document.getElementById('campAffiliateUrl').value.trim();
+  const message_template = document.getElementById('campMessageTemplate').value.trim();
+  const delay_min_seconds = parseInt(document.getElementById('campDelayMin').value, 10) || 20;
+  const delay_max_seconds = parseInt(document.getElementById('campDelayMax').value, 10) || 45;
+
+  const rawLeads = document.getElementById('campLeadsText').value.split('\n').map(l => l.trim()).filter(Boolean);
+  const leads = rawLeads.map(line => {
+    const parts = line.split(',');
+    return {
+      phone: parts[0].trim(),
+      name: parts[1] ? parts[1].trim() : null
+    };
+  });
+
+  const payload = {
+    name,
+    affiliate_link_id,
+    product_name,
+    affiliate_url,
+    message_template,
+    delay_min_seconds,
+    delay_max_seconds,
+    leads
+  };
+
+  try {
+    const res = await fetch('/api/army/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      closeCampaignModal();
+      await loadArmyCampaigns();
+      updateArmyMetrics();
+      alert(`Campanha "${name}" criada com ${leads.length} leads prontos para envio!`);
+    } else {
+      const err = await res.json();
+      alert('Erro ao criar campanha: ' + (err.error || 'Falha na requisição'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function deleteCampaign(id) {
+  if (!confirm('Deseja realmente remover esta campanha e todo o histórico de leads dela?')) return;
+  try {
+    await fetch(`/api/army/campaigns/${id}`, { method: 'DELETE' });
+    await loadArmyCampaigns();
+    updateArmyMetrics();
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
+  }
+}
+
+async function startCampaign(id) {
+  try {
+    const res = await fetch(`/api/army/campaigns/${id}/start`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      loadArmyCampaigns();
+      updateArmyMetrics();
+      alert('Disparos iniciados! Os chips conectados do seu exército de WhatsApp começarão a disparar com intervalos anti-ban e Spintax.');
+    } else {
+      alert('Aviso: ' + (data.error || 'Falha ao iniciar'));
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function pauseCampaign(id) {
+  try {
+    const res = await fetch(`/api/army/campaigns/${id}/pause`, { method: 'POST' });
+    loadArmyCampaigns();
+    updateArmyMetrics();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function openCampaignLeadsModal(campaignId) {
+  const modal = document.getElementById('modalCampaignLeads');
+  modal.classList.add('active');
+  const tbody = document.querySelector('#tableCampaignLeadsList tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="text-center">Carregando lista de leads...</td></tr>';
+
+  try {
+    const res = await fetch(`/api/army/campaigns/${campaignId}/leads`);
+    const leads = await res.json();
+
+    if (leads.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhum lead nesta campanha.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = leads.map(l => {
+      let badge = '';
+      if (l.status === 'SENT') {
+        badge = '<span class="badge badge-paid"><i class="fa-solid fa-check"></i> Enviado</span>';
+      } else if (l.status === 'REPLIED') {
+        badge = '<span class="badge" style="background:#10b98120; color:#10b981"><i class="fa-solid fa-reply"></i> Respondeu (Interessado)</span>';
+      } else if (l.status === 'FAILED') {
+        badge = '<span class="badge badge-canceled"><i class="fa-solid fa-xmark"></i> Falhou</span>';
+      } else {
+        badge = '<span class="badge" style="background:#f59e0b20; color:#f59e0b"><i class="fa-solid fa-clock"></i> Pendente</span>';
+      }
+
+      return `
+        <tr>
+          <td>#${l.id}</td>
+          <td><b>${l.phone}</b></td>
+          <td>${l.name || '-'}</td>
+          <td>${badge}</td>
+          <td style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${l.sent_message || ''}">
+            ${l.sent_message ? l.sent_message : '<span style="color:var(--text-muted)">Aguardando envio</span>'}
+          </td>
+          <td>${l.sent_at ? new Date(l.sent_at).toLocaleTimeString('pt-BR') : '-'}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Erro ao carregar: ${err.message}</td></tr>`;
+  }
+}
+
+function closeCampaignLeadsModal() {
+  document.getElementById('modalCampaignLeads').classList.remove('active');
 }

@@ -236,6 +236,78 @@ function initDatabase() {
     );
   `);
 
+  // 14. Tabela de Instâncias do Exército WhatsApp (Multi-Número / Chips)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS whatsapp_army_instances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      phone TEXT,
+      session_id TEXT UNIQUE NOT NULL,
+      status TEXT DEFAULT 'DISCONNECTED', -- 'DISCONNECTED', 'WAITING_QR', 'CONNECTING', 'CONNECTED', 'PAUSED'
+      daily_limit INTEGER DEFAULT 50,
+      messages_sent_today INTEGER DEFAULT 0,
+      last_sent_at TEXT,
+      warmup_mode INTEGER DEFAULT 0,
+      is_main INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 15. Tabela de Catálogo de Links de Afiliado (Produtos Externos & Próprios)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS affiliate_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      platform TEXT DEFAULT 'Hotmart', -- 'Hotmart', 'Kiwify', 'Monetizze', 'Braip', 'Cakto', 'PayBot', 'Outro'
+      affiliate_url TEXT NOT NULL,
+      commission_percent REAL DEFAULT 50.0,
+      product_price REAL DEFAULT 0.0,
+      currency TEXT DEFAULT 'BRL',
+      pitch_copy TEXT,
+      clicks_count INTEGER DEFAULT 0,
+      sales_count INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 16. Tabela de Campanhas de Divulgação em Massa (Affiliate Broadcast Campaigns)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS affiliate_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      affiliate_link_id INTEGER REFERENCES affiliate_links(id) ON DELETE SET NULL,
+      product_name TEXT NOT NULL,
+      affiliate_url TEXT NOT NULL,
+      message_template TEXT NOT NULL,
+      status TEXT DEFAULT 'DRAFT', -- 'DRAFT', 'RUNNING', 'PAUSED', 'COMPLETED'
+      delay_min_seconds INTEGER DEFAULT 20,
+      delay_max_seconds INTEGER DEFAULT 45,
+      target_instances TEXT, -- JSON array de IDs de chips ou null para rotação global
+      total_leads INTEGER DEFAULT 0,
+      sent_count INTEGER DEFAULT 0,
+      failed_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
+    );
+  `);
+
+  // 17. Tabela de Fila de Leads / Disparos da Campanha
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS campaign_leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id INTEGER NOT NULL REFERENCES affiliate_campaigns(id) ON DELETE CASCADE,
+      phone TEXT NOT NULL,
+      name TEXT,
+      status TEXT DEFAULT 'PENDING', -- 'PENDING', 'SENT', 'FAILED', 'REPLIED'
+      sent_message TEXT,
+      sender_instance_id INTEGER REFERENCES whatsapp_army_instances(id),
+      sent_at TEXT,
+      error_message TEXT
+    );
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
@@ -330,6 +402,31 @@ function initDatabase() {
       INSERT INTO affiliates (name, email, phone, telegram_username, ref_code, commission_rate, pix_key, usdt_wallet)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run('Afiliado Top VIP', 'afiliado@demo.com', '5511999990002', '@afiliado_vip', 'TOPVIP', 25.0, 'pix@afiliado.com', '0x1234567890abcdef');
+  }
+
+  // Semeia chip principal do exército de WhatsApp se não existir
+  const instancesCount = db.prepare('SELECT COUNT(*) as count FROM whatsapp_army_instances').get().count;
+  if (instancesCount === 0) {
+    db.prepare(`
+      INSERT INTO whatsapp_army_instances (id, name, session_id, status, is_main, daily_limit)
+      VALUES (1, 'Chip 01 - Matriz Principal', 'main', 'DISCONNECTED', 1, 100)
+    `).run();
+  }
+
+  // Semeia link de afiliado de exemplo se não existir
+  const linksCount = db.prepare('SELECT COUNT(*) as count FROM affiliate_links').get().count;
+  if (linksCount === 0) {
+    db.prepare(`
+      INSERT INTO affiliate_links (title, platform, affiliate_url, commission_percent, product_price, pitch_copy)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      'Sala VIP Sinais Cripto (Hotmart)',
+      'Hotmart',
+      'https://hotm.art/sinais-cripto-vip',
+      50.0,
+      97.00,
+      '{Olá|Oi|E aí} {nome}! {Tudo bem?|Como você está?}\n\nLiberamos hoje uma condição exclusiva para entrar na *Sala VIP de Sinais Cripto* com 50% OFF!\n\nConfira todos os detalhes e garanta sua vaga aqui:\n{link}'
+    );
   }
 
   console.log('✅ Banco de dados atualizado com Times de Vendedores e Afiliados!');

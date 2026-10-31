@@ -7,6 +7,7 @@ const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
 const updatesChannel = require('../services/updatesChannel');
+const whatsappArmyService = require('../services/whatsappArmyService');
 const whatsappBot = require('../bots/whatsappBot');
 const telegramBot = require('../bots/telegramBot');
 
@@ -907,6 +908,193 @@ function createServer() {
     }
 
     res.json({ success: true, message: 'Todas as configurações foram salvas com sucesso!' });
+  });
+
+  // ==========================================
+  // EXÉRCITO DE WHATSAPP & DIVULGAÇÃO DE AFILIADOS
+  // ==========================================
+  
+  // 1. Instâncias / Chips do Exército
+  app.get('/api/army/instances', (req, res) => {
+    res.json(models.getArmyInstances());
+  });
+
+  app.post('/api/army/instances', (req, res) => {
+    try {
+      const { name, phone, daily_limit, warmup_mode } = req.body;
+      if (!name) return res.status(400).json({ error: 'Nome do chip é obrigatório.' });
+      const created = models.createArmyInstance({ name, phone, daily_limit, warmup_mode });
+      res.json(created);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/army/instances/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const updated = models.updateArmyInstance(id, req.body);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/army/instances/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      models.deleteArmyInstance(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/army/instances/:id/qr', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    res.json(whatsappArmyService.getInstanceQr(id));
+  });
+
+  app.post('/api/army/instances/:id/connect', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await whatsappArmyService.startInstance(id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/army/instances/:id/disconnect', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      await whatsappArmyService.stopInstance(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2. Links de Afiliados
+  app.get('/api/army/links', (req, res) => {
+    res.json(models.getAffiliateLinks());
+  });
+
+  app.post('/api/army/links', (req, res) => {
+    try {
+      const created = models.createAffiliateLink(req.body);
+      res.json(created);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/army/links/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const updated = models.updateAffiliateLink(id, req.body);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/army/links/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      models.deleteAffiliateLink(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. Campanhas de Divulgação em Massa
+  app.get('/api/army/campaigns', (req, res) => {
+    res.json(models.getAffiliateCampaigns());
+  });
+
+  app.get('/api/army/campaigns/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const campaign = models.getAffiliateCampaignById(id);
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+    res.json(campaign);
+  });
+
+  app.post('/api/army/campaigns', (req, res) => {
+    try {
+      const campaign = models.createAffiliateCampaign(req.body);
+      res.json(campaign);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/army/campaigns/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const updated = models.updateAffiliateCampaign(id, req.body);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/army/campaigns/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      models.deleteAffiliateCampaign(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/army/campaigns/:id/leads', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const status = req.query.status || null;
+    res.json(models.getCampaignLeads(id, status));
+  });
+
+  app.post('/api/army/campaigns/:id/leads', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { leads } = req.body;
+      const count = models.addCampaignLeads(id, leads || []);
+      res.json({ success: true, addedCount: count });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/army/campaigns/:id/start', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await whatsappArmyService.startCampaign(id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/army/campaigns/:id/pause', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = whatsappArmyService.pauseCampaign(id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/army/customer-leads', (req, res) => {
+    res.json(models.getPayBotCustomerLeads());
+  });
+
+  app.post('/api/army/spintax-preview', (req, res) => {
+    const { template, lead, campaign } = req.body;
+    const formatted = models.formatCampaignMessage(template || '', lead || {}, campaign || {});
+    res.json({ preview: formatted });
   });
 
   return app;
