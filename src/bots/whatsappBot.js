@@ -136,6 +136,40 @@ class WhatsAppBotService {
         }
       });
 
+      // Evento de novos participantes entrando no grupo (Boas-vindas automáticas)
+      this.sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+        try {
+          if (action === 'add') {
+            const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
+            if (!isWelcomeActive) return;
+
+            let groupName = 'nosso grupo';
+            try {
+              const meta = await this.sock.groupMetadata(id);
+              if (meta?.subject) groupName = meta.subject;
+            } catch (_) {}
+
+            const welcomeTpl = models.getSetting(
+              `WELCOME_MSG_${id}`,
+              '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
+            );
+
+            for (const pJid of (participants || [])) {
+              const phone = pJid.split('@')[0].split(':')[0];
+              const formattedName = `@${phone}`;
+              const welcomeText = welcomeTpl
+                .replace(/\{nome\}/gi, formattedName)
+                .replace(/\{numero\}/gi, phone)
+                .replace(/\{grupo\}/gi, groupName);
+
+              await this.sendMessage(id, welcomeText, { mentions: [pJid] });
+            }
+          }
+        } catch (err) {
+          console.error('[WhatsApp Group Welcome] Erro ao enviar boas-vindas:', err.message);
+        }
+      });
+
     } catch (err) {
       console.error('❌ [WhatsApp] Erro na inicialização:', err.message);
       this.statusMessage = `Erro: ${err.message}`;
@@ -334,6 +368,15 @@ class WhatsAppBotService {
           if (this.sock) {
             await this.sock.sendMessage(from, { delete: msg.key });
             await this.sendMessage(from, `⚠️ @${senderPhone}, links de outros grupos não são permitidos neste grupo!`, { mentions: [participantJid] });
+            models.logGroupAdminAction({
+              platform: 'whatsapp',
+              groupId: from,
+              adminId: 'system_bot',
+              adminName: 'PayBot Anti-Link',
+              action: 'ANTILINK_TRIGGER',
+              targetId: senderPhone,
+              details: `Link externo não autorizado apagado do usuário ${senderPhone}`
+            });
             return;
           }
         } catch (_) {}
@@ -355,8 +398,13 @@ class WhatsAppBotService {
           ? '🟢 *Bot é Administrador* (Todas as funções liberadas)' 
           : '⚠️ *Bot NÃO é Administrador* (Promova o bot a admin para executar ban, fechamento, etc.)';
 
+        const isAntilink = models.getSetting(`ANTILINK_${from}`, 'false') === 'true';
+        const isWelcome = models.getSetting(`WELCOME_${from}`, 'false') === 'true';
+
         const adminMenu = `🛠️ *PAINEL DE GERENCIAMENTO DO GRUPO (ADMIN)*\n\n` +
-          `• *Status do Bot:* ${botStatusBadge}\n\n` +
+          `• *Status do Bot:* ${botStatusBadge}\n` +
+          `• *Anti-Link:* ${isAntilink ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Boas-Vindas:* ${isWelcome ? '🟢 Ativado' : '🔴 Desativado'}\n\n` +
           `👢 *Gerenciamento de Membros:*\n` +
           `• *!ban* ou *!kick* (responda à mensagem ou use @número) — Remove participante\n` +
           `• *!promover* (responda ou mencione) — Promove participante a Administrador\n` +
@@ -369,7 +417,9 @@ class WhatsAppBotService {
           `• *!descricao <texto>* — Altera a descrição e regras do grupo\n` +
           `• *!link* — Exibe o link de convite oficial do grupo\n` +
           `• *!revogar_link* — Cancela o link atual e gera um novo\n` +
-          `• *!antilink on/off* — Ativa ou desativa proteção contra links externos\n\n` +
+          `• *!antilink on/off* — Ativa ou desativa proteção contra links externos\n` +
+          `• *!boasvindas on/off* — Ativa ou desativa saudação para novos membros\n` +
+          `• *!boasvindas_msg <texto>* — Personaliza o texto ({nome}, {grupo}, {numero})\n\n` +
           `🛑 *Moderação do Bot:*\n` +
           `• *!desativar* / *!ativar* — Pausa ou reativa o bot neste grupo\n` +
           `• *!bloquear* / *!desbloquear* — Bloqueia participante de interagir com o bot\n` +
@@ -417,6 +467,15 @@ class WhatsAppBotService {
 
         try {
           await this.sock.groupParticipantsUpdate(from, [targetJid], 'remove');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'BAN',
+            targetId: targetPhone,
+            details: `Expulso do grupo pelo administrador ${senderName || senderPhone}`
+          });
           return this.sendMessage(from, `👢 *MEMBRO REMOVIDO COM SUCESSO!*\n\nO participante *${targetPhone}* foi expulso do grupo por um administrador.`);
         } catch (err) {
           return this.sendMessage(from, `❌ Falha ao remover membro: ${err.message}`);
@@ -461,6 +520,15 @@ class WhatsAppBotService {
 
         try {
           await this.sock.groupParticipantsUpdate(from, [targetJid], 'promote');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'PROMOTE',
+            targetId: targetPhone,
+            details: `Promovido a administrador por ${senderName || senderPhone}`
+          });
           return this.sendMessage(from, `⭐ *ADMINISTRADOR PROMOVIDO!*\n\nO participante *${targetPhone}* agora é um Administrador deste grupo! 🎉`);
         } catch (err) {
           return this.sendMessage(from, `❌ Falha ao promover membro: ${err.message}`);
@@ -505,6 +573,15 @@ class WhatsAppBotService {
 
         try {
           await this.sock.groupParticipantsUpdate(from, [targetJid], 'demote');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'DEMOTE',
+            targetId: targetPhone,
+            details: `Rebaixado de administrador por ${senderName || senderPhone}`
+          });
           return this.sendMessage(from, `🔽 *ADMINISTRADOR REBAIXADO!*\n\nO participante *${targetPhone}* não é mais administrador.`);
         } catch (err) {
           return this.sendMessage(from, `❌ Falha ao rebaixar membro: ${err.message}`);
@@ -523,6 +600,14 @@ class WhatsAppBotService {
 
         try {
           await this.sock.groupSettingUpdate(from, 'announcement');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'LOCK',
+            details: 'Grupo trancado para anúncios'
+          });
           return this.sendMessage(from, `🔒 *GRUPO FECHADO!*\n\nAgora apenas administradores podem enviar mensagens no grupo.`);
         } catch (err) {
           return this.sendMessage(from, `❌ Erro ao fechar grupo: ${err.message}`);
@@ -541,6 +626,14 @@ class WhatsAppBotService {
 
         try {
           await this.sock.groupSettingUpdate(from, 'not_announcement');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'UNLOCK',
+            details: 'Grupo reaberto para todos os membros'
+          });
           return this.sendMessage(from, `🔓 *GRUPO ABERTO!*\n\nTodos os membros do grupo agora podem enviar mensagens livremente!`);
         } catch (err) {
           return this.sendMessage(from, `❌ Erro ao abrir grupo: ${err.message}`);
@@ -562,6 +655,14 @@ class WhatsAppBotService {
 
         try {
           await this.sock.groupUpdateSubject(from, newTitle);
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'RENAME',
+            details: `Nome alterado para: ${newTitle}`
+          });
           return this.sendMessage(from, `✏️ *NOME DO GRUPO ALTERADO!*\n\nNovo nome: *${newTitle}*`);
         } catch (err) {
           return this.sendMessage(from, `❌ Erro ao alterar nome: ${err.message}`);
@@ -583,6 +684,14 @@ class WhatsAppBotService {
 
         try {
           await this.sock.groupUpdateDescription(from, newDesc);
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'SET_DESC',
+            details: 'Descrição do grupo atualizada'
+          });
           return this.sendMessage(from, `📝 *DESCRIÇÃO DO GRUPO ATUALIZADA COM SUCESSO!*`);
         } catch (err) {
           return this.sendMessage(from, `❌ Erro ao alterar descrição: ${err.message}`);
@@ -619,6 +728,14 @@ class WhatsAppBotService {
 
         try {
           const newCode = await this.sock.groupRevokeInvite(from);
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'REVOKE_LINK',
+            details: `Link de convite renovado: https://chat.whatsapp.com/${newCode}`
+          });
           return this.sendMessage(from, `🔄 *LINK DE CONVITE ANTERIOR REVOGADO!*\n\nNovo link oficial gerado:\nhttps://chat.whatsapp.com/${newCode}`);
         } catch (err) {
           return this.sendMessage(from, `❌ Erro ao revogar link: ${err.message}`);
@@ -636,6 +753,15 @@ class WhatsAppBotService {
         const noticeText = customMsg || 'Atenção membros!';
         const mentions = adminStatus.metadata?.participants ? adminStatus.metadata.participants.map(p => p.id) : [];
 
+        models.logGroupAdminAction({
+          platform: 'whatsapp',
+          groupId: from,
+          adminId: senderPhone,
+          adminName: senderName,
+          action: 'TAG_ALL',
+          details: customMsg || 'Aviso geral para todos os membros'
+        });
+
         const tagText = `📢 *AVISO GERAL DOS ADMINISTRADORES:*\n\n${noticeText}`;
         return this.sendMessage(from, tagText, { mentions });
       }
@@ -652,14 +778,93 @@ class WhatsAppBotService {
 
         if (action === 'on' || action === 'ativar' || action === '1') {
           models.setSetting(`ANTILINK_${from}`, 'true');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'ANTILINK_ON',
+            details: 'Proteção anti-link ativada'
+          });
           return this.sendMessage(from, `🛡️ *PROTEÇÃO ANTI-LINK ATIVADA!*\n\nMensagens com links de outros grupos serão apagadas automaticamente.`);
         } else if (action === 'off' || action === 'desativar' || action === '0') {
           models.setSetting(`ANTILINK_${from}`, 'false');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'ANTILINK_OFF',
+            details: 'Proteção anti-link desativada'
+          });
           return this.sendMessage(from, `🔓 *PROTEÇÃO ANTI-LINK DESATIVADA!*`);
         } else {
           const isAct = models.getSetting(`ANTILINK_${from}`, 'false') === 'true';
           return this.sendMessage(from, `ℹ️ *Proteção Anti-Link:* ${isAct ? '🟢 Ativada' : '🔴 Desativada'}\n\nPara alterar: *!antilink on* ou *!antilink off*`);
         }
+      }
+
+      // 13. Configurar Mensagem de Boas-Vindas: !boasvindas on/off
+      if (/^(?:!|\/)(?:boasvindas|welcome)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem configurar as boas-vindas.');
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const action = parts[1]?.toLowerCase();
+
+        if (action === 'on' || action === 'ativar' || action === '1') {
+          models.setSetting(`WELCOME_${from}`, 'true');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'WELCOME_ON',
+            details: 'Boas-vindas automáticas ativadas'
+          });
+          return this.sendMessage(from, `👋 *BOAS-VINDAS AUTOMÁTICAS ATIVADAS!*\n\nNovos participantes receberão uma saudação ao entrar no grupo.\n\n_Para personalizar a mensagem: !boasvindas_msg Olá {nome}, bem-vindo ao {grupo}!_`);
+        } else if (action === 'off' || action === 'desativar' || action === '0') {
+          models.setSetting(`WELCOME_${from}`, 'false');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'WELCOME_OFF',
+            details: 'Boas-vindas automáticas desativadas'
+          });
+          return this.sendMessage(from, `🔕 *BOAS-VINDAS AUTOMÁTICAS DESATIVADAS!*`);
+        } else {
+          const isAct = models.getSetting(`WELCOME_${from}`, 'false') === 'true';
+          const curMsg = models.getSetting(`WELCOME_MSG_${from}`, '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.');
+          return this.sendMessage(from, `ℹ️ *Boas-Vindas:* ${isAct ? '🟢 Ativadas' : '🔴 Desativadas'}\n*Mensagem:* "${curMsg}"\n\nPara alterar: *!boasvindas on* ou *!boasvindas off*\nPara mudar o texto: *!boasvindas_msg Seu texto aqui com {nome} e {grupo}*`);
+        }
+      }
+
+      // 14. Personalizar Mensagem de Boas-Vindas: !boasvindas_msg <texto>
+      if (/^(?:!|\/)(?:boasvindas_msg|welcomemsg|msgboasvindas)\s+/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem personalizar as boas-vindas.');
+        }
+
+        const newMsg = text.replace(/^(?:!|\/)(?:boasvindas_msg|welcomemsg|msgboasvindas)\s+/i, '').trim();
+        if (!newMsg) return this.sendMessage(from, 'ℹ️ Uso: *!boasvindas_msg Olá {nome}, seja bem-vindo ao {grupo}!*');
+
+        models.setSetting(`WELCOME_MSG_${from}`, newMsg);
+        models.setSetting(`WELCOME_${from}`, 'true');
+        models.logGroupAdminAction({
+          platform: 'whatsapp',
+          groupId: from,
+          adminId: senderPhone,
+          adminName: senderName,
+          action: 'WELCOME_MSG',
+          details: `Mensagem de boas-vindas personalizada: ${newMsg}`
+        });
+
+        return this.sendMessage(from, `✅ *MENSAGEM DE BOAS-VINDAS ATUALIZADA!*\n\nNovos participantes receberão:\n"${newMsg}"`);
       }
     }
 

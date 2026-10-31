@@ -1984,6 +1984,78 @@ const models = {
   deleteChatControl(id) {
     const info = db.prepare(`DELETE FROM bot_chat_controls WHERE id = ?`).run(id);
     return { deleted: info.changes > 0 };
+  },
+
+  // ==========================================
+  // GESTÃO & AUDITORIA DE GRUPOS (WHATSAPP & TELEGRAM)
+  // ==========================================
+  logGroupAdminAction({ platform, groupId, groupName = null, adminId, adminName = null, action, targetId = null, details = null }) {
+    if (!platform || !groupId || !adminId || !action) {
+      throw new Error('platform, groupId, adminId e action são obrigatórios para registrar log.');
+    }
+    const stmt = db.prepare(`
+      INSERT INTO group_admin_audit_logs (platform, group_id, group_name, admin_id, admin_name, action, target_id, details)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      platform,
+      String(groupId),
+      groupName ? String(groupName) : null,
+      String(adminId),
+      adminName ? String(adminName) : null,
+      String(action).toUpperCase(),
+      targetId ? String(targetId) : null,
+      details ? String(details) : null
+    );
+    return { id: info.lastInsertRowid, logged: true };
+  },
+
+  getGroupAdminAuditLogs({ platform = null, groupId = null, limit = 50, offset = 0 } = {}) {
+    let query = `SELECT * FROM group_admin_audit_logs WHERE 1=1`;
+    const params = [];
+    if (platform) {
+      query += ` AND platform = ?`;
+      params.push(platform);
+    }
+    if (groupId) {
+      query += ` AND group_id = ?`;
+      params.push(String(groupId));
+    }
+    query += ` ORDER BY id DESC LIMIT ? OFFSET ?`;
+    params.push(Number(limit) || 50, Number(offset) || 0);
+    return db.prepare(query).all(...params);
+  },
+
+  clearGroupAdminAuditLogs({ groupId = null } = {}) {
+    if (groupId) {
+      const info = db.prepare(`DELETE FROM group_admin_audit_logs WHERE group_id = ?`).run(String(groupId));
+      return { cleared: info.changes };
+    }
+    const info = db.prepare(`DELETE FROM group_admin_audit_logs`).run();
+    return { cleared: info.changes };
+  },
+
+  getGroupSettings(platform, groupId) {
+    const antilink = this.getSetting(`ANTILINK_${groupId}`, 'false') === 'true';
+    const welcome = this.getSetting(`WELCOME_${groupId}`, 'false') === 'true';
+    const welcomeMsg = this.getSetting(
+      `WELCOME_MSG_${groupId}`,
+      '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
+    );
+    return { platform, groupId, antilink, welcome, welcomeMsg };
+  },
+
+  updateGroupSettings(platform, groupId, { antilink = null, welcome = null, welcomeMsg = null } = {}) {
+    if (antilink !== null && antilink !== undefined) {
+      this.setSetting(`ANTILINK_${groupId}`, antilink ? 'true' : 'false');
+    }
+    if (welcome !== null && welcome !== undefined) {
+      this.setSetting(`WELCOME_${groupId}`, welcome ? 'true' : 'false');
+    }
+    if (welcomeMsg !== null && welcomeMsg !== undefined) {
+      this.setSetting(`WELCOME_MSG_${groupId}`, String(welcomeMsg));
+    }
+    return this.getGroupSettings(platform, groupId);
   }
 };
 

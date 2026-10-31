@@ -120,6 +120,15 @@ class TelegramBotService {
                 await ctx.deleteMessage();
                 const userTag = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Usuário');
                 await ctx.reply(`⚠️ ${userTag}, links de outros canais ou grupos não são permitidos aqui!`);
+                models.logGroupAdminAction({
+                  platform: 'telegram',
+                  groupId: chatId,
+                  adminId: 'system_bot',
+                  adminName: 'PayBot Anti-Link',
+                  action: 'ANTILINK_TRIGGER',
+                  targetId: String(ctx.from?.id || ''),
+                  details: `Link externo não autorizado apagado de ${userTag}`
+                });
                 return;
               } catch (_) {}
             }
@@ -252,6 +261,40 @@ class TelegramBotService {
     // ==========================================
     // FUNÇÕES DE GERENCIAMENTO DE GRUPOS (TELEGRAM)
     // ==========================================
+
+    // Evento de novos membros no grupo (Boas-vindas automáticas)
+    this.bot.on('new_chat_members', async (ctx) => {
+      try {
+        const chatId = String(ctx.chat.id);
+        const isWelcomeActive = models.getSetting(`WELCOME_${chatId}`, 'false') === 'true';
+        if (!isWelcomeActive) return;
+
+        const groupName = ctx.chat.title || 'nosso grupo';
+        const customMsgTemplate = models.getSetting(
+          `WELCOME_MSG_${chatId}`,
+          '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
+        );
+
+        const newMembers = ctx.message.new_chat_members || [];
+        for (const member of newMembers) {
+          if (member.is_bot && ctx.botInfo && member.id === ctx.botInfo.id) {
+            await ctx.reply(`👋 Olá pessoal! Sou o *PayBot*! Administradores podem digitar \`/admin\` para ver os comandos de gestão.`, { parse_mode: 'Markdown' });
+            continue;
+          }
+
+          const memberName = member.username ? `@${member.username}` : (member.first_name || 'Membro');
+          const welcomeText = customMsgTemplate
+            .replace(/\{nome\}/gi, memberName)
+            .replace(/\{numero\}/gi, String(member.id))
+            .replace(/\{grupo\}/gi, groupName);
+
+          await ctx.reply(welcomeText, { parse_mode: 'Markdown' });
+        }
+      } catch (err) {
+        console.error('[Telegram Group Welcome] Erro ao enviar boas-vindas:', err.message);
+      }
+    });
+
     // 1. Menu de Gestão: /admin, /gestao, /adminhelp
     this.bot.command(['admin', 'gestao', 'adminhelp'], async (ctx) => {
       const adminStatus = await this.getTelegramAdminStatus(ctx);
@@ -263,8 +306,14 @@ class TelegramBotService {
         ? '🟢 *Bot é Administrador* (Todas as funções liberadas)' 
         : '⚠️ *Bot NÃO é Administrador* (Promova o bot a admin no grupo para executar ações)';
 
+      const chatId = String(ctx.chat.id);
+      const isAntilink = models.getSetting(`ANTILINK_${chatId}`, 'false') === 'true';
+      const isWelcome = models.getSetting(`WELCOME_${chatId}`, 'false') === 'true';
+
       const adminMenu = `🛠️ *PAINEL DE GERENCIAMENTO DO GRUPO (TELEGRAM)*\n\n` +
-        `• *Status do Bot:* ${botBadge}\n\n` +
+        `• *Status do Bot:* ${botBadge}\n` +
+        `• *Anti-Link:* ${isAntilink ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+        `• *Boas-Vindas:* ${isWelcome ? '🟢 Ativado' : '🔴 Desativado'}\n\n` +
         `👢 *Gerenciamento de Membros:*\n` +
         `• \`/ban\` ou \`/kick\` (responda à mensagem ou use ID) — Remove membro\n` +
         `• \`/promover\` (responda ou use ID) — Promove membro a Administrador\n` +
@@ -275,7 +324,9 @@ class TelegramBotService {
         `• \`/nome <novo nome>\` — Altera o título do grupo\n` +
         `• \`/descricao <texto>\` — Altera a descrição do grupo\n` +
         `• \`/link\` — Exibe o link oficial de convite do grupo\n` +
-        `• \`/antilink on/off\` — Ativa ou desativa proteção contra links externos\n\n` +
+        `• \`/antilink on/off\` — Ativa ou desativa proteção contra links externos\n` +
+        `• \`/boasvindas on/off\` — Ativa ou desativa saudação para novos membros\n` +
+        `• \`/boasvindas_msg <texto>\` — Personaliza o texto ({nome}, {grupo}, {numero})\n\n` +
         `🛑 *Moderação do Bot:*\n` +
         `• \`/desativar\` — Pausa respostas automáticas do bot neste grupo\n` +
         `• \`/ativar\` — Reativa o bot neste grupo\n` +
@@ -311,9 +362,22 @@ class TelegramBotService {
         return ctx.reply('ℹ️ Responda à mensagem da pessoa com `/ban` ou envie `/ban ID_DO_USUARIO`', { parse_mode: 'Markdown' });
       }
 
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
       try {
         await ctx.banChatMember(targetId);
         await ctx.unbanChatMember(targetId); // Desbane para que funcione como kick (pode voltar se tiver link)
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: String(ctx.chat.id),
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'BAN',
+          targetId: String(targetId),
+          details: `Removido do grupo pelo administrador ${senderName}`
+        });
         return ctx.reply(`👢 *Membro removido com sucesso!*\n\nO participante *${targetName}* foi removido do grupo por um administrador.`, { parse_mode: 'Markdown' });
       } catch (err) {
         return ctx.reply(`❌ Erro ao remover membro: ${err.message}`);
@@ -346,6 +410,9 @@ class TelegramBotService {
         return ctx.reply('ℹ️ Responda à mensagem com `/promover` ou envie `/promover ID_DO_USUARIO`', { parse_mode: 'Markdown' });
       }
 
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
       try {
         await ctx.promoteChatMember(targetId, {
           can_manage_chat: true,
@@ -353,6 +420,16 @@ class TelegramBotService {
           can_restrict_members: true,
           can_invite_users: true,
           can_pin_messages: true
+        });
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: String(ctx.chat.id),
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'PROMOTE',
+          targetId: String(targetId),
+          details: `Promovido a administrador por ${senderName}`
         });
         return ctx.reply(`⭐ *Administrador Promovido!*\n\nO participante *${targetName}* agora é um Administrador deste grupo!`, { parse_mode: 'Markdown' });
       } catch (err) {
@@ -386,6 +463,9 @@ class TelegramBotService {
         return ctx.reply('ℹ️ Responda à mensagem com `/rebaixar` ou envie `/rebaixar ID_DO_USUARIO`', { parse_mode: 'Markdown' });
       }
 
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
       try {
         await ctx.promoteChatMember(targetId, {
           can_manage_chat: false,
@@ -393,6 +473,16 @@ class TelegramBotService {
           can_restrict_members: false,
           can_invite_users: false,
           can_pin_messages: false
+        });
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: String(ctx.chat.id),
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'DEMOTE',
+          targetId: String(targetId),
+          details: `Rebaixado de administrador por ${senderName}`
         });
         return ctx.reply(`🔽 *Administrador Rebaixado!*\n\nO usuário *${targetName}* não possui mais privilégios de administrador.`, { parse_mode: 'Markdown' });
       } catch (err) {
@@ -407,8 +497,20 @@ class TelegramBotService {
       if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem fechar o grupo.');
       if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador do grupo para trancar o chat!*');
 
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
       try {
         await ctx.setChatPermissions({ can_send_messages: false });
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: String(ctx.chat.id),
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'LOCK',
+          details: 'Grupo trancado para mensagens (apenas admins falam)'
+        });
         return ctx.reply('🔒 *GRUPO FECHADO!*\n\nAgora apenas administradores podem enviar mensagens no grupo.', { parse_mode: 'Markdown' });
       } catch (err) {
         return ctx.reply(`❌ Erro ao fechar grupo: ${err.message}`);
@@ -422,12 +524,24 @@ class TelegramBotService {
       if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem abrir o grupo.');
       if (!adminStatus.isBotAdmin) return ctx.reply('⚠️ *O bot precisa ser Administrador do grupo para abrir o chat!*');
 
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
       try {
         await ctx.setChatPermissions({
           can_send_messages: true,
           can_send_media_messages: true,
           can_send_other_messages: true,
           can_add_web_page_previews: true
+        });
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: String(ctx.chat.id),
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'UNLOCK',
+          details: 'Grupo reaberto para mensagens'
         });
         return ctx.reply('🔓 *GRUPO ABERTO!*\n\nTodos os membros do grupo agora podem enviar mensagens livremente.', { parse_mode: 'Markdown' });
       } catch (err) {
@@ -446,8 +560,20 @@ class TelegramBotService {
       const newTitle = parts.slice(1).join(' ').trim();
       if (!newTitle) return ctx.reply('ℹ️ Uso: `/nome Novo Nome do Grupo`', { parse_mode: 'Markdown' });
 
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
       try {
         await ctx.setChatTitle(newTitle);
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: String(ctx.chat.id),
+          groupName: newTitle,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'RENAME',
+          details: `Nome alterado para: ${newTitle}`
+        });
         return ctx.reply(`✏️ *Nome do Grupo Atualizado!*\n\nNovo título: *${newTitle}*`, { parse_mode: 'Markdown' });
       } catch (err) {
         return ctx.reply(`❌ Erro ao alterar nome: ${err.message}`);
@@ -465,8 +591,20 @@ class TelegramBotService {
       const newDesc = parts.slice(1).join(' ').trim();
       if (!newDesc) return ctx.reply('ℹ️ Uso: `/descricao Regras e Informações`', { parse_mode: 'Markdown' });
 
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
       try {
         await ctx.setChatDescription(newDesc);
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: String(ctx.chat.id),
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'SET_DESC',
+          details: 'Descrição do grupo atualizada'
+        });
         return ctx.reply('📝 *Descrição do Grupo Atualizada com Sucesso!*', { parse_mode: 'Markdown' });
       } catch (err) {
         return ctx.reply(`❌ Erro ao alterar descrição: ${err.message}`);
@@ -497,17 +635,109 @@ class TelegramBotService {
       const parts = ctx.message.text.trim().split(/\s+/);
       const action = parts[1]?.toLowerCase();
       const chatId = String(ctx.chat.id);
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
 
       if (action === 'on' || action === 'ativar' || action === '1') {
         models.setSetting(`ANTILINK_${chatId}`, 'true');
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: chatId,
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'ANTILINK_ON',
+          details: 'Proteção anti-link ativada'
+        });
         return ctx.reply('🛡️ *Proteção Anti-Link Ativada!*\n\nMensagens com links externos serão apagadas automaticamente.', { parse_mode: 'Markdown' });
       } else if (action === 'off' || action === 'desativar' || action === '0') {
         models.setSetting(`ANTILINK_${chatId}`, 'false');
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: chatId,
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'ANTILINK_OFF',
+          details: 'Proteção anti-link desativada'
+        });
         return ctx.reply('🔓 *Proteção Anti-Link Desativada!*', { parse_mode: 'Markdown' });
       } else {
         const isAct = models.getSetting(`ANTILINK_${chatId}`, 'false') === 'true';
         return ctx.reply(`ℹ️ *Anti-Link neste grupo:* ${isAct ? '🟢 Ativado' : '🔴 Desativado'}\n\nPara alterar: \`/antilink on\` ou \`/antilink off\``, { parse_mode: 'Markdown' });
       }
+    });
+
+    // 11. Configurar Boas-Vindas: /boasvindas on/off
+    this.bot.command(['boasvindas', 'welcome'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem configurar as boas-vindas.');
+
+      const parts = ctx.message.text.trim().split(/\s+/);
+      const action = parts[1]?.toLowerCase();
+      const chatId = String(ctx.chat.id);
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
+      if (action === 'on' || action === 'ativar' || action === '1') {
+        models.setSetting(`WELCOME_${chatId}`, 'true');
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: chatId,
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'WELCOME_ON',
+          details: 'Boas-vindas ativadas'
+        });
+        return ctx.reply('👋 *Boas-Vindas Ativadas!*\n\nNovos membros receberão uma mensagem automática de boas-vindas ao entrar no grupo.\n\n_Para personalizar:_ `/boasvindas_msg Olá {nome}, seja bem-vindo ao {grupo}!`', { parse_mode: 'Markdown' });
+      } else if (action === 'off' || action === 'desativar' || action === '0') {
+        models.setSetting(`WELCOME_${chatId}`, 'false');
+        models.logGroupAdminAction({
+          platform: 'telegram',
+          groupId: chatId,
+          groupName: ctx.chat.title || null,
+          adminId: senderId,
+          adminName: senderName,
+          action: 'WELCOME_OFF',
+          details: 'Boas-vindas desativadas'
+        });
+        return ctx.reply('🔕 *Boas-Vindas Desativadas!*', { parse_mode: 'Markdown' });
+      } else {
+        const isAct = models.getSetting(`WELCOME_${chatId}`, 'false') === 'true';
+        const curMsg = models.getSetting(`WELCOME_MSG_${chatId}`, 'Padrão');
+        return ctx.reply(`ℹ️ *Boas-Vindas neste grupo:* ${isAct ? '🟢 Ativadas' : '🔴 Desativadas'}\n*Mensagem:* "${curMsg}"\n\nPara alterar: \`/boasvindas on\` ou \`/boasvindas off\`\nPara mudar o texto: \`/boasvindas_msg Seu texto aqui\``, { parse_mode: 'Markdown' });
+      }
+    });
+
+    // 12. Personalizar Texto de Boas-Vindas: /boasvindas_msg <texto>
+    this.bot.command(['boasvindas_msg', 'welcomemsg', 'msgboasvindas'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem personalizar as boas-vindas.');
+
+      const parts = ctx.message.text.trim().split(/\s+/);
+      const newMsg = parts.slice(1).join(' ').trim();
+      if (!newMsg) return ctx.reply('ℹ️ Uso: `/boasvindas_msg Olá {nome}, seja bem-vindo ao grupo {grupo}!`', { parse_mode: 'Markdown' });
+
+      const chatId = String(ctx.chat.id);
+      const senderId = String(ctx.from?.id || '');
+      const senderName = ctx.from?.first_name || senderId;
+
+      models.setSetting(`WELCOME_MSG_${chatId}`, newMsg);
+      models.setSetting(`WELCOME_${chatId}`, 'true');
+      models.logGroupAdminAction({
+        platform: 'telegram',
+        groupId: chatId,
+        groupName: ctx.chat.title || null,
+        adminId: senderId,
+        adminName: senderName,
+        action: 'WELCOME_MSG',
+        details: `Mensagem atualizada: ${newMsg}`
+      });
+
+      return ctx.reply(`✅ *Mensagem de Boas-Vindas Atualizada!*\n\nNovos participantes receberão:\n"${newMsg}"`, { parse_mode: 'Markdown' });
     });
 
     // /start com suporte a Links de Afiliados e Ofertas (Deep-Linking: /start ref_CODIGO ou /start buy_ID)

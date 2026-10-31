@@ -412,6 +412,23 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_chat_controls ON bot_chat_controls(platform, control_type, active, chat_id, user_id);
   `);
 
+  // 24. Tabela de Auditoria e Gestão de Grupos (WhatsApp & Telegram)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS group_admin_audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL, -- 'whatsapp' ou 'telegram'
+      group_id TEXT NOT NULL,
+      group_name TEXT,
+      admin_id TEXT NOT NULL,
+      admin_name TEXT,
+      action TEXT NOT NULL, -- 'BAN', 'PROMOTE', 'DEMOTE', 'LOCK', 'UNLOCK', 'RENAME', 'SET_DESC', 'REVOKE_LINK', 'TAG_ALL', 'ANTILINK_ON', 'ANTILINK_OFF', 'ANTILINK_TRIGGER', 'WELCOME_ON', 'WELCOME_OFF', 'WELCOME_MSG'
+      target_id TEXT,
+      details TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_audit_logs ON group_admin_audit_logs(platform, group_id, action, created_at);
+  `);
+
   // Migrações seguras
   const migrations = [
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',

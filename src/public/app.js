@@ -88,7 +88,8 @@ async function loadAllData() {
     loadOffers(),
     loadCoupons(),
     loadArmyData(),
-    loadChatControls()
+    loadChatControls(),
+    loadGroupAuditLogs()
   ]);
 }
 
@@ -3561,5 +3562,165 @@ async function unmuteOrUnblockControl(id, platform, controlType, chatId, userId)
     loadChatControls();
   } catch (err) {
     alert('Erro ao liberar: ' + err.message);
+  }
+}
+
+// ==========================================
+// GESTÃO DE GRUPOS & AUDITORIA (FRONTEND)
+// ==========================================
+async function loadGroupAuditLogs() {
+  const tbody = document.getElementById('tableGroupAuditLogsBody');
+  if (!tbody) return;
+
+  try {
+    const res = await fetch('/api/groups/audit-logs?limit=30');
+    if (!res.ok) return;
+    const logs = await res.json();
+
+    if (!logs || logs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 15px; color: var(--text-muted);">Nenhum comando de administração de grupos registrado ainda.</td></tr>';
+      return;
+    }
+
+    let html = '';
+    logs.forEach(l => {
+      const isWpp = l.platform === 'whatsapp';
+      const platBadge = isWpp
+        ? '<span class="badge" style="background:#25d366; color:#0f172a; font-size:11px;"><i class="fa-brands fa-whatsapp"></i> WhatsApp</span>'
+        : '<span class="badge" style="background:#229ed9; color:#fff; font-size:11px;"><i class="fa-brands fa-telegram"></i> Telegram</span>';
+
+      let actionBadge = '';
+      switch (l.action) {
+        case 'BAN':
+        case 'KICK':
+          actionBadge = '<span class="badge" style="background:#ef4444; color:#fff;">Expulsão (Ban)</span>';
+          break;
+        case 'PROMOTE':
+          actionBadge = '<span class="badge" style="background:#10b981; color:#fff;">Promover Admin</span>';
+          break;
+        case 'DEMOTE':
+          actionBadge = '<span class="badge" style="background:#f59e0b; color:#12161f;">Rebaixar Admin</span>';
+          break;
+        case 'LOCK':
+          actionBadge = '<span class="badge" style="background:#6366f1; color:#fff;">Trancar Grupo</span>';
+          break;
+        case 'UNLOCK':
+          actionBadge = '<span class="badge" style="background:#06b6d4; color:#fff;">Abrir Grupo</span>';
+          break;
+        case 'RENAME':
+          actionBadge = '<span class="badge" style="background:#8b5cf6; color:#fff;">Mudar Nome</span>';
+          break;
+        case 'SET_DESC':
+          actionBadge = '<span class="badge" style="background:#8b5cf6; color:#fff;">Mudar Regras</span>';
+          break;
+        case 'REVOKE_LINK':
+          actionBadge = '<span class="badge" style="background:#ec4899; color:#fff;">Resetar Link</span>';
+          break;
+        case 'TAG_ALL':
+          actionBadge = '<span class="badge" style="background:#eab308; color:#12161f;">Marcar Todos</span>';
+          break;
+        case 'ANTILINK_ON':
+        case 'ANTILINK_OFF':
+        case 'ANTILINK_TRIGGER':
+          actionBadge = '<span class="badge" style="background:#f43f5e; color:#fff;">Anti-Link</span>';
+          break;
+        case 'WELCOME_ON':
+        case 'WELCOME_OFF':
+        case 'WELCOME_MSG':
+          actionBadge = '<span class="badge" style="background:#14b8a6; color:#fff;">Boas-Vindas</span>';
+          break;
+        default:
+          actionBadge = `<span class="badge" style="background:#64748b; color:#fff;">${l.action}</span>`;
+      }
+
+      const dateStr = l.created_at ? new Date(l.created_at).toLocaleString('pt-BR') : '-';
+      const groupDisp = l.group_name ? `<b>${l.group_name}</b><br><small class="text-muted">${l.group_id}</small>` : `<code>${l.group_id}</code>`;
+      const adminDisp = l.admin_name ? `${l.admin_name} <small class="text-muted">(${l.admin_id})</small>` : `<b>${l.admin_id}</b>`;
+      const targetDisp = l.target_id ? `<code>${l.target_id}</code>` : '-';
+
+      html += `
+        <tr>
+          <td style="font-size: 11px;">${dateStr}</td>
+          <td>${platBadge}</td>
+          <td>${groupDisp}</td>
+          <td>${adminDisp}</td>
+          <td>${actionBadge}</td>
+          <td>${targetDisp}</td>
+          <td style="max-width: 250px; font-size: 11px;">${l.details || '-'}</td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = html;
+  } catch (err) {
+    console.error('Erro ao carregar logs de grupos:', err.message);
+  }
+}
+
+async function clearGroupLogs() {
+  if (!confirm('Deseja realmente limpar todos os logs de auditoria dos grupos?')) return;
+  try {
+    await fetch('/api/groups/audit-logs', { method: 'DELETE' });
+    loadGroupAuditLogs();
+  } catch (err) {
+    alert('Erro ao limpar logs: ' + err.message);
+  }
+}
+
+function openGroupSettingsModal() {
+  const m = document.getElementById('modalGroupSettings');
+  if (m) {
+    m.classList.add('active');
+  }
+}
+
+function closeGroupSettingsModal() {
+  const m = document.getElementById('modalGroupSettings');
+  if (m) m.classList.remove('active');
+}
+
+async function fetchGroupSettings() {
+  const groupId = document.getElementById('groupSettingsId')?.value?.trim();
+  const platform = document.getElementById('groupPlatform')?.value || 'whatsapp';
+  if (!groupId) return;
+
+  try {
+    const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/settings?platform=${platform}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const chkAnti = document.getElementById('chkGroupAntilink');
+    const chkWel = document.getElementById('chkGroupWelcome');
+    const txtMsg = document.getElementById('txtGroupWelcomeMsg');
+    if (chkAnti) chkAnti.checked = !!data.antilink;
+    if (chkWel) chkWel.checked = !!data.welcome;
+    if (txtMsg) txtMsg.value = data.welcomeMsg || '';
+  } catch (_) {}
+}
+
+async function saveGroupSettings(e) {
+  e.preventDefault();
+  const groupId = document.getElementById('groupSettingsId')?.value?.trim();
+  const platform = document.getElementById('groupPlatform')?.value || 'whatsapp';
+  const antilink = document.getElementById('chkGroupAntilink')?.checked;
+  const welcome = document.getElementById('chkGroupWelcome')?.checked;
+  const welcomeMsg = document.getElementById('txtGroupWelcomeMsg')?.value?.trim();
+
+  if (!groupId) {
+    return alert('Informe o ID do Grupo.');
+  }
+
+  try {
+    const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform, antilink, welcome, welcomeMsg })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao salvar configurações do grupo.');
+
+    alert('Configurações do grupo salvas com sucesso!');
+    closeGroupSettingsModal();
+    loadGroupAuditLogs();
+  } catch (err) {
+    alert('Erro ao salvar: ' + err.message);
   }
 }

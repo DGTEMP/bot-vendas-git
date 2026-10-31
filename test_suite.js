@@ -1600,6 +1600,115 @@ async function main() {
     assert.strictEqual(statusNoBotAdmin.isRequesterAdmin, true);
   });
 
+  await runAsyncTest('Gestão de Grupos: Boas-Vindas Automáticas e Customização', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const testGroup = '120363099999999999@g.us';
+
+    let lastSentMsg = null;
+    const originalSock = whatsappBot.sock;
+    const originalSendMessage = whatsappBot.sendMessage;
+
+    whatsappBot.sendMessage = async (jid, text, opt) => {
+      lastSentMsg = { jid, text, opt };
+      return true;
+    };
+
+    whatsappBot.sock = {
+      user: { id: '5511900000000:1@s.whatsapp.net' },
+      groupMetadata: async () => ({
+        participants: [
+          { id: '5511900000000@s.whatsapp.net', admin: 'admin' },
+          { id: '5511911111111@s.whatsapp.net', admin: 'admin' }
+        ]
+      })
+    };
+
+    // 1. Configurar mensagem de boas-vindas customizada
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!boasvindas_msg Bem-vindo {nome} ao super grupo {grupo}!' }
+    });
+    assert(lastSentMsg.text.includes('MENSAGEM DE BOAS-VINDAS ATUALIZADA'));
+    assert.strictEqual(models.getSetting(`WELCOME_${testGroup}`), 'true');
+    assert.strictEqual(models.getSetting(`WELCOME_MSG_${testGroup}`), 'Bem-vindo {nome} ao super grupo {grupo}!');
+
+    // 2. Consulta de configurações do grupo
+    const settings = models.getGroupSettings('whatsapp', testGroup);
+    assert.strictEqual(settings.welcome, true);
+    assert(settings.welcomeMsg.includes('super grupo'));
+
+    // 3. Desativar boas-vindas
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!boasvindas off' }
+    });
+    assert(lastSentMsg.text.includes('BOAS-VINDAS AUTOMÁTICAS DESATIVADAS'));
+    assert.strictEqual(models.getSetting(`WELCOME_${testGroup}`), 'false');
+
+    whatsappBot.sock = originalSock;
+    whatsappBot.sendMessage = originalSendMessage;
+  });
+
+  await runAsyncTest('Gestão de Grupos: Logs de Auditoria & APIs REST (/api/groups/*)', async () => {
+    const testGroupId = '120363088888888888@g.us';
+
+    // 1. Registro de Ação no Model
+    const logResult = models.logGroupAdminAction({
+      platform: 'whatsapp',
+      groupId: testGroupId,
+      groupName: 'Grupo VIP de Traders',
+      adminId: '5511999991111',
+      adminName: 'Admin Roberto',
+      action: 'BAN',
+      targetId: '5511988882222',
+      details: 'Spam de link de pirataria'
+    });
+    assert(logResult.logged, 'Ação de grupo deve ser logada com sucesso');
+
+    // 2. Consulta no Model
+    const logs = models.getGroupAdminAuditLogs({ groupId: testGroupId });
+    assert(logs.length >= 1);
+    assert.strictEqual(logs[0].action, 'BAN');
+    assert.strictEqual(logs[0].target_id, '5511988882222');
+
+    // 3. API REST: GET /api/groups/audit-logs
+    const apiLogs = await fetchApi(`/api/groups/audit-logs?groupId=${encodeURIComponent(testGroupId)}`);
+    assert.strictEqual(apiLogs.status, 200);
+    assert(Array.isArray(apiLogs.data));
+    assert(apiLogs.data.some(l => l.action === 'BAN'));
+
+    // 4. API REST: GET e POST /api/groups/:groupId/settings
+    const postSettings = await fetchApi(`/api/groups/${encodeURIComponent(testGroupId)}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'whatsapp',
+        antilink: true,
+        welcome: true,
+        welcomeMsg: 'Olá {nome}, boas-vindas ao nosso grupo de testes!'
+      })
+    });
+    assert.strictEqual(postSettings.status, 200);
+    assert.strictEqual(postSettings.data.antilink, true);
+    assert.strictEqual(postSettings.data.welcome, true);
+
+    const getSettings = await fetchApi(`/api/groups/${encodeURIComponent(testGroupId)}/settings?platform=whatsapp`);
+    assert.strictEqual(getSettings.status, 200);
+    assert.strictEqual(getSettings.data.antilink, true);
+    assert.strictEqual(getSettings.data.welcome, true);
+    assert(getSettings.data.welcomeMsg.includes('boas-vindas ao nosso grupo de testes'));
+
+    // 5. API REST: DELETE /api/groups/audit-logs
+    const clearRes = await fetchApi(`/api/groups/audit-logs?groupId=${encodeURIComponent(testGroupId)}`, {
+      method: 'DELETE'
+    });
+    assert.strictEqual(clearRes.status, 200);
+    assert(clearRes.data.success);
+
+    const logsAfterClear = models.getGroupAdminAuditLogs({ groupId: testGroupId });
+    assert.strictEqual(logsAfterClear.length, 0);
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

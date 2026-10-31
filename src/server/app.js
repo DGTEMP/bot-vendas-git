@@ -1406,6 +1406,69 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // GESTÃO DE GRUPOS & AUDITORIA (REST API)
+  // ==========================================
+  app.get('/api/groups/audit-logs', (req, res) => {
+    try {
+      const { platform, groupId, limit, offset } = req.query;
+      const logs = models.getGroupAdminAuditLogs({
+        platform: platform || null,
+        groupId: groupId || null,
+        limit: parseInt(limit, 10) || 50,
+        offset: parseInt(offset, 10) || 0
+      });
+      res.json(logs);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/groups/audit-logs', (req, res) => {
+    try {
+      const groupId = req.query.groupId || req.body?.groupId || null;
+      const result = models.clearGroupAdminAuditLogs({ groupId });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/groups/:groupId/settings', (req, res) => {
+    try {
+      const platform = req.query.platform || 'whatsapp';
+      const settings = models.getGroupSettings(platform, req.params.groupId);
+      res.json(settings);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/groups/:groupId/settings', (req, res) => {
+    try {
+      const platform = req.body?.platform || 'whatsapp';
+      const { antilink, welcome, welcomeMsg } = req.body;
+      const updated = models.updateGroupSettings(platform, req.params.groupId, {
+        antilink,
+        welcome,
+        welcomeMsg
+      });
+
+      models.logGroupAdminAction({
+        platform,
+        groupId: req.params.groupId,
+        adminId: 'web_dashboard',
+        adminName: 'Painel Web Admin',
+        action: 'WEB_CONFIG_UPDATE',
+        details: `Configurações atualizadas: antilink=${antilink}, welcome=${welcome}`
+      });
+
+      res.json({ success: true, ...updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 
