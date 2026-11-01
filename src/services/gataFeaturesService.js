@@ -1,5 +1,7 @@
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const models = require('../db/models');
+const stickerConverter = require('../utils/stickerConverter');
+const instagramScraperService = require('./instagramScraperService');
 
 class GataFeaturesService {
   constructor() {
@@ -31,18 +33,32 @@ class GataFeaturesService {
     let streamType = null;
     let mediaObj = null;
 
-    if (targetMsg.imageMessage) {
+    // Desempacota mensagens de Visualização Única (View Once)
+    const unwrappedMsg = targetMsg.viewOnceMessageV2?.message || 
+                         targetMsg.viewOnceMessage?.message || 
+                         targetMsg.viewOnceMessageV2Extension?.message || 
+                         targetMsg;
+
+    if (unwrappedMsg.imageMessage) {
       type = 'image';
       streamType = 'image';
-      mediaObj = targetMsg.imageMessage;
-    } else if (targetMsg.videoMessage) {
+      mediaObj = unwrappedMsg.imageMessage;
+    } else if (unwrappedMsg.videoMessage) {
       type = 'video';
       streamType = 'video';
-      mediaObj = targetMsg.videoMessage;
-    } else if (targetMsg.stickerMessage) {
+      mediaObj = unwrappedMsg.videoMessage;
+    } else if (unwrappedMsg.stickerMessage) {
       type = 'sticker';
       streamType = 'sticker';
-      mediaObj = targetMsg.stickerMessage;
+      mediaObj = unwrappedMsg.stickerMessage;
+    } else if (unwrappedMsg.documentMessage && unwrappedMsg.documentMessage.mimetype?.startsWith('image/')) {
+      type = 'image';
+      streamType = 'document';
+      mediaObj = unwrappedMsg.documentMessage;
+    } else if (unwrappedMsg.documentMessage && unwrappedMsg.documentMessage.mimetype?.startsWith('video/')) {
+      type = 'video';
+      streamType = 'document';
+      mediaObj = unwrappedMsg.documentMessage;
     }
 
     if (!mediaObj) return null;
@@ -60,34 +76,12 @@ class GataFeaturesService {
     }
   }
 
-  // Converte buffer de imagem para WebP (Sticker) via serviço open-source
+  // Converte buffer de imagem para WebP (Sticker 512x512) via conversor local de alta performance
   async convertImageToWebP(imageBuffer) {
-    try {
-      // 1. Faz upload temporário do buffer
-      const form = new FormData();
-      form.append('file', new Blob([imageBuffer]), 'input.jpg');
-      const upRes = await fetch('https://tmpfiles.org/api/v1/upload', {
-        method: 'POST',
-        body: form
-      });
-      const upData = await upRes.json();
-      if (!upData?.data?.url) throw new Error('Falha no upload da imagem temporária');
-
-      const directUrl = upData.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-
-      // 2. Converte para WebP 512x512 via wsrv.nl
-      const webpRes = await fetch(`https://wsrv.nl/?url=${encodeURIComponent(directUrl)}&output=webp&w=512&h=512&fit=contain`);
-      if (!webpRes.ok) throw new Error('Falha na conversão WebP via wsrv.nl');
-
-      const arrayBuf = await webpRes.arrayBuffer();
-      return Buffer.from(arrayBuf);
-    } catch (err) {
-      console.error('[GataFeatures ⚠️ Falha na conversão WebP remota]:', err.message);
-      return imageBuffer; // Retorna buffer original como fallback
-    }
+    return stickerConverter.convertImageToWebP(imageBuffer);
   }
 
-  // Comando !s / !sticker
+  // Comando !s / !sticker (Suporta imagem, vídeo/GIF e visualização única)
   async handleSticker(sock, from, msg, pushName) {
     const media = await this.extractMediaBuffer(msg);
     if (!media) {
@@ -100,9 +94,11 @@ class GataFeaturesService {
     await sock.sendMessage(from, { text: `⏳ *Criando sua figurinha...* Aguarde alguns instantes!` });
 
     try {
-      let stickerBuffer = media.buffer;
-      if (media.type === 'image') {
-        stickerBuffer = await this.convertImageToWebP(media.buffer);
+      let stickerBuffer = null;
+      if (media.type === 'video') {
+        stickerBuffer = await stickerConverter.convertVideoToWebP(media.buffer);
+      } else {
+        stickerBuffer = await stickerConverter.convertImageToWebP(media.buffer);
       }
 
       await sock.sendMessage(from, {
@@ -443,6 +439,16 @@ class GataFeaturesService {
     } catch (err) {
       await sock.sendMessage(from, { text: `❌ Erro no download do Instagram: ${err.message}` });
     }
+  }
+
+  // Comando !allstories <@usuario> (Baixar todos os stories de um perfil do Instagram)
+  async handleAllStories(sock, from, text) {
+    return instagramScraperService.handleAllStoriesCommand(sock, from, text);
+  }
+
+  // Comando !scrapinsta <@usuario> (Auditoria profunda: stories, posts, seguidores, engajamento e maturidade intelectual)
+  async handleScrapInsta(sock, from, text) {
+    return instagramScraperService.handleScrapInstaCommand(sock, from, text);
   }
 
   // ==========================================

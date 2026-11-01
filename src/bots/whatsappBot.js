@@ -75,7 +75,11 @@ class WhatsAppBotService {
         keepAliveIntervalMs: 55000
       });
 
-      this.sock.ev.on('creds.update', saveCreds);
+      this.sock.ev.on('creds.update', async () => {
+        try {
+          await saveCreds();
+        } catch (_) {}
+      });
 
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -107,28 +111,29 @@ class WhatsAppBotService {
           try {
             models.updateArmyInstance(1, { status: 'CONNECTED', phone: rawPhone });
           } catch (_) {}
+          try {
+            await saveCreds();
+          } catch (_) {}
           console.log('✅ [WhatsApp] Sessão conectada e pronta para receber pedidos!');
         }
 
         if (connection === 'close') {
           this.isConnected = false;
           const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401 && statusCode !== 403 && statusCode !== 405;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut;
 
-          this.statusMessage = `Desconectado (código ${statusCode}).`;
+          this.statusMessage = `Desconectado (código ${statusCode || 'desconhecido'}).`;
           try {
             models.updateArmyInstance(1, { status: 'DISCONNECTED' });
           } catch (_) {}
 
-          if (shouldReconnect) {
-            console.log(`📱 [WhatsApp Matriz] Tentando reconectar em 4 segundos (código ${statusCode})...`);
-            setTimeout(() => this.start(), 4000);
+          if (isLoggedOut) {
+            console.log('🛑 [WhatsApp Matriz] Desconectado por logout.');
+            // Mantém a pasta preservada; reset de credenciais deve ser acionado explicitamente via resetSession
+            setTimeout(() => this.start(), 5000);
           } else {
-            console.log('🛑 [WhatsApp Matriz] Desconectado por logout ou credenciais inválidas. Limpando credenciais...');
-            try {
-              fs.rmSync(this.authFolder, { recursive: true, force: true });
-            } catch (err) {}
-            setTimeout(() => this.start(), 3000);
+            console.log(`📱 [WhatsApp Matriz] Conexão encerrada temporariamente (código ${statusCode}). Reconectando em 4 segundos...`);
+            setTimeout(() => this.start(), 4000);
           }
         }
       });
@@ -1261,6 +1266,16 @@ class WhatsAppBotService {
       return gataFeatures.handleInstagram(activeSock, from, text);
     }
 
+    // 7.1 Baixar todos os Stories de um @perfil: !allstories / !stories
+    if (/^(?:!|\/)(?:allstories|stories|todosstories)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleAllStories(activeSock, from, text);
+    }
+
+    // 7.2 Scraper Completo & Auditoria de Perfil/Audiência: !scrapinsta / !stalkinsta / !spyinsta
+    if (/^(?:!|\/)(?:scrapinsta|stalkinsta|spyinsta|insta)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleScrapInsta(activeSock, from, text);
+    }
+
     // 8. Inteligência Artificial: !ia / !gpt / !gemini
     if (/^(?:!|\/)(?:ia|gpt|gemini)(?:\s+.*)?$/i.test(lower)) {
       return gataFeatures.handleAIChat(activeSock, from, text, senderName);
@@ -1304,10 +1319,12 @@ class WhatsAppBotService {
         `• *!attp <texto>* — Cria figurinha animada com seu texto\n` +
         `• *!toimg* — Converte figurinha em imagem JPG\n` +
         `• *!tts <texto>* — Converte texto em áudio falado pelo bot\n\n` +
-        `📥 *Downloads Automáticos:*\n` +
+        `📥 *Downloads & Inteligência Instagram:*\n` +
         `• *!play <música>* — Baixa música do YouTube em MP3\n` +
         `• *!tiktok <link>* — Baixa vídeo do TikTok sem marca d'água\n` +
-        `• *!ig <link>* — Baixa fotos e reels do Instagram\n\n` +
+        `• *!ig <link>* — Baixa fotos e reels do Instagram\n` +
+        `• *!allstories <@usuario>* — Baixa todos os stories de um perfil\n` +
+        `• *!scrapinsta <@usuario>* — Raio-X completo: métricas, rede e maturidade intelectual\n\n` +
         `🤖 *Inteligência Artificial:*\n` +
         `• *!ia <pergunta>* — Converse com o ChatGPT / Gemini integrado\n` +
         `• *!imagine <ideia>* — Gera arte inédita com IA\n` +

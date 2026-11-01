@@ -2223,6 +2223,59 @@ async function main() {
     assert(audioMsg.fileName.includes('.mp3'));
   });
 
+  await runTest('Gata Nina: Conversor de Figurinhas WebP (!s / !sticker)', async () => {
+    const stickerConverter = require('./src/utils/stickerConverter');
+    const { execSync } = require('child_process');
+
+    // Gera um buffer de imagem sintética para testar
+    const dummyPng = execSync('python -c "import io, sys; from PIL import Image; b=io.BytesIO(); Image.new(\'RGB\', (150, 150), \'blue\').save(b, format=\'PNG\'); sys.stdout.buffer.write(b.getvalue())"');
+    assert(dummyPng.length > 0);
+
+    const webp = await stickerConverter.convertImageToWebP(dummyPng);
+    assert(Buffer.isBuffer(webp));
+    assert(webp.length > 100);
+    assert.strictEqual(webp.slice(0, 4).toString(), 'RIFF');
+    assert.strictEqual(webp.slice(8, 12).toString(), 'WEBP');
+  });
+
+  await runTest('Gata Nina: Scraper & Auditoria de Perfil Instagram (!scrapinsta)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    let lastMsg = null;
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        lastMsg = typeof payload === 'string' ? payload : (payload.caption || payload.text || '');
+        return true;
+      }
+    };
+
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!scrapinsta github' }
+    }, mockSock);
+
+    assert(lastMsg.includes('RELATÓRIO DE INTELIGÊNCIA INSTAGRAM'));
+    assert(lastMsg.includes('MATURIDADE INTELECTUAL'));
+    assert(lastMsg.includes('Seguidores:'));
+  });
+
+  await runTest('Gata Nina: Download de Stories Instagram (!allstories)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    let lastMsg = null;
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        lastMsg = typeof payload === 'string' ? payload : (payload.caption || payload.text || '');
+        return true;
+      }
+    };
+
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!allstories github' }
+    }, mockSock);
+
+    assert(lastMsg.includes('github') || lastMsg.includes('story') || lastMsg.includes('stories'));
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

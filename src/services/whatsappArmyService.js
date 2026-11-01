@@ -87,7 +87,11 @@ class WhatsAppArmyService {
         keepAliveIntervalMs: 55000
       });
 
-      sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('creds.update', async () => {
+        try {
+          await saveCreds();
+        } catch (_) {}
+      });
 
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -108,26 +112,25 @@ class WhatsAppArmyService {
             status: 'CONNECTED',
             phone: rawPhone || instance.phone
           });
+          try {
+            await saveCreds();
+          } catch (_) {}
           console.log(`[Exército WhatsApp 📱] Chip #${instanceId} (${instance.name}) conectado com sucesso (+ ${rawPhone || instance.phone})!`);
         }
 
         if (connection === 'close') {
           const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut;
           console.log(`[Exército WhatsApp ⚠️] Chip #${instanceId} desconectado (código ${statusCode}).`);
 
-          if (statusCode === 401 || statusCode === 403 || statusCode === 405) {
-            console.log(`[Exército WhatsApp 🛑] Sessão inválida ou desconectada pelo usuário. Limpando credenciais do Chip #${instanceId}.`);
+          if (isLoggedOut) {
+            console.log(`[Exército WhatsApp 🛑] Sessão desconectada por logout no Chip #${instanceId}.`);
             models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
             this.instanceQrs.delete(instanceId);
-            try {
-              fs.rmSync(folder, { recursive: true, force: true });
-            } catch (_) {}
-          } else if (statusCode === 515 || statusCode === 408 || statusCode === 428) {
+            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 5000);
+          } else {
             models.updateArmyInstance(instanceId, { status: 'CONNECTING' });
             setTimeout(() => this.startInstance(instanceId).catch(() => {}), 4000);
-          } else {
-            models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
-            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 5000);
           }
         }
       });
