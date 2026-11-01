@@ -729,6 +729,21 @@ class MeteoricService {
     const whatsappBot = require('../bots/whatsappBot');
     let leads = [];
 
+    // 1. Tenta recuperar do cache de grupos do WhatsApp (já possui participantes completos sem bater na API)
+    if (whatsappBot.cachedGroups && Array.isArray(whatsappBot.cachedGroups)) {
+      const foundInCache = whatsappBot.cachedGroups.find(cg => cg.id === groupJid);
+      if (foundInCache && foundInCache.participants && foundInCache.participants.length > 0) {
+        return foundInCache.participants.map(p => ({
+          id: p.id,
+          phone: p.phone || (p.id ? p.id.split('@')[0].split(':')[0] : ''),
+          admin: p.admin || 'membro',
+          groupJid,
+          groupName: foundInCache.subject || 'Grupo VIP'
+        }));
+      }
+    }
+
+    // 2. Se não estiver no cache, consulta metadados do Baileys
     if (whatsappBot.sock && whatsappBot.isConnected && typeof whatsappBot.sock.groupMetadata === 'function') {
       try {
         const meta = await whatsappBot.sock.groupMetadata(groupJid);
@@ -742,10 +757,11 @@ class MeteoricService {
           }));
         }
       } catch (err) {
-        console.warn(`[Meteórico ⚠️] Erro ao obter leads do grupo ${groupJid}:`, err.message);
+        // Ignora silenciosamente se o grupo não existir mais ou por limite de requisições temporário
       }
     }
 
+    // 3. Fallback: recupera telefones que já enviaram mensagens no histórico deste grupo
     if (leads.length === 0) {
       const logs = models.getMeteoricActivityLogs(200);
       const groupLogs = logs.filter(l => l.group_jid === groupJid && l.lead_phone);
