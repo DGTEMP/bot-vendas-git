@@ -60,9 +60,22 @@ async function bootstrap() {
     console.error('❌ [Exército WhatsApp] Erro ao restaurar chips:', err.message);
   });
 
+  // 6. Monitor & Coletor Automático de Otimização de Memória RAM e Ping
+  const db = require('./db/database');
+  const gataFeatures = require('./services/gataFeaturesService');
+  const memoryCleanupInterval = setInterval(() => {
+    try {
+      if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
+      if (typeof whatsappBot.cleanupMemory === 'function') whatsappBot.cleanupMemory();
+      if (typeof gataFeatures.cleanupMemory === 'function') gataFeatures.cleanupMemory();
+      if (typeof global.gc === 'function') global.gc();
+    } catch (_) {}
+  }, 300000); // Executa a cada 5 minutos
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log('\n🛑 Encerrando serviços graciosamente...');
+    clearInterval(memoryCleanupInterval);
     subscriptionCron.stop();
     await telegramBot.stop();
     await whatsappBot.stop();

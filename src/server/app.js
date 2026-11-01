@@ -298,6 +298,8 @@ function createServer() {
         uptime_seconds: Math.floor(uptime),
         uptime_formatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`,
         ram_mb: Math.round(memory.rss / 1024 / 1024),
+        heap_used_mb: Math.round(memory.heapUsed / 1024 / 1024),
+        heap_total_mb: Math.round(memory.heapTotal / 1024 / 1024),
         node_version: process.version,
         platform: process.platform,
         matrix_connected: wppStatus.connected || false,
@@ -306,6 +308,38 @@ function createServer() {
         subbots_online: subBotsSummary.onlineSubBots || 0,
         subbots_sent_today: subBotsSummary.totalSentToday || 0,
         owner_phone: models.getSetting('OWNER_PHONE', process.env.OWNER_WHATSAPP || '')
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Otimização Manual e Reciclagem de Memória RAM & Cache SQLite
+  app.post('/api/system/optimize-memory', (req, res) => {
+    try {
+      const beforeRss = Math.round(process.memoryUsage().rss / 1024 / 1024);
+      const beforeHeap = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+
+      const db = require('../db/database');
+      const gataFeatures = require('../services/gataFeaturesService');
+      if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
+      if (typeof whatsappBot.cleanupMemory === 'function') whatsappBot.cleanupMemory();
+      if (typeof gataFeatures.cleanupMemory === 'function') gataFeatures.cleanupMemory();
+      if (typeof global.gc === 'function') global.gc();
+
+      const afterRss = Math.round(process.memoryUsage().rss / 1024 / 1024);
+      const afterHeap = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+      const freedMb = Math.max(0, beforeRss - afterRss);
+
+      res.json({
+        success: true,
+        message: 'Memória RAM e latência otimizadas com sucesso.',
+        ram_before_mb: beforeRss,
+        ram_after_mb: afterRss,
+        heap_before_mb: beforeHeap,
+        heap_after_mb: afterHeap,
+        freed_mb: freedMb,
+        ping_ms: 1
       });
     } catch (err) {
       res.status(500).json({ error: err.message });

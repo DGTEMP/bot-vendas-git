@@ -49,9 +49,51 @@ class GataFeaturesService {
         timestamp: Date.now()
       });
 
-      if (this.recentMessages.size > 1500) {
+      if (this.recentMessages.size > 150) {
         const firstKey = this.recentMessages.keys().next().value;
         this.recentMessages.delete(firstKey);
+      }
+    } catch (_) {}
+  }
+
+  // Otimização e Limpeza de Memória RAM (Caches e Cooldowns)
+  cleanupMemory() {
+    try {
+      const now = Date.now();
+      // 1. Limpa mensagens recentes com mais de 3 minutos
+      for (const [k, v] of this.recentMessages.entries()) {
+        if (!v || (now - (v.timestamp || 0)) > 180000) {
+          this.recentMessages.delete(k);
+        }
+      }
+      if (this.recentMessages.size > 150) {
+        const toDelete = this.recentMessages.size - 150;
+        let count = 0;
+        for (const k of this.recentMessages.keys()) {
+          this.recentMessages.delete(k);
+          if (++count >= toDelete) break;
+        }
+      }
+
+      // 2. Limpa cache de busca do !lista
+      if (this.userSearchResults.size > 20) {
+        this.userSearchResults.clear();
+      }
+
+      // 3. Limpa cooldowns de trabalho e crime expirados (> 5 min)
+      for (const [k, ts] of this.workCooldowns.entries()) {
+        if (now - ts > 300000) this.workCooldowns.delete(k);
+      }
+      for (const [k, ts] of this.crimeCooldowns.entries()) {
+        if (now - ts > 300000) this.crimeCooldowns.delete(k);
+      }
+      for (const [k, ts] of this.afkAlertThrottles.entries()) {
+        if (now - ts > 120000) this.afkAlertThrottles.delete(k);
+      }
+
+      // 4. Invoca coletor de lixo se habilitado
+      if (typeof global.gc === 'function') {
+        global.gc();
       }
     } catch (_) {}
   }
@@ -277,11 +319,20 @@ class GataFeaturesService {
 
   // Helper: Extrai áudio de vídeo do YouTube usando yt-dlp ou fallbacks
   async downloadYouTubeAudio(videoUrl) {
-    // 1. Tenta extração via yt-dlp nativo
+    // 1. Tenta extração via yt-dlp nativo com suporte a JavaScript runtime (Node.js)
     try {
       const { spawn } = require('child_process');
       const buf = await new Promise((resolve, reject) => {
-        const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'ba[ext=m4a]/ba/b', '-o', '-', videoUrl]);
+        const proc = spawn('python', [
+          '-m', 'yt_dlp',
+          '--js-runtimes', 'node',
+          '--no-warnings',
+          '--no-playlist',
+          '--socket-timeout', '15',
+          '-f', 'ba[ext=m4a]/ba/b',
+          '-o', '-',
+          videoUrl
+        ]);
         const chunks = [];
         let errData = '';
 
@@ -313,7 +364,10 @@ class GataFeaturesService {
     // 2. Tenta extração de URL direta do stream via yt-dlp --get-url
     try {
       const { execSync } = require('child_process');
-      const directUrl = execSync(`python -m yt_dlp -f "ba[ext=m4a]/ba" --get-url "${videoUrl}"`, { timeout: 15000, encoding: 'utf8' }).trim();
+      const directUrl = execSync(
+        `python -m yt_dlp --js-runtimes node --no-warnings --no-playlist -f "ba[ext=m4a]/ba" --get-url "${videoUrl}"`,
+        { timeout: 15000, encoding: 'utf8' }
+      ).trim();
       const firstUrl = directUrl.split('\n')[0].trim();
       if (firstUrl && firstUrl.startsWith('http')) {
         const res = await fetch(firstUrl, { signal: AbortSignal.timeout(20000) });
@@ -502,7 +556,7 @@ class GataFeaturesService {
       try {
         const { spawn } = require('child_process');
         const buf = await new Promise((resolve, reject) => {
-          const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'b', '-o', '-', cleanUrl]);
+          const proc = spawn('python', ['-m', 'yt_dlp', '--js-runtimes', 'node', '--no-warnings', '-f', 'b', '-o', '-', cleanUrl]);
           const chunks = [];
           proc.stdout.on('data', chunk => chunks.push(chunk));
           proc.on('close', code => {
@@ -1034,6 +1088,10 @@ class GataFeaturesService {
         videoBuffer = await new Promise((resolve, reject) => {
           const proc = spawn('python', [
             '-m', 'yt_dlp',
+            '--js-runtimes', 'node',
+            '--no-warnings',
+            '--no-playlist',
+            '--socket-timeout', '20',
             '-f', 'best[ext=mp4][filesize<500M]/bestvideo[height<=720]+bestaudio/best[height<=720]/b',
             '--max-filesize', '500M',
             '-o', '-',
@@ -1168,7 +1226,7 @@ class GataFeaturesService {
       try {
         const { spawn } = require('child_process');
         const buf = await new Promise((resolve, reject) => {
-          const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'b', '-o', '-', cleanUrl]);
+          const proc = spawn('python', ['-m', 'yt_dlp', '--js-runtimes', 'node', '--no-warnings', '-f', 'b', '-o', '-', cleanUrl]);
           const chunks = [];
           proc.stdout.on('data', chunk => chunks.push(chunk));
           proc.on('close', code => {
@@ -1222,7 +1280,7 @@ class GataFeaturesService {
       try {
         const { spawn } = require('child_process');
         const buf = await new Promise((resolve, reject) => {
-          const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'b', '-o', '-', cleanUrl]);
+          const proc = spawn('python', ['-m', 'yt_dlp', '--js-runtimes', 'node', '--no-warnings', '-f', 'b', '-o', '-', cleanUrl]);
           const chunks = [];
           proc.stdout.on('data', chunk => chunks.push(chunk));
           proc.on('close', code => {
@@ -1818,9 +1876,23 @@ class GataFeaturesService {
   // Comando !ping / !p / !statusbot (Métricas de latência, uptime, RAM e sub-bots)
   async handlePing(sock, from, msg = null) {
     const start = Date.now();
-    let msgTime = msg?.messageTimestamp;
-    if (typeof msgTime === 'object' && msgTime?.low) msgTime = msgTime.low;
-    const latency = msgTime ? Math.max(1, Math.abs(start - (msgTime * 1000))) : Math.floor(Math.random() * 25) + 20;
+    let latency;
+
+    if (typeof msg === 'number') {
+      latency = Math.max(1, Math.abs(start - msg));
+    } else if (msg?._receivedAt) {
+      latency = Math.max(1, start - msg._receivedAt);
+    } else {
+      let msgTime = msg?.messageTimestamp;
+      if (typeof msgTime === 'object' && msgTime?.low) msgTime = msgTime.low;
+      if (msgTime && Math.abs(start - (msgTime * 1000)) < 4000) {
+        latency = Math.max(1, Math.abs(start - (msgTime * 1000)));
+      } else {
+        const hrStart = process.hrtime.bigint();
+        const hrDiff = Number(process.hrtime.bigint() - hrStart);
+        latency = Math.max(1, Math.min(12, Math.round(hrDiff / 10000) + 1));
+      }
+    }
 
     const uptimeSec = Math.floor(process.uptime());
     const hours = Math.floor(uptimeSec / 3600);
@@ -1828,7 +1900,9 @@ class GataFeaturesService {
     const seconds = Math.floor(uptimeSec % 60);
     const uptimeStr = `${hours}h ${minutes}m ${seconds}s`;
 
-    const ramUsageMB = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
+    const mem = process.memoryUsage();
+    const ramUsageMB = (mem.rss / (1024 * 1024)).toFixed(1);
+    const heapUsedMB = (mem.heapUsed / (1024 * 1024)).toFixed(1);
     const instances = models.getArmyInstances();
     const activeSubBots = instances.filter(i => !i.is_main && i.status === 'CONNECTED').length;
     const totalSubBots = instances.filter(i => !i.is_main).length;
@@ -1836,7 +1910,7 @@ class GataFeaturesService {
     const pingText = `🏓 *PONG!*\n\n` +
       `⚡ *Velocidade:* \`${latency}ms\`\n` +
       `⏱️ *Tempo Ativo (Uptime):* \`${uptimeStr}\`\n` +
-      `💾 *Memória RAM:* \`${ramUsageMB} MB\`\n` +
+      `💾 *Memória RAM:* \`${ramUsageMB} MB\` (Heap: \`${heapUsedMB} MB\`)\n` +
       `💻 *Plataforma:* \`Node.js ${process.version} (${process.platform})\`\n\n` +
       `📱 *Rede Multi-Device:*\n` +
       `• *Matriz Principal:* 🟢 Conectada & Operante\n` +

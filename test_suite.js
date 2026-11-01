@@ -3073,8 +3073,42 @@ async function main() {
     assert(typeof data.ping_ms === 'number');
     assert(typeof data.uptime_seconds === 'number');
     assert(typeof data.ram_mb === 'number');
+    assert(typeof data.heap_used_mb === 'number');
     assert(typeof data.subbots_total === 'number');
     assert(typeof data.matrix_connected === 'boolean');
+  });
+
+  await runAsyncTest('API REST & Bot: Otimização de Memória RAM e Latência (/api/system/optimize-memory & !otimizar)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const res = await fetch(`http://localhost:${testPort}/api/system/optimize-memory`, {
+      method: 'POST'
+    });
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.success, true);
+    assert(typeof data.ram_after_mb === 'number');
+    assert(typeof data.heap_after_mb === 'number');
+
+    // Testa comando !otimizar no WhatsApp
+    const originalSock = whatsappBot.sock;
+    const sent = [];
+    try {
+      whatsappBot.sock = {
+        user: { id: '5511999990000:1@s.whatsapp.net' },
+        sendMessage: async (jid, payload) => {
+          sent.push(payload);
+          return true;
+        }
+      };
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false, id: 'OPT_' + Date.now() },
+        pushName: 'Admin',
+        message: { conversation: '!otimizar' }
+      });
+      assert(sent.some(s => s.text && s.text.includes('OTIMIZAÇÃO DE MEMÓRIA & LATÊNCIA CONCLUÍDA')), 'Deve responder à otimização');
+    } finally {
+      whatsappBot.sock = originalSock;
+    }
   });
 
   await runAsyncTest('API REST: Configurações Expandidas Gata Nina e Dono via /api/settings', async () => {

@@ -17,6 +17,19 @@ db.exec('PRAGMA foreign_keys = ON;');
 db.exec('PRAGMA busy_timeout = 5000;');
 db.exec('PRAGMA synchronous = NORMAL;');
 
+// Otimizações de Memória e Latência para SQLite
+db.exec('PRAGMA cache_size = -2000;'); // Limita cache a 2MB de RAM (em vez dos ~16MB padrões)
+db.exec('PRAGMA temp_store = FILE;'); // Tabelas temporárias em arquivo para poupar heap V8
+db.exec('PRAGMA mmap_size = 0;'); // Desativa memory-mapping excessivo
+db.exec('PRAGMA wal_autocheckpoint = 100;'); // Checkpoints menores para evitar crescimento do arquivo WAL
+
+db.optimizeDatabaseMemory = function() {
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    db.exec('PRAGMA optimize;');
+  } catch (_) {}
+};
+
 function initDatabase() {
   // 1. Tabela de Configurações
   db.exec(`
