@@ -754,6 +754,13 @@ class WhatsAppBotService {
       } catch (_) {}
     }
 
+    // 0.26 Interceptador AFK em Grupos (Hatsune Miku System)
+    if (isGroup && !isFromMe) {
+      try {
+        await gataFeatures.checkAFK(activeSock, from, msg, text, senderPhone, senderName);
+      } catch (_) {}
+    }
+
     // ==========================================
     // 0.3 FUNÇÕES DE GERENCIAMENTO DE GRUPOS (ADMIN COM BOT ADMIN)
     // ==========================================
@@ -1863,6 +1870,16 @@ class WhatsAppBotService {
       return gataFeatures.handleTextToSticker(activeSock, from, text, senderName);
     }
 
+    // 2.15 Quote Chat (Hatsune Miku): !qc / !quotechat / !citacao
+    if (/^(?:!|\/)(?:qc|quotechat|citacao)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleQC(activeSock, from, msg, text, senderName);
+    }
+
+    // 2.16 Figurinha Estilo Brat (Hatsune Miku / Charli XCX): !brat / !charli
+    if (/^(?:!|\/)(?:brat|charli)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleBrat(activeSock, from, text);
+    }
+
     // 2.2 Conversor de Vídeo / Áudio para MP3: !tomp3 / !toaudio
     if (/^(?:!|\/)(?:tomp3|toaudio|paramp3|extrairaudio)$/i.test(lower)) {
       return gataFeatures.handleToMp3(activeSock, from, msg);
@@ -1970,6 +1987,21 @@ class WhatsAppBotService {
       return gataFeatures.handleCalc(activeSock, from, text);
     }
 
+    // 10.41 Screenshot de Websites (Hatsune Miku): !ssweb / !ss / !screenshot / !printweb
+    if (/^(?:!|\/)(?:ssweb|ss|screenshot|printweb)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleSSWeb(activeSock, from, text);
+    }
+
+    // 10.42 Upload de Mídia para Link Direto (Hatsune Miku): !tourl / !paralink / !gerarlink
+    if (/^(?:!|\/)(?:tourl|paralink|gerarlink)$/i.test(lower)) {
+      return gataFeatures.handleToUrl(activeSock, from, msg, senderName);
+    }
+
+    // 10.43 Download de Repositório GitHub em ZIP (Hatsune Miku): !gitclone / !git / !clonegit
+    if (/^(?:!|\/)(?:gitclone|git|clonegit)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleGitClone(activeSock, from, text);
+    }
+
     // 10.5 Latência e Status do Sistema: !ping / !p / !latencia / !statusbot
     if (/^(?:!|\/)(?:ping|p|latencia|statusbot|pong)$/i.test(lower)) {
       return gataFeatures.handlePing(activeSock, from, msg);
@@ -2044,6 +2076,41 @@ class WhatsAppBotService {
     if (/^(?:!|\/)(?:casal|ship|gado|corno|feio|gostoso|gostosa|chance)(?:\s+.*)?$/i.test(lower)) {
       const cmd = lower.split(/\s+/)[0].replace(/^[!/]/, '');
       return gataFeatures.handleBrincadeiras(activeSock, from, msg, cmd, text, senderPhone, activeSock);
+    }
+
+    // 14.21 Modo Ausente / AFK (Hatsune Miku): !afk / !ausente
+    if (/^(?:!|\/)(?:afk|ausente)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleAFK(activeSock, from, text, senderPhone, senderName);
+    }
+
+    // 14.22 Sistema de Casamento (Hatsune Miku): !casar / !marry / !casamento
+    if (/^(?:!|\/)(?:casar|marry|casamento)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleCasar(activeSock, from, msg, senderPhone, senderName);
+    }
+
+    // 14.23 Divórcio (Hatsune Miku): !divorciar / !divorce
+    if (/^(?:!|\/)(?:divorciar|divorce)$/i.test(lower)) {
+      return gataFeatures.handleDivorciar(activeSock, from, senderPhone);
+    }
+
+    // 14.24 Jogo Coinflip / Cara ou Coroa (Hatsune Miku): !coinflip / !cf / !flip / !caraoucoroa
+    if (/^(?:!|\/)(?:coinflip|cf|flip|caraoucoroa)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleCoinflip(activeSock, from, text, senderPhone, senderName);
+    }
+
+    // 14.25 Trabalho RPG com Salário (Hatsune Miku): !trabalhar / !work / !chamba / !trampo
+    if (/^(?:!|\/)(?:trabalhar|work|chamba|trampo)$/i.test(lower)) {
+      return gataFeatures.handleWork(activeSock, from, senderPhone, senderName);
+    }
+
+    // 14.26 Crime RPG de Alto Risco (Hatsune Miku): !crime / !assalto
+    if (/^(?:!|\/)(?:crime|assalto)$/i.test(lower)) {
+      return gataFeatures.handleCrime(activeSock, from, senderPhone, senderName);
+    }
+
+    // 14.27 Metadinhas Anime Casal (Hatsune Miku): !ppcouple / !ppcp / !metadinha2
+    if (/^(?:!|\/)(?:ppcouple|ppcp|metadinha2)$/i.test(lower)) {
+      return gataFeatures.handlePPCouple(activeSock, from);
     }
 
     // 14. MULTI-CONTAS, SUB-BOTS & FUNÇÕES EXCLUSIVAS DO DONO E BOT PRINCIPAL
@@ -2149,14 +2216,19 @@ class WhatsAppBotService {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
       let gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
         `💡 _Acesse este menu a qualquer momento enviando *!help* ou *!bot*_\n\n` +
-        `🎨 *Figurinhas & Mídia (SpyBot + Gata Nina):*\n` +
+        `🎨 *Figurinhas & Mídia (Hatsune Miku + SpyBot + Gata Nina):*\n` +
         `• *!s* ou *!sticker* — Cria figurinha de foto ou vídeo\n` +
+        `• *!qc <texto>* — Figurinha Quote Chat balão escuro oficial WhatsApp\n` +
+        `• *!brat <texto>* — Figurinha viral Charli XCX verde-limão com desfoque\n` +
         `• *!emojimix <e1>+<e2>* — Funde dois emojis pelo Google Kitchen\n` +
         `• *!attp <texto>* ou *!attp2* — Figurinha animada em cores rainbow piscantes\n` +
         `• *!tomp3* — Converte vídeo ou áudio respondido em música MP3\n` +
         `• *!toimg* — Converte figurinha em imagem JPG\n` +
         `• *!tts <texto>* — Converte texto em áudio falado pelo bot\n\n` +
-        `📥 *Downloads & Inteligência Social:*\n` +
+        `📥 *Downloads & Ferramentas na Nuvem:*\n` +
+        `• *!ssweb <url>* — Print em alta resolução de qualquer página da internet\n` +
+        `• *!tourl* — Transforma foto, vídeo, áudio ou figurinha em link público CDN\n` +
+        `• *!gitclone <link>* — Baixa repositório GitHub inteiro em arquivo .ZIP\n` +
         `• *!lista <busca>* — Busca os 20 melhores vídeos do YouTube com atalhos\n` +
         `• *!play <música|número>* — Baixa música do YouTube em MP3\n` +
         `• *!video <vídeo|número>* — Baixa vídeo em MP4 (sem limite de 50MB, até 200MB)\n` +
@@ -2215,12 +2287,19 @@ class WhatsAppBotService {
         `• *!qr <texto ou link>* — Gera imagem de QR Code instantânea\n` +
         `• *!cep <número>* — Consulta endereço completo (ViaCEP)\n` +
         `• *!calc <expressão>* — Calculadora de bolso inteligente\n\n` +
-        `🎮 *Gamificação & Brincadeiras:*\n` +
+        `🎮 *Gamificação, Social & RPG (Hatsune Miku + SpyBot):*\n` +
+        `• *!afk [motivo]* — Ativa status de ausência; avisa quem marcar você\n` +
+        `• *!casar @usuario* — Propõe casamento ou aceita pedido no grupo\n` +
+        `• *!divorciar* — Encerra o casamento atual\n` +
+        `• *!coinflip <valor> <cara|coroa>* — Aposta moedas no cara ou coroa\n` +
+        `• *!trabalhar* — Bico remunerado para ganhar moedas (cooldown 3m)\n` +
+        `• *!crime* — Golpe arriscado de alto rendimento com polícia e multas\n` +
+        `• *!ppcouple* — Envia metadinhas anime (Ele & Ela) para foto de perfil\n` +
         `• *!cassino* — Caça-níquel com jackpot e pontos de fidelidade\n` +
         `• *!casal* ou *!ship* — Forma um casal aleatório no grupo com % de amor\n` +
         `• *!gado*, *!corno*, *!feio*, *!gostoso* — Medidor com barra de progresso\n` +
         `• *!chance <pergunta>* — Calcula a probabilidade de um evento\n` +
-        `• *!perfil* — Exibe seu nível, XP e saldo de pontos\n` +
+        `• *!perfil* — Exibe seu nível, XP, moedas e estado civil\n` +
         `• *!dado* — Role os dados e ganhe moedas e XP\n` +
         `• *!roleta* — Gire a roleta da sorte para ganhar prêmios\n` +
         `• *!resgatar* — Troque 100 pontos por um Cupom de 15% OFF na loja\n\n` +

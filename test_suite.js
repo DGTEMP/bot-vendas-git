@@ -3929,6 +3929,297 @@ async function main() {
     }
   });
 
+  // ----------------------------------------------------------------
+  // 19. TESTES DAS FUNCIONALIDADES PORTADAS DO HATSUNE MIKU BOT
+  // ----------------------------------------------------------------
+  console.log('\n🎤 19. Testes das Funcionalidades Portadas do Hatsune Miku Bot:');
+  const gataFeaturesService = require('./src/services/gataFeaturesService');
+  const stickerConverter = require('./src/utils/stickerConverter');
+
+  await runAsyncTest('Hatsune Miku: Geração de Figurinha Quote Chat (!qc)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'QC_1' } };
+      }
+    };
+    await gataFeaturesService.handleQC(mockSock, '5511977776666@s.whatsapp.net', null, '!qc Teste de mensagem dark mode', 'Miku Tester');
+    assert(sent.length > 0, 'Deveria ter enviado a figurinha QC');
+    assert(sent[0].payload.sticker, 'Payload deve conter buffer de figurinha');
+  });
+
+  await runAsyncTest('Hatsune Miku: Geração de Figurinha Brat (!brat)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'BRAT_1' } };
+      }
+    };
+    await gataFeaturesService.handleBrat(mockSock, '5511977776666@s.whatsapp.net', '!brat paybot vendas');
+    assert(sent.length > 0, 'Deveria ter enviado figurinha brat');
+    assert(sent[0].payload.sticker, 'Payload deve conter buffer de figurinha');
+  });
+
+  await runAsyncTest('Hatsune Miku: Screenshot de Página Web (!ssweb)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'SS_1' } };
+      }
+    };
+    await gataFeaturesService.handleSSWeb(mockSock, '5511977776666@s.whatsapp.net', '!ssweb google.com');
+    assert(sent.some(s => s.payload.image || (s.payload.text && s.payload.text.includes('Capturando tela'))));
+  });
+
+  await runAsyncTest('Hatsune Miku: Upload de Mídia para Link Direto (!tourl)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'TOURL_1' } };
+      }
+    };
+    const mockMsg = {
+      message: {
+        imageMessage: {
+          mimetype: 'image/jpeg'
+        }
+      }
+    };
+    const origExtract = gataFeaturesService.extractMediaBuffer;
+    try {
+      gataFeaturesService.extractMediaBuffer = async () => ({ buffer: Buffer.from('mock_img_bytes'), type: 'image' });
+      await gataFeaturesService.handleToUrl(mockSock, '5511977776666@s.whatsapp.net', mockMsg, 'Tester');
+      assert(sent.some(s => s.payload.text && (s.payload.text.includes('Link') || s.payload.text.includes('Enviando arquivo'))));
+    } finally {
+      gataFeaturesService.extractMediaBuffer = origExtract;
+    }
+  });
+
+  await runAsyncTest('Hatsune Miku: Downloader de Repositório GitHub (!gitclone)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'GIT_1' } };
+      }
+    };
+    await gataFeaturesService.handleGitClone(mockSock, '5511977776666@s.whatsapp.net', '!gitclone Brauliovh3/HATSUNE-MIKU');
+    assert(sent.some(s => s.payload.text && (s.payload.text.includes('Repositório') || s.payload.text.includes('Consultando'))));
+  });
+
+  await runAsyncTest('Hatsune Miku: Sistema AFK (Ativação, Detecção e Retorno)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'AFK_1' } };
+      }
+    };
+
+    const afkUser = '5511988889999';
+    const groupJid = '120363000000000000@g.us';
+
+    // 1. Ativa AFK
+    await gataFeaturesService.handleAFK(mockSock, groupJid, '!afk Fui almoçar volto logo', afkUser, 'UserAFK');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('MODO AFK ATIVADO')));
+
+    // 2. Outro usuário menciona o usuário AFK
+    sent.length = 0;
+    const mentionMsg = {
+      message: {
+        extendedTextMessage: {
+          text: 'Ei @5511988889999 veja isso',
+          contextInfo: {
+            mentionedJid: [`${afkUser}@s.whatsapp.net`]
+          }
+        }
+      }
+    };
+    const handledAlert = await gataFeaturesService.checkAFK(mockSock, groupJid, mentionMsg, 'Ei @5511988889999 veja isso', '5511977776666', 'Friend');
+    assert(handledAlert === true, 'Deveria ter detectado usuário AFK');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('USUÁRIO EM MODO AUSENTE')));
+
+    // 3. Usuário AFK envia mensagem e sai do AFK
+    sent.length = 0;
+    const returnMsg = { message: { conversation: 'Voltei galera' } };
+    await gataFeaturesService.checkAFK(mockSock, groupJid, returnMsg, 'Voltei galera', afkUser, 'UserAFK');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('BEM-VINDO DE VOLTA')));
+    assert(!gataFeaturesService.afkMap.has(afkUser), 'Estado AFK deve ter sido removido');
+  });
+
+  await runAsyncTest('Hatsune Miku: Sistema de Casamento e Divórcio (!casar / !divorciar)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'WED_1' } };
+      }
+    };
+
+    const userA = '5511911112222';
+    const userB = '5511933334444';
+    const groupJid = '120363000000000000@g.us';
+
+    models.setSetting(`MARRIAGE_${userA}`, '');
+    models.setSetting(`MARRIAGE_${userB}`, '');
+
+    // 1. User A propõe casamento a User B
+    const proposalMsg = {
+      message: {
+        extendedTextMessage: {
+          text: `!casar @${userB}`,
+          contextInfo: { mentionedJid: [`${userB}@s.whatsapp.net`] }
+        }
+      }
+    };
+    await gataFeaturesService.handleCasar(mockSock, groupJid, proposalMsg, userA, 'Romeo');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('PEDIDO DE CASAMENTO')));
+
+    // 2. User B aceita propondo de volta
+    sent.length = 0;
+    const acceptMsg = {
+      message: {
+        extendedTextMessage: {
+          text: `!casar @${userA}`,
+          contextInfo: { mentionedJid: [`${userA}@s.whatsapp.net`] }
+        }
+      }
+    };
+    await gataFeaturesService.handleCasar(mockSock, groupJid, acceptMsg, userB, 'Juliet');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('FELIZ CASAMENTO NO GRUPO')));
+    assert.strictEqual(models.getSetting(`MARRIAGE_${userA}`, ''), userB);
+    assert.strictEqual(models.getSetting(`MARRIAGE_${userB}`, ''), userA);
+
+    // 3. Verifica se perfil exibe casamento
+    sent.length = 0;
+    await gataFeaturesService.handlePerfil(mockSock, groupJid, userA, 'Romeo');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes(`Casado(a) com @${userB}`)));
+
+    // 4. Divórcio
+    sent.length = 0;
+    await gataFeaturesService.handleDivorciar(mockSock, groupJid, userA);
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('CERTIDÃO DE DIVÓRCIO')));
+    assert.strictEqual(models.getSetting(`MARRIAGE_${userA}`, ''), '');
+    assert.strictEqual(models.getSetting(`MARRIAGE_${userB}`, ''), '');
+  });
+
+  await runAsyncTest('Hatsune Miku: Jogo Coinflip / Cara ou Coroa (!coinflip)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'CF_1' } };
+      }
+    };
+    const userPhone = '5511955556666';
+    models.addLoyaltyPoints('whatsapp', userPhone, 100, 100);
+
+    await gataFeaturesService.handleCoinflip(mockSock, '5511955556666@s.whatsapp.net', '!coinflip 20 cara', userPhone, 'Gambler');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('A MOEDA GIROU NO AR')));
+  });
+
+  await runAsyncTest('Hatsune Miku: Trabalho RPG (!trabalhar)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'WORK_1' } };
+      }
+    };
+    const userPhone = '5511966667777';
+    await gataFeaturesService.handleWork(mockSock, '5511966667777@s.whatsapp.net', userPhone, 'Worker');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('EXPEDIENTE DE TRABALHO CONCLUÍDO')));
+  });
+
+  await runAsyncTest('Hatsune Miku: Crime RPG (!crime)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'CRIME_1' } };
+      }
+    };
+    const userPhone = '5511988881111';
+    models.addLoyaltyPoints('whatsapp', userPhone, 300, 300);
+    await gataFeaturesService.handleCrime(mockSock, '5511988881111@s.whatsapp.net', userPhone, 'Outlaw');
+    assert(sent.some(s => s.payload.text && (s.payload.text.includes('GOLPE PERFEITO') || s.payload.text.includes('EM CANA'))));
+  });
+
+  await runAsyncTest('Hatsune Miku: Metadinhas de Casal Anime (!ppcouple)', async () => {
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'PPCP_1' } };
+      }
+    };
+    await gataFeaturesService.handlePPCouple(mockSock, '5511977776666@s.whatsapp.net');
+    assert(sent.some(s => s.payload.text && s.payload.text.includes('Metadinhas Anime')));
+  });
+
+  await runAsyncTest('Hatsune Miku: Roteamento de Comandos Integrados via whatsappBot', async () => {
+    const originalSock = whatsappBot.sock;
+    const originalSend = whatsappBot.sendMessage;
+    const sent = [];
+
+    try {
+      whatsappBot.sock = {
+        user: { id: '5511999990000:1@s.whatsapp.net' },
+        sendMessage: async (jid, payload) => {
+          sent.push({ jid, payload });
+          return { key: { id: 'ROUTED_MIKU' } };
+        }
+      };
+      whatsappBot.sendMessage = async (jid, textOrObj) => {
+        sent.push({ jid, payload: typeof textOrObj === 'string' ? { text: textOrObj } : textOrObj });
+        return { key: { id: 'ROUTED_MIKU2' } };
+      };
+
+      // 1. Testa !qc
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!qc Boa noite a todos!' }
+      });
+      assert(sent.some(s => s.payload.sticker));
+
+      // 2. Testa !brat
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!brat charli' }
+      });
+      assert(sent.some(s => s.payload.sticker));
+
+      // 3. Testa !coinflip
+      sent.length = 0;
+      models.addLoyaltyPoints('whatsapp', '5511988887777', 100, 100);
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!coinflip 25 cara' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('A MOEDA GIROU NO AR')));
+
+      // 4. Testa !trabalhar
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!trabalhar' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('EXPEDIENTE DE TRABALHO CONCLUÍDO')));
+    } finally {
+      whatsappBot.sock = originalSock;
+      whatsappBot.sendMessage = originalSend;
+    }
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

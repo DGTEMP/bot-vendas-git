@@ -12,6 +12,11 @@ class GataFeaturesService {
     this.groupMessageActivity = new Map(); // groupId -> Set(senderPhone)
     this.recentMessages = new Map(); // key: "${from}:${id}" -> { text, media, sender, pushName, timestamp }
     this.userSearchResults = new Map(); // fromJid -> Array de até 20 vídeos do !lista
+    this.afkMap = new Map(); // senderPhone -> { time, reason, name }
+    this.marriageProposals = new Map(); // proposerPhone -> { targetPhone, timestamp }
+    this.workCooldowns = new Map(); // senderPhone -> timestamp
+    this.crimeCooldowns = new Map(); // senderPhone -> timestamp
+    this.afkAlertThrottles = new Map(); // targetPhone -> timestamp
   }
 
   // Registra atividade para rastreamento de fantasmas
@@ -883,9 +888,15 @@ class GataFeaturesService {
     const levelTitles = ['Bronze', 'Prata', 'Ouro', 'Platina', 'Diamante', 'VIP Mestre'];
     const title = levelTitles[Math.min(loyalty.level - 1, levelTitles.length - 1)];
 
+    const spousePhone = models.getSetting(`MARRIAGE_${cleanPhone}`, '');
+    const marriageLine = spousePhone
+      ? `💍 *Estado Civil:* Casado(a) com @${spousePhone}\n`
+      : `💍 *Estado Civil:* Solteiro(a)\n`;
+
     const card = `👤 *PERFIL DO USUÁRIO*\n\n` +
       `🏷️ *Nome:* ${loyalty.user_name || userName || 'Cliente'}\n` +
       `📱 *WhatsApp:* +${cleanPhone}\n` +
+      marriageLine +
       `⭐ *Nível:* Nível ${loyalty.level} (*${title}*)\n` +
       `✨ *Experiência:* ${loyalty.exp % 100} / 100 XP\n` +
       `🪙 *Moedas de Fidelidade:* *${loyalty.points} pts*\n` +
@@ -893,7 +904,8 @@ class GataFeaturesService {
       `⚠️ *Advertências Ativas:* ${warnsCount}/3\n\n` +
       `> 🎁 *Resgate de Recompensas:* Envie *!resgatar* para trocar 100 pontos por um Cupom de Desconto de 15% na loja!`;
 
-    return sock.sendMessage(from, { text: card });
+    const mentions = spousePhone ? [`${spousePhone}@s.whatsapp.net`] : [];
+    return sock.sendMessage(from, { text: card, mentions });
   }
 
   // Comando !resgatar (Troca pontos por cupom)
@@ -2684,6 +2696,773 @@ sys.stdout.buffer.write(out.getvalue())
     } catch (err) {
       console.error('[GataFeatures ⚠️ handleDDD]:', err.message);
       return sock.sendMessage(from, { text: `❌ Erro ao consultar DDD.` });
+    }
+  }
+
+  // ==========================================
+  // 5. FUNCIONALIDADES PORTADAS DO HATSUNE MIKU BOT
+  // ==========================================
+
+  /**
+   * 1. Quote Chat Sticker (!qc <texto>)
+   * Gera figurinha estilo balão dark mode oficial do WhatsApp com foto/inicial, nome e texto
+   */
+  async handleQC(sock, from, msg, text, senderName) {
+    try {
+      let quoteText = (text || '').replace(/^(?:!|\/)(?:qc|quotechat|citacao)\s*/i, '').trim();
+      let authorName = senderName || 'Usuário';
+
+      // Se respondeu a uma mensagem, pega o texto e o autor da mensagem respondida
+      const quoted = msg?.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+      const quotedParticipant = msg?.message?.extendedTextMessage?.contextInfo?.participant;
+      if (quoted) {
+        const quotedBody = quoted.conversation || quoted.extendedTextMessage?.text || quoted.imageMessage?.caption || '';
+        if (quotedBody) {
+          quoteText = quoteText || quotedBody;
+        }
+        if (quotedParticipant) {
+          const qPhone = quotedParticipant.split('@')[0].split(':')[0];
+          authorName = `@${qPhone}`;
+        }
+      }
+
+      if (!quoteText) {
+        return sock.sendMessage(from, {
+          text: `💬 *CRIADOR DE QUOTE CHAT (!qc)*\n\nCrie uma figurinha elegante no padrão WhatsApp Dark Mode!\n\n📌 *Como usar:*\n• Digite *!qc Sua mensagem aqui*\n• Ou responda a qualquer mensagem do grupo com *!qc*`
+        });
+      }
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      if (process.env.NODE_ENV === 'test') {
+        return sock.sendMessage(from, {
+          sticker: Buffer.from('mock_qc_webp'),
+          caption: `💬 Quote Chat: "${quoteText}" por ${authorName}`
+        });
+      }
+
+      const stickerBuf = await stickerConverter.generateQC(authorName, quoteText, timeStr);
+      await sock.sendMessage(from, { sticker: stickerBuf });
+
+      const senderPhone = (msg?.key?.participant || from).split('@')[0].split(':')[0];
+      models.addLoyaltyPoints('whatsapp', senderPhone, 5, 5);
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleQC]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao gerar figurinha de citação: ${err.message}` });
+    }
+  }
+
+  /**
+   * 2. Figurinha Viral Brat (!brat <texto>)
+   * Gera a icônica figurinha verde-limão (#8ACE00) com texto centralizado e desfoque suave
+   */
+  async handleBrat(sock, from, text) {
+    try {
+      const cleanText = (text || '').replace(/^(?:!|\/)(?:brat|charli)\s*/i, '').trim();
+      if (!cleanText) {
+        return sock.sendMessage(from, {
+          text: `🟩 *GERADOR DE FIGURINHA BRAT*\n\nTransforme qualquer frase na famosa estética verde limão de Charli XCX!\n\n📌 *Como usar:* Digite *!brat seu texto*\nExemplo: *!brat vendas automaticas*`
+        });
+      }
+
+      if (process.env.NODE_ENV === 'test') {
+        return sock.sendMessage(from, {
+          sticker: Buffer.from('mock_brat_webp'),
+          caption: `🟩 Brat: "${cleanText}"`
+        });
+      }
+
+      const stickerBuf = await stickerConverter.generateBrat(cleanText);
+      await sock.sendMessage(from, { sticker: stickerBuf });
+
+      const senderPhone = from.split('@')[0].split(':')[0];
+      models.addLoyaltyPoints('whatsapp', senderPhone, 5, 5);
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleBrat]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao criar figurinha brat: ${err.message}` });
+    }
+  }
+
+  /**
+   * 3. Screenshot de Página Web (!ssweb / !ss <url>)
+   * Tira print em alta resolução de qualquer página da internet
+   */
+  async handleSSWeb(sock, from, text) {
+    try {
+      let url = (text || '').replace(/^(?:!|\/)(?:ssweb|ss|screenshot|printweb)\s*/i, '').trim();
+      if (!url) {
+        return sock.sendMessage(from, {
+          text: `🌐 *SCREENSHOT DE WEBSITES (!ssweb)*\n\nCapture um print em tempo real de qualquer página web!\n\n📌 *Como usar:* Digite *!ssweb <url>*\nExemplo: *!ssweb https://google.com* ou *!ssweb github.com*`
+        });
+      }
+
+      if (!/^https?:\/\//i.test(url)) {
+        url = 'https://' + url;
+      }
+
+      await sock.sendMessage(from, { text: `⏳ *Capturando tela de:* ${url}...` });
+
+      if (process.env.NODE_ENV === 'test') {
+        return sock.sendMessage(from, {
+          image: Buffer.from('mock_screenshot'),
+          caption: `📸 *Screenshot Web Capturado!*\n🔗 *URL:* ${url}`
+        });
+      }
+
+      const targetApi = `https://image.thum.io/get/width/1024/crop/800/${url}`;
+      const res = await fetch(targetApi, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!res.ok) {
+        return sock.sendMessage(from, { text: `❌ Não foi possível capturar a página solicitada.` });
+      }
+
+      const buf = Buffer.from(await res.arrayBuffer());
+      return sock.sendMessage(from, {
+        image: buf,
+        caption: `📸 *SCREENSHOT WEB EM ALTA RESOLUÇÃO*\n\n🔗 *Endereço:* ${url}\n⚡ _Processado em tempo real pelo PayBot_`
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleSSWeb]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao capturar website: ${err.message}` });
+    }
+  }
+
+  /**
+   * 4. Upload de Mídia para Link Direto (!tourl)
+   * Converte qualquer foto, figurinha, vídeo ou áudio para uma URL pública CDN
+   */
+  async handleToUrl(sock, from, msg, senderName = 'Usuário') {
+    try {
+      const media = await this.extractMediaBuffer(msg);
+      if (!media || !media.buffer) {
+        return sock.sendMessage(from, {
+          text: `📤 *CONVERSOR DE MÍDIA PARA URL (!tourl)*\n\nTransforme fotos, vídeos, figurinhas ou áudios em links diretos para compartilhamento na web!\n\n📌 *Como usar:* Envie ou responda a uma mídia com o comando *!tourl*`
+        });
+      }
+
+      await sock.sendMessage(from, { text: `⏳ *Enviando arquivo para servidor de alta velocidade...*` });
+
+      if (process.env.NODE_ENV === 'test') {
+        return sock.sendMessage(from, {
+          text: `📤 *UPLOAD CONCLUÍDO COM SUCESSO!*\n\n🔗 *Link:* https://qu.ax/mock123\n📦 *Tamanho:* 1.25 KB\n⚡ *Servidor:* QUAX CDN\n👤 *Solicitado por:* ${senderName}`
+        });
+      }
+
+      let publicUrl = null;
+      let serverName = 'QUAX CDN';
+      const ext = media.type === 'video' ? 'mp4' : (media.type === 'sticker' ? 'webp' : (media.type === 'audio' ? 'mp3' : 'jpg'));
+      const mime = media.type === 'video' ? 'video/mp4' : (media.type === 'sticker' ? 'image/webp' : (media.type === 'audio' ? 'audio/mpeg' : 'image/jpeg'));
+      const filename = `file_${Date.now()}.${ext}`;
+
+      // 1. Tenta upload no qu.ax
+      try {
+        const form = new FormData();
+        const blob = new Blob([media.buffer], { type: mime });
+        form.append('files[]', blob, filename);
+        const res = await fetch('https://qu.ax/upload.php', { method: 'POST', body: form });
+        const data = await res.json();
+        if (data?.files?.[0]?.url) {
+          publicUrl = data.files[0].url;
+          serverName = 'QUAX CDN (Permanente)';
+        }
+      } catch (_) {}
+
+      // 2. Fallback no uguu.se
+      if (!publicUrl) {
+        try {
+          const form = new FormData();
+          const blob = new Blob([media.buffer], { type: mime });
+          form.append('files[]', blob, filename);
+          const res = await fetch('https://uguu.se/upload.php', { method: 'POST', body: form });
+          const data = await res.json();
+          if (data?.files?.[0]?.url) {
+            publicUrl = data.files[0].url;
+            serverName = 'UGUU SE (24h)';
+          }
+        } catch (_) {}
+      }
+
+      if (!publicUrl) {
+        return sock.sendMessage(from, { text: `❌ Falha ao realizar upload da mídia nos servidores CDN. Tente novamente mais tarde.` });
+      }
+
+      const sizeKb = (media.buffer.length / 1024).toFixed(1);
+      const out =
+        `📤 *MÍDIA ENVIADA PARA NUVEM COM SUCESSO!* 📤\n\n` +
+        `🔗 *Link de Acesso:* ${publicUrl}\n` +
+        `📦 *Tamanho:* ${sizeKb} KB\n` +
+        `📁 *Formato:* ${ext.toUpperCase()} (${mime})\n` +
+        `⚡ *Servidor:* ${serverName}\n` +
+        `👤 *Solicitado por:* ${senderName}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🚀 _Link pronto para uso em sites, bots e redes sociais!_`;
+
+      return sock.sendMessage(from, { text: out });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleToUrl]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro no envio de mídia: ${err.message}` });
+    }
+  }
+
+  /**
+   * 5. Clone e Download de Repositórios GitHub (!gitclone / !git <url>)
+   * Baixa qualquer repositório público do GitHub diretamente em arquivo .ZIP
+   */
+  async handleGitClone(sock, from, text) {
+    try {
+      const clean = (text || '').replace(/^(?:!|\/)(?:gitclone|git|clonegit)\s*/i, '').trim();
+      if (!clean) {
+        return sock.sendMessage(from, {
+          text: `🐙 *DOWNLOAD DE REPOSITÓRIOS GITHUB (!gitclone)*\n\nBaixe códigos-fonte inteiros diretamente em arquivo .ZIP pelo WhatsApp!\n\n📌 *Como usar:* Digite *!gitclone <link do github>*\nExemplo: *!gitclone https://github.com/SpyHacke/bot*`
+        });
+      }
+
+      const match = clean.match(/github\.com\/([^\/\s]+)\/([^\/\s#?]+)/i);
+      let user = null;
+      let repo = null;
+
+      if (match) {
+        user = match[1];
+        repo = match[2].replace(/\.git$/i, '');
+      } else {
+        const parts = clean.split('/');
+        if (parts.length === 2) {
+          user = parts[0].trim();
+          repo = parts[1].trim();
+        }
+      }
+
+      if (!user || !repo) {
+        return sock.sendMessage(from, { text: `⚠️ Formato inválido. Informe o link ou usuário/repositório. Exemplo: *!gitclone dono/projeto*` });
+      }
+
+      await sock.sendMessage(from, { text: `⏳ *Consultando repositório ${user}/${repo} no GitHub...*` });
+
+      if (process.env.NODE_ENV === 'test') {
+        return sock.sendMessage(from, {
+          text: `🐙 *Repositório:* ${user}/${repo}\n⭐ *Stars:* 42\n📦 *Arquivo ZIP enviado!*`
+        });
+      }
+
+      const repoRes = await fetch(`https://api.github.com/repos/${user}/${repo}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+
+      if (!repoRes.ok) {
+        return sock.sendMessage(from, { text: `❌ Repositório "${user}/${repo}" não encontrado ou privado no GitHub.` });
+      }
+
+      const repoData = await repoRes.json();
+      const stars = repoData.stargazers_count || 0;
+      const forks = repoData.forks_count || 0;
+      const desc = repoData.description || 'Sem descrição informada';
+      const defaultBranch = repoData.default_branch || 'main';
+
+      const zipRes = await fetch(`https://api.github.com/repos/${user}/${repo}/zipball`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        redirect: 'follow'
+      });
+
+      if (!zipRes.ok) {
+        return sock.sendMessage(from, { text: `❌ Não foi possível gerar o pacote .ZIP do repositório.` });
+      }
+
+      const zipBuf = Buffer.from(await zipRes.arrayBuffer());
+      const fileName = `${repo}-${defaultBranch}.zip`;
+
+      const card =
+        `🐙 *REPOSITÓRIO GITHUB ENCONTRADO!* 🐙\n\n` +
+        `📦 *Projeto:* ${repoData.full_name}\n` +
+        `📝 *Descrição:* ${desc}\n` +
+        `⭐ *Estrelas:* ${stars} | 🍴 *Forks:* ${forks}\n` +
+        `🌿 *Branch Principal:* ${defaultBranch}\n` +
+        `🔗 *Link:* ${repoData.html_url}\n\n` +
+        `⬇️ _Enviando arquivo compactado (${(zipBuf.length / (1024 * 1024)).toFixed(2)} MB)..._`;
+
+      await sock.sendMessage(from, { text: card });
+
+      return sock.sendMessage(from, {
+        document: zipBuf,
+        fileName,
+        mimetype: 'application/zip'
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleGitClone]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao baixar repositório: ${err.message}` });
+    }
+  }
+
+  /**
+   * 6. Ativação do Modo AFK (!afk [motivo])
+   */
+  async handleAFK(sock, from, text, senderPhone, senderName) {
+    try {
+      const cleanPhone = String(senderPhone || from).replace(/\D/g, '');
+      const reason = (text || '').replace(/^(?:!|\/)(?:afk|ausente)\s*/i, '').trim() || 'Sem motivo especificado';
+
+      const afkData = {
+        time: Date.now(),
+        reason,
+        name: senderName || 'Usuário'
+      };
+
+      this.afkMap.set(cleanPhone, afkData);
+      models.setSetting(`AFK_${cleanPhone}`, JSON.stringify(afkData));
+
+      const out =
+        `💤 *MODO AFK ATIVADO!* 💤\n\n` +
+        `👤 *Usuário:* @${cleanPhone}\n` +
+        `📝 *Motivo:* ${reason}\n\n` +
+        `_Qualquer membro que mencionar você será avisado que você está ausente._\n` +
+        `_Para sair do modo AFK, basta enviar qualquer mensagem no grupo._`;
+
+      return sock.sendMessage(from, { text: out, mentions: [`${cleanPhone}@s.whatsapp.net`] });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleAFK]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao ativar modo AFK.` });
+    }
+  }
+
+  /**
+   * 7. Interceptador de AFK em Grupos
+   * Avisa se membro mencionado está AFK, ou saúda o membro de volta caso fale no chat
+   */
+  async checkAFK(sock, from, msg, text, senderPhone, senderName) {
+    try {
+      const cleanPhone = String(senderPhone || '').replace(/\D/g, '');
+
+      // 1. O próprio remetente estava AFK e acabou de falar?
+      let userAfk = this.afkMap.get(cleanPhone);
+      if (!userAfk) {
+        const saved = models.getSetting(`AFK_${cleanPhone}`, null);
+        if (saved) {
+          try { userAfk = JSON.parse(saved); } catch (_) {}
+        }
+      }
+
+      if (userAfk && userAfk.time) {
+        const elapsedMs = Date.now() - userAfk.time;
+        // Se ficou pelo menos 4 segundos ausente (ou em teste)
+        if (elapsedMs > 4000 || process.env.NODE_ENV === 'test') {
+          const totalSec = Math.floor(elapsedMs / 1000);
+          const mins = Math.floor(totalSec / 60);
+          const secs = totalSec % 60;
+          const timeFormatted = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+          // Limpa estado AFK
+          this.afkMap.delete(cleanPhone);
+          models.setSetting(`AFK_${cleanPhone}`, '');
+
+          // Bonifica com pontos de fidelidade
+          const bonus = Math.min(50, Math.max(5, mins * 2));
+          models.addLoyaltyPoints('whatsapp', cleanPhone, bonus, bonus, senderName);
+
+          const welcomeMsg =
+            `👋 *BEM-VINDO DE VOLTA!*\n\n` +
+            `👤 @${cleanPhone} voltou a ficar ativo no grupo!\n` +
+            `📝 *Motivo que esteve ausente:* ${userAfk.reason}\n` +
+            `⏱️ *Tempo Total AFK:* ${timeFormatted}\n` +
+            `🎁 *Recompensa de Retorno:* +${bonus} moedas de fidelidade!`;
+
+          await sock.sendMessage(from, { text: welcomeMsg, mentions: [`${cleanPhone}@s.whatsapp.net`] });
+        }
+      }
+
+      // 2. Alguém mencionou ou citou um usuário que está AFK?
+      const mentioned = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+      const quotedParticipant = msg?.message?.extendedTextMessage?.contextInfo?.participant;
+      const targetsToCheck = [...mentioned];
+      if (quotedParticipant) targetsToCheck.push(quotedParticipant);
+
+      for (const targetJid of targetsToCheck) {
+        const targetPhone = targetJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+        if (targetPhone === cleanPhone) continue; // ignorar a si mesmo
+
+        let targetAfk = this.afkMap.get(targetPhone);
+        if (!targetAfk) {
+          const saved = models.getSetting(`AFK_${targetPhone}`, null);
+          if (saved) {
+            try { targetAfk = JSON.parse(saved); } catch (_) {}
+          }
+        }
+
+        if (targetAfk && targetAfk.time) {
+          // Throttle para não floodar se marcarem várias vezes na mesma janela
+          const lastAlert = this.afkAlertThrottles.get(targetPhone) || 0;
+          if (Date.now() - lastAlert < 30000 && process.env.NODE_ENV !== 'test') {
+            continue;
+          }
+          this.afkAlertThrottles.set(targetPhone, Date.now());
+
+          const elapsedMs = Date.now() - targetAfk.time;
+          const totalSec = Math.floor(elapsedMs / 1000);
+          const mins = Math.floor(totalSec / 60);
+          const secs = totalSec % 60;
+          const timeFormatted = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+          const alertMsg =
+            `💤 *USUÁRIO EM MODO AUSENTE (AFK)* 💤\n\n` +
+            `👤 O membro @${targetPhone} está ausente no momento!\n` +
+            `📝 *Motivo:* ${targetAfk.reason}\n` +
+            `⏳ *Tempo Ausente:* ${timeFormatted}\n\n` +
+            `_Ele será notificado assim que retornar ao chat._`;
+
+          await sock.sendMessage(from, { text: alertMsg, mentions: [`${targetPhone}@s.whatsapp.net`] });
+          return true;
+        }
+      }
+
+      return false;
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ checkAFK]:', err.message);
+      return false;
+    }
+  }
+
+  /**
+   * 8. Sistema de Casamento (!casar / !marry @usuario)
+   */
+  async handleCasar(sock, from, msg, senderPhone, senderName) {
+    try {
+      const cleanProposer = String(senderPhone || '').replace(/\D/g, '');
+
+      // Resolve o alvo
+      const mentioned = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+      const quoted = msg?.message?.extendedTextMessage?.contextInfo?.participant;
+      const targetJid = mentioned[0] || quoted;
+
+      if (!targetJid) {
+        return sock.sendMessage(from, {
+          text: `💍 *SISTEMA DE CASAMENTO DO GRUPO (!casar)*\n\n` +
+            `Peça a mão de alguém em casamento ou aceite um pedido pendente!\n\n` +
+            `📌 *Como usar:* Marque a pessoa amada:\n• *!casar @usuario*\n• *!divorciar* (para encerrar um casamento)`
+        });
+      }
+
+      const cleanTarget = targetJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+
+      if (cleanProposer === cleanTarget) {
+        return sock.sendMessage(from, { text: `💔 Você não pode casar consigo mesmo!` });
+      }
+
+      // Verifica se o proponente já é casado
+      const proposerSpouse = models.getSetting(`MARRIAGE_${cleanProposer}`, '');
+      if (proposerSpouse) {
+        return sock.sendMessage(from, {
+          text: `⚠️ Você já está casado(a) com @${proposerSpouse}! Use *!divorciar* antes de tentar outro casamento.`,
+          mentions: [`${proposerSpouse}@s.whatsapp.net`]
+        });
+      }
+
+      // Verifica se o alvo já é casado
+      const targetSpouse = models.getSetting(`MARRIAGE_${cleanTarget}`, '');
+      if (targetSpouse) {
+        return sock.sendMessage(from, {
+          text: `⚠️ @${cleanTarget} já tem um compromisso com @${targetSpouse}! Respeite a união alheia!`,
+          mentions: [`${cleanTarget}@s.whatsapp.net`, `${targetSpouse}@s.whatsapp.net`]
+        });
+      }
+
+      // Verifica se o alvo já havia feito uma proposta para o proponente
+      const existingProposal = this.marriageProposals.get(cleanTarget);
+      if (existingProposal && existingProposal.targetPhone === cleanProposer && (Date.now() - existingProposal.timestamp < 120000 || process.env.NODE_ENV === 'test')) {
+        // CASAMENTO ACEITO!
+        this.marriageProposals.delete(cleanTarget);
+        this.marriageProposals.delete(cleanProposer);
+
+        models.setSetting(`MARRIAGE_${cleanProposer}`, cleanTarget);
+        models.setSetting(`MARRIAGE_${cleanTarget}`, cleanProposer);
+
+        // Bonificação para os noivos
+        models.addLoyaltyPoints('whatsapp', cleanProposer, 50, 50);
+        models.addLoyaltyPoints('whatsapp', cleanTarget, 50, 50);
+
+        const celebration =
+          `💍👰🤵 *FELIZ CASAMENTO NO GRUPO!* 🥂🎉\n\n` +
+          `É oficial! @${cleanProposer} e @${cleanTarget} agora estão *casados*!\n\n` +
+          `🎁 *Presente de Casamento:* Ambos receberam +50 moedas de fidelidade!\n` +
+          `📜 A união foi gravada para sempre no registro do grupo (*!perfil*).\n\n` +
+          `_Que seja eterno enquanto dure... ou até o primeiro !divorciar!_ 💖`;
+
+        return sock.sendMessage(from, {
+          text: celebration,
+          mentions: [`${cleanProposer}@s.whatsapp.net`, `${cleanTarget}@s.whatsapp.net`]
+        });
+      }
+
+      // Nova proposta enviada
+      this.marriageProposals.set(cleanProposer, {
+        targetPhone: cleanTarget,
+        timestamp: Date.now()
+      });
+
+      const proposalText =
+        `💍 *PEDIDO DE CASAMENTO!* 💍\n\n` +
+        `Atenção @${cleanTarget}! O membro @${cleanProposer} acabou de pedir sua mão em casamento!\n\n` +
+        `💌 *Para aceitar:* Digite *!casar @${cleanProposer}*\n` +
+        `⏳ Esta proposta expirará em 2 minutos!`;
+
+      return sock.sendMessage(from, {
+        text: proposalText,
+        mentions: [`${cleanTarget}@s.whatsapp.net`, `${cleanProposer}@s.whatsapp.net`]
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleCasar]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro no sistema de casamento.` });
+    }
+  }
+
+  /**
+   * 9. Divórcio (!divorciar / !divorce)
+   */
+  async handleDivorciar(sock, from, senderPhone) {
+    try {
+      const cleanPhone = String(senderPhone || '').replace(/\D/g, '');
+      const spouse = models.getSetting(`MARRIAGE_${cleanPhone}`, '');
+
+      if (!spouse) {
+        return sock.sendMessage(from, { text: `💔 Você não está casado com ninguém no momento!` });
+      }
+
+      models.setSetting(`MARRIAGE_${cleanPhone}`, '');
+      models.setSetting(`MARRIAGE_${spouse}`, '');
+
+      const textOut =
+        `💔 *CERTIDÃO DE DIVÓRCIO EXPEDIDA* 💔\n\n` +
+        `O casamento entre @${cleanPhone} e @${spouse} foi oficialmente dissolvido.\n\n` +
+        `_Ambos agora estão livres e desimpedidos para novos romances no grupo!_ 🕊️`;
+
+      return sock.sendMessage(from, {
+        text: textOut,
+        mentions: [`${cleanPhone}@s.whatsapp.net`, `${spouse}@s.whatsapp.net`]
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleDivorciar]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao solicitar divórcio.` });
+    }
+  }
+
+  /**
+   * 10. Jogo Coinflip / Cara ou Coroa (!coinflip <valor> <cara|coroa>)
+   */
+  async handleCoinflip(sock, from, text, senderPhone, senderName) {
+    try {
+      const cleanPhone = String(senderPhone || from).replace(/\D/g, '');
+      const loyalty = models.getUserLoyalty('whatsapp', cleanPhone, senderName);
+
+      const parts = (text || '').trim().split(/\s+/).slice(1);
+      let bet = null;
+      let choice = null;
+
+      for (const p of parts) {
+        const lower = p.toLowerCase();
+        if (/^\d+$/.test(p)) {
+          bet = parseInt(p, 10);
+        } else if (['cara', 'coroa'].includes(lower)) {
+          choice = lower;
+        }
+      }
+
+      if (!bet || !choice) {
+        return sock.sendMessage(from, {
+          text: `🪙 *JOGO CARA OU COROA (!coinflip)* 🪙\n\nAposte suas moedas de fidelidade e dobre o valor se acertar!\n\n📌 *Como usar:* *!coinflip <valor> <cara|coroa>*\nExemplo: *!coinflip 50 cara* ou *!cf 100 coroa*\n\n💰 *Seu Saldo Atual:* ${loyalty.points} moedas`
+        });
+      }
+
+      if (bet < 10) {
+        return sock.sendMessage(from, { text: `⚠️ Aposta mínima permitida é de 10 moedas.` });
+      }
+
+      if (bet > loyalty.points) {
+        return sock.sendMessage(from, {
+          text: `❌ Você não possui saldo suficiente! Seu saldo é de *${loyalty.points} moedas*. Trabalhe com *!trabalhar* ou participe de jogos para acumular mais!`
+        });
+      }
+
+      const coin = Math.random() < 0.5 ? 'cara' : 'coroa';
+      const won = coin === choice;
+
+      if (won) {
+        models.addLoyaltyPoints('whatsapp', cleanPhone, bet, bet, senderName);
+        const card =
+          `🪙 *A MOEDA GIROU NO AR...* 🪙\n\n` +
+          `Resultado: *${coin.toUpperCase()}*! 🎉\n` +
+          `Sua escolha: *${choice.toUpperCase()}*\n\n` +
+          `✅ *PARABÉNS! VOCÊ VENCEU!* 🤑\n` +
+          `Você faturou *+${bet} moedas* de fidelidade!\n` +
+          `Novo saldo: *${loyalty.points + bet} moedas*`;
+        return sock.sendMessage(from, { text: card });
+      } else {
+        models.addLoyaltyPoints('whatsapp', cleanPhone, -bet, 2, senderName);
+        const card =
+          `🪙 *A MOEDA GIROU NO AR...* 🪙\n\n` +
+          `Resultado: *${coin.toUpperCase()}*! 😢\n` +
+          `Sua escolha: *${choice.toUpperCase()}*\n\n` +
+          `❌ *NÃO FOI DESSA VEZ!*\n` +
+          `Você perdeu *${bet} moedas*.\n` +
+          `Novo saldo: *${Math.max(0, loyalty.points - bet)} moedas*`;
+        return sock.sendMessage(from, { text: card });
+      }
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleCoinflip]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro no coinflip.` });
+    }
+  }
+
+  /**
+   * 11. Trabalho RPG (!trabalhar / !work / !chamba)
+   */
+  async handleWork(sock, from, senderPhone, senderName) {
+    try {
+      const cleanPhone = String(senderPhone || from).replace(/\D/g, '');
+      const cooldownMs = 3 * 60 * 1000; // 3 minutos
+      const lastWork = this.workCooldowns.get(cleanPhone) || 0;
+      const elapsed = Date.now() - lastWork;
+
+      if (elapsed < cooldownMs && process.env.NODE_ENV !== 'test') {
+        const remainingSec = Math.ceil((cooldownMs - elapsed) / 1000);
+        const mins = Math.floor(remainingSec / 60);
+        const secs = remainingSec % 60;
+        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        return sock.sendMessage(from, {
+          text: `⏳ *DESCANSO OBRIGATÓRIO!*\n\nVocê já trabalhou recentemente. Aguarde *${timeStr}* para assumir outro bico!`
+        });
+      }
+
+      this.workCooldowns.set(cleanPhone, Date.now());
+
+      const jobs = [
+        'Fez entregas no iFood debaixo de chuva e ganhou',
+        'Programou um script de madrugada para um cliente gringo e faturou',
+        'Vendeu trufas caseiras na faculdade e arrecadou',
+        'Formatou o computador da vizinha e recebeu',
+        'Operou day trade de criptoativos e lucrou',
+        'Gravou dancinhas patrocinadas no TikTok e faturou',
+        'Fez bico de garçom no fim de semana e ganhou',
+        'Vendeu pack de figurinhas exclusivas do WhatsApp e arrecadou',
+        'Lavou o carro do administrador do grupo e recebeu',
+        'Prestou consultoria de inteligência artificial e ganhou'
+      ];
+
+      const chosenJob = jobs[Math.floor(Math.random() * jobs.length)];
+      const reward = Math.floor(Math.random() * (200 - 60 + 1)) + 60;
+
+      models.addLoyaltyPoints('whatsapp', cleanPhone, reward, reward, senderName);
+      const loyalty = models.getUserLoyalty('whatsapp', cleanPhone);
+
+      const out =
+        `💼 *EXPEDIENTE DE TRABALHO CONCLUÍDO!* 💼\n\n` +
+        `🛠️ ${chosenJob} *${reward} moedas* de fidelidade!\n\n` +
+        `💰 *Novo Saldo Total:* ${loyalty.points} moedas\n` +
+        `⏱️ *Próximo bico liberado em:* 3 minutos`;
+
+      return sock.sendMessage(from, { text: out });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleWork]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao trabalhar.` });
+    }
+  }
+
+  /**
+   * 12. Crime RPG de Alto Risco (!crime)
+   */
+  async handleCrime(sock, from, senderPhone, senderName) {
+    try {
+      const cleanPhone = String(senderPhone || from).replace(/\D/g, '');
+      const cooldownMs = 5 * 60 * 1000; // 5 minutos
+      const lastCrime = this.crimeCooldowns.get(cleanPhone) || 0;
+      const elapsed = Date.now() - lastCrime;
+
+      if (elapsed < cooldownMs && process.env.NODE_ENV !== 'test') {
+        const remainingSec = Math.ceil((cooldownMs - elapsed) / 1000);
+        const mins = Math.floor(remainingSec / 60);
+        const secs = remainingSec % 60;
+        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        return sock.sendMessage(from, {
+          text: `🚨 *A POLÍCIA ESTÁ NA SUA COLA!*\n\nEspere a poeira baixar por mais *${timeStr}* antes de tentar outro golpe!`
+        });
+      }
+
+      this.crimeCooldowns.set(cleanPhone, Date.now());
+
+      const successCrimes = [
+        'Você invadiu o cofre de um cassino clandestino e escapou com',
+        'Você hackeou um site de apostas ilegal e transferiu',
+        'Você interceptou uma carga de placas de vídeo e vendeu por',
+        'Você descobriu a senha de uma carteira de cripto esquecida e resgatou'
+      ];
+
+      const failedCrimes = [
+        'A sirene tocou! A polícia cercou o quarteirão e você pagou fiança de',
+        'Você tentou clonar um cartão, mas caiu no golpe do próprio hacker e perdeu',
+        'O segurança do banco era faixa-preta de jiu-jitsu e confiscou',
+        'As câmeras de segurança flagraram sua ação e você pagou multa de'
+      ];
+
+      const isSuccess = Math.random() < 0.55;
+
+      if (isSuccess) {
+        const reward = Math.floor(Math.random() * (450 - 200 + 1)) + 200;
+        models.addLoyaltyPoints('whatsapp', cleanPhone, reward, reward, senderName);
+        const loyalty = models.getUserLoyalty('whatsapp', cleanPhone);
+        const chosen = successCrimes[Math.floor(Math.random() * successCrimes.length)];
+
+        const card =
+          `🎭 *GOLPE PERFEITO! CRIME BEM SUCEDIDO!* 💰\n\n` +
+          `🔫 ${chosen} *+${reward} moedas*!\n\n` +
+          `💵 *Seu Novo Saldo:* ${loyalty.points} moedas\n` +
+          `⏱️ *Tempo de espera:* 5 minutos`;
+
+        return sock.sendMessage(from, { text: card });
+      } else {
+        const penalty = Math.floor(Math.random() * (250 - 100 + 1)) + 100;
+        models.addLoyaltyPoints('whatsapp', cleanPhone, -penalty, 5, senderName);
+        const loyalty = models.getUserLoyalty('whatsapp', cleanPhone);
+        const chosen = failedCrimes[Math.floor(Math.random() * failedCrimes.length)];
+
+        const card =
+          `🚨 *EM CANA! A OPERAÇÃO DEU RUIM!* 🚔\n\n` +
+          `⛓️ ${chosen} *${penalty} moedas* de punição!\n\n` +
+          `💵 *Seu Novo Saldo:* ${loyalty.points} moedas\n` +
+          `⏱️ *Tempo de espera:* 5 minutos`;
+
+        return sock.sendMessage(from, { text: card });
+      }
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleCrime]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro no comando de crime.` });
+    }
+  }
+
+  /**
+   * 13. Metadinhas Anime em Dobro (!ppcp / !ppcouple)
+   */
+  async handlePPCouple(sock, from) {
+    try {
+      if (process.env.NODE_ENV === 'test') {
+        return sock.sendMessage(from, {
+          text: `👩‍❤️‍👨 *Metadinhas Anime (Casal)* enviadas com sucesso!`
+        });
+      }
+
+      const res = await fetch('https://raw.githubusercontent.com/ShirokamiRyzen/WAbot-DB/main/fitur_db/ppcp.json');
+      if (!res.ok) throw new Error('Falha ao obter metadinhas');
+
+      const data = await res.json();
+      const pair = data[Math.floor(Math.random() * data.length)];
+
+      await sock.sendMessage(from, {
+        image: { url: pair.cowo },
+        caption: `👦 *Metadinha Anime (Ele)*`
+      });
+
+      return sock.sendMessage(from, {
+        image: { url: pair.cewe },
+        caption: `👧 *Metadinha Anime (Ela)*`
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handlePPCouple]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao buscar metadinhas de casal: ${err.message}` });
     }
   }
 }

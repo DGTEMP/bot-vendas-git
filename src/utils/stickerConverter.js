@@ -179,6 +179,167 @@ except Exception as e:
       return imageBuffer;
     }
   }
+
+  /**
+   * Gerador nativo de figurinha Quote Chat (QC) - WhatsApp Dark Mode
+   */
+  async generateQC(name = 'Cliente', text = '', timeStr = '12:00') {
+    const pyScript = `
+import sys, io, json
+from PIL import Image, ImageDraw, ImageFont
+
+try:
+    data = json.loads(sys.stdin.read())
+    name = str(data.get('name') or 'Cliente')
+    text = str(data.get('text') or '')
+    time_str = str(data.get('time') or '12:00')
+
+    canvas = Image.new('RGBA', (512, 512), (0, 0, 0, 0))
+    d = ImageDraw.Draw(canvas)
+
+    bx0, by0, bx1, by1 = 40, 140, 472, 372
+    radius = 24
+    d.rounded_rectangle([bx0, by0, bx1, by1], radius=radius, fill='#1f2c34', outline='#2a3942', width=2)
+    tail = [(bx0, by0 + 30), (bx0 - 15, by0 + 40), (bx0, by0 + 50)]
+    d.polygon(tail, fill='#1f2c34')
+
+    ax0, ay0, ax1, ay1 = bx0 + 20, by0 + 20, bx0 + 80, by0 + 80
+    d.ellipse([ax0, ay0, ax1, ay1], fill='#00a884')
+
+    try:
+        font_av = ImageFont.truetype('arial.ttf', 32)
+        font_name = ImageFont.truetype('arialbd.ttf', 26)
+        font_text = ImageFont.truetype('arial.ttf', 24)
+        font_time = ImageFont.truetype('arial.ttf', 16)
+    except Exception:
+        font_av = font_name = font_text = font_time = ImageFont.load_default()
+
+    initial = name[0].upper() if name else 'U'
+    d.text((ax0 + 20, ay0 + 12), initial, font=font_av, fill='white')
+    d.text((ax1 + 20, by0 + 24), name[:22], font=font_name, fill='#53bdeb')
+
+    words = text.split(' ')
+    lines = []
+    cur_line = ''
+    for w in words:
+        test = cur_line + (' ' if cur_line else '') + w
+        bbox = d.textbbox((0, 0), test, font=font_text)
+        if bbox[2] - bbox[0] > 360:
+            lines.append(cur_line)
+            cur_line = w
+        else:
+            cur_line = test
+    if cur_line:
+        lines.append(cur_line)
+
+    y_offset = by0 + 90
+    for line in lines[:4]:
+        d.text((bx0 + 25, y_offset), line, font=font_text, fill='#e9edef')
+        y_offset += 32
+
+    d.text((bx1 - 65, by1 - 32), time_str, font=font_time, fill='#8696a0')
+
+    out = io.BytesIO()
+    canvas.save(out, format='WEBP', quality=90)
+    sys.stdout.buffer.write(out.getvalue())
+    sys.stdout.buffer.flush()
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
+`;
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn('python', ['-c', pyScript], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const chunks = [];
+      let errStr = '';
+      proc.stdout.on('data', c => chunks.push(c));
+      proc.stderr.on('data', c => { errStr += c.toString(); });
+      proc.on('close', code => {
+        if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
+        else reject(new Error('QC Pillow error: ' + (errStr || code)));
+      });
+      proc.stdin.write(JSON.stringify({ name, text, time: timeStr }));
+      proc.stdin.end();
+      setTimeout(() => {
+        try { proc.kill(); } catch (_) {}
+        reject(new Error('Timeout gerando QC'));
+      }, 6000);
+    });
+  }
+
+  /**
+   * Gerador nativo de figurinha Brat (Charli XCX Aesthetic)
+   */
+  async generateBrat(text = 'brat') {
+    const pyScript = `
+import sys, io, json
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+try:
+    data = json.loads(sys.stdin.read())
+    text = str(data.get('text') or 'brat').lower()
+
+    canvas = Image.new('RGBA', (512, 512), '#8ACE00')
+    d = ImageDraw.Draw(canvas)
+
+    try:
+        font = ImageFont.truetype('arial.ttf', 72)
+    except Exception:
+        font = ImageFont.load_default()
+
+    words = text.split(' ')
+    lines = []
+    cur = ''
+    for w in words:
+        test = cur + (' ' if cur else '') + w
+        bbox = d.textbbox((0, 0), test, font=font)
+        if bbox[2] - bbox[0] > 440:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = test
+    if cur:
+        lines.append(cur)
+
+    total_h = len(lines) * 80
+    y = (512 - total_h) // 2
+
+    for l in lines:
+        bbox = d.textbbox((0, 0), l, font=font)
+        w = bbox[2] - bbox[0]
+        x = (512 - w) // 2
+        d.text((x, y), l, font=font, fill='black')
+        y += 80
+
+    canvas = canvas.filter(ImageFilter.GaussianBlur(radius=0.8))
+
+    out = io.BytesIO()
+    canvas.save(out, format='WEBP', quality=85)
+    sys.stdout.buffer.write(out.getvalue())
+    sys.stdout.buffer.flush()
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
+`;
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn('python', ['-c', pyScript], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const chunks = [];
+      let errStr = '';
+      proc.stdout.on('data', c => chunks.push(c));
+      proc.stderr.on('data', c => { errStr += c.toString(); });
+      proc.on('close', code => {
+        if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
+        else reject(new Error('Brat Pillow error: ' + (errStr || code)));
+      });
+      proc.stdin.write(JSON.stringify({ text }));
+      proc.stdin.end();
+      setTimeout(() => {
+        try { proc.kill(); } catch (_) {}
+        reject(new Error('Timeout gerando Brat'));
+      }, 6000);
+    });
+  }
 }
 
 module.exports = new StickerConverter();
