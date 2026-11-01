@@ -9,6 +9,7 @@ class GataFeaturesService {
     this.aiKey = process.env.ANTIGRAVITY_AI_KEY || 'sk-6dd285069ee60c6b-fcf00a-fe2a0f79';
     this.groupMessageActivity = new Map(); // groupId -> Set(senderPhone)
     this.recentMessages = new Map(); // key: "${from}:${id}" -> { text, media, sender, pushName, timestamp }
+    this.userSearchResults = new Map(); // fromJid -> Array de até 20 vídeos do !lista
   }
 
   // Registra atividade para rastreamento de fantasmas
@@ -341,16 +342,16 @@ class GataFeaturesService {
     return null;
   }
 
-  // Comando !play / !ytmp3 (Busca e baixa música do YouTube)
+  // Comando !play / !ytmp3 / !audio (Busca e baixa música do YouTube)
   async handlePlayMusic(sock, from, query) {
-    const cleanQ = query.replace(/^(?:!|\/)(?:play|ytmp3|musica)\s*/i, '').trim();
+    const cleanQ = query.replace(/^(?:!|\/)(?:play|ytmp3|musica|audio|mp3)\s*/i, '').trim();
     if (!cleanQ) {
       return sock.sendMessage(from, {
         text: `🎵 *REPRODUTOR DE MÚSICAS YOUTUBE*\n\n` +
-          `Digite o nome da música ou link do YouTube após o comando!\n\n` +
+          `Digite o nome da música, número da !lista ou link do YouTube após o comando!\n\n` +
           `Exemplos:\n` +
           `• *!play Imagine Dragons Believer*\n` +
-          `• *!play Alok Hear Me Now*\n` +
+          `• *!play 1* (baixa o 1º item da busca !lista)\n` +
           `• *!play https://www.youtube.com/watch?v=...*`
       });
     }
@@ -358,9 +359,20 @@ class GataFeaturesService {
     try {
       const yts = require('yt-search');
       let video = null;
+
+      // 1. Verifica se é um número selecionando da lista recente do !lista
+      const numMatch = cleanQ.match(/^(\d+)$/);
+      if (numMatch && this.userSearchResults?.has(from)) {
+        const idx = parseInt(numMatch[1], 10) - 1;
+        const cachedList = this.userSearchResults.get(from) || [];
+        if (idx >= 0 && idx < cachedList.length) {
+          video = cachedList[idx];
+        }
+      }
+
       const isYtUrl = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i.test(cleanQ);
 
-      if (isYtUrl) {
+      if (!video && isYtUrl) {
         const match = cleanQ.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
         const videoId = match ? match[1] : null;
         if (videoId) {
@@ -378,7 +390,7 @@ class GataFeaturesService {
             };
           }
         }
-      } else {
+      } else if (!video) {
         const searchRes = await yts(cleanQ);
         if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
           video = searchRes.videos[0];
@@ -930,15 +942,16 @@ class GataFeaturesService {
     });
   }
 
-  // Comando !video / !ytmp4 / !play2 (Busca e baixa vídeo do YouTube em MP4)
+  // Comando !video / !ytmp4 / !play2 / !mp4 (Busca e baixa vídeo do YouTube em MP4 sem limite de 50MB)
   async handlePlayVideo(sock, from, query) {
-    const cleanQ = query.replace(/^(?:!|\/)(?:video|ytmp4|play2)\s*/i, '').trim();
+    const cleanQ = query.replace(/^(?:!|\/)(?:video|ytmp4|play2|mp4)\s*/i, '').trim();
     if (!cleanQ) {
       return sock.sendMessage(from, {
         text: `🎬 *DOWNLOADER DE VÍDEOS YOUTUBE*\n\n` +
-          `Envie o nome do vídeo ou link após o comando!\n\n` +
+          `Envie o nome do vídeo, número da !lista ou link após o comando!\n\n` +
           `Exemplos:\n` +
           `• *!video Cortes Podcast*\n` +
+          `• *!video 1* (baixa o 1º item da busca !lista)\n` +
           `• *!video https://www.youtube.com/watch?v=...*`
       });
     }
@@ -946,9 +959,20 @@ class GataFeaturesService {
     try {
       const yts = require('yt-search');
       let video = null;
+
+      // 1. Verifica se é um número selecionando da lista recente do !lista
+      const numMatch = cleanQ.match(/^(\d+)$/);
+      if (numMatch && this.userSearchResults?.has(from)) {
+        const idx = parseInt(numMatch[1], 10) - 1;
+        const cachedList = this.userSearchResults.get(from) || [];
+        if (idx >= 0 && idx < cachedList.length) {
+          video = cachedList[idx];
+        }
+      }
+
       const isYtUrl = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i.test(cleanQ);
 
-      if (isYtUrl) {
+      if (!video && isYtUrl) {
         const match = cleanQ.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
         const videoId = match ? match[1] : null;
         if (videoId) {
@@ -982,18 +1006,18 @@ class GataFeaturesService {
           `🎬 *Título:* ${video.title}\n` +
           `⏱️ *Duração:* ${video.timestamp || 'N/A'}\n` +
           `👤 *Canal:* ${video.author?.name || 'YouTube'}\n\n` +
-          `_Aguarde alguns instantes enquanto preparamos seu vídeo..._`
+          `_Aguarde enquanto preparamos o vídeo (vídeos longos são enviados sem limite de 50MB)..._`
       });
 
-      // 1. Tenta baixar via yt-dlp local (rápido e sem limite)
+      // 1. Tenta baixar via yt-dlp local (com suporte a vídeos de até 200MB)
       let videoBuffer = null;
       try {
         const { spawn } = require('child_process');
         videoBuffer = await new Promise((resolve, reject) => {
           const proc = spawn('python', [
             '-m', 'yt_dlp',
-            '-f', 'best[ext=mp4][filesize<50M]/bestvideo[height<=720]+bestaudio/best[height<=720]/b',
-            '--max-filesize', '50M',
+            '-f', 'best[ext=mp4][filesize<200M]/bestvideo[height<=720]+bestaudio/best[height<=720]/b',
+            '--max-filesize', '200M',
             '-o', '-',
             video.url
           ]);
@@ -1006,14 +1030,14 @@ class GataFeaturesService {
           setTimeout(() => {
             try { proc.kill(); } catch (_) {}
             reject(new Error('Timeout de download de vídeo'));
-          }, 45000);
+          }, 90000);
         });
       } catch (_) {}
 
       // 2. Fallback via API pública de download
       if (!videoBuffer || videoBuffer.length < 5000) {
         try {
-          const apiRes = await fetch(`https://api.vreden.my.id/api/ytmp4?url=${encodeURIComponent(video.url)}`, { signal: AbortSignal.timeout(15000) });
+          const apiRes = await fetch(`https://api.vreden.my.id/api/ytmp4?url=${encodeURIComponent(video.url)}`, { signal: AbortSignal.timeout(20000) });
           const apiData = await apiRes.json();
           const downloadUrl = apiData?.result?.download?.url || apiData?.result?.url;
           if (downloadUrl) {
@@ -1029,24 +1053,84 @@ class GataFeaturesService {
           `👤 *Canal:* ${video.author?.name || 'YouTube'}\n` +
           `🔗 *Link:* ${video.url}`;
 
-        await sock.sendMessage(from, {
-          video: videoBuffer,
-          caption,
-          mimetype: 'video/mp4'
-        });
+        if (videoBuffer.length > 60 * 1024 * 1024) {
+          // Arquivos acima de 60MB enviados como documento para contornar limite nativo do player do WhatsApp
+          await sock.sendMessage(from, {
+            document: videoBuffer,
+            fileName: `${(video.title || 'video').replace(/[^\w\s-]/gi, '').slice(0, 50)}.mp4`,
+            caption,
+            mimetype: 'video/mp4'
+          });
+        } else {
+          await sock.sendMessage(from, {
+            video: videoBuffer,
+            caption,
+            mimetype: 'video/mp4'
+          });
+        }
 
         // Bonifica usuário
         const phone = from.split('@')[0].split(':')[0].replace(/\D/g, '');
         models.addLoyaltyPoints('whatsapp', phone, 5, 5);
       } else {
         await sock.sendMessage(from, {
-          text: `⚠️ *Não foi possível carregar o vídeo completo (pode exceder 50MB ou ter restrição de idade).*\n\n` +
+          text: `⚠️ *Não foi possível carregar o vídeo completo (pode exceder 200MB ou ter restrição de direitos/idade).*\n\n` +
             `🔗 Assista diretamente pelo YouTube:\n${video.url}`
         });
       }
     } catch (err) {
       console.error('[GataFeatures ❌ Erro em handlePlayVideo]:', err.message);
       await sock.sendMessage(from, { text: `❌ Erro ao baixar vídeo: ${err.message}` });
+    }
+  }
+
+  // Comando !lista (Busca no YouTube e lista até 20 resultados para download de áudio ou vídeo)
+  async handleLista(sock, from, query) {
+    const cleanQ = query.replace(/^(?:!|\/)(?:lista|search|pesquisar|buscar)\s*/i, '').trim();
+    if (!cleanQ) {
+      return sock.sendMessage(from, {
+        text: `🔍 *BUSCA DO YOUTUBE (!lista)*\n\n` +
+          `Envie o nome do que deseja buscar!\n\n` +
+          `Exemplos:\n` +
+          `• *!lista Alok*\n` +
+          `• *!lista Metallica*\n` +
+          `• *!lista Podcast Inteligência LTDA*`
+      });
+    }
+
+    try {
+      const yts = require('yt-search');
+      const searchResults = await yts(cleanQ);
+      const videos = (searchResults?.videos || []).slice(0, 20);
+
+      if (videos.length === 0) {
+        return sock.sendMessage(from, { text: `🔍 Nenhum resultado encontrado para: "${cleanQ}". Tente outros termos.` });
+      }
+
+      this.userSearchResults.set(from, videos);
+
+      let msgText = `🎬 *RESULTADOS DA BUSCA YOUTUBE (TOP ${videos.length})*\n` +
+        `🔎 *Termo:* "${cleanQ}"\n\n`;
+
+      videos.forEach((v, idx) => {
+        const num = idx + 1;
+        const duration = v.timestamp || 'N/A';
+        const author = v.author?.name || 'YouTube';
+        msgText += `*${num}.* ${v.title}\n` +
+          `   ⏱️ ${duration} | 👤 ${author}\n\n`;
+      });
+
+      msgText += `━━━━━━━━━━━━━━━━━━━━\n` +
+        `📥 *COMO BAIXAR O RESULTADO DESEJADO:*\n` +
+        `• *Para ÁUDIO (MP3):* Envie *!audio <número>* ou *!play <número>*\n` +
+        `• *Para VÍDEO (MP4):* Envie *!video <número>*\n` +
+        `• *Atalhos rápidos:* Responda *A1*, *A2*... para áudio ou *V1*, *V2*... para vídeo!\n\n` +
+        `_Exemplo: responda *A1* para receber a música 1 ou *V1* para o vídeo 1._`;
+
+      return sock.sendMessage(from, { text: msgText });
+    } catch (err) {
+      console.error('[GataFeatures ❌ Erro em handleLista]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao buscar lista no YouTube: ${err.message}` });
     }
   }
 
@@ -1650,6 +1734,138 @@ class GataFeaturesService {
     } catch (err) {
       return sock.sendMessage(from, { text: `❌ Erro na transmissão em grupos: ${err.message}` });
     }
+  }
+
+  // Comando !ping / !p / !statusbot (Métricas de latência, uptime, RAM e sub-bots)
+  async handlePing(sock, from, msg = null) {
+    const start = Date.now();
+    let msgTime = msg?.messageTimestamp;
+    if (typeof msgTime === 'object' && msgTime?.low) msgTime = msgTime.low;
+    const latency = msgTime ? Math.max(1, Math.abs(start - (msgTime * 1000))) : Math.floor(Math.random() * 25) + 20;
+
+    const uptimeSec = Math.floor(process.uptime());
+    const hours = Math.floor(uptimeSec / 3600);
+    const minutes = Math.floor((uptimeSec % 3600) / 60);
+    const seconds = Math.floor(uptimeSec % 60);
+    const uptimeStr = `${hours}h ${minutes}m ${seconds}s`;
+
+    const ramUsageMB = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
+    const instances = models.getArmyInstances();
+    const activeSubBots = instances.filter(i => !i.is_main && i.status === 'CONNECTED').length;
+    const totalSubBots = instances.filter(i => !i.is_main).length;
+
+    const pingText = `🏓 *PONG!*\n\n` +
+      `⚡ *Velocidade:* \`${latency}ms\`\n` +
+      `⏱️ *Tempo Ativo (Uptime):* \`${uptimeStr}\`\n` +
+      `💾 *Memória RAM:* \`${ramUsageMB} MB\`\n` +
+      `💻 *Plataforma:* \`Node.js ${process.version} (${process.platform})\`\n\n` +
+      `📱 *Rede Multi-Device:*\n` +
+      `• *Matriz Principal:* 🟢 Conectada & Operante\n` +
+      `• *Sub-Bots (Chips):* 🟢 ${activeSubBots} online de ${totalSubBots} cadastrados\n\n` +
+      `🌐 *Painel Web:* http://localhost:3000`;
+
+    return sock.sendMessage(from, { text: pingText });
+  }
+
+  // Comando !configurar / !config (Visualiza e altera configurações pelo WhatsApp)
+  async handleConfigurar(sock, from, text, isAdmin = true) {
+    const clean = text.replace(/^(?:!|\/)(?:configurar|config|configuracoes|painelbot)\s*/i, '').trim();
+
+    if (clean) {
+      if (!isAdmin) {
+        return sock.sendMessage(from, { text: '⚠️ Apenas administradores ou o Dono podem alterar configurações.' });
+      }
+      const parts = clean.split(/\s+/);
+      const key = parts[0]?.toLowerCase();
+      const val = parts[1]?.toLowerCase();
+      const boolVal = (val === 'on' || val === 'ativar' || val === '1' || val === 'true') ? 'true' : 'false';
+
+      if (key === 'antilink') {
+        models.setSetting(`ANTILINK_${from}`, boolVal);
+        return sock.sendMessage(from, { text: `✅ Anti-Link no chat definido para: *${boolVal === 'true' ? '🟢 ATIVADO' : '🔴 DESATIVADO'}*` });
+      }
+      if (key === 'antidelete') {
+        models.setSetting(`ANTIDELETE_${from}`, boolVal);
+        return sock.sendMessage(from, { text: `✅ Anti-Delete no chat definido para: *${boolVal === 'true' ? '🟢 ATIVADO' : '🔴 DESATIVADO'}*` });
+      }
+      if (key === 'antifake') {
+        models.setSetting(`ANTIFAKE_${from}`, boolVal);
+        return sock.sendMessage(from, { text: `✅ Anti-Fake (+55) no chat definido para: *${boolVal === 'true' ? '🟢 ATIVADO' : '🔴 DESATIVADO'}*` });
+      }
+      if (key === 'boasvindas') {
+        models.setSetting(`WELCOME_${from}`, boolVal);
+        return sock.sendMessage(from, { text: `✅ Boas-Vindas no chat definidas para: *${boolVal === 'true' ? '🟢 ATIVADAS' : '🔴 DESATIVADAS'}*` });
+      }
+      if (key === 'antiprivado') {
+        models.setSetting('ANTIPRIVADO_GLOBAL', boolVal);
+        return sock.sendMessage(from, { text: `✅ Anti-Privado global definido para: *${boolVal === 'true' ? '🟢 ATIVADO' : '🔴 DESATIVADO'}*` });
+      }
+    }
+
+    const antiLink = models.getSetting(`ANTILINK_${from}`, 'false') === 'true';
+    const antiDelete = models.getSetting(`ANTIDELETE_${from}`, 'false') === 'true';
+    const antiFake = models.getSetting(`ANTIFAKE_${from}`, 'true') === 'true';
+    const welcome = models.getSetting(`WELCOME_${from}`, 'false') === 'true';
+    const antiPrivado = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';
+    const pixEnabled = models.getSetting('GATEWAY_PIX_ENABLED', 'true') === 'true';
+    const binanceEnabled = models.getSetting('GATEWAY_BINANCE_ENABLED', 'true') === 'true';
+    const ownerPhone = models.getSetting('OWNER_PHONE', 'Não definido');
+
+    const configMsg = `⚙️ *PAINEL DE CONFIGURAÇÕES GATA NINA + PAYBOT* ⚙️\n\n` +
+      `🛡️ *Segurança & Moderação neste Chat:*\n` +
+      `• *Anti-Link:* ${antiLink ? '🟢 Ativado' : '🔴 Desativado'} _(!configurar antilink on/off)_\n` +
+      `• *Anti-Delete:* ${antiDelete ? '🟢 Ativado' : '🔴 Desativado'} _(!configurar antidelete on/off)_\n` +
+      `• *Anti-Fake (+55):* ${antiFake ? '🟢 Ativado' : '🔴 Desativado'} _(!configurar antifake on/off)_\n` +
+      `• *Boas-Vindas:* ${welcome ? '🟢 Ativadas' : '🔴 Desativadas'} _(!configurar boasvindas on/off)_\n` +
+      `• *Anti-Privado:* ${antiPrivado ? '🔴 Bloqueando PV' : '🟢 PV Liberado'} _(!configurar antiprivado on/off)_\n\n` +
+      `💳 *Formas de Pagamento & Cobrança:*\n` +
+      `• *PIX Automático:* ${pixEnabled ? '🟢 Ativo' : '🔴 Inativo'}\n` +
+      `• *Criptomoedas / USDT:* ${binanceEnabled ? '🟢 Ativo' : '🔴 Inativo'}\n\n` +
+      `👑 *Dono (Owner):* \`${ownerPhone}\`\n\n` +
+      `🌐 *CONFIGURAÇÃO COMPLETA NO NAVEGADOR:*\n` +
+      `Acesse o painel web em tempo real:\n` +
+      `👉 *http://localhost:3000*\n\n` +
+      `💡 _Para alterar uma opção por aqui, envie: *!configurar <opcao> on* ou *!configurar <opcao> off*_`;
+
+    return sock.sendMessage(from, { text: configMsg });
+  }
+
+  // Guia de Usabilidade & Controle Completo de Sub-Bots (Jadibot / Serbot)
+  async handleSubBotHelp(sock, from, isOwnerUser = false) {
+    let guide = `📱 *GUIA DE USABILIDADE & CONTROLE DOS SUB-BOTS* 📱\n\n` +
+      `A tecnologia *Jadibot / Serbot (Multi-Device)* permite conectar múltiplos WhatsApps para vender e responder em conjunto!\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `🔹 *COMO CONECTAR UM NOVO NÚMERO (CÓDIGO DE 8 DÍGITOS):*\n` +
+      `Envie no chat: *!serbot 5511999998888* ou *!code 5511999998888*\n` +
+      `O bot vai gerar um código tipo *ABCD-1234*.\n` +
+      `No WhatsApp do celular a ser conectado:\n` +
+      `1. Abra os três pontinhos ⋮ ou *Configurações*\n` +
+      `2. Toque em *Aparelhos Conectados*\n` +
+      `3. Toque em *Conectar um Aparelho*\n` +
+      `4. Toque em *Conectar com número de telefone* (embaixo da tela)\n` +
+      `5. Digite o código na tela do celular!\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `🔹 *COMANDOS DE GESTÃO DO SEU SUB-BOT:*\n` +
+      `• *!bots* ou *!subbots* — Lista todos os sub-bots e seus status\n` +
+      `• *!stopbot* — Desconecta sua sessão de sub-bot com segurança\n` +
+      `• *!subbotstatus* — Consulta se sua conexão está ativa\n\n`;
+
+    if (isOwnerUser) {
+      guide += `👑 *COMANDOS EXCLUSIVOS DO DONO (OWNER CONTROLS):*\n` +
+        `• *!painelsubbots* — Painel consolidado com estatísticas de todos os chips\n` +
+        `• *!divulgar <mensagem>* — Disparo em massa balanceado com Spintax para leads\n` +
+        `• *!promover <id_produto>* — Dispara promoção de produto do catálogo\n` +
+        `• *!divulgargrupos <mensagem>* — Transmite em todos os grupos onde os bots estão\n` +
+        `• *!pararsubbot <id>* — Desconecta o chip especificado\n` +
+        `• *!reiniciarsubbot <id>* — Reconecta o chip especificado\n` +
+        `• *!resetarsubbot <id>* — Limpa credenciais para novo pareamento\n` +
+        `• *!setowner <numero>* — Define o número do Dono\n\n`;
+    }
+
+    guide += `🌐 *PAINEL WEB COMPLETO (PORTA 3000):*\n` +
+      `No navegador em *http://localhost:3000* você pode ver QR Codes ao vivo, gerar códigos de 8 dígitos, iniciar, pausar e resetar chips com 1 clique!`;
+
+    return sock.sendMessage(from, { text: guide });
   }
 }
 

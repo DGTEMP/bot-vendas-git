@@ -2903,6 +2903,119 @@ async function main() {
     assert(profile3[1].includes('Safari') || profile3[1].includes('Chrome'));
   });
 
+  await runAsyncTest('Gata Nina: Busca de 20 Resultados com !lista e Seleção A1..A20 / V1..V20', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+
+    // Popula busca com 20 itens simulados
+    const mockList = Array.from({ length: 20 }, (_, i) => ({
+      title: `Música Teste ${i + 1}`,
+      url: `https://www.youtube.com/watch?v=mockId${i + 1}`,
+      timestamp: '03:30',
+      author: { name: `Artista ${i + 1}` }
+    }));
+    gataFeatures.userSearchResults.set('120363099@g.us', mockList);
+
+    // Valida que o cache tem 20 itens
+    const cached = gataFeatures.userSearchResults.get('120363099@g.us');
+    assert.strictEqual(cached.length, 20, 'Deve conter 20 itens no resultado');
+    assert.strictEqual(cached[0].title, 'Música Teste 1');
+    assert.strictEqual(cached[19].title, 'Música Teste 20');
+  });
+
+  await runAsyncTest('Gata Nina: Diagnóstico de Latência, Uptime e Sub-Bots com !ping', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, p) => { sent.push(p); return true; }
+    };
+
+    const startTime = Date.now() - 45; // 45ms de latência simulada
+    await gataFeatures.handlePing(mockSock, '5511999990000@s.whatsapp.net', startTime);
+
+    assert(sent.length >= 1, 'Deve responder ao comando !ping');
+    const text = sent[0].text;
+    assert(text.includes('PONG!'), 'Deve conter PONG!');
+    assert(text.includes('Velocidade:') || text.includes('ms'), 'Deve exibir velocidade/latência em ms');
+    assert(text.includes('Uptime'), 'Deve exibir tempo de atividade');
+    assert(text.includes('RAM'), 'Deve exibir consumo de memória');
+    assert(text.includes('Sub-Bots'), 'Deve reportar sub-bots');
+  });
+
+  await runAsyncTest('Gata Nina: Painel de Configuração e Alternância com !configurar', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, p) => { sent.push(p); return true; }
+    };
+
+    // 1. Consulta painel de configurações
+    await gataFeatures.handleConfigurar(mockSock, '120363099@g.us', '!configurar');
+    assert(sent.length >= 1, 'Deve retornar o painel de configurações');
+    assert(sent[0].text.includes('PAINEL DE CONFIGURAÇÕES'));
+    assert(sent[0].text.includes('Anti-Link'));
+
+    // 2. Alterna configuração antilink on
+    sent.length = 0;
+    await gataFeatures.handleConfigurar(mockSock, '120363099@g.us', '!configurar antilink on');
+    assert(sent.length >= 1);
+    assert(sent[0].text.includes('Anti-Link'));
+    assert(sent[0].text.includes('ATIVADO'));
+  });
+
+  await runAsyncTest('Gata Nina: Tutorial Completo de Usabilidade dos Sub-Bots com !subbothelp', async () => {
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, p) => { sent.push(p); return true; }
+    };
+
+    await gataFeatures.handleSubBotHelp(mockSock, '5511999990000@s.whatsapp.net', true);
+    assert(sent.length >= 1, 'Deve enviar o guia de sub-bots');
+    const text = sent[0].text;
+    assert(text.includes('GUIA DE USABILIDADE & CONTROLE DOS SUB-BOTS'));
+    assert(text.includes('!serbot'));
+    assert(text.includes('!bots'));
+    assert(text.includes('!stopbot'));
+    assert(text.includes('!divulgar'));
+  });
+
+  await runAsyncTest('API REST: Diagnóstico do Sistema (/api/system/ping)', async () => {
+    const res = await fetch(`http://localhost:${testPort}/api/system/ping`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert(typeof data.ping_ms === 'number');
+    assert(typeof data.uptime_seconds === 'number');
+    assert(typeof data.ram_mb === 'number');
+    assert(typeof data.subbots_total === 'number');
+    assert(typeof data.matrix_connected === 'boolean');
+  });
+
+  await runAsyncTest('API REST: Configurações Expandidas Gata Nina e Dono via /api/settings', async () => {
+    // 1. Salva novas configs
+    const postRes = await fetch(`http://localhost:${testPort}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ANTILINK_DEFAULT: true,
+        ANTIFAKE_DEFAULT: true,
+        ANTIDELETE_DEFAULT: true,
+        OWNER_PHONE: '5511988887777',
+        WELCOME_MSG_DEFAULT: 'Bem-vindo ao grupo {nome}!'
+      })
+    });
+    assert.strictEqual(postRes.status, 200);
+
+    // 2. Consulta e valida
+    const getRes = await fetch(`http://localhost:${testPort}/api/settings`);
+    assert.strictEqual(getRes.status, 200);
+    const settings = await getRes.json();
+    assert.strictEqual(settings.ANTILINK_DEFAULT, true);
+    assert.strictEqual(settings.ANTIFAKE_DEFAULT, true);
+    assert.strictEqual(settings.ANTIDELETE_DEFAULT, true);
+    assert.strictEqual(settings.OWNER_PHONE, '5511988887777');
+    assert.strictEqual(settings.WELCOME_MSG_DEFAULT, 'Bem-vindo ao grupo {nome}!');
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

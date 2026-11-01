@@ -245,6 +245,33 @@ function createServer() {
     });
   });
 
+  // Status de Sistema, Latência e Sub-Bots (Ping & Diagnóstico)
+  app.get('/api/system/ping', (req, res) => {
+    try {
+      const start = Date.now();
+      const uptime = process.uptime();
+      const memory = process.memoryUsage();
+      const subBotsSummary = whatsappArmyService.getSubBotsStatusSummary ? whatsappArmyService.getSubBotsStatusSummary() : { totalSubBots: 0, onlineSubBots: 0, totalSentToday: 0 };
+      const wppStatus = whatsappBot.getConnectionStatus ? whatsappBot.getConnectionStatus() : { connected: false };
+      res.json({
+        ping_ms: Math.round(Date.now() - start),
+        uptime_seconds: Math.floor(uptime),
+        uptime_formatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`,
+        ram_mb: Math.round(memory.rss / 1024 / 1024),
+        node_version: process.version,
+        platform: process.platform,
+        matrix_connected: wppStatus.connected || false,
+        matrix_phone: wppStatus.phoneNumber || '',
+        subbots_total: subBotsSummary.totalSubBots || 0,
+        subbots_online: subBotsSummary.onlineSubBots || 0,
+        subbots_sent_today: subBotsSummary.totalSentToday || 0,
+        owner_phone: models.getSetting('OWNER_PHONE', process.env.OWNER_WHATSAPP || '')
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // WhatsApp Matriz QR Code, Pairing Code & Gestão de Sessão
   app.get('/api/whatsapp/status', (req, res) => {
     res.json(whatsappBot.getConnectionStatus());
@@ -896,6 +923,18 @@ function createServer() {
       WELCOME_MESSAGE: current.WELCOME_MESSAGE || '👋 Olá! Seja muito bem-vindo.',
       SUPPORT_CONTACT: current.SUPPORT_CONTACT || '@suporte',
 
+      // Automações, Moderação de Grupos & Segurança Gata Nina
+      ANTILINK_DEFAULT: current.ANTILINK_DEFAULT === 'true',
+      ANTIDELETE_DEFAULT: current.ANTIDELETE_DEFAULT !== 'false',
+      ANTIFAKE_DEFAULT: current.ANTIFAKE_DEFAULT !== 'false',
+      ANTIFLOOD_DEFAULT: current.ANTIFLOOD_DEFAULT !== 'false',
+      ANTIVIEWONCE_DEFAULT: current.ANTIVIEWONCE_DEFAULT !== 'false',
+      ANTIPRIVADO_GLOBAL: current.ANTIPRIVADO_GLOBAL === 'true',
+      WELCOME_MSG_DEFAULT: current.WELCOME_MSG_DEFAULT || '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.',
+      BYE_MSG_DEFAULT: current.BYE_MSG_DEFAULT || '👋 Até logo, {nome}! Foi ótimo ter você aqui no *{grupo}*.',
+      AI_API_KEY: current.AI_API_KEY || '',
+      OWNER_PHONE: current.OWNER_PHONE || '',
+
       // Servidor & Webhooks
       PUBLIC_URL: pubUrl,
       webhooks: {
@@ -1025,6 +1064,38 @@ function createServer() {
     // URL Pública
     if (body.PUBLIC_URL !== undefined) {
       models.setSetting('PUBLIC_URL', body.PUBLIC_URL.trim().replace(/\/$/, ''));
+    }
+
+    // Automações, Moderação de Grupos & Segurança Gata Nina
+    if (body.ANTILINK_DEFAULT !== undefined) {
+      models.setSetting('ANTILINK_DEFAULT', String(body.ANTILINK_DEFAULT));
+    }
+    if (body.ANTIDELETE_DEFAULT !== undefined) {
+      models.setSetting('ANTIDELETE_DEFAULT', String(body.ANTIDELETE_DEFAULT));
+    }
+    if (body.ANTIFAKE_DEFAULT !== undefined) {
+      models.setSetting('ANTIFAKE_DEFAULT', String(body.ANTIFAKE_DEFAULT));
+    }
+    if (body.ANTIFLOOD_DEFAULT !== undefined) {
+      models.setSetting('ANTIFLOOD_DEFAULT', String(body.ANTIFLOOD_DEFAULT));
+    }
+    if (body.ANTIVIEWONCE_DEFAULT !== undefined) {
+      models.setSetting('ANTIVIEWONCE_DEFAULT', String(body.ANTIVIEWONCE_DEFAULT));
+    }
+    if (body.ANTIPRIVADO_GLOBAL !== undefined) {
+      models.setSetting('ANTIPRIVADO_GLOBAL', String(body.ANTIPRIVADO_GLOBAL));
+    }
+    if (body.WELCOME_MSG_DEFAULT !== undefined) {
+      models.setSetting('WELCOME_MSG_DEFAULT', body.WELCOME_MSG_DEFAULT.trim());
+    }
+    if (body.BYE_MSG_DEFAULT !== undefined) {
+      models.setSetting('BYE_MSG_DEFAULT', body.BYE_MSG_DEFAULT.trim());
+    }
+    if (body.AI_API_KEY !== undefined) {
+      models.setSetting('AI_API_KEY', body.AI_API_KEY.trim());
+    }
+    if (body.OWNER_PHONE !== undefined) {
+      models.setSetting('OWNER_PHONE', String(body.OWNER_PHONE).replace(/\D/g, ''));
     }
 
     res.json({ success: true, message: 'Todas as configurações foram salvas com sucesso!' });

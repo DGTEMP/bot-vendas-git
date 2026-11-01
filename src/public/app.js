@@ -13,6 +13,8 @@ let armyQrPollingInterval = null;
 document.addEventListener('DOMContentLoaded', () => {
   initNav();
   loadAllData();
+  renderCommandsTable();
+  refreshSystemPing();
 
   // Polling regular a cada 8s
   setInterval(() => {
@@ -50,6 +52,8 @@ function switchTab(tabName) {
   if (tabName === 'connections') {
     startQrPolling();
     loadChatControls();
+    refreshSystemPing();
+    renderCommandsTable();
   } else {
     stopQrPolling();
   }
@@ -1761,6 +1765,38 @@ async function loadSettings() {
       document.getElementById('whBinance').innerText = cfg.webhooks.binance;
       document.getElementById('whLivepix').innerText = cfg.webhooks.livepix;
     }
+
+    // Automações e Segurança Gata Nina
+    if (document.getElementById('cfgAntiLinkDefault')) {
+      document.getElementById('cfgAntiLinkDefault').checked = cfg.ANTILINK_DEFAULT === true;
+    }
+    if (document.getElementById('cfgAntiDeleteDefault')) {
+      document.getElementById('cfgAntiDeleteDefault').checked = cfg.ANTIDELETE_DEFAULT !== false;
+    }
+    if (document.getElementById('cfgAntiFakeDefault')) {
+      document.getElementById('cfgAntiFakeDefault').checked = cfg.ANTIFAKE_DEFAULT !== false;
+    }
+    if (document.getElementById('cfgAntiFloodDefault')) {
+      document.getElementById('cfgAntiFloodDefault').checked = cfg.ANTIFLOOD_DEFAULT !== false;
+    }
+    if (document.getElementById('cfgAntiViewOnceDefault')) {
+      document.getElementById('cfgAntiViewOnceDefault').checked = cfg.ANTIVIEWONCE_DEFAULT !== false;
+    }
+    if (document.getElementById('cfgAntiPrivadoGlobal')) {
+      document.getElementById('cfgAntiPrivadoGlobal').checked = cfg.ANTIPRIVADO_GLOBAL === true;
+    }
+    if (document.getElementById('cfgOwnerPhone')) {
+      document.getElementById('cfgOwnerPhone').value = cfg.OWNER_PHONE || '';
+    }
+    if (document.getElementById('cfgAiApiKey')) {
+      document.getElementById('cfgAiApiKey').value = cfg.AI_API_KEY || '';
+    }
+    if (document.getElementById('cfgWelcomeMsgDefault')) {
+      document.getElementById('cfgWelcomeMsgDefault').value = cfg.WELCOME_MSG_DEFAULT || '';
+    }
+    if (document.getElementById('cfgByeMsgDefault')) {
+      document.getElementById('cfgByeMsgDefault').value = cfg.BYE_MSG_DEFAULT || '';
+    }
   } catch (err) {
     console.error('Erro ao carregar configurações:', err);
   }
@@ -1837,7 +1873,19 @@ async function saveSettings(e) {
     AFFILIATION_REQUIRE_PAYMENT_INFO: document.getElementById('cfgAffiliationRequirePayment')?.checked ?? true,
     AFFILIATION_AUTO_APPROVE: document.getElementById('cfgAffiliationAutoApprove')?.checked ?? true,
     AFFILIATION_PRODUCT_RESTRICTED: document.getElementById('cfgAffiliationProductRestricted')?.checked ?? false,
-    PUBLIC_URL: document.getElementById('cfgPublicUrl').value
+    PUBLIC_URL: document.getElementById('cfgPublicUrl').value,
+
+    // Automações, Moderação de Grupos & Segurança Gata Nina
+    ANTILINK_DEFAULT: document.getElementById('cfgAntiLinkDefault')?.checked ?? false,
+    ANTIDELETE_DEFAULT: document.getElementById('cfgAntiDeleteDefault')?.checked ?? true,
+    ANTIFAKE_DEFAULT: document.getElementById('cfgAntiFakeDefault')?.checked ?? true,
+    ANTIFLOOD_DEFAULT: document.getElementById('cfgAntiFloodDefault')?.checked ?? true,
+    ANTIVIEWONCE_DEFAULT: document.getElementById('cfgAntiViewOnceDefault')?.checked ?? true,
+    ANTIPRIVADO_GLOBAL: document.getElementById('cfgAntiPrivadoGlobal')?.checked ?? false,
+    OWNER_PHONE: document.getElementById('cfgOwnerPhone')?.value?.trim() || '',
+    AI_API_KEY: document.getElementById('cfgAiApiKey')?.value?.trim() || '',
+    WELCOME_MSG_DEFAULT: document.getElementById('cfgWelcomeMsgDefault')?.value?.trim() || '',
+    BYE_MSG_DEFAULT: document.getElementById('cfgByeMsgDefault')?.value?.trim() || ''
   };
 
   try {
@@ -4743,5 +4791,213 @@ async function dispatchOwnerBroadcast() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-bullhorn"></i> Disparar Divulgação pelo Exército';
+  }
+}
+
+// ==========================================
+// CENTRAL DE USABILIDADE, SUB-BOTS & COMANDOS
+// ==========================================
+
+const SYSTEM_COMMANDS = [
+  // SUB-BOTS & JADIBOT
+  { cmd: '!serbot', syntax: '!serbot [numero]', desc: 'Conectar um sub-bot via código de 8 dígitos ou QR Code', perm: 'Todos', category: 'subbots' },
+  { cmd: '!bots', syntax: '!bots', desc: 'Listar todos os sub-bots conectados e status operacional', perm: 'Todos', category: 'subbots' },
+  { cmd: '!stopbot', syntax: '!stopbot', desc: 'Desconectar a sessão do sub-bot atual', perm: 'Sub-bot', category: 'subbots' },
+  { cmd: '!painelsubbots', syntax: '!painelsubbots', desc: 'Painel mestre com métricas, chips ativos e capacidade diária', perm: 'Dono/Owner', category: 'subbots' },
+  { cmd: '!divulgar', syntax: '!divulgar <texto>', desc: 'Disparo simultâneo em massa através de todos os sub-bots', perm: 'Dono/Owner', category: 'subbots' },
+  { cmd: '!promover', syntax: '!promover <oferta/link>', desc: 'Divulgar produtos/links nos grupos de todos os sub-bots', perm: 'Dono/Owner', category: 'subbots' },
+  { cmd: '!reiniciarsubbot', syntax: '!reiniciarsubbot <id>', desc: 'Reiniciar a sessão de um sub-bot específico', perm: 'Dono/Owner', category: 'subbots' },
+  { cmd: '!setowner', syntax: '!setowner <numero>', desc: 'Definir o número do Dono Supremo com permissões totais', perm: 'Dono/Owner', category: 'subbots' },
+  { cmd: '!subbothelp', syntax: '!subbothelp', desc: 'Guia completo passo-a-passo de como conectar e usar sub-bots', perm: 'Todos', category: 'subbots' },
+
+  // MÍDIA & YOUTUBE 200MB
+  { cmd: '!lista', syntax: '!lista <busca>', desc: 'Busca os 20 principais vídeos do YouTube com opções rápidas de download', perm: 'Todos', category: 'media' },
+  { cmd: 'A1 .. A20', syntax: 'A1 até A20', desc: 'Baixa o áudio MP3 (1 a 20) da última busca feita com !lista', perm: 'Todos', category: 'media' },
+  { cmd: 'V1 .. V20', syntax: 'V1 até V20', desc: 'Baixa o vídeo MP4 (1 a 20) da última busca (até 200MB, arquivo se >60MB)', perm: 'Todos', category: 'media' },
+  { cmd: '!video', syntax: '!video <termo ou link>', desc: 'Baixar vídeo do YouTube até 200MB (limite ampliado, arquivo se >60MB)', perm: 'Todos', category: 'media' },
+  { cmd: '!play', syntax: '!play <musica ou link>', desc: 'Buscar e baixar áudio MP3 do YouTube com alta fidelidade', perm: 'Todos', category: 'media' },
+  { cmd: '!s', syntax: '!s (ou !fig)', desc: 'Transformar imagem/vídeo/gif em figurinha com corte inteligente e bordas', perm: 'Todos', category: 'media' },
+  { cmd: '!allstories', syntax: '!allstories @usuario', desc: 'Baixar todos os stories ativos de um perfil do Instagram', perm: 'Todos', category: 'media' },
+  { cmd: '!scrapinsta', syntax: '!scrapinsta @usuario', desc: 'Download completo de posts, reels, seguidores e maturidade do perfil', perm: 'Todos', category: 'media' },
+  { cmd: '!tiktok', syntax: '!tiktok <url>', desc: 'Baixar vídeo do TikTok sem marca d\'água em alta definição', perm: 'Todos', category: 'media' },
+
+  // SEGURANÇA & GRUPOS
+  { cmd: '!configurar', syntax: '!configurar [opcao on/off]', desc: 'Painel interativo de moderação no grupo ou alternar proteções', perm: 'Admins', category: 'security' },
+  { cmd: '!todos', syntax: '!todos [mensagem]', desc: 'Marcar todos os participantes do grupo para avisos urgentes', perm: 'Admins', category: 'security' },
+  { cmd: '!kick', syntax: '!kick @membro', desc: 'Remover participante indesejado do grupo', perm: 'Admins', category: 'security' },
+  { cmd: '!ban', syntax: '!ban @membro', desc: 'Banir participante com bloqueio permanente', perm: 'Admins', category: 'security' },
+  { cmd: '!promote', syntax: '!promote @membro', desc: 'Promover participante a administrador do grupo', perm: 'Admins', category: 'security' },
+  { cmd: '!demote', syntax: '!demote @admin', desc: 'Rebaixar administrador a membro comum', perm: 'Admins', category: 'security' },
+  { cmd: '!link', syntax: '!link', desc: 'Obter link de convite oficial do grupo', perm: 'Admins', category: 'security' },
+  { cmd: '!hidetag', syntax: '!hidetag <texto>', desc: 'Marcar todos os membros de forma invisível/discreta', perm: 'Admins', category: 'security' },
+  { cmd: '!advertir', syntax: '!advertir @membro', desc: 'Aplicar advertência (3 advertências = banimento automático)', perm: 'Admins', category: 'security' },
+
+  // UTILIDADES & IA
+  { cmd: '!ping', syntax: '!ping', desc: 'Diagnóstico com latência (ms), RAM, uptime e contagem de sub-bots', perm: 'Todos', category: 'utils' },
+  { cmd: '!help', syntax: '!help (ou !bot / !menu)', desc: 'Menu e catálogo completo de comandos em categorias', perm: 'Todos', category: 'utils' },
+  { cmd: '!ia', syntax: '!ia <pergunta>', desc: 'Consultar inteligência artificial avançada (OpenAI / Gemini)', perm: 'Todos', category: 'utils' },
+  { cmd: '!perfil', syntax: '!perfil', desc: 'Ver seu nível de fidelidade, pontos acumulados e cupons disponíveis', perm: 'Todos', category: 'utils' },
+  { cmd: '!resgatar', syntax: '!resgatar', desc: 'Trocar pontos de fidelidade por cupom de desconto real', perm: 'Todos', category: 'utils' },
+  { cmd: '!cep', syntax: '!cep <00000000>', desc: 'Consultar endereço completo via CEP nos Correios', perm: 'Todos', category: 'utils' },
+  { cmd: '!calc', syntax: '!calc <expressão>', desc: 'Calculadora matemática rápida (ex: !calc 50 * 1.25)', perm: 'Todos', category: 'utils' },
+  { cmd: '!qr', syntax: '!qr <texto ou link>', desc: 'Gerar QR Code instantâneo com texto ou URL', perm: 'Todos', category: 'utils' },
+  { cmd: '!traduzir', syntax: '!traduzir pt <texto>', desc: 'Traduzir texto entre mais de 100 idiomas com Google Translate', perm: 'Todos', category: 'utils' },
+  { cmd: '!falar', syntax: '!falar <texto>', desc: 'Converter texto em áudio de voz ultra realista (Google TTS)', perm: 'Todos', category: 'utils' }
+];
+
+let activeCmdCategory = 'all';
+
+function renderCommandsTable() {
+  const tbody = document.getElementById('commandsTableBody');
+  if (!tbody) return;
+
+  const filterInput = document.getElementById('cmdSearchFilter');
+  const query = filterInput ? filterInput.value.toLowerCase().trim() : '';
+
+  const filtered = SYSTEM_COMMANDS.filter(item => {
+    const matchCat = activeCmdCategory === 'all' || item.category === activeCmdCategory;
+    const matchQuery = !query ||
+      item.cmd.toLowerCase().includes(query) ||
+      item.syntax.toLowerCase().includes(query) ||
+      item.desc.toLowerCase().includes(query);
+    return matchCat && matchQuery;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">Nenhum comando encontrado para este filtro.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(item => {
+    let permColor = '#10b981';
+    if (item.perm.includes('Dono')) permColor = '#f59e0b';
+    else if (item.perm.includes('Admin')) permColor = '#3b82f6';
+
+    return `
+      <tr>
+        <td>
+          <code style="background: rgba(255,255,255,0.06); color: #38bdf8; padding: 3px 8px; border-radius: 4px; font-weight: 700;">
+            ${item.cmd}
+          </code>
+        </td>
+        <td><span style="font-family: monospace; color: var(--text-main); font-size: 13px;">${item.syntax}</span></td>
+        <td style="color: var(--text-muted); font-size: 13px;">${item.desc}</td>
+        <td>
+          <span class="badge" style="background: ${permColor}20; color: ${permColor}; border: 1px solid ${permColor}40;">
+            ${item.perm}
+          </span>
+        </td>
+        <td style="text-align: center;">
+          <button class="btn btn-sm btn-secondary" onclick="copyCommand('${item.cmd}')" title="Copiar comando">
+            <i class="fa-solid fa-copy"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function setCmdCategory(cat) {
+  activeCmdCategory = cat;
+  const btnGroup = document.getElementById('cmdCategoryButtons');
+  if (btnGroup) {
+    const btns = btnGroup.querySelectorAll('button');
+    btns.forEach(b => {
+      if (b.getAttribute('onclick')?.includes(`'${cat}'`)) {
+        b.className = 'btn btn-sm btn-primary';
+      } else {
+        b.className = 'btn btn-sm btn-secondary';
+      }
+    });
+  }
+  renderCommandsTable();
+}
+
+function filterCommandList() {
+  renderCommandsTable();
+}
+
+function copyCommand(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    alert(`Comando "${text}" copiado para a área de transferência!`);
+  }).catch(() => {
+    prompt('Copie o comando abaixo:', text);
+  });
+}
+
+async function refreshSystemPing() {
+  try {
+    const res = await fetch('/api/system/ping');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const elMatrix = document.getElementById('diagMatrixStatus');
+    if (elMatrix) {
+      if (data.matrix_connected) {
+        elMatrix.innerHTML = `<span style="color: #10b981;"><i class="fa-solid fa-circle-check"></i> Conectado (${data.matrix_phone || 'Matriz'})</span>`;
+      } else {
+        elMatrix.innerHTML = `<span style="color: #ef4444;"><i class="fa-solid fa-circle-xmark"></i> Desconectado</span>`;
+      }
+    }
+
+    const elSubBots = document.getElementById('diagSubBotsCount');
+    if (elSubBots) {
+      elSubBots.innerText = `${data.subbots_online} / ${data.subbots_total}`;
+    }
+
+    const elPing = document.getElementById('diagPingMs');
+    if (elPing) {
+      elPing.innerText = `${data.ping_ms} ms`;
+    }
+
+    const elUptime = document.getElementById('diagUptime');
+    if (elUptime) {
+      elUptime.innerText = data.uptime_formatted || `${data.uptime_seconds}s`;
+    }
+
+    const elRam = document.getElementById('diagRamMb');
+    if (elRam) {
+      elRam.innerText = `${data.ram_mb} MB`;
+    }
+  } catch (err) {
+    console.error('Erro ao consultar ping do sistema:', err);
+  }
+}
+
+async function sendSubBotBroadcastFromWeb() {
+  const msgInput = document.getElementById('subBotBroadcastMsg');
+  const message = msgInput ? msgInput.value.trim() : '';
+
+  if (!message) {
+    alert('Digite a mensagem ou oferta a ser disparada pelos Sub-Bots!');
+    return;
+  }
+
+  const targetRadio = document.querySelector('input[name="subBotTargetType"]:checked');
+  const targetType = targetRadio ? targetRadio.value : 'leads';
+
+  if (!confirm(`Confirmar disparo da mensagem via todos os Sub-Bots para ${targetType === 'groups' ? 'todos os Grupos' : 'a fila de Leads'}?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/army/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        targetType
+      })
+    });
+    const result = await res.json();
+    if (res.ok) {
+      alert(`🚀 Divulgação iniciada com sucesso via ${result.subBotsCount || 0} sub-bots!\nEntregas: ${result.dispatched || 0}`);
+      if (msgInput) msgInput.value = '';
+      refreshSystemPing();
+    } else {
+      alert('Erro ao disparar: ' + (result.error || 'Falha no envio'));
+    }
+  } catch (err) {
+    alert('Erro de conexão ao disparar transmissão: ' + err.message);
   }
 }

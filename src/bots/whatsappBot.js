@@ -1555,8 +1555,25 @@ class WhatsAppBotService {
       return gataFeatures.handleTTS(activeSock, from, text);
     }
 
-    // 5. Downloader de Música YouTube: !play / !ytmp3
-    if (/^(?:!|\/)(?:play|ytmp3|musica)(?:\s+.*)?$/i.test(lower)) {
+    // 5.0 Busca no YouTube com 20 Resultados: !lista / !search / !pesquisar / !buscar
+    if (/^(?:!|\/)(?:lista|search|pesquisar|buscar)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleLista(activeSock, from, text);
+    }
+
+    // 5.1 Atalhos Rápidos da !lista (ex: A1, A2... para áudio, V1, V2... para vídeo)
+    const listChoiceMatch = lower.match(/^(?:([av])|audio|video|mp3|mp4|baixar\s+([av]))\s*(\d+)$/i);
+    if (listChoiceMatch) {
+      const type = (listChoiceMatch[1] || listChoiceMatch[2] || (lower.startsWith('a') ? 'a' : 'v')).toLowerCase();
+      const num = listChoiceMatch[3];
+      if (type.startsWith('a') || lower.startsWith('audio') || lower.startsWith('mp3')) {
+        return gataFeatures.handlePlayMusic(activeSock, from, num);
+      } else {
+        return gataFeatures.handlePlayVideo(activeSock, from, num);
+      }
+    }
+
+    // 5. Downloader de Música YouTube: !play / !ytmp3 / !audio
+    if (/^(?:!|\/)(?:play|ytmp3|musica|audio|mp3)(?:\s+.*)?$/i.test(lower)) {
       return gataFeatures.handlePlayMusic(activeSock, from, text);
     }
 
@@ -1580,8 +1597,8 @@ class WhatsAppBotService {
       return gataFeatures.handleScrapInsta(activeSock, from, text);
     }
 
-    // 7.3 Downloader de Vídeos YouTube: !video / !ytmp4 / !play2
-    if (/^(?:!|\/)(?:video|ytmp4|play2)(?:\s+.*)?$/i.test(lower)) {
+    // 7.3 Downloader de Vídeos YouTube (sem limite de 50MB): !video / !ytmp4 / !play2 / !mp4
+    if (/^(?:!|\/)(?:video|ytmp4|play2|mp4)(?:\s+.*)?$/i.test(lower)) {
       return gataFeatures.handlePlayVideo(activeSock, from, text);
     }
 
@@ -1630,6 +1647,16 @@ class WhatsAppBotService {
       return gataFeatures.handleCalc(activeSock, from, text);
     }
 
+    // 10.5 Latência e Status do Sistema: !ping / !p / !latencia / !statusbot
+    if (/^(?:!|\/)(?:ping|p|latencia|statusbot|pong)$/i.test(lower)) {
+      return gataFeatures.handlePing(activeSock, from, msg);
+    }
+
+    // 10.6 Painel de Configurações Interativo: !configurar / !config / !painel
+    if (/^(?:!|\/)(?:configurar|config|configuracoes|painelbot)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleConfigurar(activeSock, from, text, isAdmin);
+    }
+
     // 11. Perfil de Fidelidade: !perfil / !me / !nivel / !pontos
     if (/^(?:!|\/)(?:perfil|me|nivel|pontos|carteira)$/i.test(lower)) {
       return gataFeatures.handlePerfil(activeSock, from, senderPhone, senderName);
@@ -1651,6 +1678,12 @@ class WhatsAppBotService {
     }
 
     // 14. MULTI-CONTAS, SUB-BOTS & FUNÇÕES EXCLUSIVAS DO DONO E BOT PRINCIPAL
+    // 14.0 Guia de Usabilidade & Controle dos Sub-Bots: !subbothelp / !subbotajuda
+    if (/^(?:!|\/)(?:subbothelp|subbotajuda|ajudasubbot|guiasubbot|comosubbot)$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return gataFeatures.handleSubBotHelp(activeSock, from, isOwnerUser);
+    }
+
     // 14.1 Lista de Bots & Painel dos Sub-Bots: !bots / !subbots / !painelsubbots / !subbotstatus / !listabots
     if (/^(?:!|\/)(?:bots|subbots|painelsubbots|subbotstatus|listabots|chips)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
@@ -1733,8 +1766,10 @@ class WhatsAppBotService {
         `• *!toimg* — Converte figurinha em imagem JPG\n` +
         `• *!tts <texto>* — Converte texto em áudio falado pelo bot\n\n` +
         `📥 *Downloads & Inteligência Social:*\n` +
-        `• *!play <música>* — Baixa música do YouTube em MP3\n` +
-        `• *!video <vídeo>* — Baixa vídeo do YouTube em MP4\n` +
+        `• *!lista <busca>* — Busca os 20 melhores vídeos do YouTube com atalhos\n` +
+        `• *!play <música|número>* — Baixa música do YouTube em MP3\n` +
+        `• *!video <vídeo|número>* — Baixa vídeo em MP4 (sem limite de 50MB, até 200MB)\n` +
+        `• *A1, A2... / V1, V2...* — Atalhos rápidos para baixar áudio ou vídeo da !lista\n` +
         `• *!tiktok <link>* — Baixa vídeo do TikTok sem marca d'água\n` +
         `• *!ig <link>* — Baixa fotos e reels do Instagram\n` +
         `• *!x <link>* — Baixa vídeos e posts do Twitter / X\n` +
@@ -1743,8 +1778,9 @@ class WhatsAppBotService {
         `• *!scrapinsta <@usuario>* — Raio-X completo: métricas, rede e maturidade intelectual\n\n` +
         `🔗 *Multi-Dispositivos & Sub-Bots (GataBot-MD):*\n` +
         `• *!serbot <numero>* ou *!code <numero>* — Conecta outro WhatsApp com código de 8 dígitos\n` +
-        `• *!bots* ou *!subbots* — Lista todos os WhatsApps conectados\n` +
-        `• *!stopbot* — Desconecta sua sessão de sub-bot\n\n`;
+        `• *!bots* ou *!subbots* — Lista todos os WhatsApps conectados e seus status\n` +
+        `• *!stopbot* — Desconecta sua sessão de sub-bot\n` +
+        `• *!subbothelp* — Guia completo de usabilidade e conexão de sub-bots\n\n`;
 
       if (isOwnerUser) {
         gataMenu += `👑 *Controle de Sub-Bots & Divulgação (Exclusivo Dono / Bot Principal):*\n` +
@@ -1761,6 +1797,8 @@ class WhatsAppBotService {
       gataMenu += `🤖 *Inteligência Artificial & Utilitários:*\n` +
         `• *!ia <pergunta>* — Converse com o ChatGPT / Gemini integrado\n` +
         `• *!imagine <ideia>* — Gera arte inédita com IA\n` +
+        `• *!ping* — Mede velocidade de resposta, uptime e status dos bots\n` +
+        `• *!configurar* — Painel interativo de configurações do bot e grupos\n` +
         `• *!traduzir <en|es|fr> <texto>* — Traduz instantaneamente\n` +
         `• *!encurtar <link>* — Encurta qualquer link (TinyURL)\n` +
         `• *!qr <texto ou link>* — Gera imagem de QR Code instantânea\n` +
@@ -1777,6 +1815,7 @@ class WhatsAppBotService {
         `• *C1, C2...* — Pagar via Cripto / Binance Pay (USDT)\n` +
         `• *STATUS* — Consultar andamento do seu pedido\n` +
         `• *!suporte* — Solicitar atendimento humano\n\n` +
+        `🌐 *Painel Web Completo:* http://localhost:3000\n` +
         `🛡️ *Moderação de Grupos:* Envie *!admin* para ver comandos de gestão.`;
 
       return this.sendMessage(from, gataMenu);
