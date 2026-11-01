@@ -159,6 +159,19 @@ class WhatsAppBotService {
 
         for (const msg of messages) {
           if (!msg.message) continue;
+
+          // Rastreia mensagem no cache Anti-Delete
+          gataFeatures.recordMessage(msg);
+
+          // Detecta se a mensagem é um aviso de mensagem apagada (protocolMessage revoke)
+          const proto = msg.message?.protocolMessage;
+          if (proto && (proto.type === 0 || proto.type === 'REVOKE' || String(proto.type).includes('0'))) {
+            const targetId = proto.key?.id;
+            const chatJid = proto.key?.remoteJid || msg.key?.remoteJid;
+            const deleterJid = msg.key?.participant || msg.key?.remoteJid;
+            await gataFeatures.handleRevoke(this.sock, chatJid, targetId, deleterJid);
+            continue;
+          }
           
           // Se for mensagem própria (fromMe), processa se for comando iniciado por ! ou /
           if (msg.key.fromMe) {
@@ -167,6 +180,18 @@ class WhatsAppBotService {
           }
 
           await this.handleIncomingMessage(msg);
+        }
+      });
+
+      // Evento de atualizações de mensagens (detecta exclusões via messages.update)
+      this.sock.ev.on('messages.update', async (updates) => {
+        for (const upd of (updates || [])) {
+          if (upd.update?.messageStubType === 1 || upd.update?.messageStubType === 'REVOKE') {
+            const chatJid = upd.key?.remoteJid;
+            const targetId = upd.key?.id;
+            const deleterJid = upd.key?.participant || chatJid;
+            await gataFeatures.handleRevoke(this.sock, chatJid, targetId, deleterJid);
+          }
         }
       });
 
@@ -345,6 +370,17 @@ class WhatsAppBotService {
 
     if (!text) return;
     const lower = text.toLowerCase();
+
+    // Interceptador Anti-Privado (Anti-PV): Redireciona interações no privado se ativo
+    if (!isGroup && !isFromMe) {
+      const isAntiPrivado = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';
+      const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
+      const isGlobalAdmin = !!(adminPhoneSetting && (adminPhoneSetting.includes(senderPhone) || senderPhone.includes(adminPhoneSetting)));
+      if (isAntiPrivado && !isGlobalAdmin && !lower.startsWith('!admin') && !lower.startsWith('!status') && !lower.startsWith('!antiprivado')) {
+        const redirected = await gataFeatures.handleAntiPrivado(activeSock, from, senderPhone);
+        if (redirected) return;
+      }
+    }
 
     // 0. VERIFICAÇÃO DE BLOQUEIO DE PARTICIPANTE / USUÁRIO
     if (models.isUserBlocked('whatsapp', senderPhone, from)) {
@@ -570,12 +606,16 @@ class WhatsAppBotService {
         const isWelcome = models.getSetting(`WELCOME_${from}`, 'false') === 'true';
         const isAntifake = models.getSetting(`ANTIFAKE_${from}`, 'false') === 'true';
         const isAntiView = models.getSetting(`ANTIVIEWONCE_${from}`, 'true') === 'true';
+        const isAntiDelete = models.getSetting(`ANTIDELETE_${from}`, 'false') === 'true';
+        const isAntiPrivado = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';
 
         const adminMenu = `🛠️ *PAINEL DE GERENCIAMENTO DO GRUPO (ADMIN)*\n\n` +
           `• *Status do Bot:* ${botStatusBadge}\n` +
           `• *Anti-Link:* ${isAntilink ? '🟢 Ativado' : '🔴 Desativado'}\n` +
           `• *Anti-Fake (+55):* ${isAntifake ? '🟢 Ativado' : '🔴 Desativado'}\n` +
           `• *Anti-View-Once:* ${isAntiView ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Anti-Delete:* ${isAntiDelete ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Anti-Privado:* ${isAntiPrivado ? '🟢 Ativado' : '🔴 Desativado'}\n` +
           `• *Boas-Vindas:* ${isWelcome ? '🟢 Ativado' : '🔴 Desativado'}\n\n` +
           `👢 *Gerenciamento de Membros:*\n` +
           `• *!ban* ou *!kick* (responda à mensagem ou use @número) — Remove participante\n` +
@@ -589,7 +629,9 @@ class WhatsAppBotService {
           `• *!unwarn @usuario* — Remove última advertência\n` +
           `• *!warns [@usuario]* — Consulta histórico de advertências\n` +
           `• *!antifake on/off* — Expulsa números de DDI estrangeiro automaticamente\n` +
-          `• *!antiviewonce on/off* — Revela fotos e vídeos de visualização única\n\n` +
+          `• *!antiviewonce on/off* — Revela fotos e vídeos de visualização única\n` +
+          `• *!antidelete on/off* — Revela mensagens e mídias apagadas no grupo\n` +
+          `• *!antiprivado on/off* — Redireciona mensagens no privado para o grupo\n\n` +
           `⚙️ *Configurações & Segurança:*\n` +
           `• *!fechar* — Tranca o grupo (apenas administradores falam)\n` +
           `• *!abrir* — Abre o grupo (todos os membros podem falar)\n` +
@@ -924,17 +966,14 @@ class WhatsAppBotService {
         }
       }
 
-      // 11. Marcar Todos os Membros: !todos, !marcartodos, !aviso <msg>
-      if (/^(?:!|\/)(?:todos|marcartodos|aviso)(?:\s.*)?$/i.test(lower)) {
+      // 11. Marcar Todos os Membros: !todos, !tagall, !marcar, !marcartodos, !aviso <msg>
+      if (/^(?:!|\/)(?:todos|tagall|marcar|marcartodos|aviso)(?:\s.*)?$/i.test(lower)) {
         const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
         if (!adminStatus.isRequesterAdmin) {
           return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem marcar todos os membros.');
         }
 
-        const customMsg = text.replace(/^(?:!|\/)(?:todos|marcartodos|aviso)\s*/i, '').trim();
-        const noticeText = customMsg || 'Atenção membros!';
-        const mentions = adminStatus.metadata?.participants ? adminStatus.metadata.participants.map(p => p.id) : [];
-
+        const customMsg = text.replace(/^(?:!|\/)(?:todos|tagall|marcar|marcartodos|aviso)\s*/i, '').trim();
         models.logGroupAdminAction({
           platform: 'whatsapp',
           groupId: from,
@@ -944,8 +983,7 @@ class WhatsAppBotService {
           details: customMsg || 'Aviso geral para todos os membros'
         });
 
-        const tagText = `📢 *AVISO GERAL DOS ADMINISTRADORES:*\n\n${noticeText}`;
-        return this.sendMessage(from, tagText, { mentions });
+        return gataFeatures.handleTagAll(activeSock, from, text, adminStatus.metadata);
       }
 
       // 12. Configurar Proteção Anti-Link: !antilink on/off
@@ -1285,6 +1323,50 @@ class WhatsAppBotService {
         }
         return gataFeatures.handleFantasmas(activeSock, from, adminStatus.metadata);
       }
+
+      // 22. Anti-Delete: !antidelete on/off
+      if (/^(?:!|\/)(?:antidelete|antieliminar)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem configurar a proteção Anti-Delete.');
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const action = parts[1]?.toLowerCase();
+
+        if (action === 'on' || action === 'ativar' || action === '1') {
+          models.setSetting(`ANTIDELETE_${from}`, 'true');
+          return this.sendMessage(from, `🗑️ *ANTI-DELETE ATIVADO!*\n\nMensagens e mídias apagadas pelos membros serão recuperadas e exibidas no grupo.`);
+        } else if (action === 'off' || action === 'desativar' || action === '0') {
+          models.setSetting(`ANTIDELETE_${from}`, 'false');
+          return this.sendMessage(from, `🙈 *ANTI-DELETE DESATIVADO!*`);
+        } else {
+          const isAct = models.getSetting(`ANTIDELETE_${from}`, 'false') === 'true';
+          return this.sendMessage(from, `ℹ️ *Anti-Delete:* ${isAct ? '🟢 Ativado' : '🔴 Desativado'}\n\nPara alterar: *!antidelete on* ou *!antidelete off*`);
+        }
+      }
+
+      // 23. Anti-Privado (Anti-PV): !antiprivado on/off
+      if (/^(?:!|\/)(?:antiprivado|antipv)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores podem configurar o modo Anti-Privado.');
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const action = parts[1]?.toLowerCase();
+
+        if (action === 'on' || action === 'ativar' || action === '1') {
+          models.setSetting('ANTIPRIVADO_GLOBAL', 'true');
+          return this.sendMessage(from, `🚫 *ANTI-PRIVADO ATIVADO!*\n\nMensagens privadas no bot serão alertadas para entrar no grupo oficial.`);
+        } else if (action === 'off' || action === 'desativar' || action === '0') {
+          models.setSetting('ANTIPRIVADO_GLOBAL', 'false');
+          return this.sendMessage(from, `🟢 *ANTI-PRIVADO DESATIVADO!*\n\nAtendimento privado liberado.`);
+        } else {
+          const isAct = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';
+          return this.sendMessage(from, `ℹ️ *Anti-Privado:* ${isAct ? '🔴 Ativado (PV restrito)' : '🟢 Desativado (PV liberado)'}\n\nPara alterar: *!antiprivado on* ou *!antiprivado off*`);
+        }
+      }
     }
 
     // 0.2 SE O CHAT ESTIVER DESATIVADO (MUTED), NÃO RESPONDE MAIS NADA
@@ -1407,6 +1489,21 @@ class WhatsAppBotService {
       return gataFeatures.handleScrapInsta(activeSock, from, text);
     }
 
+    // 7.3 Downloader de Vídeos YouTube: !video / !ytmp4 / !play2
+    if (/^(?:!|\/)(?:video|ytmp4|play2)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handlePlayVideo(activeSock, from, text);
+    }
+
+    // 7.4 Downloader de Twitter / X: !twitter / !x / !twdl
+    if (/^(?:!|\/)(?:twitter|x|twdl)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleTwitter(activeSock, from, text);
+    }
+
+    // 7.5 Downloader de Facebook: !fb / !facebook
+    if (/^(?:!|\/)(?:fb|facebook)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleFacebook(activeSock, from, text);
+    }
+
     // 8. Inteligência Artificial: !ia / !gpt / !gemini
     if (/^(?:!|\/)(?:ia|gpt|gemini)(?:\s+.*)?$/i.test(lower)) {
       return gataFeatures.handleAIChat(activeSock, from, text, senderName);
@@ -1420,6 +1517,26 @@ class WhatsAppBotService {
     // 10. Tradutor Instantâneo: !traduzir / !translate
     if (/^(?:!|\/)(?:traduzir|translate)(?:\s+.*)?$/i.test(lower)) {
       return gataFeatures.handleTranslate(activeSock, from, text);
+    }
+
+    // 10.1 Encurtador de Links: !encurtar / !tinyurl
+    if (/^(?:!|\/)(?:encurtar|tinyurl|shorturl)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleEncurtar(activeSock, from, text);
+    }
+
+    // 10.2 Gerador de QR Code: !qr / !qrcode
+    if (/^(?:!|\/)(?:qr|qrcode)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleQRCode(activeSock, from, text);
+    }
+
+    // 10.3 Consulta de CEP / Endereço: !cep / !endereco
+    if (/^(?:!|\/)(?:cep|endereco)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleCEP(activeSock, from, text);
+    }
+
+    // 10.4 Calculadora Inteligente: !calc / !calcular
+    if (/^(?:!|\/)(?:calc|calcular)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleCalc(activeSock, from, text);
     }
 
     // 11. Perfil de Fidelidade: !perfil / !me / !nivel / !pontos
@@ -1450,16 +1567,23 @@ class WhatsAppBotService {
         `• *!attp <texto>* — Cria figurinha animada com seu texto\n` +
         `• *!toimg* — Converte figurinha em imagem JPG\n` +
         `• *!tts <texto>* — Converte texto em áudio falado pelo bot\n\n` +
-        `📥 *Downloads & Inteligência Instagram:*\n` +
+        `📥 *Downloads & Inteligência Social:*\n` +
         `• *!play <música>* — Baixa música do YouTube em MP3\n` +
+        `• *!video <vídeo>* — Baixa vídeo do YouTube em MP4\n` +
         `• *!tiktok <link>* — Baixa vídeo do TikTok sem marca d'água\n` +
         `• *!ig <link>* — Baixa fotos e reels do Instagram\n` +
+        `• *!x <link>* — Baixa vídeos e posts do Twitter / X\n` +
+        `• *!fb <link>* — Baixa vídeos e reels do Facebook\n` +
         `• *!allstories <@usuario>* — Baixa todos os stories de um perfil\n` +
         `• *!scrapinsta <@usuario>* — Raio-X completo: métricas, rede e maturidade intelectual\n\n` +
-        `🤖 *Inteligência Artificial:*\n` +
+        `🤖 *Inteligência Artificial & Utilitários:*\n` +
         `• *!ia <pergunta>* — Converse com o ChatGPT / Gemini integrado\n` +
         `• *!imagine <ideia>* — Gera arte inédita com IA\n` +
-        `• *!traduzir <en|es|fr> <texto>* — Traduz instantaneamente\n\n` +
+        `• *!traduzir <en|es|fr> <texto>* — Traduz instantaneamente\n` +
+        `• *!encurtar <link>* — Encurta qualquer link (TinyURL)\n` +
+        `• *!qr <texto ou link>* — Gera imagem de QR Code instantânea\n` +
+        `• *!cep <número>* — Consulta endereço completo (ViaCEP)\n` +
+        `• *!calc <expressão>* — Calculadora de bolso inteligente\n\n` +
         `🎮 *Gamificação & Fidelidade:*\n` +
         `• *!perfil* — Exibe seu nível, XP e saldo de pontos\n` +
         `• *!dado* — Role os dados e ganhe moedas e XP\n` +

@@ -8,6 +8,7 @@ class GataFeaturesService {
     this.aiEndpoint = process.env.ANTIGRAVITY_AI_ENDPOINT || 'http://localhost:20128/v1';
     this.aiKey = process.env.ANTIGRAVITY_AI_KEY || 'sk-6dd285069ee60c6b-fcf00a-fe2a0f79';
     this.groupMessageActivity = new Map(); // groupId -> Set(senderPhone)
+    this.recentMessages = new Map(); // key: "${from}:${id}" -> { text, media, sender, pushName, timestamp }
   }
 
   // Registra atividade para rastreamento de fantasmas
@@ -16,6 +17,83 @@ class GataFeaturesService {
       this.groupMessageActivity.set(groupId, new Set());
     }
     this.groupMessageActivity.get(groupId).add(senderPhone);
+  }
+
+  // Cacheia mensagens recentes para o Anti-Delete (Gata Nina Security)
+  recordMessage(msg) {
+    try {
+      const from = msg.key?.remoteJid;
+      const id = msg.key?.id;
+      if (!from || !id) return;
+
+      const sender = msg.key?.participant || from;
+      const text = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || '').trim();
+      const pushName = msg.pushName || 'Usuário';
+
+      const key = `${from}:${id}`;
+      this.recentMessages.set(key, {
+        from,
+        id,
+        sender,
+        text,
+        pushName,
+        msg,
+        timestamp: Date.now()
+      });
+
+      if (this.recentMessages.size > 1500) {
+        const firstKey = this.recentMessages.keys().next().value;
+        this.recentMessages.delete(firstKey);
+      }
+    } catch (_) {}
+  }
+
+  // Revela mensagem apagada se o Anti-Delete estiver ativado no chat
+  async handleRevoke(sock, from, revokedId, participantJid) {
+    try {
+      if (!from || !revokedId) return;
+      const isAntiDeleteActive = models.getSetting(`ANTIDELETE_${from}`, 'false') === 'true' ||
+                                 models.getSetting('ANTIDELETE_GLOBAL', 'false') === 'true';
+      if (!isAntiDeleteActive) return;
+
+      const key = `${from}:${revokedId}`;
+      const cached = this.recentMessages.get(key);
+      if (!cached) return;
+
+      const phone = (participantJid || cached.sender || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+      const timeStr = new Date(cached.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      let notice = `🗑️ *MENSAGEM APAGADA DETECTADA! (ANTI-DELETE)*\n\n` +
+        `👤 *Autor:* @${phone} (${cached.pushName})\n` +
+        `🕒 *Horário do Envio:* ${timeStr}\n\n`;
+
+      if (cached.text) {
+        notice += `💬 *Texto original:* "${cached.text}"`;
+      } else {
+        notice += `📎 *Mídia/Arquivo original recuperado abaixo:*`;
+      }
+
+      await sock.sendMessage(from, {
+        text: notice,
+        mentions: [`${phone}@s.whatsapp.net`]
+      });
+
+      // Se havia mídia anexada, extrai e reenvia
+      try {
+        const media = await this.extractMediaBuffer(cached.msg);
+        if (media && media.buffer) {
+          if (media.type === 'image') {
+            await sock.sendMessage(from, { image: media.buffer, caption: '📸 *Foto apagada recuperada pelo bot!*' });
+          } else if (media.type === 'video') {
+            await sock.sendMessage(from, { video: media.buffer, caption: '🎬 *Vídeo apagado recuperado pelo bot!*' });
+          } else if (media.type === 'sticker') {
+            await sock.sendMessage(from, { sticker: media.buffer });
+          }
+        }
+      } catch (_) {}
+    } catch (err) {
+      console.error('[AntiDelete Erro]:', err.message);
+    }
   }
 
   // ==========================================
@@ -850,6 +928,380 @@ class GataFeaturesService {
         `Resultado: ${prize > 0 ? `🎉 *Você ganhou +${prize} pontos de fidelidade!*` : '😅 *Quase! Tente novamente mais tarde!*'}\n` +
         `Seu saldo atual: *${res.points} pts* (Nível ${res.level})`
     });
+  }
+
+  // Comando !video / !ytmp4 / !play2 (Busca e baixa vídeo do YouTube em MP4)
+  async handlePlayVideo(sock, from, query) {
+    const cleanQ = query.replace(/^(?:!|\/)(?:video|ytmp4|play2)\s*/i, '').trim();
+    if (!cleanQ) {
+      return sock.sendMessage(from, {
+        text: `🎬 *DOWNLOADER DE VÍDEOS YOUTUBE*\n\n` +
+          `Envie o nome do vídeo ou link após o comando!\n\n` +
+          `Exemplos:\n` +
+          `• *!video Cortes Podcast*\n` +
+          `• *!video https://www.youtube.com/watch?v=...*`
+      });
+    }
+
+    try {
+      const yts = require('yt-search');
+      let video = null;
+      const isYtUrl = /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i.test(cleanQ);
+
+      if (isYtUrl) {
+        const match = cleanQ.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+        const videoId = match ? match[1] : null;
+        if (videoId) {
+          try {
+            const searchRes = await yts({ videoId });
+            video = searchRes;
+          } catch (_) {
+            video = {
+              title: 'Vídeo do YouTube',
+              url: `https://www.youtube.com/watch?v=${videoId}`,
+              videoId,
+              timestamp: 'Vídeo',
+              thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+              author: { name: 'YouTube' }
+            };
+          }
+        }
+      }
+
+      if (!video) {
+        const searchResults = await yts(cleanQ);
+        const videos = searchResults?.videos || [];
+        if (videos.length === 0) {
+          return sock.sendMessage(from, { text: `🔍 Nenhum vídeo encontrado para: "${cleanQ}". Tente outros termos.` });
+        }
+        video = videos[0];
+      }
+
+      await sock.sendMessage(from, {
+        text: `⏳ *Processando download de vídeo...*\n\n` +
+          `🎬 *Título:* ${video.title}\n` +
+          `⏱️ *Duração:* ${video.timestamp || 'N/A'}\n` +
+          `👤 *Canal:* ${video.author?.name || 'YouTube'}\n\n` +
+          `_Aguarde alguns instantes enquanto preparamos seu vídeo..._`
+      });
+
+      // 1. Tenta baixar via yt-dlp local (rápido e sem limite)
+      let videoBuffer = null;
+      try {
+        const { spawn } = require('child_process');
+        videoBuffer = await new Promise((resolve, reject) => {
+          const proc = spawn('python', [
+            '-m', 'yt_dlp',
+            '-f', 'best[ext=mp4][filesize<50M]/bestvideo[height<=720]+bestaudio/best[height<=720]/b',
+            '--max-filesize', '50M',
+            '-o', '-',
+            video.url
+          ]);
+          const chunks = [];
+          proc.stdout.on('data', chunk => chunks.push(chunk));
+          proc.on('close', code => {
+            if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
+            else reject(new Error('yt-dlp video falhou'));
+          });
+          setTimeout(() => {
+            try { proc.kill(); } catch (_) {}
+            reject(new Error('Timeout de download de vídeo'));
+          }, 45000);
+        });
+      } catch (_) {}
+
+      // 2. Fallback via API pública de download
+      if (!videoBuffer || videoBuffer.length < 5000) {
+        try {
+          const apiRes = await fetch(`https://api.vreden.my.id/api/ytmp4?url=${encodeURIComponent(video.url)}`, { signal: AbortSignal.timeout(15000) });
+          const apiData = await apiRes.json();
+          const downloadUrl = apiData?.result?.download?.url || apiData?.result?.url;
+          if (downloadUrl) {
+            const mediaRes = await fetch(downloadUrl);
+            videoBuffer = Buffer.from(await mediaRes.arrayBuffer());
+          }
+        } catch (_) {}
+      }
+
+      if (videoBuffer && videoBuffer.length > 5000) {
+        const caption = `🎬 *${video.title}*\n\n` +
+          `⏱️ *Duração:* ${video.timestamp || 'N/A'}\n` +
+          `👤 *Canal:* ${video.author?.name || 'YouTube'}\n` +
+          `🔗 *Link:* ${video.url}`;
+
+        await sock.sendMessage(from, {
+          video: videoBuffer,
+          caption,
+          mimetype: 'video/mp4'
+        });
+
+        // Bonifica usuário
+        const phone = from.split('@')[0].split(':')[0].replace(/\D/g, '');
+        models.addLoyaltyPoints('whatsapp', phone, 5, 5);
+      } else {
+        await sock.sendMessage(from, {
+          text: `⚠️ *Não foi possível carregar o vídeo completo (pode exceder 50MB ou ter restrição de idade).*\n\n` +
+            `🔗 Assista diretamente pelo YouTube:\n${video.url}`
+        });
+      }
+    } catch (err) {
+      console.error('[GataFeatures ❌ Erro em handlePlayVideo]:', err.message);
+      await sock.sendMessage(from, { text: `❌ Erro ao baixar vídeo: ${err.message}` });
+    }
+  }
+
+  // Comando !twitter / !x (Download de vídeo ou post do Twitter/X)
+  async handleTwitter(sock, from, url) {
+    const cleanUrl = url.replace(/^(?:!|\/)(?:twitter|x|twdl)\s*/i, '').trim();
+    if (!cleanUrl || (!cleanUrl.includes('twitter.com') && !cleanUrl.includes('x.com'))) {
+      return sock.sendMessage(from, { text: `🐦 Envie o link do post do Twitter/X! Exemplo: *!x https://x.com/user/status/...*` });
+    }
+
+    await sock.sendMessage(from, { text: `⏳ Processando download do Twitter/X...` });
+
+    try {
+      // 1. Tenta yt-dlp local
+      try {
+        const { spawn } = require('child_process');
+        const buf = await new Promise((resolve, reject) => {
+          const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'b', '-o', '-', cleanUrl]);
+          const chunks = [];
+          proc.stdout.on('data', chunk => chunks.push(chunk));
+          proc.on('close', code => {
+            if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
+            else reject(new Error('yt-dlp twitter falhou'));
+          });
+          setTimeout(() => { try { proc.kill(); } catch (_) {} reject(new Error('Timeout Twitter')); }, 30000);
+        });
+
+        if (buf && buf.length > 5000) {
+          return sock.sendMessage(from, {
+            video: buf,
+            caption: '🎬 *Vídeo do Twitter/X Baixado com Sucesso!*'
+          });
+        }
+      } catch (_) {}
+
+      // 2. Fallback via API pública
+      const res = await fetch(`https://api.vreden.my.id/api/twitter?url=${encodeURIComponent(cleanUrl)}`, { signal: AbortSignal.timeout(10000) });
+      const data = await res.json();
+      const mediaUrl = data?.result?.url || data?.result?.video?.[0]?.url || data?.result?.[0]?.url;
+
+      if (mediaUrl) {
+        const mediaRes = await fetch(mediaUrl);
+        const mediaBuf = Buffer.from(await mediaRes.arrayBuffer());
+        if (mediaUrl.includes('.mp4')) {
+          await sock.sendMessage(from, { video: mediaBuf, caption: '🎬 *Vídeo do Twitter/X Baixado!*' });
+        } else {
+          await sock.sendMessage(from, { image: mediaBuf, caption: '📸 *Imagem do Twitter/X Baixada!*' });
+        }
+        return;
+      }
+
+      await sock.sendMessage(from, { text: `⚠️ Não foi possível baixar esta mídia do Twitter/X (verifique se o post não é privado ou contém apenas texto).` });
+    } catch (err) {
+      await sock.sendMessage(from, { text: `❌ Erro no download do Twitter/X: ${err.message}` });
+    }
+  }
+
+  // Comando !fb / !facebook (Download de vídeo ou Reels do Facebook)
+  async handleFacebook(sock, from, url) {
+    const cleanUrl = url.replace(/^(?:!|\/)(?:fb|facebook)\s*/i, '').trim();
+    if (!cleanUrl || (!cleanUrl.includes('facebook.com') && !cleanUrl.includes('fb.watch'))) {
+      return sock.sendMessage(from, { text: `📘 Envie o link do vídeo do Facebook! Exemplo: *!fb https://fb.watch/...*` });
+    }
+
+    await sock.sendMessage(from, { text: `⏳ Processando download do Facebook...` });
+
+    try {
+      // 1. Tenta yt-dlp local
+      try {
+        const { spawn } = require('child_process');
+        const buf = await new Promise((resolve, reject) => {
+          const proc = spawn('python', ['-m', 'yt_dlp', '-f', 'b', '-o', '-', cleanUrl]);
+          const chunks = [];
+          proc.stdout.on('data', chunk => chunks.push(chunk));
+          proc.on('close', code => {
+            if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
+            else reject(new Error('yt-dlp fb falhou'));
+          });
+          setTimeout(() => { try { proc.kill(); } catch (_) {} reject(new Error('Timeout FB')); }, 30000);
+        });
+
+        if (buf && buf.length > 5000) {
+          return sock.sendMessage(from, {
+            video: buf,
+            caption: '🎬 *Vídeo do Facebook Baixado com Sucesso!*'
+          });
+        }
+      } catch (_) {}
+
+      // 2. Fallback via API pública
+      const res = await fetch(`https://api.vreden.my.id/api/fbdownload?url=${encodeURIComponent(cleanUrl)}`, { signal: AbortSignal.timeout(10000) });
+      const data = await res.json();
+      const mediaUrl = data?.result?.url || data?.result?.hd || data?.result?.sd;
+
+      if (mediaUrl) {
+        const mediaRes = await fetch(mediaUrl);
+        const mediaBuf = Buffer.from(await mediaRes.arrayBuffer());
+        return sock.sendMessage(from, { video: mediaBuf, caption: '🎬 *Vídeo do Facebook Baixado!*' });
+      }
+
+      await sock.sendMessage(from, { text: `⚠️ Não foi possível baixar este vídeo do Facebook (verifique se o vídeo é público).` });
+    } catch (err) {
+      await sock.sendMessage(from, { text: `❌ Erro no download do Facebook: ${err.message}` });
+    }
+  }
+
+  // Comando !todos / !tagall / !marcar (Marca todos os participantes do grupo)
+  async handleTagAll(sock, from, text, metadata) {
+    const customMsg = text.replace(/^(?:!|\/)(?:todos|tagall|marcar)\s*/i, '').trim();
+    const participants = metadata?.participants || [];
+    if (!participants.length) {
+      return sock.sendMessage(from, { text: `⚠️ Nenhum participante encontrado para marcar.` });
+    }
+
+    const mentions = participants.map(p => {
+      const raw = typeof p === 'string' ? p : (p?.id || p?.jid || '');
+      return raw.includes('@') ? raw : `${raw.replace(/\D/g, '')}@s.whatsapp.net`;
+    }).filter(Boolean);
+
+    let listText = `📢 *CHAMADA GERAL DO GRUPO*\n\n` +
+      `${customMsg ? `💬 *Mensagem:* ${customMsg}\n\n` : ''}` +
+      `👥 *Membros (${participants.length}):*\n`;
+
+    participants.forEach((p, idx) => {
+      const raw = typeof p === 'string' ? p : (p?.id || p?.jid || '');
+      const phone = raw.split('@')[0].split(':')[0].replace(/\D/g, '');
+      listText += `• @${phone}\n`;
+    });
+
+    listText += `\n⚡ _Notificação enviada para todos os membros do grupo!_`;
+
+    return sock.sendMessage(from, {
+      text: listText,
+      mentions
+    });
+  }
+
+  // Anti-Privado / Anti-PV (Bloqueia ou redireciona interações no privado se ativo)
+  async handleAntiPrivado(sock, from, senderPhone) {
+    const isAntiPrivadoActive = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';
+    if (!isAntiPrivadoActive) return false;
+
+    const groupUrl = models.getSetting('OFFICIAL_GROUP_URL', 'nosso grupo oficial');
+    await sock.sendMessage(from, {
+      text: `🚫 *ATENDIMENTO PRIVADO RESTRITO*\n\n` +
+        `Olá @${senderPhone}! Por motivos de organização e segurança, este bot opera exclusivamente dentro de nossos grupos oficiais.\n\n` +
+        `🔗 *Acesse o grupo oficial para interagir, participar e comprar:*\n${groupUrl}`,
+      mentions: [`${senderPhone}@s.whatsapp.net`]
+    });
+    return true;
+  }
+
+  // Comando !encurtar / !tinyurl
+  async handleEncurtar(sock, from, text) {
+    const url = text.replace(/^(?:!|\/)(?:encurtar|tinyurl|shorturl)\s*/i, '').trim();
+    if (!url || !url.startsWith('http')) {
+      return sock.sendMessage(from, { text: `🔗 Envie um link válido para encurtar! Exemplo: *!encurtar https://sua-loja.com/produto-especial*` });
+    }
+
+    try {
+      const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`);
+      const shortUrl = (await res.text()).trim();
+      if (shortUrl && shortUrl.startsWith('http')) {
+        return sock.sendMessage(from, {
+          text: `🔗 *LINK ENCURTADO COM SUCESSO!*\n\n` +
+            `🌐 *Original:* ${url}\n` +
+            `✂️ *Encurtado:* ${shortUrl}\n\n` +
+            `_Pronto para compartilhar em campanhas ou conversas!_`
+        });
+      }
+      throw new Error('Falha na resposta do encurtador');
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao encurtar link: ${err.message}` });
+    }
+  }
+
+  // Comando !qr / !qrcode <texto ou link>
+  async handleQRCode(sock, from, text) {
+    const content = text.replace(/^(?:!|\/)(?:qr|qrcode)\s*/i, '').trim();
+    if (!content) {
+      return sock.sendMessage(from, { text: `📱 Digite o texto ou link para gerar o QR Code! Exemplo: *!qr https://meusite.com* ou *!qr Chave Pix 11999998888*` });
+    }
+
+    try {
+      const QRCode = require('qrcode');
+      const buf = await QRCode.toBuffer(content, {
+        type: 'png',
+        margin: 2,
+        width: 400,
+        color: { dark: '#000000', light: '#FFFFFF' }
+      });
+
+      return sock.sendMessage(from, {
+        image: buf,
+        caption: `📱 *QR CODE GERADO COM SUCESSO!*\n\n📝 *Conteúdo:* ${content.slice(0, 100)}${content.length > 100 ? '...' : ''}`
+      });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao gerar QR Code: ${err.message}` });
+    }
+  }
+
+  // Comando !cep / !endereco <cep>
+  async handleCEP(sock, from, text) {
+    const rawCep = text.replace(/^(?:!|\/)(?:cep|endereco)\s*/i, '').replace(/\D/g, '');
+    if (!rawCep || rawCep.length !== 8) {
+      return sock.sendMessage(from, { text: `📍 Digite um CEP com 8 dígitos! Exemplo: *!cep 01001-000* ou *!cep 01001000*` });
+    }
+
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`);
+      const data = await res.json();
+      if (data.erro) {
+        return sock.sendMessage(from, { text: `❌ CEP *${rawCep}* não encontrado.` });
+      }
+
+      const msg = `📍 *CONSULTA DE ENDEREÇO (ViaCEP)*\n\n` +
+        `📮 *CEP:* ${data.cep}\n` +
+        `🏠 *Logradouro:* ${data.logradouro || 'N/A'}\n` +
+        `🏘️ *Bairro:* ${data.bairro || 'N/A'}\n` +
+        `🏙️ *Cidade:* ${data.localidade} - ${data.uf}\n` +
+        `📞 *DDD:* ${data.ddd || 'N/A'}`;
+
+      return sock.sendMessage(from, { text: msg });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Falha ao consultar CEP: ${err.message}` });
+    }
+  }
+
+  // Comando !calc / !calcular <expressao>
+  async handleCalc(sock, from, text) {
+    const expr = text.replace(/^(?:!|\/)(?:calc|calcular)\s*/i, '').trim();
+    if (!expr) {
+      return sock.sendMessage(from, { text: `🧮 Digite a expressão matemática! Exemplo: *!calc 150 * 0.85* ou *!calc (100 + 50) / 2*` });
+    }
+
+    // Apenas permite números e operadores matemáticos seguros (+ - * / ( ) . , ^ %)
+    if (/[^0-9+\-*/().,%^ ]/.test(expr)) {
+      return sock.sendMessage(from, { text: `⚠️ Expressão inválida. Use apenas números e operadores matemáticos (+, -, *, /, %).` });
+    }
+
+    try {
+      const sanitized = expr.replace(/,/g, '.').replace(/\^/g, '**').replace(/%/g, '/100');
+      const result = Function(`"use strict"; return (${sanitized});`)();
+      if (typeof result !== 'number' || isNaN(result) || !isFinite(result)) {
+        throw new Error('Resultado indefinido');
+      }
+
+      return sock.sendMessage(from, {
+        text: `🧮 *CALCULADORA INTELIGENTE*\n\n` +
+          `📝 *Conta:* ${expr}\n` +
+          `✅ *Resultado:* *${Number(result.toFixed(4))}*`
+      });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro no cálculo: expressão inválida.` });
+    }
   }
 }
 

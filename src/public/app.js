@@ -3790,9 +3790,20 @@ async function fetchGroupSettings() {
     const chkAnti = document.getElementById('chkGroupAntilink');
     const chkWel = document.getElementById('chkGroupWelcome');
     const txtMsg = document.getElementById('txtGroupWelcomeMsg');
+    const chkFake = document.getElementById('chkGroupAntifake');
+    const chkDel = document.getElementById('chkGroupAntidelete');
+    const chkView = document.getElementById('chkGroupAntiviewonce');
+    const chkBye = document.getElementById('chkGroupBye');
+    const txtBye = document.getElementById('txtGroupByeMsg');
+
     if (chkAnti) chkAnti.checked = !!data.antilink;
     if (chkWel) chkWel.checked = !!data.welcome;
     if (txtMsg) txtMsg.value = data.welcomeMsg || '';
+    if (chkFake) chkFake.checked = !!data.antifake;
+    if (chkDel) chkDel.checked = !!data.antidelete;
+    if (chkView) chkView.checked = data.antiviewonce !== false;
+    if (chkBye) chkBye.checked = !!data.bye;
+    if (txtBye) txtBye.value = data.byeMsg || '';
   } catch (_) {}
 }
 
@@ -3803,6 +3814,11 @@ async function saveGroupSettings(e) {
   const antilink = document.getElementById('chkGroupAntilink')?.checked;
   const welcome = document.getElementById('chkGroupWelcome')?.checked;
   const welcomeMsg = document.getElementById('txtGroupWelcomeMsg')?.value?.trim();
+  const antifake = document.getElementById('chkGroupAntifake')?.checked;
+  const antidelete = document.getElementById('chkGroupAntidelete')?.checked;
+  const antiviewonce = document.getElementById('chkGroupAntiviewonce')?.checked;
+  const bye = document.getElementById('chkGroupBye')?.checked;
+  const byeMsg = document.getElementById('txtGroupByeMsg')?.value?.trim();
 
   if (!groupId) {
     return alert('Informe o ID do Grupo.');
@@ -3812,7 +3828,17 @@ async function saveGroupSettings(e) {
     const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform, antilink, welcome, welcomeMsg })
+      body: JSON.stringify({
+        platform,
+        antilink,
+        welcome,
+        welcomeMsg,
+        antifake,
+        antidelete,
+        antiviewonce,
+        bye,
+        byeMsg
+      })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erro ao salvar configurações do grupo.');

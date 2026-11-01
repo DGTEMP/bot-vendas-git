@@ -2358,6 +2358,205 @@ async function main() {
     assert.strictEqual(models.getSetting(`BYE_MSG_${testGroup}`, ''), 'Adeus @{numero}! Sentiremos sua falta em {grupo}.');
   });
 
+  await runTest('Gata Nina: Downloader de Vídeos YouTube (!video / !ytmp4)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    let lastMsg = null;
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        lastMsg = typeof payload === 'string' ? payload : (payload.caption || payload.text || '');
+        return true;
+      }
+    };
+
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!video' }
+    }, mockSock);
+    assert(lastMsg.includes('DOWNLOADER DE VÍDEOS YOUTUBE'), 'Deve exibir instruções se comando vazio');
+  });
+
+  await runTest('Gata Nina: Downloaders de Redes Sociais (!x & !fb)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    let lastMsg = null;
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        lastMsg = typeof payload === 'string' ? payload : (payload.caption || payload.text || '');
+        return true;
+      }
+    };
+
+    // Twitter
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!x' }
+    }, mockSock);
+    assert(lastMsg.includes('Twitter/X'), 'Deve solicitar link do Twitter');
+
+    // Facebook
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!fb' }
+    }, mockSock);
+    assert(lastMsg.includes('Facebook'), 'Deve solicitar link do Facebook');
+  });
+
+  await runTest('Gata Nina: Utilitários Essenciais (!cep, !calc, !encurtar, !qr)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    // 1. Calculadora !calc
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!calc (100 * 2) - 50' }
+    }, mockSock);
+    const calcRes = sent[sent.length - 1];
+    assert(calcRes.text.includes('150'), 'Deve calcular 150');
+
+    // 2. Consulta CEP !cep
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!cep 01001000' }
+    }, mockSock);
+    const cepRes = sent[sent.length - 1];
+    assert(cepRes.text.includes('Praça da Sé') || cepRes.text.includes('CONSULTA DE ENDEREÇO'), 'Deve retornar endereço do ViaCEP');
+
+    // 3. Encurtador !encurtar
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!encurtar https://google.com' }
+    }, mockSock);
+    const tinyRes = sent[sent.length - 1];
+    assert(tinyRes.text.includes('tinyurl.com') || tinyRes.text.includes('LINK ENCURTADO'), 'Deve retornar link encurtado');
+
+    // 4. Gerador de QR Code !qr
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!qr https://loja.com' }
+    }, mockSock);
+    const qrRes = sent[sent.length - 1];
+    assert(qrRes.image && Buffer.isBuffer(qrRes.image), 'Deve retornar imagem em buffer do QR Code');
+  });
+
+  await runTest('Gata Nina: Moderação Avançada (!todos, !antidelete & !antiprivado)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const gataFeatures = require('./src/services/gataFeaturesService');
+    const testGroup = '120363088776655443@g.us';
+
+    let lastSent = null;
+    const mockAdminSock = {
+      user: { id: '5511988880000:1@s.whatsapp.net' },
+      groupMetadata: async () => ({
+        participants: [
+          { id: '5511988880000@s.whatsapp.net', admin: 'admin' },
+          { id: '5511911112222@s.whatsapp.net', admin: null },
+          { id: '5511933334444@s.whatsapp.net', admin: null }
+        ]
+      }),
+      sendMessage: async (jid, payload) => {
+        lastSent = payload;
+        return true;
+      }
+    };
+
+    // 1. Chamada geral !todos
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511988880000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!todos Reunião importante às 15h!' }
+    }, mockAdminSock);
+    assert(lastSent.text.includes('CHAMADA GERAL DO GRUPO'));
+    assert(lastSent.text.includes('Reunião importante'));
+    assert(lastSent.mentions.length === 3);
+
+    // 2. Anti-Delete: ativação e detecção de mensagem apagada
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511988880000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!antidelete on' }
+    }, mockAdminSock);
+    assert(lastSent.text.includes('ANTI-DELETE ATIVADO'));
+    assert.strictEqual(models.getSetting(`ANTIDELETE_${testGroup}`, 'false'), 'true');
+
+    // Simula mensagem enviada e salva no cache
+    const victimMsg = {
+      key: { remoteJid: testGroup, id: 'MSG_SECRETA_123', participant: '5511911112222@s.whatsapp.net' },
+      pushName: 'Participante Teste',
+      message: { conversation: 'Esta mensagem será apagada logo!' }
+    };
+    gataFeatures.recordMessage(victimMsg);
+
+    // Simula evento de exclusão / revoke
+    await gataFeatures.handleRevoke(mockAdminSock, testGroup, 'MSG_SECRETA_123', '5511911112222@s.whatsapp.net');
+    assert(lastSent.text.includes('MENSAGEM APAGADA DETECTADA'));
+    assert(lastSent.text.includes('Esta mensagem será apagada logo!'));
+
+    // 3. Anti-Privado (Anti-PV)
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511988880000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!antiprivado on' }
+    }, mockAdminSock);
+    assert(lastSent.text.includes('ANTI-PRIVADO ATIVADO'));
+    assert.strictEqual(models.getSetting('ANTIPRIVADO_GLOBAL', 'false'), 'true');
+
+    // Simula mensagem privada de usuário comum (deve ser redirecionado)
+    let pvtReply = null;
+    const mockPvtSock = {
+      sendMessage: async (jid, payload) => {
+        pvtReply = payload;
+        return true;
+      }
+    };
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511944445555@s.whatsapp.net', fromMe: false },
+      message: { conversation: 'Olá bot, você está disponível?' }
+    }, mockPvtSock);
+    assert(pvtReply !== null, 'Deve responder ao privado');
+    assert(pvtReply.text.includes('ATENDIMENTO PRIVADO RESTRITO'), 'Deve avisar que o atendimento privado é restrito');
+
+    // Desativa anti-privado para não interferir em outros testes
+    models.setSetting('ANTIPRIVADO_GLOBAL', 'false');
+  });
+
+  await runTest('Gata Nina & Painel Web: Configurações Expandidas de Grupo (/api/groups/:groupId/settings)', async () => {
+    const testGid = '120363077665544332@g.us';
+
+    // POST /api/groups/:groupId/settings com todos os novos toggles
+    const postRes = await fetchApi(`/api/groups/${encodeURIComponent(testGid)}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'whatsapp',
+        antilink: true,
+        welcome: true,
+        welcomeMsg: 'Bem-vindo {nome} ao {grupo}!',
+        antifake: true,
+        antidelete: true,
+        antiviewonce: true,
+        bye: true,
+        byeMsg: 'Adeus @{numero} de {grupo}!'
+      })
+    });
+
+    assert.strictEqual(postRes.status, 200);
+    assert.strictEqual(postRes.data.success, true);
+    assert.strictEqual(postRes.data.antifake, true);
+    assert.strictEqual(postRes.data.antidelete, true);
+    assert.strictEqual(postRes.data.bye, true);
+    assert.strictEqual(postRes.data.byeMsg, 'Adeus @{numero} de {grupo}!');
+
+    // GET /api/groups/:groupId/settings
+    const getRes = await fetchApi(`/api/groups/${encodeURIComponent(testGid)}/settings?platform=whatsapp`);
+    assert.strictEqual(getRes.status, 200);
+    assert.strictEqual(getRes.data.antifake, true);
+    assert.strictEqual(getRes.data.antidelete, true);
+    assert.strictEqual(getRes.data.bye, true);
+    assert.strictEqual(getRes.data.byeMsg, 'Adeus @{numero} de {grupo}!');
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

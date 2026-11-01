@@ -2042,10 +2042,27 @@ const models = {
       `WELCOME_MSG_${groupId}`,
       '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
     );
-    return { platform, groupId, antilink, welcome, welcomeMsg };
+    const antifake = this.getSetting(`ANTIFAKE_${groupId}`, 'false') === 'true';
+    const antiviewonce = this.getSetting(`ANTIVIEWONCE_${groupId}`, 'true') === 'true';
+    const antidelete = this.getSetting(`ANTIDELETE_${groupId}`, 'false') === 'true';
+    const bye = this.getSetting(`BYE_${groupId}`, 'false') === 'true';
+    const byeMsg = this.getSetting(
+      `BYE_MSG_${groupId}`,
+      '👋 @{numero} saiu ou foi removido do grupo *{grupo}*.'
+    );
+    return { platform, groupId, antilink, welcome, welcomeMsg, antifake, antiviewonce, antidelete, bye, byeMsg };
   },
 
-  updateGroupSettings(platform, groupId, { antilink = null, welcome = null, welcomeMsg = null } = {}) {
+  updateGroupSettings(platform, groupId, {
+    antilink = null,
+    welcome = null,
+    welcomeMsg = null,
+    antifake = null,
+    antiviewonce = null,
+    antidelete = null,
+    bye = null,
+    byeMsg = null
+  } = {}) {
     if (antilink !== null && antilink !== undefined) {
       this.setSetting(`ANTILINK_${groupId}`, antilink ? 'true' : 'false');
     }
@@ -2054,6 +2071,21 @@ const models = {
     }
     if (welcomeMsg !== null && welcomeMsg !== undefined) {
       this.setSetting(`WELCOME_MSG_${groupId}`, String(welcomeMsg));
+    }
+    if (antifake !== null && antifake !== undefined) {
+      this.setSetting(`ANTIFAKE_${groupId}`, antifake ? 'true' : 'false');
+    }
+    if (antiviewonce !== null && antiviewonce !== undefined) {
+      this.setSetting(`ANTIVIEWONCE_${groupId}`, antiviewonce ? 'true' : 'false');
+    }
+    if (antidelete !== null && antidelete !== undefined) {
+      this.setSetting(`ANTIDELETE_${groupId}`, antidelete ? 'true' : 'false');
+    }
+    if (bye !== null && bye !== undefined) {
+      this.setSetting(`BYE_${groupId}`, bye ? 'true' : 'false');
+    }
+    if (byeMsg !== null && byeMsg !== undefined) {
+      this.setSetting(`BYE_MSG_${groupId}`, String(byeMsg));
     }
     return this.getGroupSettings(platform, groupId);
   },

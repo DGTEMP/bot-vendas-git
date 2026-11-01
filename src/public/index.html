@@ -2923,15 +2923,37 @@
             </div>
           </div>
 
-          <div style="display: flex; gap: 20px; margin: 15px 0;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 15px 0;">
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
               <input type="checkbox" id="chkGroupAntilink">
-              <span><b>Proteção Anti-Link</b> (apaga links de outros grupos)</span>
+              <span><b>Proteção Anti-Link</b></span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="chkGroupAntifake">
+              <span><b>Proteção Anti-Fake (+55)</b></span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="chkGroupAntidelete">
+              <span><b>Anti-Delete</b></span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="chkGroupAntiviewonce">
+              <span><b>Anti-View-Once</b></span>
             </label>
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
               <input type="checkbox" id="chkGroupWelcome">
-              <span><b>Boas-Vindas Automáticas</b> para novos membros</span>
+              <span><b>Boas-Vindas</b></span>
             </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="chkGroupBye">
+              <span><b>Despedida</b></span>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-top: 10px;">
+            <label>Mensagem de Despedida Personalizada</label>
+            <textarea id="txtGroupByeMsg" class="form-control" rows="2" placeholder="👋 @{numero} saiu ou foi removido do grupo {grupo}."></textarea>
+            <small style="color: var(--text-muted); font-size: 11px;">Variáveis: <code>{nome}</code>, <code>{grupo}</code>, <code>{numero}</code></small>
           </div>
 
           <div class="form-group">

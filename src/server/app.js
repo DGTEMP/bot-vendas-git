@@ -1476,11 +1476,16 @@ function createServer() {
   app.post('/api/groups/:groupId/settings', (req, res) => {
     try {
       const platform = req.body?.platform || 'whatsapp';
-      const { antilink, welcome, welcomeMsg } = req.body;
+      const { antilink, welcome, welcomeMsg, antifake, antiviewonce, antidelete, bye, byeMsg } = req.body;
       const updated = models.updateGroupSettings(platform, req.params.groupId, {
         antilink,
         welcome,
-        welcomeMsg
+        welcomeMsg,
+        antifake,
+        antiviewonce,
+        antidelete,
+        bye,
+        byeMsg
       });
 
       models.logGroupAdminAction({
@@ -1489,7 +1494,7 @@ function createServer() {
         adminId: 'web_dashboard',
         adminName: 'Painel Web Admin',
         action: 'WEB_CONFIG_UPDATE',
-        details: `Configurações atualizadas: antilink=${antilink}, welcome=${welcome}`
+        details: `Configurações atualizadas: antilink=${antilink}, welcome=${welcome}, antifake=${antifake}, antidelete=${antidelete}`
       });
 
       res.json({ success: true, ...updated });
