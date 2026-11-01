@@ -165,8 +165,12 @@ async function loadMetrics() {
 // 4. WHATSAPP QR CODE POLLING
 function startQrPolling() {
   loadWhatsAppStatus();
+  loadAllWhatsAppAccounts();
   if (!qrPollingInterval) {
-    qrPollingInterval = setInterval(loadWhatsAppStatus, 3000);
+    qrPollingInterval = setInterval(() => {
+      loadWhatsAppStatus();
+      loadAllWhatsAppAccounts();
+    }, 3000);
   }
 }
 
@@ -2110,9 +2114,14 @@ async function saveArmyInstance(e) {
       body: JSON.stringify({ name, phone, daily_limit, warmup_mode })
     });
     if (res.ok) {
+      const created = await res.json();
       closeArmyInstanceModal();
       await loadArmyInstances();
       updateArmyMetrics();
+      loadAllWhatsAppAccounts();
+      if (created && created.id) {
+        openArmyQrModal(created.id);
+      }
     } else {
       const err = await res.json();
       alert('Erro ao salvar chip: ' + (err.error || 'Falha ao salvar'));
@@ -2141,7 +2150,6 @@ async function deleteArmyInstance(id) {
 async function connectArmyInstance(id) {
   try {
     openArmyQrModal(id);
-    await fetch(`/api/army/instances/${id}/connect`, { method: 'POST' });
   } catch (err) {
     alert('Erro ao conectar chip: ' + err.message);
   }
@@ -4402,3 +4410,133 @@ function copyQuickField(elementId) {
   });
 }
 
+
+// ==========================================
+// CENTRAL MULTI-CONTAS WHATSAPP (MULTI-DEVICE & SUB-BOTS)
+// ==========================================
+function openAddWhatsAppModal() {
+  openArmyInstanceModal();
+  const title = document.getElementById('modalArmyInstanceTitle');
+  if (title) title.innerHTML = '<i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Conectar Outra Conta WhatsApp';
+}
+
+async function loadAllWhatsAppAccounts() {
+  const container = document.getElementById('wppAccountsGrid');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/whatsapp/accounts');
+    const accounts = await res.json();
+
+    if (!accounts || accounts.length === 0) {
+      container.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 25px; text-align: center; color: var(--text-muted); background: rgba(255,255,255,0.02); border-radius: 8px;">
+          Nenhuma conta de WhatsApp cadastrada. Clique em "+ Adicionar Outra Conta WhatsApp" para começar.
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = accounts.map(acc => {
+      let statusBadge = '';
+      if (acc.connected) {
+        statusBadge = '<span class="badge badge-paid"><i class="fa-solid fa-circle-check"></i> Conectado</span>';
+      } else if (acc.status === 'WAITING_QR' || acc.hasQr) {
+        statusBadge = '<span class="badge" style="background:#f59e0b20; color:#f59e0b"><i class="fa-solid fa-qrcode"></i> Aguardando QR</span>';
+      } else if (acc.status === 'CONNECTING') {
+        statusBadge = '<span class="badge" style="background:#3b82f620; color:#3b82f6"><i class="fa-solid fa-spinner fa-spin"></i> Conectando...</span>';
+      } else {
+        statusBadge = '<span class="badge badge-canceled"><i class="fa-solid fa-circle-xmark"></i> Desconectado</span>';
+      }
+
+      const roleBadge = acc.is_main
+        ? '<span class="badge" style="background:#f0b90b20; color:#f0b90b; font-weight:700;"><i class="fa-solid fa-crown"></i> Matriz Principal</span>'
+        : '<span class="badge" style="background:#25d36620; color:#25d366; font-weight:600;"><i class="fa-brands fa-whatsapp"></i> Sub-Bot / Chip #' + acc.id + '</span>';
+
+      const phoneText = acc.phone ? `+${acc.phone}` : 'Aguardando pareamento de número';
+
+      return `
+        <div class="wpp-account-card ${acc.is_main ? 'main-account' : 'secondary-account'}">
+          <div>
+            <div class="wpp-account-header">
+              <div>
+                <div class="wpp-account-title">
+                  <i class="fa-brands fa-whatsapp" style="color: ${acc.is_main ? '#f59e0b' : '#25d366'}; font-size: 20px;"></i>
+                  ${acc.name || (acc.is_main ? 'WhatsApp Matriz' : 'Chip #' + acc.id)}
+                </div>
+                <div style="margin-top: 4px;">${roleBadge}</div>
+              </div>
+              <div>${statusBadge}</div>
+            </div>
+
+            <div class="wpp-account-phone">
+              <i class="fa-solid fa-mobile-screen"></i> <b>${phoneText}</b>
+            </div>
+
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+              <span>Envios hoje: <b>${acc.messages_sent_today || 0}</b> / ${acc.daily_limit || 50}</span>
+            </div>
+          </div>
+
+          <div class="wpp-account-actions">
+            <button class="btn btn-sm btn-primary" onclick="openArmyQrModal(${acc.id})" title="Abrir QR Code ou Código de Pareamento">
+              <i class="fa-solid fa-qrcode"></i> ${acc.connected ? 'Ver Conexão' : 'Conectar'}
+            </button>
+            ${acc.connected ? `
+              <button class="btn btn-sm btn-secondary" onclick="disconnectWhatsAppAccount(${acc.id})" title="Desconectar este aparelho">
+                <i class="fa-solid fa-pause"></i> Desconectar
+              </button>
+            ` : ''}
+            <button class="btn btn-sm btn-secondary" onclick="resetWhatsAppAccountSession(${acc.id})" title="Limpar sessão se travado">
+              <i class="fa-solid fa-arrows-rotate"></i> Resetar
+            </button>
+            ${!acc.is_main ? `
+              <button class="btn btn-sm btn-danger" onclick="deleteWhatsAppAccount(${acc.id})" title="Excluir este número secundário">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar contas WhatsApp:', err);
+  }
+}
+
+async function disconnectWhatsAppAccount(id) {
+  try {
+    await fetch(`/api/whatsapp/accounts/${id}/disconnect`, { method: 'POST' });
+    await loadAllWhatsAppAccounts();
+    await loadArmyInstances();
+  } catch (err) {
+    alert('Erro ao desconectar: ' + err.message);
+  }
+}
+
+async function resetWhatsAppAccountSession(id) {
+  if (!confirm('Deseja realmente resetar esta sessão? Você precisará ler o QR Code ou digitar o código novamente.')) return;
+  try {
+    await fetch(`/api/whatsapp/accounts/${id}/reset`, { method: 'POST' });
+    alert('Sessão resetada! Abra a conexão para parear novamente.');
+    await loadAllWhatsAppAccounts();
+    await loadArmyInstances();
+  } catch (err) {
+    alert('Erro ao resetar: ' + err.message);
+  }
+}
+
+async function deleteWhatsAppAccount(id) {
+  if (!confirm('Deseja realmente remover esta conta secundária de WhatsApp?')) return;
+  try {
+    const res = await fetch(`/api/whatsapp/accounts/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      await loadAllWhatsAppAccounts();
+      await loadArmyInstances();
+    } else {
+      const data = await res.json();
+      alert('Erro: ' + data.error);
+    }
+  } catch (err) {
+    alert('Erro ao excluir conta: ' + err.message);
+  }
+}

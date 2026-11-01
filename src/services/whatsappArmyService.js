@@ -11,6 +11,7 @@ class WhatsAppArmyService {
     this.activeSockets = new Map(); // instanceId -> Baileys socket
     this.instanceQrs = new Map(); // instanceId -> { qr, qrDataUrl }
     this.campaignTimeouts = new Map(); // campaignId -> timer
+    this.startingInstances = new Set(); // instanceId sendo inicializado para evitar race conditions
     this.armyBaseFolder = path.join(__dirname, '..', '..', 'data', 'whatsapp_army');
     this.isSimulationMode = config.binance?.simulationMode || process.env.PIX_SIMULATION_MODE === 'true';
   }
@@ -53,7 +54,13 @@ class WhatsAppArmyService {
       };
     }
 
-    // Se já estiver rodando, para primeiro
+    // Evita loop de inicializações simultâneas (race conditions)
+    if (this.startingInstances.has(instanceId)) {
+      return { id: instanceId, status: 'CONNECTING' };
+    }
+    this.startingInstances.add(instanceId);
+
+    // Se já estiver rodando, encerra com segurança antes de reiniciar
     await this.stopInstance(instanceId);
 
     const folder = path.join(this.armyBaseFolder, `instance_${instanceId}`);
@@ -124,10 +131,13 @@ class WhatsAppArmyService {
           console.log(`[Exército WhatsApp ⚠️] Chip #${instanceId} desconectado (código ${statusCode}).`);
 
           if (isLoggedOut) {
-            console.log(`[Exército WhatsApp 🛑] Sessão desconectada por logout no Chip #${instanceId}.`);
+            console.log(`[Exército WhatsApp 🛑] Sessão desconectada por logout no Chip #${instanceId}. Limpando dados da sessão.`);
             models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
             this.instanceQrs.delete(instanceId);
-            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 5000);
+            // Limpa credenciais invalidadas para permitir nova conexão limpa
+            try {
+              if (fs.existsSync(folder)) fs.rmSync(folder, { recursive: true, force: true });
+            } catch (_) {}
           } else {
             models.updateArmyInstance(instanceId, { status: 'CONNECTING' });
             setTimeout(() => this.startInstance(instanceId).catch(() => {}), 4000);
@@ -175,14 +185,17 @@ class WhatsAppArmyService {
       });
 
       this.activeSockets.set(instanceId, sock);
+      this.startingInstances.delete(instanceId);
       return { id: instanceId, status: 'CONNECTING' };
     } catch (err) {
+      this.startingInstances.delete(instanceId);
       models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
       throw err;
     }
   }
 
   async stopInstance(instanceId) {
+    this.startingInstances.delete(instanceId);
     const sock = this.activeSockets.get(instanceId);
     if (sock) {
       try {
@@ -217,7 +230,11 @@ class WhatsAppArmyService {
   }
 
   async requestPairingCode(instanceId, phone) {
-    const cleanPhone = String(phone).replace(/[^0-9]/g, '');
+    let cleanPhone = String(phone).replace(/[^0-9]/g, '');
+    // Se digitou número BR com 10 ou 11 dígitos sem DDI (ex: 11999998888), adiciona 55 automaticamente
+    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+      cleanPhone = '55' + cleanPhone;
+    }
     if (!cleanPhone || cleanPhone.length < 10) {
       throw new Error('Informe o telefone com DDI e DDD (ex: 5511999998888)');
     }
@@ -274,6 +291,8 @@ class WhatsAppArmyService {
       const whatsappBot = require('../bots/whatsappBot');
       const st = whatsappBot.getConnectionStatus();
       return {
+        id: inst.id,
+        name: inst.name,
         connected: st.connected,
         hasQr: st.hasQr,
         qrDataUrl: st.qrDataUrl,
@@ -284,6 +303,8 @@ class WhatsAppArmyService {
     }
     const data = this.instanceQrs.get(instanceId);
     return {
+      id: inst ? inst.id : instanceId,
+      name: inst ? inst.name : `Chip #${instanceId}`,
       connected: inst ? inst.status === 'CONNECTED' : false,
       hasQr: !!data?.qrDataUrl,
       qrDataUrl: data?.qrDataUrl || null,
@@ -291,6 +312,65 @@ class WhatsAppArmyService {
       phone: inst?.phone || null,
       status: inst ? inst.status : 'DISCONNECTED'
     };
+  }
+
+  getAllAccounts() {
+    const instances = models.getArmyInstances();
+    const whatsappBot = require('../bots/whatsappBot');
+    const mainStatus = whatsappBot.getConnectionStatus();
+
+    return instances.map(inst => {
+      if (inst.is_main) {
+        return {
+          id: inst.id,
+          name: inst.name || 'WhatsApp Matriz Principal',
+          phone: mainStatus.phone || inst.phone,
+          is_main: true,
+          status: mainStatus.connected ? 'CONNECTED' : (mainStatus.hasQr ? 'WAITING_QR' : 'DISCONNECTED'),
+          connected: !!mainStatus.connected,
+          hasQr: !!mainStatus.hasQr,
+          qrDataUrl: mainStatus.qrDataUrl,
+          pairingCode: mainStatus.pairingCode,
+          daily_limit: inst.daily_limit,
+          messages_sent_today: inst.messages_sent_today,
+          active: inst.active
+        };
+      }
+      const qrData = this.instanceQrs.get(inst.id);
+      const isConnected = inst.status === 'CONNECTED';
+      return {
+        id: inst.id,
+        name: inst.name,
+        phone: inst.phone,
+        is_main: false,
+        status: inst.status,
+        connected: isConnected,
+        hasQr: !!qrData?.qrDataUrl,
+        qrDataUrl: qrData?.qrDataUrl || null,
+        pairingCode: qrData?.pairingCode || null,
+        daily_limit: inst.daily_limit,
+        messages_sent_today: inst.messages_sent_today,
+        active: inst.active
+      };
+    });
+  }
+
+  async createAndConnectInstance({ name, phone = null, daily_limit = 50 }) {
+    let cleanPhone = phone ? String(phone).replace(/\D/g, '') : null;
+    if (cleanPhone && (cleanPhone.length === 10 || cleanPhone.length === 11)) {
+      cleanPhone = '55' + cleanPhone;
+    }
+    const inst = models.createArmyInstance({
+      name: name || `WhatsApp Secundário #${Date.now().toString().slice(-4)}`,
+      phone: cleanPhone,
+      daily_limit: daily_limit || 50,
+      warmup_mode: 0
+    });
+    // Inicia Baileys imediatamente para preparar socket e QR code
+    this.startInstance(inst.id).catch(err => {
+      console.error(`[WhatsApp Multi-Contas ⚠️] Erro ao iniciar instância #${inst.id}:`, err.message);
+    });
+    return inst;
   }
 
   // ==========================================

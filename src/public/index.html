@@ -1682,10 +1682,36 @@
 
         <!-- TAB 10: CONEXÕES & QR CODE -->
         <section id="tab-connections" class="tab-pane">
+          <!-- CENTRAL DE CONTAS WHATSAPP (MULTI-DEVICE & SUB-BOTS) -->
+          <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 style="display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-brands fa-whatsapp wpp-color" style="font-size: 24px;"></i>
+                  Central Multi-Contas WhatsApp (Multi-Device &amp; Sub-Bots)
+                </h3>
+                <p class="section-desc" style="margin-bottom: 0;">
+                  Conecte múltiplos números de WhatsApp simultaneamente (Conta Matriz + Sub-Bots / Chips adicionais). Todos compartilham o mesmo catálogo comercial, pagamentos automáticos Pix/USDT e IA de atendimento.
+                </p>
+              </div>
+              <button class="btn btn-primary" onclick="openAddWhatsAppModal()" style="background: #25d366; border-color: #25d366; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-plus"></i> Adicionar Outra Conta WhatsApp
+              </button>
+            </div>
+            <div class="card-body">
+              <!-- Lista de Contas Renderizadas Dinamicamente -->
+              <div id="wppAccountsGrid" class="whatsapp-accounts-grid">
+                <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted);">
+                  <i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Carregando contas WhatsApp...
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="grid-2col">
             <div class="card">
               <div class="card-header">
-                <h3><i class="fa-brands fa-whatsapp wpp-color"></i> Conexão WhatsApp</h3>
+                <h3><i class="fa-solid fa-crown" style="color: #f59e0b;"></i> Conexão Rápida WhatsApp Matriz</h3>
                 <span id="wppBadge" class="badge">Desconectado</span>
               </div>
               <div class="card-body text-center">

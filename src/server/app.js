@@ -278,6 +278,95 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // MULTI-CONTAS WHATSAPP (MATRIZ + SUB-BOTS / CHIPS)
+  // ==========================================
+  app.get('/api/whatsapp/accounts', (req, res) => {
+    try {
+      res.json(whatsappArmyService.getAllAccounts());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/accounts', async (req, res) => {
+    try {
+      const { name, phone, daily_limit } = req.body;
+      const inst = await whatsappArmyService.createAndConnectInstance({ name, phone, daily_limit });
+      res.json({ success: true, instance: inst });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/whatsapp/accounts/:id/qr', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      res.json(whatsappArmyService.getInstanceQr(id));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/accounts/:id/pairing-code', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { phone } = req.body;
+      const result = await whatsappArmyService.requestPairingCode(id, phone);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/accounts/:id/connect', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await whatsappArmyService.startInstance(id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/accounts/:id/disconnect', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (id === 1) {
+        await whatsappBot.stop();
+      } else {
+        await whatsappArmyService.stopInstance(id);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/accounts/:id/reset', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await whatsappArmyService.resetInstanceSession(id);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/whatsapp/accounts/:id', (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (id === 1) {
+        return res.status(400).json({ error: 'A conta Matriz Principal não pode ser excluída.' });
+      }
+      whatsappArmyService.stopInstance(id).catch(() => {});
+      models.deleteArmyInstance(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Produtos & Categorias
   app.get('/api/products', (req, res) => {
     const products = models.getProducts(false);

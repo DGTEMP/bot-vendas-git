@@ -1157,6 +1157,10 @@ const models = {
     if (inst && inst.is_main) {
       throw new Error('Não é permitido remover a instância Matriz Principal.');
     }
+    try {
+      db.prepare('UPDATE campaign_leads SET sender_instance_id = 1 WHERE sender_instance_id = ?').run(id);
+      db.prepare('UPDATE lead_funnel_conversations SET assigned_instance_id = 1 WHERE assigned_instance_id = ?').run(id);
+    } catch (_) {}
     return db.prepare('DELETE FROM whatsapp_army_instances WHERE id = ?').run(id);
   },
 

@@ -814,3 +814,65 @@ body {
 .gap-2 { gap: 8px; }
 .gap-3 { gap: 14px; }
 .d-flex { display: flex; align-items: center; }
+
+/* Multi-Contas WhatsApp Grid & Cards */
+.whatsapp-accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 15px;
+}
+
+.wpp-account-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.wpp-account-card:hover {
+  border-color: #25d366;
+}
+
+.wpp-account-card.main-account {
+  border-left: 4px solid #f59e0b;
+}
+
+.wpp-account-card.secondary-account {
+  border-left: 4px solid #25d366;
+}
+
+.wpp-account-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.wpp-account-title {
+  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wpp-account-phone {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.wpp-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}

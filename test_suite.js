@@ -2557,6 +2557,89 @@ async function main() {
     assert.strictEqual(getRes.data.byeMsg, 'Adeus @{numero} de {grupo}!');
   });
 
+  await runTest('Gata Nina: Central Multi-Contas WhatsApp & Jadibot / Serbot (/api/whatsapp/accounts & !serbot)', async () => {
+    const localBaseUrl = `http://localhost:${testPort}`;
+    const whatsappBot = require('./src/bots/whatsappBot');
+
+    // 1. GET /api/whatsapp/accounts deve listar ao menos a Matriz
+    const listRes = await fetch(`${localBaseUrl}/api/whatsapp/accounts`);
+    const listData = await listRes.json();
+    assert(Array.isArray(listData));
+    assert(listData.length >= 1);
+    const mainAcc = listData.find(a => a.is_main);
+    assert(mainAcc, 'Deve conter conta Matriz');
+
+    // 2. POST /api/whatsapp/accounts cria nova conta secundária
+    const createRes = await fetch(`${localBaseUrl}/api/whatsapp/accounts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'WhatsApp Atendimento 02 Teste', phone: '11988887777', daily_limit: 60 })
+    });
+    const createData = await createRes.json();
+    assert.strictEqual(createRes.status, 200);
+    assert.strictEqual(createData.success, true);
+    assert(createData.instance.id > 1);
+    assert.strictEqual(createData.instance.phone, '5511988887777'); // auto-adicionou DDI 55
+
+    const subId = createData.instance.id;
+
+    // 3. POST /api/whatsapp/accounts/:id/pairing-code gera código de pareamento de 8 dígitos
+    const pairRes = await fetch(`${localBaseUrl}/api/whatsapp/accounts/${subId}/pairing-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '5511988887777' })
+    });
+    const pairData = await pairRes.json();
+    assert(pairData.pairingCode);
+    assert(pairData.pairingCode.length >= 8);
+
+    // 4. GET /api/whatsapp/accounts/:id/qr retorna status e código
+    const qrRes = await fetch(`${localBaseUrl}/api/whatsapp/accounts/${subId}/qr`);
+    const qrData = await qrRes.json();
+    assert.strictEqual(qrData.pairingCode, pairData.pairingCode);
+
+    // 5. Teste de comando de chat: !serbot <numero>
+    let serbotReply = null;
+    const mockSerbotSock = {
+      sendMessage: async (jid, p) => { serbotReply = p; return true; }
+    };
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999990000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!serbot 5511966665555' }
+    }, mockSerbotSock);
+    assert(serbotReply !== null, 'Deve responder ao !serbot');
+    assert(serbotReply.text.includes('GATABOT / SUB-BOT MULTI-CONEXÃO'));
+    assert(serbotReply.text.includes('CÓDIGO DE CONEXÃO'));
+    assert(serbotReply.text.includes('5511966665555'));
+
+    // 6. Teste de comando de chat: !bots
+    let botsReply = null;
+    const mockBotsSock = {
+      sendMessage: async (jid, p) => { botsReply = p; return true; }
+    };
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999990000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!bots' }
+    }, mockBotsSock);
+    assert(botsReply !== null, 'Deve responder ao !bots');
+    assert(botsReply.text.includes('CONTAS DE WHATSAPP CONECTADAS'));
+
+    // 7. Bloqueio de exclusão da Matriz (#1)
+    const delMainRes = await fetch(`${localBaseUrl}/api/whatsapp/accounts/1`, { method: 'DELETE' });
+    assert.strictEqual(delMainRes.status, 400);
+
+    // 8. Exclusão da conta secundária de teste
+    const delSubRes = await fetch(`${localBaseUrl}/api/whatsapp/accounts/${subId}`, { method: 'DELETE' });
+    assert.strictEqual(delSubRes.status, 200);
+
+    // Limpeza de instâncias secundárias de teste do banco para manter DB impecável
+    models.getArmyInstances().forEach(i => {
+      if (!i.is_main) {
+        try { models.deleteArmyInstance(i.id); } catch (_) {}
+      }
+    });
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

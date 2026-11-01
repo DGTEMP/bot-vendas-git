@@ -1303,6 +1303,119 @@ class GataFeaturesService {
       return sock.sendMessage(from, { text: `❌ Erro no cálculo: expressão inválida.` });
     }
   }
+
+  // ==========================================
+  // MULTI-DISPOSITIVOS & JADIBOT / SERBOT (GATABOT-MD)
+  // ==========================================
+
+  // Comando !serbot / !jadibot / !subbot / !code
+  async handleSerBot(sock, from, text, senderPhone, isGroup) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    const rawArgs = text.replace(/^(?:!|\/)(?:serbot|jadibot|subbot|conectar|code)\s*/i, '').trim();
+    let phoneArg = rawArgs.replace(/\D/g, '');
+
+    // Se não passou número e está no privado, pode usar o número de quem chamou
+    if (!phoneArg && !isGroup && senderPhone && senderPhone.length >= 10) {
+      phoneArg = senderPhone;
+    }
+
+    if (!phoneArg || phoneArg.length < 10) {
+      const infoMsg = `🐱 *GATABOT / SUB-BOT MULTI-DISPOSITIVOS* 🐱\n\n` +
+        `Você pode conectar múltiplos números de WhatsApp para vender e responder juntos com o bot!\n\n` +
+        `📱 *Como Conectar com Código de 8 Dígitos:*\n` +
+        `Envie o comando com seu número (com DDD):\n` +
+        `👉 *!serbot 5511999998888* ou *!code 5511999998888*\n\n` +
+        `🌐 *Pelo Painel Web:*\n` +
+        `Acesse http://localhost:3000 > *Conexões* e clique em *+ Adicionar Outra Conta WhatsApp* para escanear QR Code ou gerar código na tela!\n\n` +
+        `💡 Digite *!bots* para ver todas as contas conectadas agora.`;
+      return sock.sendMessage(from, { text: infoMsg });
+    }
+
+    if (phoneArg.length === 10 || phoneArg.length === 11) {
+      phoneArg = '55' + phoneArg;
+    }
+
+    await sock.sendMessage(from, { text: `⏳ Gerando código de conexão seguro para o número *+${phoneArg}*... Aguarde alguns segundos.` });
+
+    try {
+      // 1. Cria ou reutiliza instância secundária
+      const newInst = await whatsappArmyService.createAndConnectInstance({
+        name: `Sub-Bot +${phoneArg}`,
+        phone: phoneArg,
+        daily_limit: 100
+      });
+
+      // Aguarda o socket iniciar
+      await new Promise(r => setTimeout(r, 2000));
+
+      // 2. Solicita código de pareamento
+      const pairingRes = await whatsappArmyService.requestPairingCode(newInst.id, phoneArg);
+      const code = pairingRes.pairingCode;
+
+      const successMsg = `🐱 *GATABOT / SUB-BOT MULTI-CONEXÃO* 🐱\n\n` +
+        `Código de pareamento gerado com sucesso para *+${phoneArg}*!\n\n` +
+        `🔑 *SEU CÓDIGO DE CONEXÃO:* \n` +
+        `👉 *${code}* 👈\n\n` +
+        `📋 *PASSO A PASSO NO SEU WHATSAPP:*\n` +
+        `1. Abra o WhatsApp do celular que quer conectar.\n` +
+        `2. Toque nos três pontinhos ⋮ ou *Configurações* > *Aparelhos Conectados*.\n` +
+        `3. Toque em *Conectar um Aparelho*.\n` +
+        `4. Toque em *Conectar com número de telefone* (embaixo da tela).\n` +
+        `5. Digite o código de 8 dígitos: *${code}*\n\n` +
+        `⏱️ O código expira em 2 minutos. Assim que conectar, este WhatsApp responderá automaticamente a todos os comandos e catálogo!`;
+
+      return sock.sendMessage(from, { text: successMsg });
+    } catch (err) {
+      return sock.sendMessage(from, {
+        text: `❌ Não foi possível gerar o código de conexão para +${phoneArg}: ${err.message}\n\nTente novamente ou conecte pelo Painel Web em http://localhost:3000 > Conexões.`
+      });
+    }
+  }
+
+  // Comando !bots / !subbots / !listabots
+  async handleListBots(sock, from) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    try {
+      const accounts = whatsappArmyService.getAllAccounts();
+      const onlineCount = accounts.filter(a => a.connected).length;
+
+      let msg = `📱 *CONTAS DE WHATSAPP CONECTADAS (MULTI-DEVICE)* 📱\n\n` +
+        `Total de contas cadastradas: *${accounts.length}* (${onlineCount} Online)\n\n`;
+
+      accounts.forEach((a, idx) => {
+        const icon = a.is_main ? '👑' : '🤖';
+        const stIcon = a.connected ? '🟢 Conectado' : (a.hasQr ? '🟡 Aguardando QR' : '🔴 Desconectado');
+        const phoneFormatted = a.phone ? `+${a.phone}` : 'Sem número registrado';
+        msg += `${idx + 1}. ${icon} *${a.name}*\n` +
+               `   • Telefone: ${phoneFormatted}\n` +
+               `   • Status: ${stIcon}\n` +
+               `   • Envios hoje: ${a.messages_sent_today || 0}/${a.daily_limit || 50}\n\n`;
+      });
+
+      msg += `💡 Para conectar mais um WhatsApp, envie *!serbot <numero>* ou use o Painel Web em http://localhost:3000 > *Conexões*!`;
+      return sock.sendMessage(from, { text: msg });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao listar contas: ${err.message}` });
+    }
+  }
+
+  // Comando !stopbot / !pararbot / !desconectarbot
+  async handleStopBot(sock, from, senderPhone, text) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    const models = require('../db/models');
+    try {
+      const instances = models.getArmyInstances();
+      const myInst = instances.find(i => !i.is_main && i.phone && senderPhone && i.phone.includes(senderPhone));
+      if (!myInst) {
+        return sock.sendMessage(from, { text: `⚠️ Nenhuma sessão secundária vinculada ao seu número para desconectar.` });
+      }
+
+      await whatsappArmyService.stopInstance(myInst.id);
+      return sock.sendMessage(from, { text: `🛑 Sua sessão de WhatsApp secundário (*${myInst.name}*) foi desconectada com sucesso.` });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao desconectar: ${err.message}` });
+    }
+  }
 }
 
 module.exports = new GataFeaturesService();

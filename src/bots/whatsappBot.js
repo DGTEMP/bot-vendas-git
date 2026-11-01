@@ -1559,6 +1559,21 @@ class WhatsAppBotService {
       return gataFeatures.handleRoleta(activeSock, from, senderPhone, senderName);
     }
 
+    // 14.1 Multi-Contas & Jadibot / Serbot: !serbot / !jadibot / !subbot / !code
+    if (/^(?:!|\/)(?:serbot|jadibot|subbot|conectar|code)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleSerBot(activeSock, from, text, senderPhone, isGroup);
+    }
+
+    // 14.2 Lista de Bots Conectados: !bots / !subbots / !listabots
+    if (/^(?:!|\/)(?:bots|subbots|listabots|chips)$/i.test(lower)) {
+      return gataFeatures.handleListBots(activeSock, from);
+    }
+
+    // 14.3 Parar Sub-bot: !stopbot / !pararbot / !desconectarbot
+    if (/^(?:!|\/)(?:stopbot|pararbot|desconectarbot)$/i.test(lower)) {
+      return gataFeatures.handleStopBot(activeSock, from, senderPhone, text);
+    }
+
     // 15. Menu Geral de Comandos Gata Nina + Loja: !comandos / !menu2 / !gatanina
     if (/^(?:!|\/)(?:comandos|menu2|gatanina|ajudatudo)$/i.test(lower)) {
       const gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
@@ -1576,6 +1591,10 @@ class WhatsAppBotService {
         `• *!fb <link>* — Baixa vídeos e reels do Facebook\n` +
         `• *!allstories <@usuario>* — Baixa todos os stories de um perfil\n` +
         `• *!scrapinsta <@usuario>* — Raio-X completo: métricas, rede e maturidade intelectual\n\n` +
+        `🔗 *Multi-Dispositivos & Sub-Bots (GataBot-MD):*\n` +
+        `• *!serbot <numero>* ou *!code <numero>* — Conecta outro WhatsApp com código de 8 dígitos\n` +
+        `• *!bots* ou *!subbots* — Lista todos os WhatsApps conectados\n` +
+        `• *!stopbot* — Desconecta sua sessão de sub-bot\n\n` +
         `🤖 *Inteligência Artificial & Utilitários:*\n` +
         `• *!ia <pergunta>* — Converse com o ChatGPT / Gemini integrado\n` +
         `• *!imagine <ideia>* — Gera arte inédita com IA\n` +
