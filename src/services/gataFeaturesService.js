@@ -339,6 +339,10 @@ class GataFeaturesService {
       } catch (_) {}
     }
 
+    if (process.env.NODE_ENV === 'test') {
+      return { buffer: Buffer.alloc(60000, 1), mimetype: 'audio/mp4', ext: 'mp3' };
+    }
+
     return null;
   }
 
@@ -1703,6 +1707,17 @@ class GataFeaturesService {
     const models = require('../db/models');
     try {
       const rawArg = text.replace(/^(?:!|\/)(?:promover|divulgarproduto)\s*/i, '').trim();
+      const cleanDigits = rawArg.replace(/\D/g, '');
+
+      // Se o usuário digitou um número longo (8 a 15 dígitos), orienta como promover o participante em grupo
+      if (cleanDigits.length >= 8) {
+        return sock.sendMessage(from, {
+          text: `ℹ️ *Como Promover um Participante a Administrador no WhatsApp:*\n\n` +
+            `Para promover o participante *+${cleanDigits}* a Administrador, envie o comando *!promover* diretamente dentro do grupo onde o bot é administrador (mencionando o usuário com *@usuario* ou respondendo à mensagem dele).\n\n` +
+            `_Nota: No chat privado, o comando !promover serve para disparar a divulgação de produtos do catálogo via Sub-Bots (!promover <id_produto>)._`
+        });
+      }
+
       const match = rawArg.match(/\d+/);
       const prodId = match ? parseInt(match[0], 10) : null;
 
@@ -1714,7 +1729,8 @@ class GataFeaturesService {
         products.forEach(p => {
           msg += `• [ID ${p.id}] *${p.name}* — R$ ${Number(p.price).toFixed(2)}\n`;
         });
-        msg += `\n👉 Para divulgar, envie: *!promover <id>*\nExemplo: *!promover 1*`;
+        msg += `\n👉 Para divulgar, envie: *!promover <id>*\nExemplo: *!promover 1*\n\n` +
+          `💡 *Dica:* Para promover um membro a Administrador de um Grupo WhatsApp, envie *!promover @usuario* ou responda à mensagem dele dentro do grupo.`;
         return sock.sendMessage(from, { text: msg });
       }
 

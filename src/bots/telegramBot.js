@@ -63,6 +63,11 @@ class TelegramBotService {
     if (!ctx.chat || ctx.chat.type === 'private') {
       return { isGroup: false, isRequesterAdmin: true, isBotAdmin: false };
     }
+    const senderId = ctx.from?.id ? String(ctx.from.id) : '';
+    const adminIdSetting = models.getSetting('ADMIN_TELEGRAM_ID', '');
+    const ownerIdSetting = models.getSetting('OWNER_TELEGRAM_ID', '');
+    const isGlobalAdmin = !!((adminIdSetting && adminIdSetting.includes(senderId)) || (ownerIdSetting && ownerIdSetting.includes(senderId)));
+
     try {
       let isBotAdmin = false;
       if (ctx.botInfo?.id) {
@@ -70,15 +75,15 @@ class TelegramBotService {
         isBotAdmin = botMember.status === 'administrator';
       }
 
-      let isRequesterAdmin = false;
-      if (ctx.from?.id) {
+      let isRequesterAdmin = isGlobalAdmin;
+      if (!isRequesterAdmin && ctx.from?.id) {
         const requesterMember = await ctx.getChatMember(ctx.from.id);
         isRequesterAdmin = requesterMember.status === 'creator' || requesterMember.status === 'administrator';
       }
 
       return { isGroup: true, isRequesterAdmin, isBotAdmin };
     } catch (err) {
-      return { isGroup: true, isRequesterAdmin: false, isBotAdmin: false, error: err.message };
+      return { isGroup: true, isRequesterAdmin: isGlobalAdmin, isBotAdmin: isGlobalAdmin, error: err.message };
     }
   }
 

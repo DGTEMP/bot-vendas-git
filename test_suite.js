@@ -1550,83 +1550,144 @@ async function main() {
 
     const originalSock = whatsappBot.sock;
     const originalSendMessage = whatsappBot.sendMessage;
-    whatsappBot.sendMessage = async (jid, text, opt) => {
-      lastSentMsg = { jid, text, opt };
-      return true;
-    };
+    const prevOwner = models.getSetting('OWNER_PHONE', '');
 
-    whatsappBot.sock = {
-      user: { id: '5511900000000:1@s.whatsapp.net' },
-      groupMetadata: async () => ({
-        participants: [
-          { id: '5511900000000@s.whatsapp.net', admin: 'admin' },
-          { id: '5511911111111@s.whatsapp.net', admin: 'admin' },
-          { id: '5511922222222@s.whatsapp.net', admin: null }
-        ]
-      }),
-      groupParticipantsUpdate: async (jid, participants, action) => {
-        lastAction = { jid, participants, action };
-      },
-      groupSettingUpdate: async (jid, setting) => {
-        lastAction = { jid, setting };
-      },
-      groupUpdateSubject: async (jid, subject) => {
-        lastAction = { jid, subject };
-      },
-      groupInviteCode: async () => 'INVITE123'
-    };
+    try {
+      whatsappBot.sendMessage = async (jid, text, opt) => {
+        lastSentMsg = { jid, text, opt };
+        return true;
+      };
 
-    // 1. Comando !admin (Menu de Gestão)
-    await whatsappBot.handleIncomingMessage({
-      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!admin' },
-      pushName: 'Admin Grupo'
-    });
-    assert(lastSentMsg.text.includes('PAINEL DE GERENCIAMENTO'));
-    assert(lastSentMsg.text.includes('Bot é Administrador'));
+      whatsappBot.sock = {
+        user: { id: '5511900000000:1@s.whatsapp.net' },
+        groupMetadata: async () => ({
+          participants: [
+            { id: '5511900000000@s.whatsapp.net', admin: 'admin' },
+            { id: '5511911111111@s.whatsapp.net', admin: 'admin' },
+            { id: '5511922222222@s.whatsapp.net', admin: null }
+          ]
+        }),
+        groupParticipantsUpdate: async (jid, participants, action) => {
+          lastAction = { jid, participants, action };
+        },
+        groupSettingUpdate: async (jid, setting) => {
+          lastAction = { jid, setting };
+        },
+        groupUpdateSubject: async (jid, subject) => {
+          lastAction = { jid, subject };
+        },
+        groupInviteCode: async () => 'INVITE123'
+      };
 
-    // 2. Comando !fechar (Trancar grupo para admins)
-    await whatsappBot.handleIncomingMessage({
-      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!fechar' }
-    });
-    assert.strictEqual(lastAction.setting, 'announcement');
-    assert(lastSentMsg.text.includes('GRUPO FECHADO'));
+      // 1. Comando !admin (Menu de Gestão)
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!admin' },
+        pushName: 'Admin Grupo'
+      });
+      assert(lastSentMsg.text.includes('PAINEL DE GERENCIAMENTO'));
+      assert(lastSentMsg.text.includes('Bot é Administrador'));
 
-    // 3. Comando !abrir (Destrancar grupo)
-    await whatsappBot.handleIncomingMessage({
-      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!abrir' }
-    });
-    assert.strictEqual(lastAction.setting, 'not_announcement');
-    assert(lastSentMsg.text.includes('GRUPO ABERTO'));
+      // 2. Comando !fechar (Trancar grupo para admins)
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!fechar' }
+      });
+      assert.strictEqual(lastAction.setting, 'announcement');
+      assert(lastSentMsg.text.includes('GRUPO FECHADO'));
 
-    // 4. Comando !ban (Remover membro pelo número)
-    await whatsappBot.handleIncomingMessage({
-      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!ban 5511922222222' }
-    });
-    assert.strictEqual(lastAction.action, 'remove');
-    assert.strictEqual(lastAction.participants[0], '5511922222222@s.whatsapp.net');
-    assert(lastSentMsg.text.includes('MEMBRO REMOVIDO'));
+      // 3. Comando !abrir (Destrancar grupo)
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!abrir' }
+      });
+      assert.strictEqual(lastAction.setting, 'not_announcement');
+      assert(lastSentMsg.text.includes('GRUPO ABERTO'));
 
-    // 5. Bloqueio para não-admins
-    await whatsappBot.handleIncomingMessage({
-      key: { remoteJid: testGroup, participant: '5511922222222@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!ban 5511911111111' }
-    });
-    assert(lastSentMsg.text.includes('Apenas administradores'));
+      // 4. Comando !ban (Remover membro pelo número)
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!ban 5511922222222' }
+      });
+      assert.strictEqual(lastAction.action, 'remove');
+      assert.strictEqual(lastAction.participants[0], '5511922222222@s.whatsapp.net');
+      assert(lastSentMsg.text.includes('MEMBRO REMOVIDO'));
 
-    // 6. Anti-link toggle
-    await whatsappBot.handleIncomingMessage({
-      key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!antilink on' }
-    });
-    assert.strictEqual(models.getSetting(`ANTILINK_${testGroup}`), 'true');
-    assert(lastSentMsg.text.includes('ANTI-LINK ATIVADA'));
+      // 4.1 Comando !promover (Promover membro pelo número)
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!promover 5511922222222' }
+      });
+      assert.strictEqual(lastAction.action, 'promote');
+      assert.strictEqual(lastAction.participants[0], '5511922222222@s.whatsapp.net');
+      assert(lastSentMsg.text.includes('ADMINISTRADOR PROMOVIDO'));
 
-    whatsappBot.sock = originalSock;
-    whatsappBot.sendMessage = originalSendMessage;
+      // 4.2 Comando !promover respondendo a mensagem (reply / quote)
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+        message: {
+          extendedTextMessage: {
+            text: '!promover',
+            contextInfo: { participant: '5511922222222@s.whatsapp.net' }
+          }
+        }
+      });
+      assert.strictEqual(lastAction.action, 'promote');
+      assert.strictEqual(lastAction.participants[0], '5511922222222@s.whatsapp.net');
+      assert(lastSentMsg.text.includes('ADMINISTRADOR PROMOVIDO'));
+
+      // 4.3 Comando !promover quando solicitante é Dono/Admin global (isOwner)
+      models.setSetting('OWNER_PHONE', '5511999998888');
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511999998888@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!promover 5511922222222' }
+      });
+      assert.strictEqual(lastAction.action, 'promote');
+      assert(lastSentMsg.text.includes('ADMINISTRADOR PROMOVIDO'));
+
+      // 4.4 Comando !rebaixar (Demote membro que é admin)
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511900000000@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!rebaixar 5511911111111' }
+      });
+      assert.strictEqual(lastAction.action, 'demote');
+      assert.strictEqual(lastAction.participants[0], '5511911111111@s.whatsapp.net');
+      assert(lastSentMsg.text.includes('ADMINISTRADOR REBAIXADO'));
+
+      // 4.5 Comando !promover no privado por Admin/Owner (orientação sem erro de Acesso Restrito)
+      let pvPromoteReply = null;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!promover' }
+      }, {
+        sendMessage: async (jid, p) => { pvPromoteReply = p; return true; }
+      });
+      assert(pvPromoteReply !== null);
+      assert(pvPromoteReply.text.includes('PROMOÇÃO DE PRODUTOS') || pvPromoteReply.text.includes('Como Promover'));
+      assert(!pvPromoteReply.text.includes('Acesso Restrito'));
+
+      // Restaura OWNER_PHONE
+      models.setSetting('OWNER_PHONE', prevOwner);
+
+      // 5. Bloqueio para não-admins
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511922222222@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!ban 5511911111111' }
+      });
+      assert(lastSentMsg.text.includes('Apenas administradores'));
+
+      // 6. Anti-link toggle
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: testGroup, participant: '5511911111111@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!antilink on' }
+      });
+      assert.strictEqual(models.getSetting(`ANTILINK_${testGroup}`), 'true');
+      assert(lastSentMsg.text.includes('ANTI-LINK ATIVADA'));
+    } finally {
+      whatsappBot.sock = originalSock;
+      whatsappBot.sendMessage = originalSendMessage;
+      models.setSetting('OWNER_PHONE', prevOwner);
+    }
   });
 
   await runAsyncTest('Gestão de Grupos: Resolução de Privilégios no Telegram Bot', async () => {

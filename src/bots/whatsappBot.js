@@ -308,30 +308,75 @@ class WhatsAppBotService {
     }
   }
 
+  findGroupParticipant(participants, jidOrPhone) {
+    if (!participants || !Array.isArray(participants) || !jidOrPhone) return null;
+    const cleanDigits = String(jidOrPhone).replace(/\D/g, '');
+    const rawStr = String(jidOrPhone).trim().toLowerCase();
+    const rawUser = rawStr.includes('@') ? rawStr.split('@')[0].split(':')[0] : rawStr;
+
+    return participants.find(p => {
+      if (!p) return false;
+      const pId = String(p.id || '').toLowerCase();
+      const pLid = String(p.lid || '').toLowerCase();
+      const pPhone = String(p.phoneNumber || '').toLowerCase();
+
+      // 1. Match exato em JID/LID completo
+      if (pId === rawStr || pLid === rawStr || pPhone === rawStr) return true;
+
+      // 2. Match no usuário do JID (sem @ ou sufixo :device)
+      const pIdUser = pId.split('@')[0].split(':')[0];
+      const pLidUser = pLid.split('@')[0].split(':')[0];
+      if (rawUser && (pIdUser === rawUser || pLidUser === rawUser)) return true;
+
+      // 3. Match em dígitos numéricos
+      if (cleanDigits) {
+        const pDigits = [pIdUser, pLidUser, pPhone.split('@')[0]].map(s => s.replace(/\D/g, '')).filter(Boolean);
+        if (pDigits.includes(cleanDigits)) return true;
+
+        // 4. Match nos últimos 8 dígitos (formato brasileiro com ou sem o 9º dígito: 5511999998888 vs 551199998888)
+        if (cleanDigits.length >= 8) {
+          const suffix = cleanDigits.slice(-8);
+          if (pDigits.some(d => d.length >= 8 && d.endsWith(suffix))) return true;
+        }
+      }
+
+      return false;
+    });
+  }
+
   async getGroupAdminStatus(from, participantJid, isFromMe) {
-    if (!from.endsWith('@g.us')) {
+    if (!from || !from.endsWith('@g.us')) {
       return { isGroup: false, isRequesterAdmin: true, isBotAdmin: false };
     }
+    const senderPhone = safeExtractPhone(participantJid);
+    const isGlobalAdmin = isFromMe || this.isOwner(senderPhone, isFromMe);
+
     try {
       const sock = this.currentDispatchSock || this.sock;
       if (!sock || !sock.groupMetadata) {
-        return { isGroup: true, isRequesterAdmin: false, isBotAdmin: false, error: 'Socket não pronto' };
+        return { isGroup: true, isRequesterAdmin: isGlobalAdmin, isBotAdmin: isGlobalAdmin, error: 'Socket não pronto' };
       }
       const metadata = await sock.groupMetadata(from);
-      const myNumber = sock.user?.id ? sock.user.id.split(':')[0] : '';
-      const botParticipant = metadata?.participants?.find(p => p.id.includes(myNumber));
+
+      // Identifica o bot no grupo
+      const myJid = sock.user?.id || this.sock?.user?.id || '';
+      const myLid = sock.user?.lid || this.sock?.user?.lid || '';
+      const myNumber = myJid ? myJid.split(':')[0] : '';
+      const botParticipant = this.findGroupParticipant(metadata?.participants, myJid) 
+        || (myLid ? this.findGroupParticipant(metadata?.participants, myLid) : null)
+        || (myNumber ? this.findGroupParticipant(metadata?.participants, myNumber) : null);
+      
       const isBotAdmin = !!(botParticipant && (botParticipant.admin === 'admin' || botParticipant.admin === 'superadmin'));
 
-      const senderPhone = safeExtractPhone(participantJid);
-      const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
-      const isGlobalAdmin = isFromMe || !!(adminPhoneSetting && (adminPhoneSetting.includes(senderPhone) || senderPhone.includes(adminPhoneSetting)));
+      // Identifica o participante solicitante no grupo
+      const requesterParticipant = this.findGroupParticipant(metadata?.participants, participantJid)
+        || (senderPhone ? this.findGroupParticipant(metadata?.participants, senderPhone) : null);
 
-      const requesterParticipant = metadata?.participants?.find(p => p.id.includes(senderPhone));
       const isRequesterAdmin = isGlobalAdmin || !!(requesterParticipant && (requesterParticipant.admin === 'admin' || requesterParticipant.admin === 'superadmin'));
 
-      return { isGroup: true, isRequesterAdmin, isBotAdmin, metadata };
+      return { isGroup: true, isRequesterAdmin, isBotAdmin, metadata, requesterParticipant, botParticipant };
     } catch (err) {
-      return { isGroup: true, isRequesterAdmin: false, isBotAdmin: false, error: err.message };
+      return { isGroup: true, isRequesterAdmin: isGlobalAdmin, isBotAdmin: isGlobalAdmin, error: err.message };
     }
   }
 
@@ -775,16 +820,26 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para remover membros!*\n\nPromova o bot a admin do grupo nas configurações do WhatsApp.');
         }
 
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo
+          || msg.message?.imageMessage?.contextInfo
+          || msg.message?.videoMessage?.contextInfo
+          || msg.message?.documentMessage?.contextInfo
+          || msg.message?.audioMessage?.contextInfo
+          || msg.message?.stickerMessage?.contextInfo
+          || msg.message?.buttonsResponseMessage?.contextInfo
+          || msg.message?.templateButtonReplyMessage?.contextInfo
+          || msg.message?.interactiveResponseMessage?.contextInfo;
+
         let targetPhone = null;
         let targetJid = null;
 
-        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
-        if (quotedParticipant) {
+        const quotedParticipant = contextInfo?.participant || contextInfo?.remoteJid;
+        if (quotedParticipant && !quotedParticipant.endsWith('@g.us')) {
           targetJid = safeExtractJid(quotedParticipant);
           targetPhone = safeExtractPhone(quotedParticipant);
         }
         if (!targetJid) {
-          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          const mentioned = contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
             targetJid = safeExtractJid(mentioned[0]);
             targetPhone = safeExtractPhone(mentioned[0]);
@@ -794,16 +849,47 @@ class WhatsAppBotService {
           const matchNum = text.match(/(?:!|\/)(?:ban|kick|remover)\s*@?(\+?[0-9]{8,20})/i);
           if (matchNum) {
             targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+            if (targetPhone.length === 10 || targetPhone.length === 11) {
+              targetPhone = '55' + targetPhone;
+            }
             targetJid = `${targetPhone}@s.whatsapp.net`;
           }
         }
 
-        if (!targetJid) {
+        if (targetJid && adminStatus.metadata?.participants) {
+          const found = this.findGroupParticipant(adminStatus.metadata.participants, targetJid)
+            || (targetPhone ? this.findGroupParticipant(adminStatus.metadata.participants, targetPhone) : null);
+          if (found && found.id) {
+            const canonPhone = safeExtractPhone(found.id);
+            if (canonPhone) {
+              targetPhone = canonPhone;
+              targetJid = `${canonPhone}@s.whatsapp.net`;
+            }
+          }
+        }
+
+        if (targetJid) {
+          const cleanUser = targetJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+          if (cleanUser) {
+            targetJid = `${cleanUser}@s.whatsapp.net`;
+            targetPhone = cleanUser;
+          }
+        }
+
+        if (!targetJid || !targetPhone) {
           return this.sendMessage(from, `ℹ️ *Como remover um membro:*\n• Responda à mensagem da pessoa com *!ban*\n• Ou envie *!ban @usuario*\n• Ou envie *!ban 5511999998888*`);
         }
 
+        const dispatchSock = (activeSock && typeof activeSock.groupParticipantsUpdate === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupParticipantsUpdate === 'function' ? this.sock : null);
+
+        if (!dispatchSock) {
+          return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento. Tente novamente em instantes.');
+        }
+
         try {
-          await this.sock.groupParticipantsUpdate(from, [targetJid], 'remove');
+          await dispatchSock.groupParticipantsUpdate(from, [targetJid], 'remove');
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
@@ -813,7 +899,9 @@ class WhatsAppBotService {
             targetId: targetPhone,
             details: `Expulso do grupo pelo administrador ${senderName || senderPhone}`
           });
-          return this.sendMessage(from, `👢 *MEMBRO REMOVIDO COM SUCESSO!*\n\nO participante *${targetPhone}* foi expulso do grupo por um administrador.`);
+          return this.sendMessage(from, `👢 *MEMBRO REMOVIDO COM SUCESSO!*\n\nO participante @${targetPhone} foi expulso do grupo por um administrador.`, {
+            mentions: [targetJid]
+          });
         } catch (err) {
           return this.sendMessage(from, `❌ Falha ao remover membro: ${err.message}`);
         }
@@ -829,34 +917,88 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para promover membros!*');
         }
 
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo
+          || msg.message?.imageMessage?.contextInfo
+          || msg.message?.videoMessage?.contextInfo
+          || msg.message?.documentMessage?.contextInfo
+          || msg.message?.audioMessage?.contextInfo
+          || msg.message?.stickerMessage?.contextInfo
+          || msg.message?.buttonsResponseMessage?.contextInfo
+          || msg.message?.templateButtonReplyMessage?.contextInfo
+          || msg.message?.interactiveResponseMessage?.contextInfo;
+
         let targetJid = null;
         let targetPhone = null;
-        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
-        if (quotedParticipant) {
+
+        // 1. Mensagem respondida (reply / quoted)
+        const quotedParticipant = contextInfo?.participant || contextInfo?.remoteJid;
+        if (quotedParticipant && !quotedParticipant.endsWith('@g.us')) {
           targetJid = safeExtractJid(quotedParticipant);
           targetPhone = safeExtractPhone(quotedParticipant);
         }
+
+        // 2. Menção (@usuario)
         if (!targetJid) {
-          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          const mentioned = contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
             targetJid = safeExtractJid(mentioned[0]);
             targetPhone = safeExtractPhone(mentioned[0]);
           }
         }
+
+        // 3. Número digitado no comando (!promover 5511999998888 ou !promover 11999998888)
         if (!targetJid) {
           const matchNum = text.match(/(?:!|\/)(?:promover|promote)\s*@?(\+?[0-9]{8,20})/i);
           if (matchNum) {
             targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+            if (targetPhone.length === 10 || targetPhone.length === 11) {
+              targetPhone = '55' + targetPhone;
+            }
             targetJid = `${targetPhone}@s.whatsapp.net`;
           }
         }
 
-        if (!targetJid) {
-          return this.sendMessage(from, `ℹ️ *Como promover:* responda à mensagem da pessoa com *!promover* ou envie *!promover @usuario*`);
+        // 4. Mapeamento canônico no grupo (converte @lid para @s.whatsapp.net)
+        if (targetJid && adminStatus.metadata?.participants) {
+          const found = this.findGroupParticipant(adminStatus.metadata.participants, targetJid)
+            || (targetPhone ? this.findGroupParticipant(adminStatus.metadata.participants, targetPhone) : null);
+          if (found && found.id) {
+            const canonPhone = safeExtractPhone(found.id);
+            if (canonPhone) {
+              targetPhone = canonPhone;
+              targetJid = `${canonPhone}@s.whatsapp.net`;
+            }
+            if (found.admin === 'admin' || found.admin === 'superadmin') {
+              return this.sendMessage(from, `⭐ O participante @${targetPhone} já é um Administrador deste grupo!`, {
+                mentions: [targetJid]
+              });
+            }
+          }
+        }
+
+        // 5. Normaliza targetJid sem device
+        if (targetJid) {
+          const cleanUser = targetJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+          if (cleanUser) {
+            targetJid = `${cleanUser}@s.whatsapp.net`;
+            targetPhone = cleanUser;
+          }
+        }
+
+        if (!targetJid || !targetPhone) {
+          return this.sendMessage(from, `ℹ️ *Como promover um participante:*\n• Responda à mensagem da pessoa com *!promover*\n• Ou envie *!promover @usuario*\n• Ou envie *!promover 5511999998888*`);
+        }
+
+        const dispatchSock = (activeSock && typeof activeSock.groupParticipantsUpdate === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupParticipantsUpdate === 'function' ? this.sock : null);
+
+        if (!dispatchSock) {
+          return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento. Tente novamente em instantes.');
         }
 
         try {
-          await this.sock.groupParticipantsUpdate(from, [targetJid], 'promote');
+          await dispatchSock.groupParticipantsUpdate(from, [targetJid], 'promote');
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
@@ -866,7 +1008,9 @@ class WhatsAppBotService {
             targetId: targetPhone,
             details: `Promovido a administrador por ${senderName || senderPhone}`
           });
-          return this.sendMessage(from, `⭐ *ADMINISTRADOR PROMOVIDO!*\n\nO participante *${targetPhone}* agora é um Administrador deste grupo! 🎉`);
+          return this.sendMessage(from, `⭐ *ADMINISTRADOR PROMOVIDO!*\n\nO participante @${targetPhone} agora é um Administrador deste grupo! 🎉`, {
+            mentions: [targetJid]
+          });
         } catch (err) {
           return this.sendMessage(from, `❌ Falha ao promover membro: ${err.message}`);
         }
@@ -882,15 +1026,26 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar cargos!*');
         }
 
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo
+          || msg.message?.imageMessage?.contextInfo
+          || msg.message?.videoMessage?.contextInfo
+          || msg.message?.documentMessage?.contextInfo
+          || msg.message?.audioMessage?.contextInfo
+          || msg.message?.stickerMessage?.contextInfo
+          || msg.message?.buttonsResponseMessage?.contextInfo
+          || msg.message?.templateButtonReplyMessage?.contextInfo
+          || msg.message?.interactiveResponseMessage?.contextInfo;
+
         let targetJid = null;
         let targetPhone = null;
-        const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
-        if (quotedParticipant) {
+
+        const quotedParticipant = contextInfo?.participant || contextInfo?.remoteJid;
+        if (quotedParticipant && !quotedParticipant.endsWith('@g.us')) {
           targetJid = safeExtractJid(quotedParticipant);
           targetPhone = safeExtractPhone(quotedParticipant);
         }
         if (!targetJid) {
-          const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+          const mentioned = contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
             targetJid = safeExtractJid(mentioned[0]);
             targetPhone = safeExtractPhone(mentioned[0]);
@@ -900,16 +1055,52 @@ class WhatsAppBotService {
           const matchNum = text.match(/(?:!|\/)(?:rebaixar|demote)\s*@?(\+?[0-9]{8,20})/i);
           if (matchNum) {
             targetPhone = matchNum[1].replace(/[^0-9]/g, '');
+            if (targetPhone.length === 10 || targetPhone.length === 11) {
+              targetPhone = '55' + targetPhone;
+            }
             targetJid = `${targetPhone}@s.whatsapp.net`;
           }
         }
 
-        if (!targetJid) {
+        if (targetJid && adminStatus.metadata?.participants) {
+          const found = this.findGroupParticipant(adminStatus.metadata.participants, targetJid)
+            || (targetPhone ? this.findGroupParticipant(adminStatus.metadata.participants, targetPhone) : null);
+          if (found && found.id) {
+            const canonPhone = safeExtractPhone(found.id);
+            if (canonPhone) {
+              targetPhone = canonPhone;
+              targetJid = `${canonPhone}@s.whatsapp.net`;
+            }
+            if (!found.admin) {
+              return this.sendMessage(from, `ℹ️ O participante @${targetPhone} não é administrador deste grupo.`, {
+                mentions: [targetJid]
+              });
+            }
+          }
+        }
+
+        if (targetJid) {
+          const cleanUser = targetJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+          if (cleanUser) {
+            targetJid = `${cleanUser}@s.whatsapp.net`;
+            targetPhone = cleanUser;
+          }
+        }
+
+        if (!targetJid || !targetPhone) {
           return this.sendMessage(from, `ℹ️ *Como rebaixar:* responda à mensagem da pessoa com *!rebaixar* ou envie *!rebaixar @usuario*`);
         }
 
+        const dispatchSock = (activeSock && typeof activeSock.groupParticipantsUpdate === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupParticipantsUpdate === 'function' ? this.sock : null);
+
+        if (!dispatchSock) {
+          return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento. Tente novamente em instantes.');
+        }
+
         try {
-          await this.sock.groupParticipantsUpdate(from, [targetJid], 'demote');
+          await dispatchSock.groupParticipantsUpdate(from, [targetJid], 'demote');
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
@@ -919,7 +1110,9 @@ class WhatsAppBotService {
             targetId: targetPhone,
             details: `Rebaixado de administrador por ${senderName || senderPhone}`
           });
-          return this.sendMessage(from, `🔽 *ADMINISTRADOR REBAIXADO!*\n\nO participante *${targetPhone}* não é mais administrador.`);
+          return this.sendMessage(from, `🔽 *ADMINISTRADOR REBAIXADO!*\n\nO participante @${targetPhone} não é mais administrador.`, {
+            mentions: [targetJid]
+          });
         } catch (err) {
           return this.sendMessage(from, `❌ Falha ao rebaixar membro: ${err.message}`);
         }
@@ -935,8 +1128,14 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar configurações!*\n\nPromova o bot para permitir fechar/abrir o grupo.');
         }
 
+        const dispatchSock = (activeSock && typeof activeSock.groupSettingUpdate === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupSettingUpdate === 'function' ? this.sock : null);
+
+        if (!dispatchSock) return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento.');
+
         try {
-          await this.sock.groupSettingUpdate(from, 'announcement');
+          await dispatchSock.groupSettingUpdate(from, 'announcement');
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
@@ -961,8 +1160,14 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador deste grupo para alterar configurações!*');
         }
 
+        const dispatchSock = (activeSock && typeof activeSock.groupSettingUpdate === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupSettingUpdate === 'function' ? this.sock : null);
+
+        if (!dispatchSock) return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento.');
+
         try {
-          await this.sock.groupSettingUpdate(from, 'not_announcement');
+          await dispatchSock.groupSettingUpdate(from, 'not_announcement');
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
@@ -990,8 +1195,14 @@ class WhatsAppBotService {
         const newTitle = text.replace(/^(?:!|\/)(?:nome|titulo)\s+/i, '').trim();
         if (!newTitle) return this.sendMessage(from, 'ℹ️ Uso: *!nome Novo Título do Grupo*');
 
+        const dispatchSock = (activeSock && typeof activeSock.groupUpdateSubject === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupUpdateSubject === 'function' ? this.sock : null);
+
+        if (!dispatchSock) return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento.');
+
         try {
-          await this.sock.groupUpdateSubject(from, newTitle);
+          await dispatchSock.groupUpdateSubject(from, newTitle);
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
@@ -1019,8 +1230,14 @@ class WhatsAppBotService {
         const newDesc = text.replace(/^(?:!|\/)(?:descricao|desc|regras)\s+/i, '').trim();
         if (!newDesc) return this.sendMessage(from, 'ℹ️ Uso: *!descricao Novas Regras e Avisos*');
 
+        const dispatchSock = (activeSock && typeof activeSock.groupUpdateDescription === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupUpdateDescription === 'function' ? this.sock : null);
+
+        if (!dispatchSock) return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento.');
+
         try {
-          await this.sock.groupUpdateDescription(from, newDesc);
+          await dispatchSock.groupUpdateDescription(from, newDesc);
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
@@ -1045,8 +1262,14 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador do grupo para obter o link de convite!*');
         }
 
+        const dispatchSock = (activeSock && typeof activeSock.groupInviteCode === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupInviteCode === 'function' ? this.sock : null);
+
+        if (!dispatchSock) return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento.');
+
         try {
-          const code = await this.sock.groupInviteCode(from);
+          const code = await dispatchSock.groupInviteCode(from);
           return this.sendMessage(from, `🔗 *LINK DE CONVITE OFICIAL DO GRUPO:*\n\nhttps://chat.whatsapp.com/${code}\n\n_Para cancelar este link e gerar um novo: !revogar_link_`);
         } catch (err) {
           return this.sendMessage(from, `❌ Erro ao obter link de convite: ${err.message}`);
@@ -1063,8 +1286,14 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ *O bot precisa ser Administrador do grupo para revogar o link!*');
         }
 
+        const dispatchSock = (activeSock && typeof activeSock.groupRevokeInvite === 'function')
+          ? activeSock
+          : (this.sock && typeof this.sock.groupRevokeInvite === 'function' ? this.sock : null);
+
+        if (!dispatchSock) return this.sendMessage(from, '❌ Conexão com o WhatsApp indisponível no momento.');
+
         try {
-          const newCode = await this.sock.groupRevokeInvite(from);
+          const newCode = await dispatchSock.groupRevokeInvite(from);
           models.logGroupAdminAction({
             platform: 'whatsapp',
             groupId: from,
