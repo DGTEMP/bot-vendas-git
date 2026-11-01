@@ -1586,10 +1586,10 @@ function createServer() {
     }
   });
 
-  // Enviar mensagem / comunicado web direta para grupos (como Matriz ou Sub-bot)
+  // Enviar mensagem / comunicado web direta para grupos (como Matriz ou Sub-bot com suporte opcional a imagem)
   app.post('/api/meteoric/message', async (req, res) => {
     try {
-      const { targetGroupJid, senderType, senderInstanceId, text } = req.body || {};
+      const { targetGroupJid, senderType, senderInstanceId, text, mediaUrl } = req.body || {};
       if (!text || !text.trim()) {
         return res.status(400).json({ error: 'Texto da mensagem não pode ser vazio' });
       }
@@ -1597,7 +1597,8 @@ function createServer() {
         targetGroupJid,
         senderType,
         senderInstanceId,
-        text
+        text,
+        mediaUrl
       });
       res.json(result);
     } catch (err) {

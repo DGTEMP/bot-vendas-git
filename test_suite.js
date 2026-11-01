@@ -3167,6 +3167,7 @@ async function main() {
 
   await runAsyncTest('Meteórico: Cockpit Web & Gestão Total Sem Celular (/api/meteoric/message, mode-all, sync, activity-logs)', async () => {
     const localBaseUrl = `http://localhost:${testPort}`;
+    const whatsappBot = require('./src/bots/whatsappBot');
 
     // 1. Bulk alternar modo de todos os grupos (open / closed)
     const modeOpenRes = await fetch(`${localBaseUrl}/api/meteoric/groups/mode-all`, {
@@ -3243,7 +3244,47 @@ async function main() {
     const delData = await delRes.json();
     assert.strictEqual(delData.success, true);
 
-    // 7. Limpeza do feed de logs
+    // 7. Disparo com Imagem/Banner e Interceptação de Mensagem de Lead
+    const imgMsgRes = await fetch(`${localBaseUrl}/api/meteoric/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        senderType: 'matriz',
+        text: 'Confira a imagem da oferta!',
+        mediaUrl: 'https://exemplo.com/banner.jpg'
+      })
+    });
+    assert.strictEqual(imgMsgRes.status, 200);
+
+    // Simula mensagem de lead no grupo meteórico ativo
+    const activeMeteoricGrp = models.getActiveMeteoricGroup();
+    if (activeMeteoricGrp) {
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: activeMeteoricGrp.group_jid, fromMe: false, participant: '5511988887777@s.whatsapp.net' },
+        pushName: 'Lead Interessado',
+        message: { conversation: 'Tem garantia de reembolso?' }
+      });
+      const checkLeadLog = models.getMeteoricActivityLogs(10).find(l => l.event_type === 'MEMBER_MESSAGE');
+      assert(checkLeadLog, 'Deve registrar dúvida do lead no grupo');
+      assert.strictEqual(checkLeadLog.sender_name, 'Lead Interessado');
+    }
+
+    // 8. Agendamento Automático de Etapa (Cron Scheduler)
+    models.updateMeteoricStage(4, {
+      scheduled_at: new Date(Date.now() - 60000).toISOString(),
+      auto_execute: 1,
+      media_url: 'https://exemplo.com/escassez.jpg'
+    });
+    const dueStages = models.getDueScheduledStages();
+    assert(dueStages.length >= 1, 'Deve identificar etapa agendada pronta para disparo');
+    assert.strictEqual(dueStages[0].stage_num, 4);
+
+    const cronResult = await meteoricService.checkAndExecuteScheduledStages();
+    assert(cronResult.executed >= 1, 'Cron deve executar etapa agendada com sucesso');
+    const stageAfterCron = models.getMeteoricStage(4);
+    assert.strictEqual(stageAfterCron.auto_execute, 0, 'Auto-execute deve ser desativado após disparo');
+
+    // 9. Limpeza do feed de logs
     const clearRes = await fetch(`${localBaseUrl}/api/meteoric/activity-logs`, { method: 'DELETE' });
     assert.strictEqual(clearRes.status, 200);
     const clearData = await clearRes.json();

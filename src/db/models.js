@@ -2640,14 +2640,14 @@ const models = {
   },
 
   updateMeteoricStage(stageNum, updates = {}) {
-    const allowed = ['title', 'description', 'admin_announcement', 'group_mode', 'subbot_scripts', 'executed_at'];
+    const allowed = ['title', 'description', 'admin_announcement', 'group_mode', 'subbot_scripts', 'executed_at', 'scheduled_at', 'auto_execute', 'media_url'];
     const sets = [];
     const vals = [];
 
     for (const [k, v] of Object.entries(updates)) {
       if (allowed.includes(k)) {
         sets.push(`${k} = ?`);
-        vals.push(typeof v === 'object' ? JSON.stringify(v) : v);
+        vals.push(typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
       }
     }
 
@@ -2657,6 +2657,17 @@ const models = {
     }
 
     return this.getMeteoricStage(stageNum);
+  },
+
+  getDueScheduledStages() {
+    return db.prepare(`
+      SELECT * FROM meteoric_stages
+      WHERE auto_execute = 1
+        AND scheduled_at IS NOT NULL
+        AND datetime(scheduled_at) <= datetime('now')
+        AND (executed_at IS NULL OR datetime(executed_at) < datetime(scheduled_at))
+      ORDER BY stage_num ASC
+    `).all();
   },
 
   incrementMeteoricLeads(campaignId = 1) {

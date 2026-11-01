@@ -37,18 +37,36 @@ class SubscriptionCronService {
       });
     }, 5 * 60 * 1000);
 
+    // 4. Verificação de etapas agendadas do Lançamento Meteórico a cada 30 segundos
+    this.meteoricCheckInterval = setInterval(() => {
+      this.checkMeteoricScheduledStages().catch(err => {
+        console.error('[Cron ❌ Erro ao checar etapas meteóricas]:', err.message);
+      });
+    }, 30000);
+
     // Executa uma checagem imediata
     setTimeout(() => {
       this.checkPendingOrders();
       this.checkAbandonedCarts();
       this.checkSubscriptions();
+      this.checkMeteoricScheduledStages();
     }, 3000);
+  }
+
+  async checkMeteoricScheduledStages() {
+    try {
+      const meteoricService = require('./meteoricService');
+      if (typeof meteoricService.checkAndExecuteScheduledStages === 'function') {
+        await meteoricService.checkAndExecuteScheduledStages();
+      }
+    } catch (_) {}
   }
 
   stop() {
     if (this.pollInterval) clearInterval(this.pollInterval);
     if (this.abandonedInterval) clearInterval(this.abandonedInterval);
     if (this.subCheckInterval) clearInterval(this.subCheckInterval);
+    if (this.meteoricCheckInterval) clearInterval(this.meteoricCheckInterval);
     this.isRunning = false;
     console.log('⏰ [Cron] Serviço de verificação automática parado.');
   }

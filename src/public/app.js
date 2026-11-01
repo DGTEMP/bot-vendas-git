@@ -5345,6 +5345,7 @@ async function sendMeteoricWebMessage(e) {
   const senderTypeVal = document.getElementById('meteoricMsgSenderType')?.value;
   const specificId = document.getElementById('meteoricMsgSpecificInstanceId')?.value;
   const text = document.getElementById('meteoricMsgTextInput')?.value.trim();
+  const mediaUrl = document.getElementById('meteoricMsgMediaUrl')?.value.trim() || undefined;
 
   if (!text) {
     alert('Digite o texto da mensagem antes de enviar.');
@@ -5368,7 +5369,8 @@ async function sendMeteoricWebMessage(e) {
         targetGroupJid: targetGroupJid === 'all' ? null : targetGroupJid,
         senderType,
         senderInstanceId,
-        text
+        text,
+        mediaUrl
       })
     });
     const data = await res.json();
@@ -5376,6 +5378,8 @@ async function sendMeteoricWebMessage(e) {
       alert(`🚀 Mensagem enviada com sucesso para ${data.totalSent || 0} grupo(s)!`);
       const txtInput = document.getElementById('meteoricMsgTextInput');
       if (txtInput) txtInput.value = '';
+      const mediaInput = document.getElementById('meteoricMsgMediaUrl');
+      if (mediaInput) mediaInput.value = '';
       await loadMeteoricActivityLogs();
     } else {
       alert('Erro ao enviar mensagem: ' + (data.error || 'Falha no envio'));
@@ -5539,6 +5543,19 @@ function selectMeteoricStageView(stageNum) {
   const annEl = document.getElementById('stageEditorAnnouncement');
   if (annEl) annEl.value = stage.admin_announcement || '';
 
+  const mediaEl = document.getElementById('stageEditorMediaUrl');
+  if (mediaEl) mediaEl.value = stage.media_url || '';
+
+  const schedEl = document.getElementById('stageEditorScheduledAt');
+  if (schedEl) {
+    schedEl.value = stage.scheduled_at ? stage.scheduled_at.replace(' ', 'T').slice(0, 16) : '';
+  }
+
+  const autoExecEl = document.getElementById('stageEditorAutoExecute');
+  if (autoExecEl) {
+    autoExecEl.checked = !!stage.auto_execute;
+  }
+
   const scriptsEl = document.getElementById('stageEditorScripts');
   if (scriptsEl) {
     let pretty = stage.subbot_scripts;
@@ -5558,6 +5575,9 @@ async function saveMeteoricStageEditor() {
   const stageNum = currentEditingStageNum;
   const group_mode = document.getElementById('stageEditorGroupMode')?.value;
   const admin_announcement = document.getElementById('stageEditorAnnouncement')?.value.trim();
+  const media_url = document.getElementById('stageEditorMediaUrl')?.value.trim() || null;
+  const scheduled_at = document.getElementById('stageEditorScheduledAt')?.value || null;
+  const auto_execute = document.getElementById('stageEditorAutoExecute')?.checked ? 1 : 0;
   const scriptsRaw = document.getElementById('stageEditorScripts')?.value.trim();
 
   let subbot_scripts = [];
@@ -5572,10 +5592,10 @@ async function saveMeteoricStageEditor() {
     const res = await fetch(`/api/meteoric/stages/${stageNum}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ group_mode, admin_announcement, subbot_scripts })
+      body: JSON.stringify({ group_mode, admin_announcement, subbot_scripts, media_url, scheduled_at, auto_execute })
     });
     if (res.ok) {
-      alert(`✅ Diretrizes da Etapa #${stageNum} salvas com sucesso!`);
+      alert(`✅ Diretrizes da Etapa #${stageNum} salvas com sucesso!${auto_execute && scheduled_at ? '\n⏰ Agendamento automático ativo para ' + scheduled_at : ''}`);
       await loadMeteoricStages();
     } else {
       alert('Erro ao salvar diretrizes da etapa');
@@ -5715,9 +5735,20 @@ async function loadMeteoricActivityLogs() {
         badgeColor = 'rgba(14, 203, 129, 0.15)';
         textColor = '#0ecb81';
         eventLabel = 'DISPARO WEB';
+      } else if (item.event_type === 'MEMBER_MESSAGE') {
+        icon = 'fa-solid fa-comment-dots';
+        badgeColor = 'rgba(234, 179, 8, 0.15)';
+        textColor = '#eab308';
+        eventLabel = 'DÚVIDA LEAD';
+      } else if (item.event_type === 'SCHEDULED_STAGE_TRIGGERED') {
+        icon = 'fa-solid fa-clock';
+        badgeColor = 'rgba(192, 132, 252, 0.15)';
+        textColor = '#c084fc';
+        eventLabel = 'CRON AUTOMÁTICO';
       }
 
       const formattedTime = item.created_at ? new Date(item.created_at).toLocaleTimeString('pt-BR') : '';
+      const isLeadMessage = item.event_type === 'MEMBER_MESSAGE';
 
       return `
         <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px;">
@@ -5731,12 +5762,34 @@ async function loadMeteoricActivityLogs() {
               <span style="color: #cbd5e1; margin-left: 4px;">"${item.message_text || ''}"</span>
             </div>
           </div>
-          <span style="font-size: 11px; color: var(--text-muted); font-family: monospace; white-space: nowrap;">${formattedTime}</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${isLeadMessage && item.group_jid ? `
+              <button class="btn btn-sm btn-secondary" onclick="replyToMeteoricLead('${item.group_jid}', '${escape(item.sender_name || '')}')" style="font-size: 11px; padding: 2px 8px; color: #38bdf8;" title="Responder este lead no grupo">
+                <i class="fa-solid fa-reply"></i> Responder
+              </button>
+            ` : ''}
+            <span style="font-size: 11px; color: var(--text-muted); font-family: monospace; white-space: nowrap;">${formattedTime}</span>
+          </div>
         </div>
       `;
     }).join('');
   } catch (err) {
     console.error('Erro ao carregar logs de atividade meteórica:', err);
+  }
+}
+
+function replyToMeteoricLead(groupJid, escapedSenderName) {
+  const senderName = unescape(escapedSenderName || '');
+  const sel = document.getElementById('meteoricMsgTargetGroup');
+  if (sel) sel.value = groupJid;
+  const txt = document.getElementById('meteoricMsgTextInput');
+  if (txt) {
+    txt.value = senderName ? `@${senderName} ` : '';
+    txt.focus();
+  }
+  const form = document.getElementById('formMeteoricWebMessage');
+  if (form) {
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
 

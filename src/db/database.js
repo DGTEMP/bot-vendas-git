@@ -631,7 +631,10 @@ function initDatabase() {
     'ALTER TABLE products ADD COLUMN company_id INTEGER;',
     'ALTER TABLE products ADD COLUMN category TEXT DEFAULT "Geral";',
     'ALTER TABLE products ADD COLUMN affiliation_enabled INTEGER DEFAULT 1;',
-    'ALTER TABLE products ADD COLUMN custom_affiliate_rate REAL DEFAULT NULL;'
+    'ALTER TABLE products ADD COLUMN custom_affiliate_rate REAL DEFAULT NULL;',
+    'ALTER TABLE meteoric_stages ADD COLUMN scheduled_at DATETIME;',
+    'ALTER TABLE meteoric_stages ADD COLUMN auto_execute INTEGER DEFAULT 0;',
+    'ALTER TABLE meteoric_stages ADD COLUMN media_url TEXT;'
   ];
 
   for (const m of migrations) {

@@ -467,6 +467,23 @@ class WhatsAppBotService {
     if (!text) return;
     const lower = text.toLowerCase();
 
+    // Rastreia dúvidas e mensagens de Leads em Grupos Meteóricos para Live Feed no Painel Web
+    if (isGroup && !isFromMe && !lower.startsWith('!') && !lower.startsWith('/')) {
+      try {
+        const meteoricGroup = models.getMeteoricGroupByJid(from);
+        if (meteoricGroup) {
+          models.logMeteoricActivity({
+            campaign_id: meteoricGroup.campaign_id,
+            group_jid: from,
+            group_title: meteoricGroup.title,
+            event_type: 'MEMBER_MESSAGE',
+            sender_name: senderName || ('+' + senderPhone),
+            message_text: text.slice(0, 150)
+          });
+        }
+      } catch (_) {}
+    }
+
     // Interceptador Anti-Privado (Anti-PV): Redireciona interações no privado se ativo
     if (!isGroup && !isFromMe) {
       const isAntiPrivado = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';

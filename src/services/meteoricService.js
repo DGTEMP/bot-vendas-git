@@ -310,7 +310,15 @@ class MeteoricService {
             link: group.invite_url || `http://localhost:3000/l/vip`,
             produto: campaign.name
           });
-          await whatsappBot.sendMessage(gJid, parsedAnnouncement);
+
+          if (stage.media_url && typeof whatsappBot.sock.sendMessage === 'function') {
+            await whatsappBot.sock.sendMessage(gJid, {
+              image: { url: stage.media_url },
+              caption: parsedAnnouncement
+            });
+          } else {
+            await whatsappBot.sendMessage(gJid, parsedAnnouncement);
+          }
           report.announcementsSent++;
 
           models.logMeteoricActivity({
@@ -455,8 +463,8 @@ class MeteoricService {
     return { success: true, mode, updatedCount: results.filter(r => r.success).length, results };
   }
 
-  // Envio de mensagem personalizada pelo Painel Web (Matriz ou Sub-Bot)
-  async sendMessageToGroups({ targetGroupJid = 'all', senderType = 'admin', senderInstanceId = null, text }) {
+  // Envio de mensagem personalizada pelo Painel Web (Matriz ou Sub-Bot com suporte opcional a Imagem/Banner)
+  async sendMessageToGroups({ targetGroupJid = 'all', senderType = 'admin', senderInstanceId = null, text, mediaUrl = null }) {
     if (!text || !text.trim()) throw new Error('Mensagem não pode ser vazia');
 
     const campaign = models.getMeteoricCampaign();
@@ -501,16 +509,29 @@ class MeteoricService {
               await chosenSock.sendPresenceUpdate('composing', gJid);
               await new Promise(r => setTimeout(r, 1200));
             } catch (_) {}
-            await chosenSock.sendMessage(gJid, { text: parsedText });
+
+            if (mediaUrl && typeof chosenSock.sendMessage === 'function') {
+              await chosenSock.sendMessage(gJid, { image: { url: mediaUrl }, caption: parsedText });
+            } else {
+              await chosenSock.sendMessage(gJid, { text: parsedText });
+            }
             results.push({ jid: gJid, success: true, sender: subBotLabel });
           } else {
             // Fallback para Matriz se nenhum sub-bot conectado
-            await whatsappBot.sendMessage(gJid, parsedText);
+            if (mediaUrl && whatsappBot.sock && typeof whatsappBot.sock.sendMessage === 'function') {
+              await whatsappBot.sock.sendMessage(gJid, { image: { url: mediaUrl }, caption: parsedText });
+            } else {
+              await whatsappBot.sendMessage(gJid, parsedText);
+            }
             results.push({ jid: gJid, success: true, sender: 'Matriz (Fallback)' });
           }
         } else {
           // Remetente padrão: Matriz Oficial (Admin)
-          await whatsappBot.sendMessage(gJid, parsedText);
+          if (mediaUrl && whatsappBot.sock && typeof whatsappBot.sock.sendMessage === 'function') {
+            await whatsappBot.sock.sendMessage(gJid, { image: { url: mediaUrl }, caption: parsedText });
+          } else {
+            await whatsappBot.sendMessage(gJid, parsedText);
+          }
           results.push({ jid: gJid, success: true, sender: 'Admin Oficial (Matriz)' });
         }
 
@@ -520,7 +541,7 @@ class MeteoricService {
           group_title: group.title,
           event_type: 'WEB_MESSAGE',
           sender_name: senderType === 'subbot' ? 'Sub-Bot' : 'Admin Web',
-          message_text: parsedText.slice(0, 150) + (parsedText.length > 150 ? '...' : '')
+          message_text: (mediaUrl ? '[🖼️ Imagem] ' : '') + parsedText.slice(0, 150) + (parsedText.length > 150 ? '...' : '')
         });
       } catch (err) {
         results.push({ jid: gJid, success: false, error: err.message });
@@ -528,6 +549,37 @@ class MeteoricService {
     }
 
     return { success: true, totalSent: results.filter(r => r.success).length, results };
+  }
+
+  // Verifica e executa etapas agendadas automaticamente (Cron)
+  async checkAndExecuteScheduledStages() {
+    const dueStages = models.getDueScheduledStages();
+    if (!dueStages || dueStages.length === 0) return { executed: 0 };
+
+    const reports = [];
+    for (const stage of dueStages) {
+      console.log(`[Lançamento Meteórico ⏰ Cron] Disparando Etapa #${stage.stage_num} agendada para ${stage.scheduled_at}...`);
+      try {
+        const report = await this.executeStageWarmup(stage.stage_num);
+        models.updateMeteoricStage(stage.stage_num, {
+          auto_execute: 0,
+          executed_at: new Date().toISOString()
+        });
+        models.logMeteoricActivity({
+          campaign_id: 1,
+          group_jid: null,
+          group_title: 'Todos os Grupos VIP',
+          event_type: 'SCHEDULED_STAGE_TRIGGERED',
+          sender_name: 'Cron Automático',
+          message_text: `Etapa #${stage.stage_num} (${stage.title}) executada automaticamente no horário agendado!`
+        });
+        reports.push({ stageNum: stage.stage_num, success: true, report });
+      } catch (err) {
+        console.error(`[Meteórico ❌ Cron Erro ao disparar etapa #${stage.stage_num}]:`, err.message);
+        reports.push({ stageNum: stage.stage_num, success: false, error: err.message });
+      }
+    }
+    return { executed: reports.length, reports };
   }
 
   // Sincroniza metadados reais de participantes com o WhatsApp sem precisar de celular
