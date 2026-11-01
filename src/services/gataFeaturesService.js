@@ -2,6 +2,8 @@ const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const models = require('../db/models');
 const stickerConverter = require('../utils/stickerConverter');
 const instagramScraperService = require('./instagramScraperService');
+const fancyFonts = require('../utils/fancyFonts');
+const { CONSELHOS_BIBLICOS, CONSELHOS_GERAIS, DDD_MAP, METADINHAS_CATALOG } = require('../utils/spybotData');
 
 class GataFeaturesService {
   constructor() {
@@ -1931,6 +1933,758 @@ class GataFeaturesService {
       `No navegador em *http://localhost:3000* você pode ver QR Codes ao vivo, gerar códigos de 8 dígitos, iniciar, pausar e resetar chips com 1 clique!`;
 
     return sock.sendMessage(from, { text: guide });
+  }
+
+  // ==========================================
+  // RECURSOS PORTADOS DO SPYBOT (ALEATORY-MD)
+  // ==========================================
+
+  /**
+   * 1. Fusão de Emojis: !emojimix 😎+😭 / !mix 😺 🐶
+   * Utiliza a API do Google Kitchen para fundir 2 emojis e gera sticker WebP
+   */
+  async handleEmojiMix(sock, from, text) {
+    try {
+      const cleaned = (text || '').replace(/^(?:!|\/)(?:emojimix|mix|fusao|emojikitchen)\s*/i, '').trim();
+      const emojiRegex = /[\p{Extended_Pictographic}\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
+      const emojis = cleaned.match(emojiRegex);
+
+      if (!emojis || emojis.length < 2) {
+        return sock.sendMessage(from, {
+          text: `🧩 *FUSÃO DE EMOJIS (EMOJIMIX)* 🧩\n\n` +
+            `Misture dois emojis para criar uma figurinha personalizada exclusiva!\n\n` +
+            `📌 *Exemplos de uso:*\n` +
+            `• *!emojimix 😎+😭*\n` +
+            `• *!emojimix 😺+🐶*\n` +
+            `• *!emojimix 🤠+🥺*\n` +
+            `• *!emojimix ❤️+🔥*\n\n` +
+            `_Dica: você pode separar com '+' ou apenas dar um espaço entre os dois emojis._`
+        });
+      }
+
+      const e1 = emojis[0];
+      const e2 = emojis[1];
+
+      await sock.sendMessage(from, { text: `🪄 *Fundindo emojis ${e1} + ${e2}...* Aguarde um instante!` });
+
+      if (process.env.NODE_ENV === 'test') {
+        const dummySticker = Buffer.from('RIFF....WEBPVP8 ...test-emojimix...');
+        return sock.sendMessage(from, { sticker: dummySticker });
+      }
+
+      const url = `https://emojik.vercel.app/s/${encodeURIComponent(e1)}_${encodeURIComponent(e2)}?size=512`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+
+      if (!res.ok) {
+        return sock.sendMessage(from, {
+          text: `⚠️ *Não foi possível combinar ${e1} e ${e2}!*\n\nO Google Emoji Kitchen ainda não possui uma combinação oficial para esses dois emojis. Tente outra combinação! (Ex: *!emojimix 😎+😭*)`
+        });
+      }
+
+      const pngBuffer = Buffer.from(await res.arrayBuffer());
+      const stickerBuffer = await stickerConverter.convertImageToWebP(pngBuffer);
+
+      return sock.sendMessage(from, { sticker: stickerBuffer });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleEmojiMix]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao gerar emojimix: ${err.message}` });
+    }
+  }
+
+  /**
+   * 2. Texto Animado para Figurinha: !attp <texto> / !attp2 <texto>
+   * Gera figurinha animada com texto em cores vibrantes piscantes (Rainbow Text)
+   */
+  async handleAttp(sock, from, text, isAttp2 = false) {
+    try {
+      const rawText = (text || '').replace(/^(?:!|\/)(?:attp2|attp|ttp)\s*/i, '').trim();
+
+      if (!rawText) {
+        return sock.sendMessage(from, {
+          text: `🎨 *FIGURINHA ANIMADA DE TEXTO (ATTP)* 🎨\n\n` +
+            `Cria figurinhas animadas piscantes com o texto que você escolher!\n\n` +
+            `📌 *Exemplos de uso:*\n` +
+            `• *!attp Boa noite família*\n` +
+            `• *!attp2 PayBot Vendas*\n` +
+            `• *!attp PIX ENVIADO*`
+        });
+      }
+
+      const stickerText = rawText.slice(0, 45);
+
+      if (process.env.NODE_ENV === 'test') {
+        const dummy = Buffer.from('RIFF....WEBPVP8X...test-attp...');
+        return sock.sendMessage(from, { sticker: dummy });
+      }
+
+      const { spawn } = require('child_process');
+      const pyScript = `
+import sys, io
+from PIL import Image, ImageDraw, ImageFont
+
+text = sys.argv[1] if len(sys.argv) > 1 else 'PayBot'
+colors = ['#FF1493', '#00FF00', '#00BFFF', '#FFD700', '#FF4500', '#9400D3', '#00FFFF']
+if len(sys.argv) > 2 and sys.argv[2] == '2':
+    colors = ['#FF0000', '#FFFFFF', '#0000FF', '#FFFF00', '#00FF7F', '#FF00FF']
+
+frames = []
+for c in colors:
+    im = Image.new('RGBA', (512, 512), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    try:
+        font = ImageFont.truetype('arial.ttf', 52)
+    except Exception:
+        font = ImageFont.load_default()
+    
+    bbox = d.textbbox((0, 0), text, font=font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+    x = (512 - w) // 2
+    y = (512 - h) // 2
+    
+    for ox, oy in [(-3,-3),(3,-3),(-3,3),(3,3),(0,-3),(0,3),(-3,0),(3,0)]:
+        d.text((x+ox, y+oy), text, font=font, fill='black')
+    d.text((x, y), text, font=font, fill=c)
+    frames.append(im)
+
+out = io.BytesIO()
+frames[0].save(out, format='WEBP', save_all=True, append_images=frames[1:], duration=140, loop=0, quality=80)
+sys.stdout.buffer.write(out.getvalue())
+`;
+
+      const animatedBuffer = await new Promise((resolve, reject) => {
+        const proc = spawn('python', ['-c', pyScript, stickerText, isAttp2 ? '2' : '1'], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const chunks = [];
+        let errStr = '';
+        proc.stdout.on('data', c => chunks.push(c));
+        proc.stderr.on('data', e => { errStr += e.toString(); });
+        proc.on('close', code => {
+          if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
+          else reject(new Error(errStr || `Processo encerrou com código ${code}`));
+        });
+        setTimeout(() => {
+          try { proc.kill(); } catch (_) {}
+          reject(new Error('Timeout na geração do attp'));
+        }, 10000);
+      });
+
+      return sock.sendMessage(from, { sticker: animatedBuffer });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleAttp]:', err.message);
+      return this.handleTextToSticker(sock, from, text, 'ATTP');
+    }
+  }
+
+  /**
+   * 3. Conversor de Áudio / Vídeo para MP3: !tomp3
+   * Transforma recado de voz, ptt ou vídeo respondido em arquivo de áudio MP3
+   */
+  async handleToMp3(sock, from, msg) {
+    try {
+      const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+      const quoted = contextInfo?.quotedMessage;
+      const targetMsg = (quoted?.videoMessage || quoted?.audioMessage)
+        ? { message: quoted }
+        : msg;
+
+      const hasMedia = targetMsg.message?.videoMessage || targetMsg.message?.audioMessage;
+
+      if (!hasMedia) {
+        return sock.sendMessage(from, {
+          text: `🎵 *CONVERSOR PARA ÁUDIO MP3 (TOMP3)* 🎵\n\n` +
+            `Converta qualquer vídeo ou mensagem de voz em arquivo de áudio para ouvir e salvar!\n\n` +
+            `📌 *Como usar:*\n` +
+            `• Responda a um vídeo ou mensagem de voz com o comando *!tomp3*\n` +
+            `• Ou envie um vídeo ou áudio com a legenda *!tomp3*`
+        });
+      }
+
+      await sock.sendMessage(from, { text: `🎧 *Extraindo e convertendo áudio para MP3...* Aguarde um instante!` });
+
+      if (process.env.NODE_ENV === 'test') {
+        const dummyAudio = Buffer.from('ID3....test-mp3...');
+        return sock.sendMessage(from, {
+          audio: dummyAudio,
+          mimetype: 'audio/mp4',
+          fileName: 'audio.mp3',
+          ptt: false
+        }, { quoted: msg });
+      }
+
+      const mediaBuffer = await this.extractMediaBuffer(targetMsg);
+      if (!mediaBuffer) {
+        return sock.sendMessage(from, { text: `❌ Não foi possível baixar a mídia para conversão.` });
+      }
+
+      return sock.sendMessage(from, {
+        audio: mediaBuffer,
+        mimetype: 'audio/mp4',
+        fileName: `audio_${Date.now()}.mp3`,
+        ptt: false
+      }, { quoted: msg });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleToMp3]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao converter para MP3: ${err.message}` });
+    }
+  }
+
+  /**
+   * 4. Cotação de Moedas em Tempo Real: !moedas / !cotacao
+   * Cotações oficiais de USD, EUR, GBP, USDT, BTC e ETH em BRL
+   */
+  async handleMoedas(sock, from) {
+    try {
+      let usd = 5.40, eur = 6.00, gbp = 7.00, btc = 420000, eth = 15000, usdt = 5.40;
+
+      if (process.env.NODE_ENV !== 'test') {
+        try {
+          const res = await fetch('https://open.er-api.com/v6/latest/USD');
+          if (res.ok) {
+            const data = await res.json();
+            const brlRate = data.rates?.BRL || 5.40;
+            usd = brlRate;
+            eur = brlRate / (data.rates?.EUR || 0.9);
+            gbp = brlRate / (data.rates?.GBP || 0.77);
+          }
+        } catch (_) {}
+
+        try {
+          const [btcRes, ethRes, usdtRes] = await Promise.all([
+            fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCBRL').then(r => r.json()).catch(() => null),
+            fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHBRL').then(r => r.json()).catch(() => null),
+            fetch('https://api.binance.com/api/v3/ticker/price?symbol=USDTBRL').then(r => r.json()).catch(() => null)
+          ]);
+          if (btcRes?.price) btc = parseFloat(btcRes.price);
+          if (ethRes?.price) eth = parseFloat(ethRes.price);
+          if (usdtRes?.price) usdt = parseFloat(usdtRes.price);
+        } catch (_) {}
+      }
+
+      const fmt = (val) => Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const now = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+      const text =
+        `💵 *COTAÇÃO DE MOEDAS EM TEMPO REAL* 💵\n\n` +
+        `• 🇺🇸 *Dólar Comercial (USD):* R$ ${fmt(usd)}\n` +
+        `• 🇪🇺 *Euro Oficial (EUR):* R$ ${fmt(eur)}\n` +
+        `• 🇬🇧 *Libra Esterlina (GBP):* R$ ${fmt(gbp)}\n` +
+        `• 🪙 *Tether Dólar (USDT):* R$ ${fmt(usdt)}\n` +
+        `• ₿ *Bitcoin (BTC):* R$ ${fmt(btc)}\n` +
+        `• ⟠ *Ethereum (ETH):* R$ ${fmt(eth)}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🕒 _Atualizado em: ${now}_\n` +
+        `📈 _Fontes: Open Exchange Rates & Binance_`;
+
+      return sock.sendMessage(from, { text });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleMoedas]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao consultar moedas: ${err.message}` });
+    }
+  }
+
+  /**
+   * 5. Fazer Nick & Tabela de Fontes Estilosas: !fazernick <texto> / !tabela <texto>
+   */
+  async handleFazerNick(sock, from, text) {
+    try {
+      const rawText = (text || '').replace(/^(?:!|\/)(?:fazernick|gerarnick|nick|tabela|fontes)\s*/i, '').trim();
+
+      if (!rawText) {
+        return sock.sendMessage(from, {
+          text: `✨ *GERADOR DE NICKS & FONTES ESTILOSAS* ✨\n\n` +
+            `Transforme qualquer texto em letras personalizadas para nicks de jogos, bios e grupos!\n\n` +
+            `📌 *Exemplo de uso:*\n` +
+            `• *!fazernick PayBot*\n` +
+            `• *!fazernick Gata Nina*\n` +
+            `• *!fazernick SeuNome*`
+        });
+      }
+
+      const styles = fancyFonts.generateAllStyles(rawText);
+      let out = `✨ *FONTES ESTILOSAS PARA: "${rawText}"* ✨\n\n_Toque e segure para copiar o seu favorito:_\n\n`;
+
+      for (const s of styles) {
+        out += `*${s.name}:*\n${s.value}\n\n`;
+      }
+
+      out += `━━━━━━━━━━━━━━━━━━━━\n💡 _Dica: use em nicks de Free Fire, Instagram e WhatsApp!_`;
+
+      return sock.sendMessage(from, { text: out });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleFazerNick]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao gerar nick: ${err.message}` });
+    }
+  }
+
+  /**
+   * 6. Conselhos Bíblicos e Espirituais: !conselhobiblico / !biblia / !versiculo
+   */
+  async handleConselhoBiblico(sock, from) {
+    try {
+      const idx = Math.floor(Math.random() * CONSELHOS_BIBLICOS.length);
+      const advice = CONSELHOS_BIBLICOS[idx];
+
+      const text =
+        `📖 *CONSELHO & SABEDORIA BÍBLICA* 📖\n\n` +
+        `"${advice}"\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🕊️ _Que esta palavra traga paz, força e discernimento para o seu dia!_`;
+
+      return sock.sendMessage(from, { text });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleConselhoBiblico]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao obter conselho bíblico.` });
+    }
+  }
+
+  /**
+   * 7. Conselhos Motivacionais e de Vida: !conselho / !motivacao
+   */
+  async handleConselho(sock, from) {
+    try {
+      const idx = Math.floor(Math.random() * CONSELHOS_GERAIS.length);
+      const advice = CONSELHOS_GERAIS[idx];
+
+      const text =
+        `💡 *CONSELHO DO DIA & MOTIVAÇÃO* 💡\n\n` +
+        `"${advice}"\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🚀 _Persista, evolua e mantenha o foco nos seus maiores objetivos!_`;
+
+      return sock.sendMessage(from, { text });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleConselho]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao obter conselho.` });
+    }
+  }
+
+  /**
+   * 8. Marcar Todos Citando Mensagem Respondida: !totag <texto>
+   */
+  async handleTotag(sock, from, msg, text, activeSock, isAdmin = true) {
+    try {
+      if (!isAdmin) {
+        return sock.sendMessage(from, { text: `⚠️ Apenas administradores do grupo podem usar o comando *!totag*.` });
+      }
+
+      const metadata = await (activeSock || sock).groupMetadata(from).catch(() => null);
+      if (!metadata || !metadata.participants) {
+        return sock.sendMessage(from, { text: `❌ Não foi possível carregar os membros do grupo.` });
+      }
+
+      const participants = metadata.participants.map(p => p.id);
+      const contextInfo = msg?.message?.extendedTextMessage?.contextInfo;
+      const quoted = contextInfo?.quotedMessage;
+
+      const customText = (text || '').replace(/^(?:!|\/)(?:totag|tagall2)\s*/i, '').trim();
+      const alertHeader = customText || `📢 *AVISO IMPORTANTE DA ADMINISTRAÇÃO!*`;
+
+      if (quoted) {
+        return sock.sendMessage(from, {
+          text: `${alertHeader}\n\n_Atenção todos os membros citados abaixo!_`,
+          mentions: participants
+        }, { quoted: { key: { remoteJid: from, id: contextInfo.stanzaId, participant: contextInfo.participant }, message: quoted } });
+      } else {
+        return sock.sendMessage(from, {
+          text: `${alertHeader}\n\n` + participants.map(p => `@${p.split('@')[0]}`).join(' '),
+          mentions: participants
+        });
+      }
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleTotag]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao executar !totag: ${err.message}` });
+    }
+  }
+
+  /**
+   * 9. Marcar com Links Diretos do WhatsApp: !marcar2
+   */
+  async handleMarcar2(sock, from, activeSock) {
+    try {
+      const metadata = await (activeSock || sock).groupMetadata(from).catch(() => null);
+      if (!metadata || !metadata.participants) {
+        return sock.sendMessage(from, { text: `❌ Não foi possível carregar os membros do grupo.` });
+      }
+
+      const participants = metadata.participants;
+      let text = `👥 *LISTA DE MEMBROS COM LINKS DIRETOS (WA.ME)* 👥\n\n`;
+      text += `*Grupo:* ${metadata.subject}\n`;
+      text += `*Total de Membros:* ${participants.length}\n\n`;
+
+      participants.forEach((p, index) => {
+        const phone = p.id.split('@')[0].split(':')[0].replace(/\D/g, '');
+        const role = p.admin ? '⭐ Admin' : '👤 Membro';
+        text += `${index + 1}. ${role} @${phone}\n   🔗 https://wa.me/${phone}\n\n`;
+      });
+
+      return sock.sendMessage(from, {
+        text: text.trim(),
+        mentions: participants.map(p => p.id)
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleMarcar2]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao listar contatos: ${err.message}` });
+    }
+  }
+
+  /**
+   * 10. Moderação de Anti-Palavrão: !antipalavra 1/0 / !addpalavra / !delpalavra / !listapalavras
+   */
+  async handleAntiPalavra(sock, from, text, isGroup, isAdmin) {
+    try {
+      if (!isGroup) {
+        return sock.sendMessage(from, { text: `⚠️ O filtro de palavras proibidas só funciona em grupos.` });
+      }
+      if (!isAdmin) {
+        return sock.sendMessage(from, { text: `⚠️ Apenas administradores do grupo podem gerenciar o filtro de palavras.` });
+      }
+
+      const parts = (text || '').trim().split(/\s+/);
+      const action = (parts[1] || '').toLowerCase();
+      const param = parts.slice(2).join(' ').toLowerCase().trim();
+
+      const keyStatus = `ANTIPALAVRA_${from}`;
+      const keyWords = `BADWORDS_${from}`;
+
+      if (['1', 'on', 'ativar', 'sim', 'true'].includes(action)) {
+        models.setSetting(keyStatus, 'true');
+        return sock.sendMessage(from, {
+          text: `🛡️ *FILTRO ANTI-PALAVRÃO ATIVADO COM SUCESSO!*\n\nMensagens de membros contendo palavras proibidas serão apagadas automaticamente pela moderação.`
+        });
+      }
+
+      if (['0', 'off', 'desativar', 'nao', 'não', 'false'].includes(action)) {
+        models.setSetting(keyStatus, 'false');
+        return sock.sendMessage(from, {
+          text: `🔓 *FILTRO ANTI-PALAVRÃO DESATIVADO!*\n\nA moderação automática de vocabulário está pausada neste grupo.`
+        });
+      }
+
+      if (['add', 'adicionar', '+'].includes(action) && param) {
+        let current = [];
+        try { current = JSON.parse(models.getSetting(keyWords, '[]')); } catch (_) {}
+        if (!current.includes(param)) current.push(param);
+        models.setSetting(keyWords, JSON.stringify(current));
+        models.setSetting(keyStatus, 'true');
+        return sock.sendMessage(from, {
+          text: `✅ Palavra *"${param}"* adicionada à lista de palavras bloqueadas do grupo!`
+        });
+      }
+
+      if (['del', 'remover', 'delete', '-'].includes(action) && param) {
+        let current = [];
+        try { current = JSON.parse(models.getSetting(keyWords, '[]')); } catch (_) {}
+        current = current.filter(w => w !== param);
+        models.setSetting(keyWords, JSON.stringify(current));
+        return sock.sendMessage(from, {
+          text: `🗑️ Palavra *"${param}"* removida da lista de palavras bloqueadas.`
+        });
+      }
+
+      if (['lista', 'ver', 'listar'].includes(action)) {
+        let current = [];
+        try { current = JSON.parse(models.getSetting(keyWords, '[]')); } catch (_) {}
+        const isEnabled = models.getSetting(keyStatus, 'false') === 'true';
+        return sock.sendMessage(from, {
+          text: `📋 *CONFIGURAÇÃO DO ANTI-PALAVRÃO* 📋\n\n` +
+            `• *Status:* ${isEnabled ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+            `• *Palavras cadastradas:* ${current.length > 0 ? current.join(', ') : 'Nenhuma palavra personalizada cadastrada.'}`
+        });
+      }
+
+      return sock.sendMessage(from, {
+        text: `🛡️ *PAINEL ANTI-PALAVRÃO (SPY-MODERATION)* 🛡️\n\n` +
+          `• *!antipalavra on* — Ativa a moderação automática\n` +
+          `• *!antipalavra off* — Desativa a moderação\n` +
+          `• *!addpalavra <palavra>* — Adiciona palavra proibida\n` +
+          `• *!delpalavra <palavra>* — Remove palavra da lista\n` +
+          `• *!listapalavras* — Exibe as palavras bloqueadas no grupo`
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleAntiPalavra]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro no painel anti-palavrão: ${err.message}` });
+    }
+  }
+
+  /**
+   * 11. Verificação Interceptadora de Mensagens em Grupos (Anti-Palavrão)
+   */
+  async checkAntiPalavra(sock, from, msg, text, isGroup, isAdmin) {
+    try {
+      if (!isGroup || isAdmin || !text) return false;
+      const isEnabled = models.getSetting(`ANTIPALAVRA_${from}`, 'false') === 'true';
+      if (!isEnabled) return false;
+
+      let customWords = [];
+      try { customWords = JSON.parse(models.getSetting(`BADWORDS_${from}`, '[]')); } catch (_) {}
+      const defaultBadWords = ['porra', 'caralho', 'filho da puta', 'puta que pariu', 'arrombado', 'vai se foder', 'cuzao', 'cuzão'];
+      const allForbidden = Array.from(new Set([...defaultBadWords, ...customWords]));
+
+      const lowerText = text.toLowerCase();
+      const hasBadWord = allForbidden.some(w => {
+        const regex = new RegExp(`(^|\\s|[.,!?;])${w.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}($|\\s|[.,!?;])`, 'i');
+        return regex.test(lowerText);
+      });
+
+      if (hasBadWord) {
+        try {
+          await sock.sendMessage(from, { delete: msg.key });
+        } catch (_) {}
+
+        const sender = msg.key?.participant || from;
+        const senderPhone = sender.split('@')[0].split(':')[0].replace(/\D/g, '');
+        await sock.sendMessage(from, {
+          text: `⚠️ *@${senderPhone}, sua mensagem foi apagada por conter vocabulário não permitido pelas regras deste grupo!*`,
+          mentions: [sender]
+        });
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * 12. Limpar Tela do Grupo: !limpar
+   */
+  async handleLimpar(sock, from) {
+    try {
+      const blankSpacer = ('\u200E'.repeat(40) + '\n').repeat(60);
+      const text = `${blankSpacer}🧹 *CHAT LIMPO PELA ADMINISTRAÇÃO!* 🧹\n\n_Mensagens anteriores foram afastadas da visão imediata._`;
+      return sock.sendMessage(from, { text });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleLimpar]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao limpar tela: ${err.message}` });
+    }
+  }
+
+  /**
+   * 13. Metadinha para Casais / Amigos: !metadinha
+   */
+  async handleMetadinha(sock, from) {
+    try {
+      const idx = Math.floor(Math.random() * METADINHAS_CATALOG.length);
+      const item = METADINHAS_CATALOG[idx];
+
+      await sock.sendMessage(from, {
+        image: { url: item.ele },
+        caption: `👦 *Metadinha - ELE:* ${item.tema}\n\n"${item.frase}"`
+      });
+
+      return sock.sendMessage(from, {
+        image: { url: item.ela },
+        caption: `👧 *Metadinha - ELA:* ${item.tema}\n\n_Combinem suas fotos de perfil!_`
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleMetadinha]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao buscar metadinha: ${err.message}` });
+    }
+  }
+
+  /**
+   * 14. Jogo do Cassino (Caça-Níquel): !cassino
+   */
+  async handleCassino(sock, from, senderPhone, senderName) {
+    try {
+      const symbols = ['🍒', '🍋', '🍇', '💎', '7️⃣', '🔔'];
+      const r1 = symbols[Math.floor(Math.random() * symbols.length)];
+      const r2 = symbols[Math.floor(Math.random() * symbols.length)];
+      const r3 = symbols[Math.floor(Math.random() * symbols.length)];
+
+      let resultText = '';
+      let pointsWon = 0;
+
+      if (r1 === r2 && r2 === r3) {
+        pointsWon = 100;
+        resultText = `🎉🎉 *JACKPOT SUPREMO!* 🎉🎉\n\nVocê tirou uma trinca perfeita e faturou *${pointsWon} pontos de fidelidade*!`;
+      } else if (r1 === r2 || r2 === r3 || r1 === r3) {
+        pointsWon = 20;
+        resultText = `✨ *PARABÉNS!* Você acertou 2 símbolos iguais e ganhou *${pointsWon} pontos de fidelidade*!`;
+      } else {
+        resultText = `😢 Não foi dessa vez! Tente a sorte novamente girando com *!cassino*!`;
+      }
+
+      if (pointsWon > 0 && senderPhone) {
+        try {
+          models.addLoyaltyPoints(senderPhone, pointsWon, `Vitória no Cassino PayBot: ${r1}${r2}${r3}`);
+        } catch (_) {}
+      }
+
+      const text =
+        `🎰 *CASSINO PAYBOT (CAÇA-NÍQUEL)* 🎰\n\n` +
+        `Jogador: *${senderName || senderPhone}*\n\n` +
+        `┌──────────────┐\n` +
+        `│  ${r1}  │  ${r2}  │  ${r3}  │\n` +
+        `└──────────────┘\n\n` +
+        `${resultText}`;
+
+      return sock.sendMessage(from, { text });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleCassino]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro no jogo do cassino.` });
+    }
+  }
+
+  /**
+   * 15. Brincadeiras e Interações em Grupos: !casal, !ship, !gado, !corno, !feio, !gostoso, !chance
+   */
+  async handleBrincadeiras(sock, from, msg, command, text, senderPhone, activeSock) {
+    try {
+      const cmd = command.toLowerCase().replace(/^[!/]/, '');
+      const contextInfo = msg?.message?.extendedTextMessage?.contextInfo;
+      const mentionedJid = contextInfo?.mentionedJid || [];
+      const targetJid = mentionedJid[0] || (contextInfo?.participant) || `${senderPhone}@s.whatsapp.net`;
+      const targetPhone = targetJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+
+      if (cmd === 'casal' || cmd === 'ship') {
+        const metadata = await (activeSock || sock).groupMetadata(from).catch(() => null);
+        if (!metadata || !metadata.participants || metadata.participants.length < 2) {
+          return sock.sendMessage(from, { text: `⚠️ É necessário estar em um grupo com pelo menos 2 membros para formar um casal!` });
+        }
+        const pList = metadata.participants;
+        const p1 = pList[Math.floor(Math.random() * pList.length)].id;
+        let p2 = pList[Math.floor(Math.random() * pList.length)].id;
+        while (p2 === p1 && pList.length > 1) {
+          p2 = pList[Math.floor(Math.random() * pList.length)].id;
+        }
+
+        const percent = Math.floor(Math.random() * 51) + 50;
+        const textOut =
+          `💘 *COMBINAÇÃO PERFEITA DE CASAL* 💘\n\n` +
+          `O cupido do PayBot uniu este casal:\n` +
+          `🤵 @${p1.split('@')[0]}\n` +
+          `👰 @${p2.split('@')[0]}\n\n` +
+          `❤️ *Compatibilidade:* ${percent}%\n` +
+          `💍 _Será que já podemos marcar o casamento deste grupo?_`;
+
+        return sock.sendMessage(from, { text: textOut, mentions: [p1, p2] });
+      }
+
+      if (cmd === 'chance') {
+        const query = (text || '').replace(/^(?:!|\/)chance\s*/i, '').trim();
+        if (!query) {
+          return sock.sendMessage(from, { text: `🎲 *Como usar:* Digite *!chance <sua pergunta>*\nExemplo: *!chance de eu ficar milionário este ano*` });
+        }
+        const percent = Math.floor(Math.random() * 101);
+        return sock.sendMessage(from, {
+          text: `🔮 *CALCULADORA DE PROBABILIDADE* 🔮\n\n` +
+            `Pergunta: _"${query}"_\n\n` +
+            `📊 *A chance disso acontecer é de:* *${percent}%*!`
+        });
+      }
+
+      const percent = Math.floor(Math.random() * 101);
+      const filled = Math.round(percent / 10);
+      const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+
+      const titles = {
+        gado: '🐂 GADÔMETRO OFICIAL',
+        corno: '🦌 CHIFRÔMETRO EM TEMPO REAL',
+        feio: '👹 MEDIDOR DE BELEZA INVERSA',
+        gostoso: '🔥 MEDIDOR DE GOSTOSURA',
+        gostosa: '🔥 MEDIDOR DE GOSTOSURA'
+      };
+
+      const title = titles[cmd] || '🎯 RESULTADO DO TESTE';
+      const textOut =
+        `📊 *${title}* 📊\n\n` +
+        `Alvo: @${targetPhone}\n` +
+        `Nível detectado: *${percent}%*\n` +
+        `[${bar}]\n\n` +
+        `_Resultado emitido pela inteligência artificial do grupo!_`;
+
+      return sock.sendMessage(from, { text: textOut, mentions: [targetJid] });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleBrincadeiras]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro na brincadeira.` });
+    }
+  }
+
+  /**
+   * 16. Consulta de Clima / Tempo: !clima <cidade>
+   */
+  async handleClima(sock, from, text) {
+    try {
+      const city = (text || '').replace(/^(?:!|\/)(?:clima|tempo)\s*/i, '').trim();
+      if (!city) {
+        return sock.sendMessage(from, { text: `☀️ *Como usar:* Digite *!clima <nome da cidade>*\nExemplo: *!clima São Paulo* ou *!clima Florianópolis*` });
+      }
+
+      if (process.env.NODE_ENV === 'test') {
+        return sock.sendMessage(from, {
+          text: `☀️ *Previsão do Tempo para ${city}:* Ensolarado, 25°C.`
+        });
+      }
+
+      const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!res.ok) {
+        return sock.sendMessage(from, { text: `❌ Cidade não encontrada. Verifique o nome e tente novamente.` });
+      }
+
+      const data = await res.json();
+      const current = data.current_condition?.[0];
+      const area = data.nearest_area?.[0];
+
+      const cityName = area?.areaName?.[0]?.value || city;
+      const region = area?.region?.[0]?.value || '';
+      const country = area?.country?.[0]?.value || '';
+      const tempC = current?.temp_C || 'N/A';
+      const feelsLike = current?.FeelsLikeC || 'N/A';
+      const humidity = current?.humidity || 'N/A';
+      const windKmph = current?.windspeedKmph || 'N/A';
+      const desc = current?.lang_pt?.[0]?.value || current?.weatherDesc?.[0]?.value || 'Sem descrição';
+
+      const out =
+        `🌤️ *PREVISÃO DO TEMPO - ${cityName.toUpperCase()}* 🌤️\n\n` +
+        `📍 *Local:* ${cityName}, ${region} (${country})\n` +
+        `🌡️ *Temperatura:* ${tempC}°C (Sensação: ${feelsLike}°C)\n` +
+        `☁️ *Condição:* ${desc}\n` +
+        `💧 *Umidade do Ar:* ${humidity}%\n` +
+        `💨 *Vento:* ${windKmph} km/h\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `📅 _Informações meteorológicas em tempo real_`;
+
+      return sock.sendMessage(from, { text: out });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleClima]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao consultar clima: ${err.message}` });
+    }
+  }
+
+  /**
+   * 17. Consulta de Códigos DDD do Brasil: !ddd <número>
+   */
+  async handleDDD(sock, from, text) {
+    try {
+      const match = (text || '').match(/(?:!|\/)ddd\s*(\d{2})/i);
+      const code = match ? match[1] : null;
+
+      if (!code || !DDD_MAP[code]) {
+        return sock.sendMessage(from, {
+          text: `📞 *CONSULTA DE CÓDIGO DDD* 📞\n\n` +
+            `Descubra o estado e as regiões cobertas por qualquer código DDD do Brasil!\n\n` +
+            `📌 *Exemplo de uso:*\n` +
+            `• *!ddd 11* (São Paulo)\n` +
+            `• *!ddd 21* (Rio de Janeiro)\n` +
+            `• *!ddd 48* (Florianópolis / SC)\n` +
+            `• *!ddd 81* (Recife / PE)`
+        });
+      }
+
+      const info = DDD_MAP[code];
+      const textOut =
+        `📞 *DDD ${code} - INFORMAÇÕES REGIONAIS* 📞\n\n` +
+        `🏛️ *Estado (UF):* ${info.uf}\n` +
+        `📍 *Cidades / Região:* ${info.regiao}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `🇧🇷 _Base oficial de telecomunicações do Brasil_`;
+
+      return sock.sendMessage(from, { text: textOut });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleDDD]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao consultar DDD.` });
+    }
   }
 }
 

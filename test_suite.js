@@ -3623,6 +3623,312 @@ async function main() {
     assert.strictEqual(liveData.dialogueCount, 2);
   });
 
+  // ----------------------------------------------------------------
+  // 18. TESTES DAS FUNCIONALIDADES PORTADAS DO SPYBOT (ALEATORY-MD)
+  // ----------------------------------------------------------------
+  console.log('\n🕵️ 18. Testes das Funcionalidades Portadas do SpyBot (Aleatory-MD):');
+
+  const gataFeatures = require('./src/services/gataFeaturesService');
+  const whatsappBot = require('./src/bots/whatsappBot');
+
+  await runAsyncTest('SpyBot: Fusão de Emojis (!emojimix) & Stickers Animados (!attp / !attp2)', async () => {
+    const sentMessages = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'EMOJI_MSG_1' } };
+      }
+    };
+
+    // 1. Emojimix sem parâmetros: instruções
+    await gataFeatures.handleEmojiMix(mockSock, '1203630123@g.us', '!emojimix');
+    assert(sentMessages.length >= 1);
+    assert(sentMessages[0].payload.text.includes('FUSÃO DE EMOJIS'));
+
+    // 2. Emojimix válido: gera figurinha
+    sentMessages.length = 0;
+    await gataFeatures.handleEmojiMix(mockSock, '1203630123@g.us', '!emojimix 😎+😭');
+    assert(sentMessages.some(m => m.payload.sticker));
+
+    // 3. Attp sem texto: instruções
+    sentMessages.length = 0;
+    await gataFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp');
+    assert(sentMessages[0].payload.text.includes('FIGURINHA ANIMADA DE TEXTO'));
+
+    // 4. Attp válido: gera figurinha animada
+    sentMessages.length = 0;
+    await gataFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp PayBot Vendas', false);
+    assert(sentMessages.some(m => m.payload.sticker));
+
+    // 5. Attp2 válido: gera figurinha animada estilo 2
+    sentMessages.length = 0;
+    await gataFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp2 Gata Nina', true);
+    assert(sentMessages.some(m => m.payload.sticker));
+  });
+
+  await runAsyncTest('SpyBot: Conversor para MP3 (!tomp3) & Cotação de Moedas (!moedas)', async () => {
+    const sentMessages = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'MEDIA_MSG_1' } };
+      }
+    };
+
+    // 1. !tomp3 sem mídia: instruções
+    await gataFeatures.handleToMp3(mockSock, '5511999998888@s.whatsapp.net', { message: { conversation: '!tomp3' } });
+    assert(sentMessages[0].payload.text.includes('CONVERSOR PARA ÁUDIO MP3'));
+
+    // 2. !tomp3 com áudio citado: converte e envia
+    sentMessages.length = 0;
+    const mockQuotedMsg = {
+      message: {
+        extendedTextMessage: {
+          contextInfo: {
+            quotedMessage: {
+              audioMessage: { mimetype: 'audio/ogg; codecs=opus' }
+            }
+          }
+        }
+      }
+    };
+    await gataFeatures.handleToMp3(mockSock, '5511999998888@s.whatsapp.net', mockQuotedMsg);
+    assert(sentMessages.some(m => m.payload.audio && m.payload.mimetype === 'audio/mp4'));
+
+    // 3. !moedas: cotações em tempo real de USD, EUR, BTC
+    sentMessages.length = 0;
+    await gataFeatures.handleMoedas(mockSock, '5511999998888@s.whatsapp.net');
+    assert(sentMessages.length === 1);
+    const moedasText = sentMessages[0].payload.text;
+    assert(moedasText.includes('COTAÇÃO DE MOEDAS EM TEMPO REAL'));
+    assert(moedasText.includes('Dólar Comercial'));
+    assert(moedasText.includes('Euro Oficial'));
+    assert(moedasText.includes('Bitcoin'));
+  });
+
+  await runAsyncTest('SpyBot: Gerador de Nicks & Fontes Estilosas (!fazernick / !tabela)', async () => {
+    const sentMessages = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'NICK_MSG_1' } };
+      }
+    };
+
+    // 1. !fazernick sem texto: instruções
+    await gataFeatures.handleFazerNick(mockSock, '5511999998888@s.whatsapp.net', '!fazernick');
+    assert(sentMessages[0].payload.text.includes('GERADOR DE NICKS'));
+
+    // 2. !fazernick PayBot: gera lista completa com 20 estilos
+    sentMessages.length = 0;
+    await gataFeatures.handleFazerNick(mockSock, '5511999998888@s.whatsapp.net', '!fazernick PayBot');
+    assert(sentMessages.length === 1);
+    const nickText = sentMessages[0].payload.text;
+    assert(nickText.includes('FONTES ESTILOSAS PARA: "PayBot"'));
+    assert(nickText.includes('Gótico Fraktur'));
+    assert(nickText.includes('Circundado'));
+    assert(nickText.includes('Asas'));
+  });
+
+  await runAsyncTest('SpyBot: Conselhos Bíblicos (!conselhobiblico) & Motivacionais (!conselho)', async () => {
+    const sentMessages = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'CONSELHO_MSG_1' } };
+      }
+    };
+
+    // 1. Conselho Bíblico
+    await gataFeatures.handleConselhoBiblico(mockSock, '5511999998888@s.whatsapp.net');
+    assert(sentMessages[0].payload.text.includes('CONSELHO & SABEDORIA BÍBLICA'));
+
+    // 2. Conselho Motivacional
+    sentMessages.length = 0;
+    await gataFeatures.handleConselho(mockSock, '5511999998888@s.whatsapp.net');
+    assert(sentMessages[0].payload.text.includes('CONSELHO DO DIA & MOTIVAÇÃO'));
+  });
+
+  await runAsyncTest('SpyBot: Gestão de Grupos (!totag, !marcar2, !limpar)', async () => {
+    const sentMessages = [];
+    const mockSock = {
+      groupMetadata: async () => ({
+        subject: 'Grupo VIP de Testes',
+        participants: [
+          { id: '5511999990001@s.whatsapp.net', admin: 'admin' },
+          { id: '5511999990002@s.whatsapp.net', admin: null },
+          { id: '5511999990003@s.whatsapp.net', admin: null }
+        ]
+      }),
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'GP_MSG_1' } };
+      }
+    };
+
+    // 1. !totag com texto customizado
+    await gataFeatures.handleTotag(mockSock, '1203630999@g.us', null, '!totag Atenção a todos!', mockSock, true);
+    assert(sentMessages.length === 1);
+    assert(sentMessages[0].payload.text.includes('Atenção a todos!'));
+    assert.strictEqual(sentMessages[0].payload.mentions.length, 3);
+
+    // 2. !marcar2 gera links wa.me para todos
+    sentMessages.length = 0;
+    await gataFeatures.handleMarcar2(mockSock, '1203630999@g.us', mockSock);
+    assert(sentMessages.length === 1);
+    assert(sentMessages[0].payload.text.includes('https://wa.me/5511999990001'));
+    assert(sentMessages[0].payload.text.includes('https://wa.me/5511999990002'));
+
+    // 3. !limpar gera buffer invisível
+    sentMessages.length = 0;
+    await gataFeatures.handleLimpar(mockSock, '1203630999@g.us');
+    assert(sentMessages.length === 1);
+    assert(sentMessages[0].payload.text.includes('CHAT LIMPO PELA ADMINISTRAÇÃO'));
+  });
+
+  await runAsyncTest('SpyBot: Moderação Anti-Palavrão (!antipalavra) & Auto-Delete de Ofensas', async () => {
+    const sentMessages = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'AP_MSG_1' } };
+      }
+    };
+
+    const gpId = '1203630888777@g.us';
+
+    // 1. Ativar Anti-Palavrão
+    await gataFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra on', true, true);
+    assert(sentMessages.some(m => m.payload.text.includes('FILTRO ANTI-PALAVRÃO ATIVADO')));
+
+    // 2. Adicionar palavra proibida
+    sentMessages.length = 0;
+    await gataFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra add proibido123', true, true);
+    assert(sentMessages.some(m => m.payload.text.includes('adicionada')));
+
+    // 3. Verificar mensagem com palavra proibida de não-admin: deve apagar
+    sentMessages.length = 0;
+    const testBadMsg = {
+      key: { remoteJid: gpId, id: 'BAD_MSG_1', participant: '5511988887777@s.whatsapp.net' }
+    };
+    const wasDeleted = await gataFeatures.checkAntiPalavra(mockSock, gpId, testBadMsg, 'Isso é proibido123 cara', true, false);
+    assert.strictEqual(wasDeleted, true);
+    assert(sentMessages.some(m => m.payload.delete));
+    assert(sentMessages.some(m => m.payload.text && m.payload.text.includes('apagada por conter vocabulário não permitido')));
+
+    // 4. Mensagem limpa: não deve apagar
+    sentMessages.length = 0;
+    const wasCleanDeleted = await gataFeatures.checkAntiPalavra(mockSock, gpId, testBadMsg, 'Bom dia pessoal tudo bem?', true, false);
+    assert.strictEqual(wasCleanDeleted, false);
+
+    // 5. Desativar Anti-Palavrão
+    sentMessages.length = 0;
+    await gataFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra off', true, true);
+    assert(sentMessages.some(m => m.payload.text.includes('DESATIVADO')));
+  });
+
+  await runAsyncTest('SpyBot: Mini-games & Interações (!cassino, !casal, !metadinha, !clima, !ddd)', async () => {
+    const sentMessages = [];
+    const mockSock = {
+      groupMetadata: async () => ({
+        subject: 'Grupo do Amor',
+        participants: [
+          { id: '5511911111111@s.whatsapp.net' },
+          { id: '5511922222222@s.whatsapp.net' }
+        ]
+      }),
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'FUN_MSG_1' } };
+      }
+    };
+
+    // 1. !cassino caça-níquel
+    await gataFeatures.handleCassino(mockSock, '5511999998888@s.whatsapp.net', '5511999998888', 'Tester');
+    assert(sentMessages[0].payload.text.includes('CASSINO PAYBOT'));
+
+    // 2. !casal combinação de casal
+    sentMessages.length = 0;
+    await gataFeatures.handleBrincadeiras(mockSock, '1203630123@g.us', null, 'casal', '!casal', '5511999998888', mockSock);
+    assert(sentMessages[0].payload.text.includes('COMBINAÇÃO PERFEITA DE CASAL'));
+
+    // 3. !metadinha fotos de perfil combinando
+    sentMessages.length = 0;
+    await gataFeatures.handleMetadinha(mockSock, '5511999998888@s.whatsapp.net');
+    assert.strictEqual(sentMessages.length, 2);
+    assert(sentMessages[0].payload.caption.includes('Metadinha - ELE'));
+    assert(sentMessages[1].payload.caption.includes('Metadinha - ELA'));
+
+    // 4. !clima previsão do tempo
+    sentMessages.length = 0;
+    await gataFeatures.handleClima(mockSock, '5511999998888@s.whatsapp.net', '!clima São Paulo');
+    assert(sentMessages[0].payload.text.includes('São Paulo'));
+
+    // 5. !ddd consulta de código telefônico
+    sentMessages.length = 0;
+    await gataFeatures.handleDDD(mockSock, '5511999998888@s.whatsapp.net', '!ddd 48');
+    assert(sentMessages[0].payload.text.includes('DDD 48'));
+    assert(sentMessages[0].payload.text.includes('Florianópolis'));
+  });
+
+  await runAsyncTest('SpyBot: Integração de Roteamento de Comandos no whatsappBot.handleMessage', async () => {
+    const originalSock = whatsappBot.sock;
+    const originalSend = whatsappBot.sendMessage;
+    const sent = [];
+
+    try {
+      whatsappBot.sock = {
+        user: { id: '5511999990000:1@s.whatsapp.net' },
+        sendMessage: async (jid, payload) => {
+          sent.push({ jid, payload });
+          return { key: { id: 'ROUTED_1' } };
+        }
+      };
+      whatsappBot.sendMessage = async (jid, textOrObj) => {
+        sent.push({ jid, payload: typeof textOrObj === 'string' ? { text: textOrObj } : textOrObj });
+        return { key: { id: 'ROUTED_2' } };
+      };
+
+      // 1. Testa !moedas
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!moedas' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('COTAÇÃO DE MOEDAS')));
+
+      // 2. Testa !fazernick
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!fazernick Gata' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('FONTES ESTILOSAS')));
+
+      // 3. Testa !conselhobiblico
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!conselhobiblico' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('CONSELHO & SABEDORIA BÍBLICA')));
+
+      // 4. Testa !ddd
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!ddd 11' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('São Paulo')));
+    } finally {
+      whatsappBot.sock = originalSock;
+      whatsappBot.sendMessage = originalSend;
+    }
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

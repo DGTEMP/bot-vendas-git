@@ -745,6 +745,15 @@ class WhatsAppBotService {
       }
     }
 
+    // 0.25 Interceptador Anti-Palavrão em Grupos (SpyBot Moderation)
+    if (isGroup && !isFromMe) {
+      try {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        const deleted = await gataFeatures.checkAntiPalavra(activeSock, from, msg, text, isGroup, adminStatus.isRequesterAdmin);
+        if (deleted) return;
+      } catch (_) {}
+    }
+
     // ==========================================
     // 0.3 FUNÇÕES DE GERENCIAMENTO DE GRUPOS (ADMIN COM BOT ADMIN)
     // ==========================================
@@ -766,10 +775,12 @@ class WhatsAppBotService {
         const isAntiView = models.getSetting(`ANTIVIEWONCE_${from}`, 'true') === 'true';
         const isAntiDelete = models.getSetting(`ANTIDELETE_${from}`, 'false') === 'true';
         const isAntiPrivado = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';
+        const isAntiPalavra = models.getSetting(`ANTIPALAVRA_${from}`, 'false') === 'true';
 
         const adminMenu = `🛠️ *PAINEL DE GERENCIAMENTO DO GRUPO (ADMIN)*\n\n` +
           `• *Status do Bot:* ${botStatusBadge}\n` +
           `• *Anti-Link:* ${isAntilink ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Anti-Palavrão:* ${isAntiPalavra ? '🟢 Ativado' : '🔴 Desativado'}\n` +
           `• *Anti-Fake (+55):* ${isAntifake ? '🟢 Ativado' : '🔴 Desativado'}\n` +
           `• *Anti-View-Once:* ${isAntiView ? '🟢 Ativado' : '🔴 Desativado'}\n` +
           `• *Anti-Delete:* ${isAntiDelete ? '🟢 Ativado' : '🔴 Desativado'}\n` +
@@ -780,9 +791,16 @@ class WhatsAppBotService {
           `• *!promover* (responda ou mencione) — Promove participante a Administrador\n` +
           `• *!rebaixar* (responda ou mencione) — Remove cargo de Administrador\n` +
           `• *!todos <aviso>* — Marca e notifica todos os participantes do grupo\n` +
+          `• *!totag <texto>* — Menciona todos citando a mensagem respondida\n` +
+          `• *!marcar2* — Lista todos os membros com links diretos (wa.me)\n` +
           `• *!hidetag <aviso>* — Notificação silenciosa/invisível para todos os membros\n` +
-          `• *!fantasmas* — Escaneia membros inativos que nunca falaram\n\n` +
-          `🛡️ *Advertências & Segurança (Gata Nina):*\n` +
+          `• *!fantasmas* — Escaneia membros inativos que nunca falaram\n` +
+          `• *!limpar* — Oculta mensagens anteriores limpando a tela do chat\n\n` +
+          `🛡️ *Advertências & Moderação SpyBot:*\n` +
+          `• *!antipalavra on/off* — Moderação automática contra palavras proibidas\n` +
+          `• *!addpalavra <palavra>* — Adiciona palavra proibida à lista negra\n` +
+          `• *!delpalavra <palavra>* — Remove palavra da lista negra\n` +
+          `• *!listapalavras* — Exibe palavras proibidas do grupo\n` +
           `• *!warn @usuario <motivo>* — Advertência (3 avisos = expulsão automática)\n` +
           `• *!unwarn @usuario* — Remove última advertência\n` +
           `• *!warns [@usuario]* — Consulta histórico de advertências\n` +
@@ -1709,6 +1727,39 @@ class WhatsAppBotService {
           return this.sendMessage(from, `ℹ️ *Anti-Privado:* ${isAct ? '🔴 Ativado (PV restrito)' : '🟢 Desativado (PV liberado)'}\n\nPara alterar: *!antiprivado on* ou *!antiprivado off*`);
         }
       }
+
+      // 24. Marcar Todos Citando Mensagem Respondida: !totag <texto>
+      if (/^(?:!|\/)(?:totag|tagall2)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem usar o comando *!totag*.');
+        }
+        return gataFeatures.handleTotag(activeSock, from, msg, text, activeSock, true);
+      }
+
+      // 25. Marcar com Links Diretos do WhatsApp: !marcar2 / !tagalllinks
+      if (/^(?:!|\/)(?:marcar2|tagalllinks)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem usar este comando.');
+        }
+        return gataFeatures.handleMarcar2(activeSock, from, activeSock);
+      }
+
+      // 26. Moderação Anti-Palavrão (SpyBot): !antipalavra / !addpalavra / !delpalavra / !listapalavras
+      if (/^(?:!|\/)(?:antipalavra|antipalavrao|addpalavra|delpalavra|listapalavras)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        return gataFeatures.handleAntiPalavra(activeSock, from, text, isGroup, adminStatus.isRequesterAdmin);
+      }
+
+      // 27. Limpar Tela do Grupo: !limpar / !clean
+      if (/^(?:!|\/)(?:limpar|cleanchat|limparchat)$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem limpar a tela.');
+        }
+        return gataFeatures.handleLimpar(activeSock, from);
+      }
     }
 
     // 0.2 SE O CHAT ESTIVER DESATIVADO (MUTED), NÃO RESPONDE MAIS NADA
@@ -1794,9 +1845,27 @@ class WhatsAppBotService {
       return gataFeatures.handleSticker(activeSock, from, msg, senderName);
     }
 
-    // 2. Texto para Figurinha: !attp / !ttp
-    if (/^(?:!|\/)(?:attp|ttp)(?:\s+.*)?$/i.test(lower)) {
+    // 1.1 Fusão de Emojis (SpyBot / Google Kitchen): !emojimix / !mix
+    if (/^(?:!|\/)(?:emojimix|mix|fusao|emojikitchen)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleEmojiMix(activeSock, from, text);
+    }
+
+    // 2. Texto para Figurinha Animada (ATTP Rainbow): !attp / !attp2
+    if (/^(?:!|\/)(?:attp2)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleAttp(activeSock, from, text, true);
+    }
+    if (/^(?:!|\/)(?:attp)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleAttp(activeSock, from, text, false);
+    }
+
+    // 2.1 Texto para Figurinha Estática: !ttp
+    if (/^(?:!|\/)(?:ttp)(?:\s+.*)?$/i.test(lower)) {
       return gataFeatures.handleTextToSticker(activeSock, from, text, senderName);
+    }
+
+    // 2.2 Conversor de Vídeo / Áudio para MP3: !tomp3 / !toaudio
+    if (/^(?:!|\/)(?:tomp3|toaudio|paramp3|extrairaudio)$/i.test(lower)) {
+      return gataFeatures.handleToMp3(activeSock, from, msg);
     }
 
     // 3. Figurinha para Imagem: !toimg
@@ -1911,6 +1980,41 @@ class WhatsAppBotService {
       return gataFeatures.handleConfigurar(activeSock, from, text, isAdmin);
     }
 
+    // 10.7 Cotação de Moedas em Tempo Real (SpyBot): !moedas / !cotacao / !dolar
+    if (/^(?:!|\/)(?:moedas|cotacao|cotacoes|dolar|cambio)$/i.test(lower)) {
+      return gataFeatures.handleMoedas(activeSock, from);
+    }
+
+    // 10.8 Fazer Nick & Tabela de Fontes Estilosas (SpyBot): !fazernick / !tabela
+    if (/^(?:!|\/)(?:fazernick|gerarnick|tabela|fontes)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleFazerNick(activeSock, from, text);
+    }
+
+    // 10.9 Conselhos Bíblicos e Sabedoria (SpyBot): !conselhobiblico / !biblia / !versiculo
+    if (/^(?:!|\/)(?:conselhobiblico|biblia|versiculo|palavradodia)$/i.test(lower)) {
+      return gataFeatures.handleConselhoBiblico(activeSock, from);
+    }
+
+    // 10.10 Conselhos de Vida e Motivação (SpyBot): !conselho / !motivacao
+    if (/^(?:!|\/)(?:conselho|motivacao|frasedodia)$/i.test(lower)) {
+      return gataFeatures.handleConselho(activeSock, from);
+    }
+
+    // 10.11 Metadinhas para Casais e Amigos (SpyBot): !metadinha / !metadinhas
+    if (/^(?:!|\/)(?:metadinha|metadinhas)$/i.test(lower)) {
+      return gataFeatures.handleMetadinha(activeSock, from);
+    }
+
+    // 10.12 Previsão do Tempo em Tempo Real: !clima / !tempo
+    if (/^(?:!|\/)(?:clima|tempo)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleClima(activeSock, from, text);
+    }
+
+    // 10.13 Consulta de DDD do Brasil: !ddd <número>
+    if (/^(?:!|\/)(?:ddd)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleDDD(activeSock, from, text);
+    }
+
     // 11. Perfil de Fidelidade: !perfil / !me / !nivel / !pontos
     if (/^(?:!|\/)(?:perfil|me|nivel|pontos|carteira)$/i.test(lower)) {
       return gataFeatures.handlePerfil(activeSock, from, senderPhone, senderName);
@@ -1926,9 +2030,20 @@ class WhatsAppBotService {
       return gataFeatures.handleDado(activeSock, from, senderPhone, senderName);
     }
 
-    // 14. Mini-game Roleta: !roleta / !spin
-    if (/^(?:!|\/)(?:roleta|spin|cassino)$/i.test(lower)) {
+    // 14. Mini-game Roleta da Sorte: !roleta / !spin
+    if (/^(?:!|\/)(?:roleta|spin)$/i.test(lower)) {
       return gataFeatures.handleRoleta(activeSock, from, senderPhone, senderName);
+    }
+
+    // 14.1 Mini-game Cassino Caça-Níquel (SpyBot): !cassino / !slots
+    if (/^(?:!|\/)(?:cassino|slots|cacaniquel)$/i.test(lower)) {
+      return gataFeatures.handleCassino(activeSock, from, senderPhone, senderName);
+    }
+
+    // 14.2 Brincadeiras e Interações em Grupos (SpyBot): !casal, !ship, !gado, !corno, !feio, !gostoso, !chance
+    if (/^(?:!|\/)(?:casal|ship|gado|corno|feio|gostoso|gostosa|chance)(?:\s+.*)?$/i.test(lower)) {
+      const cmd = lower.split(/\s+/)[0].replace(/^[!/]/, '');
+      return gataFeatures.handleBrincadeiras(activeSock, from, msg, cmd, text, senderPhone, activeSock);
     }
 
     // 14. MULTI-CONTAS, SUB-BOTS & FUNÇÕES EXCLUSIVAS DO DONO E BOT PRINCIPAL
@@ -2034,9 +2149,11 @@ class WhatsAppBotService {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
       let gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
         `💡 _Acesse este menu a qualquer momento enviando *!help* ou *!bot*_\n\n` +
-        `🎨 *Figurinhas & Mídia:*\n` +
+        `🎨 *Figurinhas & Mídia (SpyBot + Gata Nina):*\n` +
         `• *!s* ou *!sticker* — Cria figurinha de foto ou vídeo\n` +
-        `• *!attp <texto>* — Cria figurinha animada com seu texto\n` +
+        `• *!emojimix <e1>+<e2>* — Funde dois emojis pelo Google Kitchen\n` +
+        `• *!attp <texto>* ou *!attp2* — Figurinha animada em cores rainbow piscantes\n` +
+        `• *!tomp3* — Converte vídeo ou áudio respondido em música MP3\n` +
         `• *!toimg* — Converte figurinha em imagem JPG\n` +
         `• *!tts <texto>* — Converte texto em áudio falado pelo bot\n\n` +
         `📥 *Downloads & Inteligência Social:*\n` +
@@ -2081,7 +2198,14 @@ class WhatsAppBotService {
           `• *!setowner <numero>* — Define número do Dono\n\n`;
       }
 
-      gataMenu += `🤖 *Inteligência Artificial & Utilitários:*\n` +
+      gataMenu += `🤖 *Inteligência Artificial & Utilitários SpyBot:*\n` +
+        `• *!moedas* — Cotações em tempo real (USD, EUR, GBP, USDT, BTC e ETH)\n` +
+        `• *!fazernick <texto>* ou *!tabela* — 20 estilos de fontes elegantes para nicks\n` +
+        `• *!conselhobiblico* — Versículo bíblico e reflexão de sabedoria\n` +
+        `• *!conselho* — Conselhos motivacionais dos maiores líderes e empreendedores\n` +
+        `• *!metadinha* — Envia fotos de perfil combinando para casais ou amigos\n` +
+        `• *!clima <cidade>* — Previsão do tempo completa em tempo real\n` +
+        `• *!ddd <número>* — Consulta de estado e cidades por código DDD\n` +
         `• *!ia <pergunta>* — Converse com o ChatGPT / Gemini integrado\n` +
         `• *!imagine <ideia>* — Gera arte inédita com IA\n` +
         `• *!ping* — Mede velocidade de resposta, uptime e status dos bots\n` +
@@ -2091,7 +2215,11 @@ class WhatsAppBotService {
         `• *!qr <texto ou link>* — Gera imagem de QR Code instantânea\n` +
         `• *!cep <número>* — Consulta endereço completo (ViaCEP)\n` +
         `• *!calc <expressão>* — Calculadora de bolso inteligente\n\n` +
-        `🎮 *Gamificação & Fidelidade:*\n` +
+        `🎮 *Gamificação & Brincadeiras:*\n` +
+        `• *!cassino* — Caça-níquel com jackpot e pontos de fidelidade\n` +
+        `• *!casal* ou *!ship* — Forma um casal aleatório no grupo com % de amor\n` +
+        `• *!gado*, *!corno*, *!feio*, *!gostoso* — Medidor com barra de progresso\n` +
+        `• *!chance <pergunta>* — Calcula a probabilidade de um evento\n` +
         `• *!perfil* — Exibe seu nível, XP e saldo de pontos\n` +
         `• *!dado* — Role os dados e ganhe moedas e XP\n` +
         `• *!roleta* — Gire a roleta da sorte para ganhar prêmios\n` +
