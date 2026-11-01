@@ -551,17 +551,26 @@ class GataFeaturesService {
     const isAntiFakeActive = models.getSetting(`ANTIFAKE_${groupId}`, 'false') === 'true';
     if (!isAntiFakeActive) return;
 
-    for (const participant of participants) {
-      const phone = participant.split('@')[0].split(':')[0];
+    for (const participant of (participants || [])) {
+      let rawJid = typeof participant === 'string'
+        ? participant
+        : (participant?.id || participant?.jid || participant?.phoneNumber || '');
+      if (!rawJid && participant?.user && participant?.server) {
+        rawJid = `${participant.user}@${participant.server}`;
+      }
+      if (!rawJid) continue;
+
+      const phone = rawJid.split('@')[0].split(':')[0].replace(/\D/g, '');
       // Verifica se o DDI NÃO é brasileiro (não começa com 55)
-      if (!phone.startsWith('55')) {
+      if (phone && !phone.startsWith('55')) {
         console.log(`[Gata Nina 🛡️ ANTI-FAKE] Expulsando número estrangeiro ${phone} do grupo ${groupId}`);
         try {
-          await sock.groupParticipantsUpdate(groupId, [participant], 'remove');
+          const kickJid = rawJid.includes('@') ? rawJid : `${phone}@s.whatsapp.net`;
+          await sock.groupParticipantsUpdate(groupId, [kickJid], 'remove');
           await sock.sendMessage(groupId, {
             text: `🛡️ *ANTI-FAKE ATIVADO!*\n\n` +
               `O número estrangeiro/fake @${phone} foi banido automaticamente deste grupo para proteção dos membros contra golpes e spams.`,
-            mentions: [participant]
+            mentions: [kickJid]
           });
         } catch (err) {
           console.error(`[AntiFake Erro]:`, err.message);
@@ -624,8 +633,9 @@ class GataFeaturesService {
     const activeSet = this.groupMessageActivity.get(from) || new Set();
 
     const inactives = participants.filter(p => {
-      const phone = p.id.split('@')[0].split(':')[0];
-      return !activeSet.has(phone);
+      const rawJid = typeof p === 'string' ? p : (p?.id || p?.jid || p?.phoneNumber || '');
+      const phone = rawJid ? rawJid.split('@')[0].split(':')[0].replace(/\D/g, '') : '';
+      return phone && !activeSet.has(phone);
     });
 
     if (inactives.length === 0) {
@@ -636,7 +646,8 @@ class GataFeaturesService {
       `Estes membros não enviaram mensagens recentes no grupo:\n\n`;
 
     inactives.slice(0, 15).forEach((p, i) => {
-      const phone = p.id.split('@')[0].split(':')[0];
+      const rawJid = typeof p === 'string' ? p : (p?.id || p?.jid || p?.phoneNumber || '');
+      const phone = rawJid ? rawJid.split('@')[0].split(':')[0].replace(/\D/g, '') : '';
       text += `${i + 1}. @${phone}\n`;
     });
 
@@ -646,7 +657,10 @@ class GataFeaturesService {
 
     text += `\n\n💡 *Dica do Admin:* Você pode interagir com eles ou fazer uma limpa periódica!`;
 
-    const mentions = inactives.slice(0, 15).map(p => p.id);
+    const mentions = inactives.slice(0, 15).map(p => {
+      const rawJid = typeof p === 'string' ? p : (p?.id || p?.jid || p?.phoneNumber || '');
+      return rawJid && rawJid.includes('@') ? rawJid : `${rawJid}@s.whatsapp.net`;
+    }).filter(Boolean);
     return sock.sendMessage(from, { text, mentions });
   }
 

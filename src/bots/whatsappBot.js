@@ -11,6 +11,22 @@ const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
 const gataFeatures = require('../services/gataFeaturesService');
 
+function safeExtractJid(val) {
+  if (!val) return '';
+  if (typeof val === 'string') return val.includes('@') ? val : `${val.replace(/\D/g, '')}@s.whatsapp.net`;
+  if (typeof val === 'object') {
+    const raw = val.id || val.jid || val.phoneNumber || (val.user && val.server ? `${val.user}@${val.server}` : '');
+    if (raw) return String(raw).includes('@') ? String(raw) : `${String(raw).replace(/\D/g, '')}@s.whatsapp.net`;
+  }
+  return '';
+}
+
+function safeExtractPhone(val) {
+  const jid = safeExtractJid(val);
+  if (!jid) return '';
+  return jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+}
+
 class WhatsAppBotService {
   constructor() {
     this.sock = null;
@@ -154,46 +170,96 @@ class WhatsAppBotService {
         }
       });
 
-      // Evento de novos participantes entrando no grupo (Boas-vindas automáticas & Anti-Fake)
-      this.sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
-        try {
-          if (action === 'add') {
-            // Anti-Fake / Anti-Estrangeiro (Gata Nina Security)
-            await gataFeatures.checkAntiFakeEntry(this.sock, id, participants);
-
-            const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
-            if (!isWelcomeActive) return;
-
-            let groupName = 'nosso grupo';
-            try {
-              const meta = await this.sock.groupMetadata(id);
-              if (meta?.subject) groupName = meta.subject;
-            } catch (_) {}
-
-            const welcomeTpl = models.getSetting(
-              `WELCOME_MSG_${id}`,
-              '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
-            );
-
-            for (const pJid of (participants || [])) {
-              const phone = pJid.split('@')[0].split(':')[0];
-              const formattedName = `@${phone}`;
-              const welcomeText = welcomeTpl
-                .replace(/\{nome\}/gi, formattedName)
-                .replace(/\{numero\}/gi, phone)
-                .replace(/\{grupo\}/gi, groupName);
-
-              await this.sendMessage(id, welcomeText, { mentions: [pJid] });
-            }
-          }
-        } catch (err) {
-          console.error('[WhatsApp Group Welcome] Erro ao enviar boas-vindas:', err.message);
-        }
+      // Evento de participantes do grupo (Boas-vindas automáticas, Despedida & Anti-Fake)
+      this.sock.ev.on('group-participants.update', async (evt) => {
+        await this.handleGroupParticipantsUpdate(evt);
       });
 
     } catch (err) {
       console.error('❌ [WhatsApp] Erro na inicialização:', err.message);
       this.statusMessage = `Erro: ${err.message}`;
+    }
+  }
+
+  // Trata eventos de participantes do grupo (Boas-vindas automáticas, Despedida & Anti-Fake)
+  async handleGroupParticipantsUpdate({ id, participants, action }, customSock = null) {
+    const sock = customSock || this.currentDispatchSock || this.sock;
+    try {
+      const normalizedParticipants = (participants || []).map(p => safeExtractJid(p)).filter(Boolean);
+      if (!normalizedParticipants.length) return;
+
+      if (action === 'add') {
+        // Anti-Fake / Anti-Estrangeiro (Gata Nina Security)
+        await gataFeatures.checkAntiFakeEntry(sock, id, normalizedParticipants);
+
+        const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
+        if (!isWelcomeActive) return;
+
+        let groupName = 'nosso grupo';
+        try {
+          if (sock && typeof sock.groupMetadata === 'function') {
+            const meta = await sock.groupMetadata(id);
+            if (meta?.subject) groupName = meta.subject;
+          }
+        } catch (_) {}
+
+        const welcomeTpl = models.getSetting(
+          `WELCOME_MSG_${id}`,
+          '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
+        );
+
+        for (const pJid of normalizedParticipants) {
+          const phone = safeExtractPhone(pJid);
+          const formattedName = phone ? `@${phone}` : 'novo membro';
+          const welcomeText = welcomeTpl
+            .replace(/\{nome\}/gi, formattedName)
+            .replace(/\{numero\}/gi, phone || 'membro')
+            .replace(/\{grupo\}/gi, groupName);
+
+          const mentionJid = safeExtractJid(pJid);
+          const mentions = mentionJid ? [mentionJid] : [];
+          if (customSock) {
+            await customSock.sendMessage(id, { text: welcomeText, mentions });
+          } else {
+            await this.sendMessage(id, welcomeText, { mentions });
+          }
+        }
+      } else if (action === 'remove') {
+        const isByeActive = models.getSetting(`BYE_${id}`, 'false') === 'true';
+        if (!isByeActive) return;
+
+        let groupName = 'nosso grupo';
+        try {
+          if (sock && typeof sock.groupMetadata === 'function') {
+            const meta = await sock.groupMetadata(id);
+            if (meta?.subject) groupName = meta.subject;
+          }
+        } catch (_) {}
+
+        const byeTpl = models.getSetting(
+          `BYE_MSG_${id}`,
+          '👋 @{numero} saiu ou foi removido do grupo *{grupo}*.'
+        );
+
+        for (const pJid of normalizedParticipants) {
+          const phone = safeExtractPhone(pJid);
+          const formattedName = phone ? `@${phone}` : 'membro';
+          const byeText = byeTpl
+            .replace(/\{nome\}/gi, formattedName)
+            .replace(/\{numero\}/gi, phone || 'membro')
+            .replace(/\{grupo\}/gi, groupName);
+
+          const mentionJid = safeExtractJid(pJid);
+          const mentions = mentionJid ? [mentionJid] : [];
+          if (customSock) {
+            await customSock.sendMessage(id, { text: byeText, mentions });
+          } else {
+            await this.sendMessage(id, byeText, { mentions });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[WhatsApp Group Welcome] Erro ao enviar boas-vindas:', err.message);
     }
   }
 
@@ -211,7 +277,7 @@ class WhatsAppBotService {
       const botParticipant = metadata?.participants?.find(p => p.id.includes(myNumber));
       const isBotAdmin = !!(botParticipant && (botParticipant.admin === 'admin' || botParticipant.admin === 'superadmin'));
 
-      const senderPhone = (participantJid || '').split('@')[0].split(':')[0];
+      const senderPhone = safeExtractPhone(participantJid);
       const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
       const isGlobalAdmin = isFromMe || !!(adminPhoneSetting && (adminPhoneSetting.includes(senderPhone) || senderPhone.includes(adminPhoneSetting)));
 
@@ -250,7 +316,7 @@ class WhatsAppBotService {
     if (!from) return;
     const isGroup = from.endsWith('@g.us');
     const participantJid = msg.key?.participant || from;
-    const senderPhone = participantJid.split('@')[0].split(':')[0];
+    const senderPhone = safeExtractPhone(participantJid);
     const isFromMe = !!msg.key?.fromMe;
     const senderName = msg.pushName || 'Cliente';
 
@@ -325,12 +391,12 @@ class WhatsAppBotService {
 
       const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
       if (quotedParticipant) {
-        targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+        targetPhone = safeExtractPhone(quotedParticipant);
       }
       if (!targetPhone) {
         const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
         if (mentioned && mentioned.length > 0) {
-          targetPhone = mentioned[0].split('@')[0].split(':')[0];
+          targetPhone = safeExtractPhone(mentioned[0]);
         }
       }
       if (!targetPhone) {
@@ -366,12 +432,12 @@ class WhatsAppBotService {
       let targetPhone = null;
       const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
       if (quotedParticipant) {
-        targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+        targetPhone = safeExtractPhone(quotedParticipant);
       }
       if (!targetPhone) {
         const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
         if (mentioned && mentioned.length > 0) {
-          targetPhone = mentioned[0].split('@')[0].split(':')[0];
+          targetPhone = safeExtractPhone(mentioned[0]);
         }
       }
       if (!targetPhone) {
@@ -533,7 +599,9 @@ class WhatsAppBotService {
           `• *!revogar_link* — Cancela o link atual e gera um novo\n` +
           `• *!antilink on/off* — Ativa ou desativa proteção contra links externos\n` +
           `• *!boasvindas on/off* — Ativa ou desativa saudação para novos membros\n` +
-          `• *!boasvindas_msg <texto>* — Personaliza o texto ({nome}, {grupo}, {numero})\n\n` +
+          `• *!boasvindas_msg <texto>* — Personaliza o texto ({nome}, {grupo}, {numero})\n` +
+          `• *!despedida on/off* — Ativa ou desativa aviso de saída de membros\n` +
+          `• *!despedida_msg <texto>* — Personaliza o texto de despedida (@{numero}, {grupo})\n\n` +
           `🛑 *Moderação do Bot:*\n` +
           `• *!desativar* / *!ativar* — Pausa ou reativa o bot neste grupo\n` +
           `• *!bloquear* / *!desbloquear* — Bloqueia participante de interagir com o bot\n` +
@@ -557,14 +625,14 @@ class WhatsAppBotService {
 
         const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
         if (quotedParticipant) {
-          targetJid = quotedParticipant;
-          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+          targetJid = safeExtractJid(quotedParticipant);
+          targetPhone = safeExtractPhone(quotedParticipant);
         }
         if (!targetJid) {
           const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
-            targetJid = mentioned[0];
-            targetPhone = targetJid.split('@')[0].split(':')[0];
+            targetJid = safeExtractJid(mentioned[0]);
+            targetPhone = safeExtractPhone(mentioned[0]);
           }
         }
         if (!targetJid) {
@@ -610,14 +678,14 @@ class WhatsAppBotService {
         let targetPhone = null;
         const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
         if (quotedParticipant) {
-          targetJid = quotedParticipant;
-          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+          targetJid = safeExtractJid(quotedParticipant);
+          targetPhone = safeExtractPhone(quotedParticipant);
         }
         if (!targetJid) {
           const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
-            targetJid = mentioned[0];
-            targetPhone = targetJid.split('@')[0].split(':')[0];
+            targetJid = safeExtractJid(mentioned[0]);
+            targetPhone = safeExtractPhone(mentioned[0]);
           }
         }
         if (!targetJid) {
@@ -663,14 +731,14 @@ class WhatsAppBotService {
         let targetPhone = null;
         const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
         if (quotedParticipant) {
-          targetJid = quotedParticipant;
-          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+          targetJid = safeExtractJid(quotedParticipant);
+          targetPhone = safeExtractPhone(quotedParticipant);
         }
         if (!targetJid) {
           const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
-            targetJid = mentioned[0];
-            targetPhone = targetJid.split('@')[0].split(':')[0];
+            targetJid = safeExtractJid(mentioned[0]);
+            targetPhone = safeExtractPhone(mentioned[0]);
           }
         }
         if (!targetJid) {
@@ -981,6 +1049,69 @@ class WhatsAppBotService {
         return this.sendMessage(from, `✅ *MENSAGEM DE BOAS-VINDAS ATUALIZADA!*\n\nNovos participantes receberão:\n"${newMsg}"`);
       }
 
+      // 14.1 Configurar Mensagem de Despedida: !despedida on/off ou !bye on/off
+      if (/^(?:!|\/)(?:despedida|bye|saida)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem configurar a mensagem de despedida.');
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const action = parts[1]?.toLowerCase();
+
+        if (action === 'on' || action === 'ativar' || action === '1') {
+          models.setSetting(`BYE_${from}`, 'true');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'BYE_ON',
+            details: 'Despedida automática ativada'
+          });
+          return this.sendMessage(from, `👋 *MENSAGEM DE DESPEDIDA ATIVADA!*\n\nMembros que saírem receberão uma notificação no grupo.\n\n_Para personalizar: !despedida_msg @{numero} saiu do grupo *{grupo}*._`);
+        } else if (action === 'off' || action === 'desativar' || action === '0') {
+          models.setSetting(`BYE_${from}`, 'false');
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: from,
+            adminId: senderPhone,
+            adminName: senderName,
+            action: 'BYE_OFF',
+            details: 'Despedida automática desativada'
+          });
+          return this.sendMessage(from, `🔕 *MENSAGEM DE DESPEDIDA DESATIVADA!*`);
+        } else {
+          const isAct = models.getSetting(`BYE_${from}`, 'false') === 'true';
+          const curMsg = models.getSetting(`BYE_MSG_${from}`, '👋 @{numero} saiu ou foi removido do grupo *{grupo}*.');
+          return this.sendMessage(from, `ℹ️ *Despedida:* ${isAct ? '🟢 Ativada' : '🔴 Desativada'}\n*Mensagem:* "${curMsg}"\n\nPara alterar: *!despedida on* ou *!despedida off*\nPara mudar o texto: *!despedida_msg Seu texto com @{numero} e {grupo}*`);
+        }
+      }
+
+      // 14.2 Personalizar Mensagem de Despedida: !despedida_msg <texto>
+      if (/^(?:!|\/)(?:despedida_msg|byemsg|msgdespedida)\s+/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem personalizar a despedida.');
+        }
+
+        const newMsg = text.replace(/^(?:!|\/)(?:despedida_msg|byemsg|msgdespedida)\s+/i, '').trim();
+        if (!newMsg) return this.sendMessage(from, 'ℹ️ Uso: *!despedida_msg @{numero} saiu do grupo *{grupo}*.*');
+
+        models.setSetting(`BYE_MSG_${from}`, newMsg);
+        models.setSetting(`BYE_${from}`, 'true');
+        models.logGroupAdminAction({
+          platform: 'whatsapp',
+          groupId: from,
+          adminId: senderPhone,
+          adminName: senderName,
+          action: 'BYE_MSG',
+          details: `Mensagem de despedida personalizada: ${newMsg}`
+        });
+
+        return this.sendMessage(from, `✅ *MENSAGEM DE DESPEDIDA ATUALIZADA!*\n\n"${newMsg}"`);
+      }
+
       // 15. Advertência: !warn, !advertencia, !advertir
       if (/^(?:!|\/)(?:warn|advertencia|advertir)(?:\s.*)?$/i.test(lower)) {
         const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
@@ -993,13 +1124,13 @@ class WhatsAppBotService {
 
         const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
         if (quotedParticipant) {
-          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+          targetPhone = safeExtractPhone(quotedParticipant);
           reason = text.replace(/^(?:!|\/)(?:warn|advertencia|advertir)\s*/i, '').trim();
         }
         if (!targetPhone) {
           const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
-            targetPhone = mentioned[0].split('@')[0].split(':')[0];
+            targetPhone = safeExtractPhone(mentioned[0]);
             reason = text.replace(/^(?:!|\/)(?:warn|advertencia|advertir)\s*@?\d+\s*/i, '').trim();
           }
         }
@@ -1029,12 +1160,12 @@ class WhatsAppBotService {
         let targetPhone = null;
         const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
         if (quotedParticipant) {
-          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+          targetPhone = safeExtractPhone(quotedParticipant);
         }
         if (!targetPhone) {
           const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
-            targetPhone = mentioned[0].split('@')[0].split(':')[0];
+            targetPhone = safeExtractPhone(mentioned[0]);
           }
         }
         if (!targetPhone) {
@@ -1056,12 +1187,12 @@ class WhatsAppBotService {
         let targetPhone = null;
         const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
         if (quotedParticipant) {
-          targetPhone = quotedParticipant.split('@')[0].split(':')[0];
+          targetPhone = safeExtractPhone(quotedParticipant);
         }
         if (!targetPhone) {
           const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
           if (mentioned && mentioned.length > 0) {
-            targetPhone = mentioned[0].split('@')[0].split(':')[0];
+            targetPhone = safeExtractPhone(mentioned[0]);
           }
         }
         if (!targetPhone) {

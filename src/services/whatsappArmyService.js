@@ -165,34 +165,10 @@ class WhatsAppArmyService {
       });
 
       // Boas-vindas automáticas em grupos onde o chip secundário é membro
-      sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+      sock.ev.on('group-participants.update', async (evt) => {
         try {
-          if (action === 'add') {
-            // Anti-Fake / Anti-Estrangeiro (Gata Nina Security)
-            const gataFeatures = require('./gataFeaturesService');
-            await gataFeatures.checkAntiFakeEntry(sock, id, participants);
-
-            const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
-            if (!isWelcomeActive) return;
-
-            let groupName = 'nosso grupo';
-            try {
-              const meta = await sock.groupMetadata(id);
-              if (meta && meta.subject) groupName = meta.subject;
-            } catch (_) {}
-
-            const customMsg = models.getSetting(`WELCOME_MSG_${id}`, 'Seja muito bem-vindo(a) ao {grupo}! Sinta-se em casa e aproveite nosso conteúdo exclusivo.');
-            const welcomeText = customMsg.replace(/{grupo}/g, groupName);
-
-            for (const participant of participants) {
-              const mentionTag = `@${participant.split('@')[0]}`;
-              const textWithMention = `${mentionTag} ${welcomeText}`;
-              await sock.sendMessage(id, {
-                text: textWithMention,
-                mentions: [participant]
-              });
-            }
-          }
+          const whatsappBot = require('../bots/whatsappBot');
+          await whatsappBot.handleGroupParticipantsUpdate(evt, sock);
         } catch (err) {
           console.error(`[Exército WhatsApp ⚠️] Erro em group-participants.update no Chip #${instanceId}:`, err.message);
         }

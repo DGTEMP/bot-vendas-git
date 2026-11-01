@@ -2054,9 +2054,9 @@ async function main() {
       }
     };
 
-    // Cenário: Entram 2 participantes, um dos EUA (+1) e um do Brasil (+55)
+    // Cenário: Entram 2 participantes, um dos EUA (+1) e um do Brasil (+55) em formato objeto Baileys
     const participants = [
-      '14155552671@s.whatsapp.net', // Número fake / estrangeiro
+      { id: '14155552671@s.whatsapp.net', admin: null }, // Número fake / estrangeiro como objeto
       '5511999998888@s.whatsapp.net'  // Número brasileiro legítimo
     ];
 
@@ -2274,6 +2274,88 @@ async function main() {
     }, mockSock);
 
     assert(lastMsg.includes('github') || lastMsg.includes('story') || lastMsg.includes('stories'));
+  });
+
+  await runTest('Gata Nina: Boas-Vindas e Despedida Automática com Objetos e Strings Baileys (!boasvindas & !despedida)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const testGroup = '120363011998877665@g.us';
+
+    models.setSetting(`WELCOME_${testGroup}`, 'true');
+    models.setSetting(`WELCOME_MSG_${testGroup}`, 'Olá {nome}, bem-vindo ao grupo {grupo}! Seu número é {numero}.');
+    models.setSetting(`BYE_${testGroup}`, 'true');
+    models.setSetting(`BYE_MSG_${testGroup}`, 'Até logo @{numero} do grupo {grupo}!');
+
+    const sentMessages = [];
+    const mockGroupSock = {
+      user: { id: '5511988880000:1@s.whatsapp.net' },
+      groupMetadata: async (gid) => ({ subject: 'Grupo VIP Gata Nina', participants: [] }),
+      sendMessage: async (jid, payload) => {
+        sentMessages.push({ jid, payload });
+        return { key: { id: 'mock_msg' } };
+      }
+    };
+
+    // 1. Testa entrada de participantes com diferentes formatos emitidos pelo Baileys (string, objeto com id, objeto com phoneNumber)
+    const incomingParticipants = [
+      '5511999991111@s.whatsapp.net',
+      { id: '5511999992222:5@s.whatsapp.net', admin: null },
+      { phoneNumber: '5511999993333' }
+    ];
+
+    await whatsappBot.handleGroupParticipantsUpdate({
+      id: testGroup,
+      participants: incomingParticipants,
+      action: 'add'
+    }, mockGroupSock);
+
+    assert.strictEqual(sentMessages.length, 3, 'Deve enviar 3 mensagens de boas-vindas sem lançar pJid.split error');
+    assert(sentMessages[0].payload.text.includes('@5511999991111'));
+    assert(sentMessages[0].payload.mentions.includes('5511999991111@s.whatsapp.net'));
+    assert(sentMessages[1].payload.text.includes('@5511999992222'));
+    assert(sentMessages[1].payload.mentions.includes('5511999992222:5@s.whatsapp.net'));
+    assert(sentMessages[2].payload.text.includes('@5511999993333'));
+    assert(sentMessages[2].payload.mentions.includes('5511999993333@s.whatsapp.net'));
+
+    // 2. Testa saída / despedida de participante (action: 'remove')
+    sentMessages.length = 0;
+    await whatsappBot.handleGroupParticipantsUpdate({
+      id: testGroup,
+      participants: [{ id: '5511999992222@s.whatsapp.net' }],
+      action: 'remove'
+    }, mockGroupSock);
+
+    assert.strictEqual(sentMessages.length, 1, 'Deve enviar 1 mensagem de despedida');
+    assert(sentMessages[0].payload.text.includes('@5511999992222'));
+    assert(sentMessages[0].payload.text.includes('Grupo VIP Gata Nina'));
+
+    // 3. Testa comando administrativo !despedida on/off e !despedida_msg
+    let cmdReply = null;
+    const mockAdminSock = {
+      user: { id: '5511988880000:1@s.whatsapp.net' },
+      groupMetadata: async () => ({
+        participants: [
+          { id: '5511988880000@s.whatsapp.net', admin: 'admin' }
+        ]
+      }),
+      sendMessage: async (jid, payload) => {
+        cmdReply = typeof payload === 'string' ? payload : payload.text;
+        return true;
+      }
+    };
+
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511988880000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!despedida on' }
+    }, mockAdminSock);
+    assert(cmdReply.includes('DESPEDIDA ATIVADA'));
+    assert.strictEqual(models.getSetting(`BYE_${testGroup}`, 'false'), 'true');
+
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: testGroup, participant: '5511988880000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!despedida_msg Adeus @{numero}! Sentiremos sua falta em {grupo}.' }
+    }, mockAdminSock);
+    assert(cmdReply.includes('DESPEDIDA ATUALIZADA'));
+    assert.strictEqual(models.getSetting(`BYE_MSG_${testGroup}`, ''), 'Adeus @{numero}! Sentiremos sua falta em {grupo}.');
   });
 
   await new Promise(resolve => testServer.close(resolve));
