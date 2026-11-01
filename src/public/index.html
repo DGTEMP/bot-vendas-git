@@ -65,6 +65,12 @@
         <a href="#" class="nav-item" data-tab="nlp">
           <i class="fa-solid fa-brain" style="color: #38bdf8;"></i> Linguagem Natural (NLP)
         </a>
+        <a href="#" class="nav-item" data-tab="notices">
+          <i class="fa-solid fa-bullhorn" style="color: #ec4899;"></i> Central de Avisos &amp; Alertas
+        </a>
+        <a href="/loja" target="_blank" class="nav-item" style="color: #10b981;">
+          <i class="fa-solid fa-store" style="color: #10b981;"></i> Ver Vitrine Online &rarr;
+        </a>
         <a href="#" class="nav-item" data-tab="products">
           <i class="fa-solid fa-box-open"></i> Produtos & VIP
         </a>
@@ -3083,6 +3089,147 @@
             </div>
           </div>
 
+        </section>
+
+        <!-- TAB 18: CENTRAL DE AVISOS & ALERTAS DA EQUIPE (SISTEMAS_AVISOS_PC) -->
+        <section id="tab-notices" class="tab-pane">
+          <div class="section-header">
+            <div>
+              <h2><i class="fa-solid fa-bullhorn" style="color: #ec4899;"></i> Central de Avisos &amp; Alertas da Equipe</h2>
+              <p class="section-desc">
+                Envio instantâneo de avisos urgentes, notificações operacionais e alertas com som para todos os computadores, vendedores e grupos conectados.
+              </p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <button class="btn btn-sm btn-outline" onclick="toggleAudioAlerts()" id="btnAudioToggle">
+                <i class="fa-solid fa-volume-high"></i> Alerta Sonoro: <span id="audioAlertStatus">Ativado</span>
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="loadNotices()">
+                <i class="fa-solid fa-rotate"></i> Atualizar
+              </button>
+            </div>
+          </div>
+
+          <!-- 12 BOTÕES DE AVISOS RÁPIDOS (SISTEMAS AVISOS PC) -->
+          <div class="card mb-4" style="border-top: 3px solid #ec4899;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h3><i class="fa-solid fa-bolt" style="color: #ec4899;"></i> Avisos Rápidos da Equipe (1-Clique)</h3>
+              <small style="color: var(--text-muted);">Clique para preencher ou disparar o aviso imediatamente</small>
+            </div>
+            <div class="card-body">
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;">
+                <button type="button" class="btn" style="background: rgba(244, 67, 54, 0.15); border: 1px solid #f44336; color: #ef4444; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('🚨 URGENTE', '¡ATENÇÃO URGENTE! Preciso de suporte imediato no atendimento.', 'urgente', '#f44336')">
+                  🚨 URGENTE &bull; Suporte Imediato
+                </button>
+                <button type="button" class="btn" style="background: rgba(211, 47, 47, 0.15); border: 1px solid #d32f2f; color: #f87171; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('🔥 EMERGÊNCIA', '¡EMERGÊNCIA! Situação crítica em andamento.', 'emergencia', '#d32f2f')">
+                  🔥 EMERGÊNCIA &bull; Situação Crítica
+                </button>
+                <button type="button" class="btn" style="background: rgba(255, 87, 34, 0.15); border: 1px solid #ff5722; color: #fb923c; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('⚠️ ALERTA', '¡ALERTA! Requere atenção prioritária de toda a equipe.', 'alerta', '#ff5722')">
+                  ⚠️ ALERTA &bull; Atenção Geral
+                </button>
+                <button type="button" class="btn" style="background: rgba(76, 175, 80, 0.15); border: 1px solid #4caf50; color: #4ade80; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('✅ CONCLUÍDO', 'Tarefa e disparos completados com sucesso.', 'sucesso', '#4caf50')">
+                  ✅ CONCLUÍDO &bull; Tarefa Finalizada
+                </button>
+                <button type="button" class="btn" style="background: rgba(33, 150, 243, 0.15); border: 1px solid #2196f3; color: #60a5fa; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('🚀 TUDO PRONTO', 'Tudo pronto para dar início ao lançamento de hoje.', 'trabalho', '#2196f3')">
+                  🚀 TUDO PRONTO &bull; Pronto para Disparo
+                </button>
+                <button type="button" class="btn" style="background: rgba(255, 152, 0, 0.15); border: 1px solid #ff9800; color: #fbbf24; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('⏰ TEMPO ESGOTANDO', '¡O tempo está esgotando! Últimas horas da promoção.', 'urgente', '#ff9800')">
+                  ⏰ TEMPO &bull; Últimas Horas
+                </button>
+                <button type="button" class="btn" style="background: rgba(121, 85, 72, 0.15); border: 1px solid #795548; color: #d6d3d1; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('☕ PAUSA CAFÉ', 'Pausa rápida para o café da equipe (10 minutos).', 'social', '#795548')">
+                  ☕ CAFÉ &bull; Pausa Rápida
+                </button>
+                <button type="button" class="btn" style="background: rgba(255, 152, 0, 0.15); border: 1px solid #f59e0b; color: #fde047; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('🍕 ALMOÇO', 'Pausa para o almoço. Atendimento retorna em 1 hora.', 'social', '#f59e0b')">
+                  🍕 ALMOÇO &bull; Horário de Almoço
+                </button>
+                <button type="button" class="btn" style="background: rgba(63, 81, 181, 0.15); border: 1px solid #3f51b5; color: #818cf8; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('❓ DÚVIDA / SUPORTE', 'Dúvida importante sobre negociação com lead VIP.', 'trabalho', '#3f51b5')">
+                  ❓ DÚVIDA &bull; Cliente VIP
+                </button>
+                <button type="button" class="btn" style="background: rgba(156, 39, 176, 0.15); border: 1px solid #9c27b0; color: #c084fc; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('📞 LIGAÇÃO / CALL', 'Preciso falar com você urgente no privado / Discord.', 'urgente', '#9c27b0')">
+                  📞 LIGAÇÃO &bull; Chamar no Privado
+                </button>
+                <button type="button" class="btn" style="background: rgba(233, 30, 99, 0.15); border: 1px solid #e91e63; color: #f472b6; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('🎉 META BATIDA', '¡Meta de vendas do dia batida com sucesso! Parabéns!', 'sucesso', '#e91e63')">
+                  🎉 META &bull; Parabéns Equipe!
+                </button>
+                <button type="button" class="btn" style="background: rgba(96, 125, 139, 0.15); border: 1px solid #607d8b; color: #94a3b8; font-weight: 700; text-align: left; padding: 10px 14px; border-radius: 8px;" onclick="applyQuickNotice('🏠 FIM EXPEDIENTE', 'Expediente encerrado por hoje. Até amanhã!', 'social', '#607d8b')">
+                  🏠 FIM &bull; Até Amanhã!
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- FORMULÁRIO DE EMISSÃO & LISTA DE AVISOS -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <!-- Criar Aviso -->
+            <div class="card" style="border-top: 3px solid #3b82f6;">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-paper-plane" style="color: #3b82f6;"></i> Emitir Novo Aviso para Equipe</h3>
+              </div>
+              <div class="card-body">
+                <form id="formNotice" onsubmit="emitNotice(event)">
+                  <div class="form-group mb-3">
+                    <label>Título do Aviso *</label>
+                    <input type="text" id="noticeTitle" class="form-control" placeholder="Ex: 🚨 URGENTE &bull; Verificar Pagamentos" required>
+                  </div>
+                  <div class="form-group mb-3">
+                    <label>Mensagem / Comunicado *</label>
+                    <textarea id="noticeMessage" class="form-control" rows="3" placeholder="Digite os detalhes da notificação..." required></textarea>
+                  </div>
+                  <div class="form-row mb-3">
+                    <div class="form-group flex-1">
+                      <label>Categoria de Alerta</label>
+                      <select id="noticeCategory" class="form-control" onchange="updateNoticeColor(this.value)">
+                        <option value="urgente">🚨 Urgente (Crítico)</option>
+                        <option value="emergencia">🔥 Emergência</option>
+                        <option value="alerta">⚠️ Alerta Geral</option>
+                        <option value="trabalho">💼 Trabalho &amp; Vendas</option>
+                        <option value="sucesso">✅ Sucesso / Meta</option>
+                        <option value="social">☕ Social / Equipe</option>
+                        <option value="info">ℹ️ Informativo</option>
+                      </select>
+                    </div>
+                    <div class="form-group flex-1">
+                      <label>Destinatários</label>
+                      <select id="noticeTarget" class="form-control">
+                        <option value="all">📢 Todos (Painel Web + Grupos WhatsApp)</option>
+                        <option value="web">💻 Apenas Painel Web (Computadores da Rede)</option>
+                        <option value="meteoric">🚀 Grupos de Lançamento Meteórico</option>
+                        <option value="sellers">👔 Todos os Vendedores Cadastrados</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-row mb-3" style="align-items: center;">
+                    <div class="form-group flex-1" style="display: flex; align-items: center; gap: 10px;">
+                      <input type="checkbox" id="noticeSoundAlert" checked style="width: auto;">
+                      <label for="noticeSoundAlert" style="margin-bottom: 0; cursor: pointer;">🔔 Tocar Alerta Sonoro no Navegador</label>
+                    </div>
+                    <div class="form-group flex-1" style="display: flex; align-items: center; gap: 10px;">
+                      <input type="checkbox" id="noticeBroadcastWA" checked style="width: auto;">
+                      <label for="noticeBroadcastWA" style="margin-bottom: 0; cursor: pointer;">📲 Transmitir no WhatsApp</label>
+                    </div>
+                  </div>
+                  <input type="hidden" id="noticeColor" value="#f44336">
+                  <button type="submit" class="btn btn-primary" style="width: 100%; background: #ec4899; border-color: #ec4899; font-weight: 700; padding: 12px;">
+                    <i class="fa-solid fa-bullhorn"></i> Disparar Aviso Agora
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Feed de Avisos & Respostas -->
+            <div class="card" style="border-top: 3px solid #10b981;">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h3><i class="fa-solid fa-list-check" style="color: #10b981;"></i> Avisos Ativos &amp; Respostas em Tempo Real</h3>
+                <span class="badge" id="activeNoticesCount" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">0 Ativos</span>
+              </div>
+              <div class="card-body" id="noticesFeed" style="max-height: 520px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;">
+                <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">
+                  <i class="fa-solid fa-bell-slash" style="font-size: 32px; margin-bottom: 8px; opacity: 0.5;"></i>
+                  <p>Nenhum aviso ativo no momento.</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
       </div>

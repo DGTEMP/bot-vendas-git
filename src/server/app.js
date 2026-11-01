@@ -2463,6 +2463,284 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // E-COMMERCE STOREFRONT & CHECKOUT (AUTOREPUESTOS-PRO)
+  // ==========================================
+  app.get(['/loja', '/catalogo', '/vitrine', '/store'], (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'store.html'));
+  });
+
+  app.get('/api/store/products', (req, res) => {
+    try {
+      const { category, search } = req.query;
+      const products = models.getStoreProducts(category, search);
+      const categories = ['Todos', ...models.getCategories()];
+      res.json({ success: true, products, categories });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/store/coupon', (req, res) => {
+    try {
+      const { code, amount } = req.body;
+      if (!code) return res.status(400).json({ error: 'Código de cupom obrigatório.' });
+
+      const coupon = models.getCouponByCode(code);
+      if (!coupon) return res.status(404).json({ error: 'Cupom inválido ou não encontrado.' });
+      if (!coupon.active) return res.status(400).json({ error: 'Este cupom está desativado.' });
+      if (coupon.max_uses > 0 && coupon.used_count >= coupon.max_uses) {
+        return res.status(400).json({ error: 'Este cupom atingiu o limite máximo de utilizações.' });
+      }
+
+      const total = Number(amount || 0);
+      let discount = 0;
+      const isPercent = Boolean((coupon.discount_percent && coupon.discount_percent > 0) || coupon.discount_type === 'percent');
+      const discountVal = Number(coupon.discount_percent || coupon.discount_amount || coupon.discount_value || 0);
+
+      if (isPercent) {
+        discount = (total * (discountVal / 100));
+      } else {
+        discount = Math.min(total, discountVal);
+      }
+      discount = Math.round(discount * 100) / 100;
+      const finalAmount = Math.max(0, Math.round((total - discount) * 100) / 100);
+
+      res.json({
+        success: true,
+        valid: true,
+        code: coupon.code,
+        discountType: isPercent ? 'percent' : 'fixed',
+        discountValue: discountVal,
+        discountAmount: discount,
+        finalAmount
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/store/checkout', async (req, res) => {
+    try {
+      const { items = [], customer = {}, gateway = 'pix', couponCode = null } = req.body;
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'O carrinho está vazio.' });
+      }
+
+      const customerName = customer.name ? customer.name.trim() : 'Cliente Web';
+      const customerPhone = customer.phone ? customer.phone.replace(/\D/g, '') : '';
+      const customerAddress = customer.address || '';
+      const notes = customer.notes || '';
+
+      let subtotalBRL = 0;
+      let subtotalUSDT = 0;
+      const verifiedItems = [];
+
+      for (const it of items) {
+        const prod = models.getProductById(it.id);
+        if (!prod) continue;
+        const qty = Math.max(1, Number(it.quantity || 1));
+        const priceBRL = Number(prod.price_brl || prod.price);
+        const priceUSDT = Number(prod.price_usdt || (priceBRL / 5.5).toFixed(2));
+        subtotalBRL += priceBRL * qty;
+        subtotalUSDT += priceUSDT * qty;
+        verifiedItems.push({
+          id: prod.id,
+          name: prod.name,
+          category: prod.category || 'Geral',
+          quantity: qty,
+          unitPriceBRL: priceBRL,
+          unitPriceUSDT: priceUSDT,
+          totalBRL: priceBRL * qty,
+          totalUSDT: priceUSDT * qty
+        });
+      }
+
+      if (verifiedItems.length === 0) {
+        return res.status(400).json({ error: 'Nenhum produto válido encontrado no carrinho.' });
+      }
+
+      let discountBRL = 0;
+      if (couponCode) {
+        const coupon = models.getCouponByCode(couponCode);
+        if (coupon && coupon.active && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses)) {
+          const isPercent = Boolean((coupon.discount_percent && coupon.discount_percent > 0) || coupon.discount_type === 'percent');
+          const discountVal = Number(coupon.discount_percent || coupon.discount_amount || coupon.discount_value || 0);
+          if (isPercent) {
+            discountBRL = subtotalBRL * (discountVal / 100);
+          } else {
+            discountBRL = Math.min(subtotalBRL, discountVal);
+          }
+          if (typeof models.useCoupon === 'function') {
+            models.useCoupon(coupon.code);
+          }
+        }
+      }
+
+      const finalBRL = Math.max(0.50, Math.round((subtotalBRL - discountBRL) * 100) / 100);
+      const finalUSDT = Math.max(0.10, Math.round((finalBRL / 5.5) * 100) / 100);
+
+      const tradeNo = `ORD_WEB_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const mainProd = verifiedItems[0];
+
+      let pixCode = null;
+      let qrContent = null;
+      let checkoutUrl = null;
+
+      if (gateway === 'pix') {
+        const pixRes = await pixPayment.createPixCharge({
+          merchantTradeNo: tradeNo,
+          amount: finalBRL,
+          goodsName: `Pedido Loja Web: ${verifiedItems.map(i => i.name).join(', ').slice(0, 80)}`,
+          payerName: customerName
+        });
+        pixCode = pixRes.data?.pixCode || pixRes.pixCode || pixRes.data?.emv || pixRes.emv;
+        qrContent = pixRes.data?.qrCodeBase64 || pixRes.data?.checkoutUrl || pixRes.qrContent;
+        checkoutUrl = pixRes.data?.checkoutUrl || pixRes.checkoutUrl;
+      } else if (gateway === 'binancepay') {
+        const binRes = await binancePay.createOrder({
+          merchantTradeNo: tradeNo,
+          amount: finalUSDT,
+          currency: 'USDT',
+          goodsName: `Pedido Loja Web (${verifiedItems.length} itens)`,
+          goodsDetail: verifiedItems.map(i => `${i.quantity}x ${i.name}`).join(', ').slice(0, 200)
+        });
+        checkoutUrl = binRes.data?.checkoutUrl || binRes.data?.universalUrl || binRes.checkoutUrl || binRes.universalUrl;
+        qrContent = binRes.data?.qrContent || binRes.data?.qrcodeLink || binRes.qrContent;
+      }
+
+      const order = models.createOrder({
+        merchant_trade_no: tradeNo,
+        product_id: mainProd.id,
+        platform: 'whatsapp',
+        platform_user_id: customerPhone || 'web_guest',
+        platform_user_name: customerName,
+        gateway,
+        amount: gateway === 'pix' ? finalBRL : finalUSDT,
+        currency: gateway === 'pix' ? 'BRL' : 'USDT',
+        status: 'PENDING',
+        pix_code: pixCode,
+        qr_content: qrContent,
+        checkout_url: checkoutUrl,
+        coupon_code: couponCode,
+        discount_amount: discountBRL
+      });
+
+      let itemsListText = verifiedItems.map(i => `• ${i.quantity}x *${i.name}* (R$ ${i.totalBRL.toFixed(2)})`).join('\n');
+      let waMessage = 
+        `🛒 *NOVO PEDIDO DA VITRINE WEB (#${tradeNo})*\n\n` +
+        `👤 *Cliente:* ${customerName}\n` +
+        `📱 *WhatsApp:* +${customerPhone || 'Não informado'}\n` +
+        (customerAddress ? `📍 *Entrega:* ${customerAddress}\n` : '') +
+        (notes ? `📝 *Observação:* ${notes}\n` : '') +
+        `\n📦 *Itens do Pedido:*\n${itemsListText}\n\n` +
+        `💰 *Subtotal:* R$ ${subtotalBRL.toFixed(2)}\n` +
+        (discountBRL > 0 ? `🎟️ *Desconto Cupom (${couponCode}):* -R$ ${discountBRL.toFixed(2)}\n` : '') +
+        `💳 *Total a Pagar:* *R$ ${finalBRL.toFixed(2)}* (${finalUSDT.toFixed(2)} USDT)\n` +
+        `⚡ *Forma de Pagamento:* ${gateway.toUpperCase()}\n\n` +
+        (pixCode ? `🔑 *PIX Copia e Cola:* \`${pixCode}\`\n\n` : '') +
+        `_Aguardando confirmação do pagamento pelo sistema automático._`;
+
+      const botPhone = (models.getSetting('BOT_PHONE', '') || models.getSetting('OWNER_PHONE', '5511988887777')).replace(/\D/g, '');
+      const waUrl = `https://wa.me/${botPhone}?text=${encodeURIComponent(waMessage)}`;
+
+      res.json({
+        success: true,
+        tradeNo,
+        orderId: order?.id,
+        subtotalBRL,
+        discountBRL,
+        finalBRL,
+        finalUSDT,
+        items: verifiedItems,
+        pixCode,
+        qrContent,
+        checkoutUrl,
+        whatsappMessage: waMessage,
+        whatsappUrl: waUrl
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // CENTRAL DE AVISOS & ALERTA INTER-PC (SISTEMAS_AVISOS_PC)
+  // ==========================================
+  app.get('/api/notices', (req, res) => {
+    try {
+      const limit = Number(req.query.limit || 50);
+      const status = req.query.status || null;
+      const notices = models.getNotices(limit, status);
+      res.json({ success: true, notices });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/notices', async (req, res) => {
+    try {
+      const { title, message, category = 'info', color = '#2196f3', sender = 'Admin', target = 'all', sound_alert = 1, broadcast_whatsapp = false } = req.body;
+      if (!title || !message) {
+        return res.status(400).json({ error: 'Título e mensagem são obrigatórios.' });
+      }
+
+      const notice = models.createNotice({ title, message, category, color, sender, target, sound_alert });
+
+      if (broadcast_whatsapp && whatsappBot.isConnected) {
+        const icon = category === 'urgente' ? '🚨' : (category === 'emergencia' ? '🔥' : (category === 'alerta' ? '⚠️' : (category === 'sucesso' ? '✅' : '📢')));
+        const noticeBroadcast = 
+          `${icon} *AVISO DA CENTRAL DE OPERAÇÕES* ${icon}\n\n` +
+          `📌 *${title.toUpperCase()}*\n` +
+          `📝 ${message}\n\n` +
+          `👤 *Emitido por:* ${sender}\n` +
+          `🕒 *Horário:* ${new Date().toLocaleTimeString('pt-BR')}\n` +
+          `_Para confirmar recebimento, responda com !confirmaraviso ${notice.id}_`;
+
+        if (target === 'meteoric' || target === 'all') {
+          try {
+            const meteoricGroups = models.getMeteoricGroups();
+            for (const grp of meteoricGroups) {
+              if (grp.group_jid) {
+                await whatsappBot.sendMessage(grp.group_jid, noticeBroadcast).catch(() => {});
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      res.json({ success: true, notice });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/notices/:id/respond', (req, res) => {
+    try {
+      const noticeId = Number(req.params.id);
+      const { respondent = 'Operador', response_text } = req.body;
+      if (!response_text) return res.status(400).json({ error: 'Texto de resposta obrigatório.' });
+
+      const notice = models.getNoticeById(noticeId);
+      if (!notice) return res.status(404).json({ error: 'Aviso não encontrado.' });
+
+      const resp = models.addNoticeResponse(noticeId, respondent, response_text);
+      res.json({ success: true, response: resp });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/notices/:id', (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      models.archiveNotice(id);
+      res.json({ success: true, archived: id });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

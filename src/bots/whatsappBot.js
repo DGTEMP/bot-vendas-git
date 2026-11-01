@@ -2113,6 +2113,29 @@ class WhatsAppBotService {
       return gataFeatures.handlePPCouple(activeSock, from);
     }
 
+    // 14.28 Vitrine Digital & Catálogo E-Commerce (AutoRepuestos Pro): !loja / !catalogo / !vitrine
+    if (/^(?:!|\/)(?:loja|catalogo|vitrine|store|vercatalogo)$/i.test(lower)) {
+      return gataFeatures.handleLoja(activeSock, from);
+    }
+
+    // 14.29 Central de Avisos & Alertas da Equipe (Sistemas Avisos PC): !aviso / !notificar / !urgente / !comunicado
+    if (/^(?:!|\/)(?:urgente|alertaurgente)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleEmitAviso(activeSock, from, text, senderPhone, senderName, true);
+    }
+    if (/^(?:!|\/)(?:aviso|notificar|comunicado)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleEmitAviso(activeSock, from, text, senderPhone, senderName, false);
+    }
+
+    // 14.30 Consulta de Avisos Ativos (Sistemas Avisos PC): !avisos
+    if (/^(?:!|\/)(?:avisos|alertas|comunicados)$/i.test(lower)) {
+      return gataFeatures.handleListAvisos(activeSock, from);
+    }
+
+    // 14.31 Resposta a Aviso da Central (Sistemas Avisos PC): !responderaviso / !confirmaraviso
+    if (/^(?:!|\/)(?:responderaviso|confirmaraviso|respostaviso)(?:\s+.*)?$/i.test(lower)) {
+      return gataFeatures.handleResponderAviso(activeSock, from, text, senderPhone, senderName);
+    }
+
     // 14. MULTI-CONTAS, SUB-BOTS & FUNÇÕES EXCLUSIVAS DO DONO E BOT PRINCIPAL
     // 14.0 Guia de Usabilidade & Controle dos Sub-Bots: !subbothelp / !subbotajuda
     if (/^(?:!|\/)(?:subbothelp|subbotajuda|ajudasubbot|guiasubbot|comosubbot)$/i.test(lower)) {
@@ -2303,12 +2326,18 @@ class WhatsAppBotService {
         `• *!dado* — Role os dados e ganhe moedas e XP\n` +
         `• *!roleta* — Gire a roleta da sorte para ganhar prêmios\n` +
         `• *!resgatar* — Troque 100 pontos por um Cupom de 15% OFF na loja\n\n` +
-        `🛍️ *Vendas & Loja Automática:*\n` +
-        `• *MENU* — Ver catálogo completo de produtos\n` +
+        `🛍️ *Vendas, Vitrine & Loja Automática (AutoRepuestos Pro):*\n` +
+        `• *!loja* ou *!vitrine* — Vitrine online com carrinho e checkout Pix/USDT\n` +
+        `• *MENU* — Ver catálogo completo no WhatsApp\n` +
         `• *P1, P2...* — Gerar PIX Copia e Cola instantâneo\n` +
         `• *C1, C2...* — Pagar via Cripto / Binance Pay (USDT)\n` +
         `• *STATUS* — Consultar andamento do seu pedido\n` +
         `• *!suporte* — Solicitar atendimento humano\n\n` +
+        `📢 *Central de Avisos & Broadcast (Sistemas Avisos PC):*\n` +
+        `• *!aviso <mensagem>* — Emite comunicado geral para a equipe\n` +
+        `• *!urgente <mensagem>* — Emite alerta crítico com som e prioridade\n` +
+        `• *!avisos* — Lista os avisos ativos no sistema\n` +
+        `• *!confirmaraviso <id>* — Confirma recebimento ou responde\n\n` +
         `🌐 *Painel Web Completo:* http://localhost:3000\n` +
         `🛡️ *Moderação de Grupos:* Envie *!admin* para ver comandos de gestão.`;
 

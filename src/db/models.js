@@ -74,7 +74,7 @@ const models = {
   },
 
   getCategories() {
-    const rows = db.prepare('SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != "" ORDER BY category ASC').all();
+    const rows = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' ORDER BY category ASC").all();
     return rows.map(r => r.category);
   },
 
@@ -876,6 +876,10 @@ const models = {
       db.prepare('UPDATE coupons SET active = 0 WHERE id = ?').run(coupon.id);
     }
     return coupon;
+  },
+
+  incrementCouponUsage(code) {
+    return models.useCoupon(code);
   },
 
   // ==========================================
@@ -2983,6 +2987,88 @@ const models = {
       totalGenerated: generated,
       avgViralScore: avgScore
     };
+  },
+
+  // ==========================================
+  // 17. CENTRAL DE AVISOS, ALERTAS & BROADCAST (SISTEMAS AVISOS PC)
+  // ==========================================
+  createNotice({ title, message, category = 'info', color = '#2196f3', sender = 'Admin', target = 'all', sound_alert = 1 }) {
+    const stmt = db.prepare(`
+      INSERT INTO system_notices (title, message, category, color, sender, target, sound_alert)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(title, message, category, color, sender, target, sound_alert ? 1 : 0);
+    return this.getNoticeById(Number(res.lastInsertRowid));
+  },
+
+  getNoticeById(id) {
+    const notice = db.prepare('SELECT * FROM system_notices WHERE id = ?').get(id);
+    if (!notice) return null;
+    notice.responses = this.getNoticeResponses(id);
+    return notice;
+  },
+
+  getNotices(limit = 50, status = null) {
+    let sql = 'SELECT * FROM system_notices';
+    const params = [];
+    if (status) {
+      sql += ' WHERE status = ?';
+      params.push(status);
+    }
+    sql += ' ORDER BY id DESC LIMIT ?';
+    params.push(limit);
+
+    const rows = db.prepare(sql).all(...params);
+    return rows.map(n => {
+      n.responses = this.getNoticeResponses(n.id);
+      return n;
+    });
+  },
+
+  addNoticeResponse(noticeId, respondent, responseText) {
+    const stmt = db.prepare(`
+      INSERT INTO system_notice_responses (notice_id, respondent, response_text)
+      VALUES (?, ?, ?)
+    `);
+    const res = stmt.run(noticeId, respondent || 'Operador', responseText);
+    return {
+      id: Number(res.lastInsertRowid),
+      notice_id: noticeId,
+      respondent,
+      response_text: responseText,
+      created_at: new Date().toISOString()
+    };
+  },
+
+  getNoticeResponses(noticeId) {
+    return db.prepare('SELECT * FROM system_notice_responses WHERE notice_id = ? ORDER BY id ASC').all(noticeId);
+  },
+
+  archiveNotice(id) {
+    return db.prepare("UPDATE system_notices SET status = 'archived' WHERE id = ?").run(id);
+  },
+
+  deleteNotice(id) {
+    return db.prepare('DELETE FROM system_notices WHERE id = ?').run(id);
+  },
+
+  // ==========================================
+  // 18. VITRINE & CATÁLOGO E-COMMERCE (AUTOREPUESTOS-PRO)
+  // ==========================================
+  getStoreProducts(category = null, search = null) {
+    let sql = 'SELECT * FROM products WHERE active = 1';
+    const params = [];
+    if (category && category !== 'Todos') {
+      sql += ' AND category = ?';
+      params.push(category);
+    }
+    if (search && search.trim()) {
+      sql += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ?)';
+      const term = `%${search.trim()}%`;
+      params.push(term, term, term);
+    }
+    sql += ' ORDER BY id DESC';
+    return db.prepare(sql).all(...params);
   }
 };
 

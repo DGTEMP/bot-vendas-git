@@ -3465,6 +3465,150 @@ sys.stdout.buffer.write(out.getvalue())
       return sock.sendMessage(from, { text: `❌ Erro ao buscar metadinhas de casal: ${err.message}` });
     }
   }
+
+  // ==========================================
+  // 6. VITRINE E-COMMERCE & CHECKOUT (AUTOREPUESTOS-PRO)
+  // ==========================================
+  /**
+   * Envia o link da vitrine online com produtos em destaque
+   */
+  async handleLoja(sock, from) {
+    try {
+      const products = models.getStoreProducts().slice(0, 5);
+      const host = 'http://localhost:3000';
+      const storeUrl = `${host}/loja`;
+
+      let prodListText = '';
+      if (products.length > 0) {
+        prodListText = `📦 *DESTAQUES DA VITRINE:*\n` + products.map((p, idx) => {
+          const brl = Number(p.price_brl || p.price).toFixed(2);
+          const usdt = Number(p.price_usdt || (p.price / 5.5)).toFixed(2);
+          return `• *${p.name}* — R$ ${brl} (${usdt} USDT)`;
+        }).join('\n') + `\n\n`;
+      }
+
+      const out =
+        `🛒 *VITRINE DIGITAL & CATÁLOGO OFICIAL* 🛒\n\n` +
+        `Navegue pelo nosso catálogo completo com carrinho de compras, cálculo de cupons e checkout instantâneo Pix e Cripto!\n\n` +
+        prodListText +
+        `🌐 *Acesse a Loja Online:* ${storeUrl}\n\n` +
+        `💡 _Adicione produtos ao carrinho e finalize pelo WhatsApp ou pague diretamente via PIX com entrega imediata!_`;
+
+      return sock.sendMessage(from, { text: out });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleLoja]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao abrir catálogo.` });
+    }
+  }
+
+  // ==========================================
+  // 7. CENTRAL DE AVISOS, ALERTAS & BROADCAST (SISTEMAS_AVISOS_PC)
+  // ==========================================
+  /**
+   * Emite aviso da equipe via WhatsApp para a Central de Notificações
+   */
+  async handleEmitAviso(sock, from, text, senderPhone, senderName, isUrgent = false) {
+    try {
+      const cleanPhone = String(senderPhone || from).replace(/\D/g, '');
+      const raw = (text || '').replace(/^(?:!|\/)(?:aviso|notificar|urgente|comunicado)\s*/i, '').trim();
+
+      if (!raw) {
+        return sock.sendMessage(from, {
+          text: `📢 *CENTRAL DE AVISOS & ALERTAS*\n\nEnvie notificações urgentes ou operacionais para a equipe e painel web!\n\n📌 *Como usar:*\n• *!aviso <mensagem>* — Emite comunicado geral\n• *!urgente <mensagem>* — Emite alerta crítico com alarme sonoro\n• *!avisos* — Lista os avisos ativos da central`
+        });
+      }
+
+      const category = isUrgent ? 'urgente' : 'info';
+      const color = isUrgent ? '#f44336' : '#2196f3';
+      const title = isUrgent ? `🚨 ALERTA URGENTE de @${cleanPhone}` : `📢 COMUNICADO de @${cleanPhone}`;
+
+      const notice = models.createNotice({
+        title,
+        message: raw,
+        category,
+        color,
+        sender: senderName ? `${senderName} (@${cleanPhone})` : `@${cleanPhone}`,
+        target: 'all',
+        sound_alert: isUrgent ? 1 : 0
+      });
+
+      const icon = isUrgent ? '🚨' : '📢';
+      const out =
+        `${icon} *AVISO REGISTRADO NA CENTRAL!* ${icon}\n\n` +
+        `🆔 *Protocolo:* #${notice.id}\n` +
+        `📌 *Título:* ${title}\n` +
+        `📝 *Mensagem:* ${raw}\n` +
+        `🔔 *Alerta Sonoro no Painel:* ${isUrgent ? 'Ativado (Alarme)' : 'Notificação Padrão'}\n\n` +
+        `_Transmitido em tempo real para os computadores e painel de controle!_`;
+
+      return sock.sendMessage(from, { text: out });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleEmitAviso]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao emitir aviso: ${err.message}` });
+    }
+  }
+
+  /**
+   * Lista os avisos ativos da central
+   */
+  async handleListAvisos(sock, from) {
+    try {
+      const notices = models.getNotices(6, 'active');
+      if (notices.length === 0) {
+        return sock.sendMessage(from, {
+          text: `🔔 *CENTRAL DE AVISOS:* Nenhum aviso urgente pendente no momento.\n\nPara emitir um novo: *!aviso <mensagem>* ou *!urgente <mensagem>*`
+        });
+      }
+
+      let textOut = `📢 *CENTRAL DE AVISOS & ALERTAS DA EQUIPE* 📢\n\n`;
+      notices.forEach(n => {
+        const timeStr = new Date(n.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const respCount = (n.responses || []).length;
+        textOut += `• *#${n.id} [${n.category.toUpperCase()}]:* ${n.title}\n` +
+          `  📝 "${n.message}"\n` +
+          `  👤 Por: ${n.sender} (${timeStr}) &bull; Respostas: ${respCount}\n` +
+          `  👉 _Para responder: *!responderaviso ${n.id} Sua resposta*_\n\n`;
+      });
+
+      return sock.sendMessage(from, { text: textOut });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleListAvisos]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao listar avisos.` });
+    }
+  }
+
+  /**
+   * Responde ou confirma recebimento de um aviso
+   */
+  async handleResponderAviso(sock, from, text, senderPhone, senderName) {
+    try {
+      const cleanPhone = String(senderPhone || from).replace(/\D/g, '');
+      const parts = (text || '').trim().split(/\s+/);
+      const noticeId = parseInt(parts[1], 10);
+      const responseText = parts.slice(2).join(' ').trim() || 'Confirmado recebimento';
+
+      if (!noticeId) {
+        return sock.sendMessage(from, {
+          text: `ℹ️ Informe o ID do aviso para responder!\nExemplo: *!confirmaraviso 1* ou *!responderaviso 1 Já estou verificando isso*`
+        });
+      }
+
+      const notice = models.getNoticeById(noticeId);
+      if (!notice) {
+        return sock.sendMessage(from, { text: `❌ Aviso #${noticeId} não encontrado ou já arquivado.` });
+      }
+
+      const respondent = senderName ? `${senderName} (@${cleanPhone})` : `@${cleanPhone}`;
+      models.addNoticeResponse(noticeId, respondent, responseText);
+
+      return sock.sendMessage(from, {
+        text: `✅ *RESPOSTA REGISTRADA NA CENTRAL!* ✅\n\n📌 *Aviso #${noticeId}:* ${notice.title}\n👤 *Respondido por:* ${respondent}\n💬 *Resposta:* "${responseText}"`
+      });
+    } catch (err) {
+      console.error('[GataFeatures ⚠️ handleResponderAviso]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao responder aviso.` });
+    }
+  }
 }
 
 module.exports = new GataFeaturesService();

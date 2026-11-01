@@ -609,6 +609,29 @@ function initDatabase() {
       published_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- 29. Tabela de Avisos & Alertas da Equipe / Inter-PC (Sistemas Avisos PC)
+    CREATE TABLE IF NOT EXISTS system_notices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      category TEXT DEFAULT 'info', -- 'urgente', 'emergencia', 'alerta', 'trabalho', 'social', 'info'
+      color TEXT DEFAULT '#2196f3',
+      sender TEXT DEFAULT 'Admin',
+      target TEXT DEFAULT 'all', -- 'all', 'sellers', 'meteoric', 'web'
+      sound_alert INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'active', -- 'active', 'archived'
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 30. Tabela de Respostas a Avisos da Equipe
+    CREATE TABLE IF NOT EXISTS system_notice_responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      notice_id INTEGER NOT NULL REFERENCES system_notices(id) ON DELETE CASCADE,
+      respondent TEXT NOT NULL,
+      response_text TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Migrações seguras
@@ -632,6 +655,9 @@ function initDatabase() {
     'ALTER TABLE products ADD COLUMN category TEXT DEFAULT "Geral";',
     'ALTER TABLE products ADD COLUMN affiliation_enabled INTEGER DEFAULT 1;',
     'ALTER TABLE products ADD COLUMN custom_affiliate_rate REAL DEFAULT NULL;',
+    'ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT "";',
+    'ALTER TABLE products ADD COLUMN specs TEXT DEFAULT "";',
+    'ALTER TABLE products ADD COLUMN stock_qty INTEGER DEFAULT 999;',
     'ALTER TABLE meteoric_stages ADD COLUMN scheduled_at DATETIME;',
     'ALTER TABLE meteoric_stages ADD COLUMN auto_execute INTEGER DEFAULT 0;',
     'ALTER TABLE meteoric_stages ADD COLUMN media_url TEXT;'

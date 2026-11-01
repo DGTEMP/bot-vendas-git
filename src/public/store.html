@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vitrine Online &amp; AutoRepuestos Pro | Catálogo Oficial</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0b0f17;
+      --card-bg: #151c28;
+      --card-border: #222d3f;
+      --primary: #f97316;
+      --primary-hover: #ea580c;
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --gold: #f59e0b;
+      --blue: #3b82f6;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-main); min-height: 100vh; overflow-x: hidden; }
+
+    /* Header */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+    .brand-icon {
+      width: 42px; height: 42px; border-radius: 10px; background: linear-gradient(135deg, #f97316, #ef4444);
+      display: flex; align-items: center; justify-content: center; font-size: 20px; color: #fff;
+    }
+    .brand-text h1 { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; }
+    .brand-text span { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+
+    .header-actions { display: flex; align-items: center; gap: 12px; }
+    .cart-btn {
+      position: relative; background: #1e293b; border: 1px solid var(--card-border); color: #fff;
+      padding: 10px 18px; border-radius: 30px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+      font-weight: 600; font-size: 14px; transition: all 0.2s;
+    }
+    .cart-btn:hover { background: #334155; border-color: var(--primary); }
+    .cart-badge {
+      background: var(--primary); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 20px; font-weight: 800;
+    }
+
+    /* Hero Section */
+    .hero {
+      background: linear-gradient(180deg, rgba(249, 115, 22, 0.08) 0%, rgba(11, 15, 23, 0) 100%);
+      padding: 48px 24px 32px; text-align: center; max-width: 900px; margin: 0 auto;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px; background: rgba(249, 115, 22, 0.15);
+      border: 1px solid rgba(249, 115, 22, 0.3); color: #fb923c; font-size: 12px; font-weight: 700;
+      padding: 6px 16px; border-radius: 30px; margin-bottom: 16px;
+    }
+    .hero h2 { font-size: 38px; font-weight: 800; line-height: 1.2; margin-bottom: 12px; letter-spacing: -1px; }
+    .hero h2 span { background: linear-gradient(135deg, #f97316, #fb923c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { color: var(--text-muted); font-size: 16px; max-width: 620px; margin: 0 auto 24px; line-height: 1.6; }
+
+    /* Search & Filter Bar */
+    .controls-container { max-width: 1200px; margin: 0 auto; padding: 0 24px 24px; }
+    .search-bar {
+      display: flex; background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 14px; padding: 6px 14px; align-items: center; gap: 12px; margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    }
+    .search-bar i { color: var(--text-muted); font-size: 16px; }
+    .search-bar input {
+      flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 15px; padding: 8px 0;
+    }
+    .search-bar input::placeholder { color: #64748b; }
+
+    .category-pills {
+      display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none;
+    }
+    .category-pills::-webkit-scrollbar { display: none; }
+    .pill {
+      background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-muted);
+      padding: 8px 18px; border-radius: 24px; cursor: pointer; white-space: nowrap; font-size: 13px; font-weight: 600;
+      transition: all 0.2s;
+    }
+    .pill:hover, .pill.active {
+      background: var(--primary); border-color: var(--primary); color: #fff; transform: translateY(-1px);
+    }
+
+    /* Products Grid */
+    .products-grid {
+      max-width: 1200px; margin: 0 auto; padding: 0 24px 60px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px;
+    }
+    .product-card {
+      background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius);
+      overflow: hidden; display: flex; flex-direction: column; transition: all 0.25s ease;
+      position: relative;
+    }
+    .product-card:hover {
+      transform: translateY(-4px); border-color: rgba(249, 115, 22, 0.4);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+    }
+    .product-thumb {
+      height: 190px; background: #1e293b; position: relative; display: flex; align-items: center;
+      justify-content: center; overflow: hidden;
+    }
+    .product-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .product-thumb-placeholder { font-size: 48px; color: #475569; }
+    .product-type-badge {
+      position: absolute; top: 12px; left: 12px; padding: 4px 10px; border-radius: 8px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge-digital { background: rgba(59, 130, 246, 0.9); color: #fff; }
+    .badge-key { background: rgba(16, 185, 129, 0.9); color: #fff; }
+    .badge-vip { background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; }
+    .badge-auto { background: linear-gradient(135deg, #ef4444, #f97316); color: #fff; }
+
+    .product-info { padding: 18px; display: flex; flex-direction: column; flex: 1; }
+    .product-cat { font-size: 11px; color: var(--primary); font-weight: 700; text-transform: uppercase; margin-bottom: 6px; }
+    .product-title { font-size: 17px; font-weight: 700; line-height: 1.3; margin-bottom: 8px; }
+    .product-desc { color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px; flex: 1; }
+    .product-pricing {
+      display: flex; align-items: baseline; gap: 8px; margin-bottom: 16px;
+    }
+    .price-brl { font-size: 22px; font-weight: 800; color: #fff; }
+    .price-usdt { font-size: 13px; color: var(--gold); font-weight: 600; }
+
+    .card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .btn-detail {
+      background: #1e293b; border: 1px solid var(--card-border); color: #fff; padding: 10px;
+      border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s;
+    }
+    .btn-detail:hover { background: #334155; }
+    .btn-add {
+      background: var(--primary); border: none; color: #fff; padding: 10px;
+      border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; transition: 0.2s;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-add:hover { background: var(--primary-hover); }
+
+    /* Cart Drawer */
+    .cart-drawer-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+      z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    .cart-drawer-overlay.open { opacity: 1; pointer-events: auto; }
+    .cart-drawer {
+      position: fixed; top: 0; right: -450px; width: 100%; max-width: 440px; height: 100vh;
+      background: #111827; border-left: 1px solid var(--card-border); z-index: 210;
+      display: flex; flex-direction: column; transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .cart-drawer.open { right: 0; }
+    .cart-header {
+      padding: 20px; border-bottom: 1px solid var(--card-border); display: flex; align-items: center; justify-content: space-between;
+    }
+    .cart-header h3 { font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+    .cart-close { background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; }
+    
+    .cart-items { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+    .cart-item {
+      display: flex; gap: 12px; background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 12px; padding: 12px; align-items: center;
+    }
+    .cart-item-info { flex: 1; min-width: 0; }
+    .cart-item-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cart-item-price { font-size: 13px; color: var(--primary); font-weight: 700; }
+    .cart-qty { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .qty-btn {
+      width: 26px; height: 26px; border-radius: 6px; background: #1e293b; border: 1px solid var(--card-border);
+      color: #fff; cursor: pointer; font-weight: bold; display: flex; align-items: center; justify-content: center;
+    }
+    .qty-num { font-size: 13px; font-weight: 700; width: 20px; text-align: center; }
+    .cart-item-del { color: #ef4444; background: none; border: none; cursor: pointer; font-size: 16px; padding: 6px; }
+
+    .cart-footer { padding: 20px; border-top: 1px solid var(--card-border); background: #0b0f17; }
+    .coupon-box { display: flex; gap: 8px; margin-bottom: 16px; }
+    .coupon-box input {
+      flex: 1; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px;
+      color: #fff; padding: 8px 12px; font-size: 13px; text-transform: uppercase;
+    }
+    .coupon-box button {
+      background: #1e293b; border: 1px solid var(--card-border); color: #fff; padding: 8px 14px;
+      border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer;
+    }
+    .cart-total-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); }
+    .cart-total-row.final { font-size: 18px; font-weight: 800; color: #fff; border-top: 1px dashed var(--card-border); padding-top: 10px; margin-top: 10px; }
+    .btn-checkout {
+      width: 100%; background: linear-gradient(135deg, #10b981, #059669); border: none; color: #fff;
+      padding: 14px; border-radius: 12px; font-size: 16px; font-weight: 800; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px;
+    }
+    .btn-checkout:hover { opacity: 0.95; transform: translateY(-1px); }
+
+    /* Product Details Modal & Checkout Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(6px);
+      z-index: 300; display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-card {
+      background: #111827; border: 1px solid var(--card-border); border-radius: 16px;
+      width: 100%; max-width: 580px; max-height: 90vh; overflow-y: auto; padding: 28px; position: relative;
+    }
+    .modal-close {
+      position: absolute; top: 18px; right: 18px; background: none; border: none; color: var(--text-muted);
+      font-size: 22px; cursor: pointer;
+    }
+
+    /* Form inputs */
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 10px;
+      color: #fff; padding: 10px 14px; font-size: 14px; outline: none;
+    }
+    .form-group input:focus, .form-group textarea:focus { border-color: var(--primary); }
+
+    .pay-methods { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 16px 0; }
+    .pay-method-opt {
+      background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 8px;
+      text-align: center; cursor: pointer; transition: 0.2s;
+    }
+    .pay-method-opt:hover, .pay-method-opt.selected { border-color: var(--accent); background: rgba(16, 185, 129, 0.1); }
+    .pay-method-opt i { font-size: 22px; display: block; margin-bottom: 6px; }
+    .pay-method-opt span { font-size: 12px; font-weight: 700; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: #1e293b; border: 1px solid var(--card-border); color: #fff; padding: 12px 24px;
+      border-radius: 30px; font-weight: 600; font-size: 14px; z-index: 9999; display: none;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <a href="/loja" class="brand">
+      <div class="brand-icon"><i class="fa-solid fa-bolt"></i></div>
+      <div class="brand-text">
+        <h1>PayBot Store &amp; AutoRepuestos</h1>
+        <span>Catálogo Oficial &bull; Checkout Instantâneo Pix &amp; Cripto</span>
+      </div>
+    </a>
+    <div class="header-actions">
+      <button class="cart-btn" onclick="toggleCart()">
+        <i class="fa-solid fa-cart-shopping"></i>
+        <span>Carrinho</span>
+        <span class="cart-badge" id="cartCountBadge">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-badge">
+      <i class="fa-solid fa-shield-halved"></i> Garantia de Entrega Imediata &bull; Suporte 24/7
+    </div>
+    <h2>Peças, Licenças e Produtos Digitais com <span>Entrega Instantânea</span></h2>
+    <p>Adicione itens ao seu carrinho, aplique cupons de desconto e finalize em segundos via PIX, Cripto USDT ou diretamente no WhatsApp da nossa equipe!</p>
+  </section>
+
+  <!-- Search & Category Controls -->
+  <div class="controls-container">
+    <div class="search-bar">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input type="text" id="searchInput" placeholder="Pesquisar por nome de peça, código, curso ou licença..." oninput="handleSearch()">
+    </div>
+    <div class="category-pills" id="categoryPills">
+      <button class="pill active" onclick="setCategory('Todos')">Todos</button>
+      <button class="pill" onclick="setCategory('Auto Peças')">Auto Peças &amp; Acessórios</button>
+      <button class="pill" onclick="setCategory('Licenças')">Chaves &amp; Licenças</button>
+      <button class="pill" onclick="setCategory('Cursos')">Cursos &amp; E-books</button>
+      <button class="pill" onclick="setCategory('VIP')">Assinaturas VIP</button>
+    </div>
+  </div>
+
+  <!-- Products Grid -->
+  <div class="products-grid" id="productsGrid">
+    <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted);">
+      <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 32px; margin-bottom: 12px;"></i>
+      <p>Carregando catálogo...</p>
+    </div>
+  </div>
+
+  <!-- Shopping Cart Drawer -->
+  <div class="cart-drawer-overlay" id="cartOverlay" onclick="toggleCart()"></div>
+  <div class="cart-drawer" id="cartDrawer">
+    <div class="cart-header">
+      <h3><i class="fa-solid fa-bag-shopping" style="color: var(--primary);"></i> Seu Carrinho</h3>
+      <button class="cart-close" onclick="toggleCart()">&times;</button>
+    </div>
+
+    <div class="cart-items" id="cartItemsList">
+      <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">
+        <i class="fa-solid fa-cart-plus" style="font-size: 40px; margin-bottom: 12px; opacity: 0.5;"></i>
+        <p>Seu carrinho está vazio.</p>
+      </div>
+    </div>
+
+    <div class="cart-footer">
+      <div class="coupon-box">
+        <input type="text" id="couponInput" placeholder="Código de Cupom (ex: BEMVINDO15)">
+        <button onclick="applyCoupon()">Aplicar</button>
+      </div>
+
+      <div class="cart-total-row">
+        <span>Subtotal:</span>
+        <span id="cartSubtotalBRL">R$ 0,00</span>
+      </div>
+      <div class="cart-total-row" id="cartDiscountRow" style="display: none; color: #10b981;">
+        <span>Desconto Cupom:</span>
+        <span id="cartDiscountBRL">-R$ 0,00</span>
+      </div>
+      <div class="cart-total-row final">
+        <span>Total a Pagar:</span>
+        <span id="cartTotalBRL">R$ 0,00</span>
+      </div>
+      <div style="text-align: right; font-size: 12px; color: var(--gold); margin-top: 4px;" id="cartTotalUSDT">
+        0.00 USDT
+      </div>
+
+      <button class="btn-checkout" onclick="openCheckoutModal()">
+        <i class="fa-solid fa-lock"></i> Finalizar Pedido
+      </button>
+    </div>
+  </div>
+
+  <!-- Product Detail Modal -->
+  <div class="modal-overlay" id="detailModal">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+      <div id="detailContent"></div>
+    </div>
+  </div>
+
+  <!-- Checkout Modal -->
+  <div class="modal-overlay" id="checkoutModal">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeCheckoutModal()">&times;</button>
+      <h3 style="font-size: 20px; font-weight: 800; margin-bottom: 16px;">
+        <i class="fa-solid fa-credit-card" style="color: var(--primary);"></i> Finalização do Pedido
+      </h3>
+
+      <div class="form-group">
+        <label>Seu Nome Completo:</label>
+        <input type="text" id="custName" placeholder="Ex: João da Silva">
+      </div>
+      <div class="form-group">
+        <label>Seu WhatsApp (com DDD):</label>
+        <input type="tel" id="custPhone" placeholder="Ex: 11999998888">
+      </div>
+      <div class="form-group">
+        <label>Endereço de Entrega (se produto físico):</label>
+        <input type="text" id="custAddress" placeholder="Rua, Número, Bairro, Cidade / UF">
+      </div>
+      <div class="form-group">
+        <label>Observações do Pedido (opcional):</label>
+        <textarea id="custNotes" rows="2" placeholder="Instruções ou preferências"></textarea>
+      </div>
+
+      <label style="font-size: 13px; font-weight: 600; color: var(--text-muted);">Escolha o Método de Pagamento:</label>
+      <div class="pay-methods">
+        <div class="pay-method-opt selected" id="optPix" onclick="selectPayMethod('pix')">
+          <i class="fa-brands fa-pix" style="color: #10b981;"></i>
+          <span>PIX Instantâneo</span>
+        </div>
+        <div class="pay-method-opt" id="optBinance" onclick="selectPayMethod('binancepay')">
+          <i class="fa-solid fa-coins" style="color: #f59e0b;"></i>
+          <span>USDT (Binance)</span>
+        </div>
+        <div class="pay-method-opt" id="optWhatsApp" onclick="selectPayMethod('whatsapp')">
+          <i class="fa-brands fa-whatsapp" style="color: #25d366;"></i>
+          <span>Via WhatsApp</span>
+        </div>
+      </div>
+
+      <div id="checkoutResultArea" style="display: none; margin: 16px 0; background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid var(--card-border);"></div>
+
+      <button class="btn-checkout" id="btnConfirmPay" onclick="submitOrder()">
+        <span>Confirmar &bull; </span><span id="checkoutBtnTotal">R$ 0,00</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast"></div>
+
+  <script>
+    let allProducts = [];
+    let cart = [];
+    let currentCategory = 'Todos';
+    let appliedCoupon = null;
+    let selectedMethod = 'pix';
+
+    async function loadCatalog() {
+      try {
+        const res = await fetch('/api/store/products');
+        const data = await res.json();
+        if (data.products && Array.isArray(data.products)) {
+          allProducts = data.products;
+          renderCategoryPills(data.categories || ['Todos']);
+          renderProducts();
+        }
+      } catch (err) {
+        document.getElementById('productsGrid').innerHTML = `
+          <div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 40px;">
+            <p>Erro ao carregar catálogo. Tente novamente.</p>
+          </div>
+        `;
+      }
+    }
+
+    function renderCategoryPills(categories) {
+      const el = document.getElementById('categoryPills');
+      el.innerHTML = categories.map(cat => `
+        <button class="pill ${cat === currentCategory ? 'active' : ''}" onclick="setCategory('${cat}')">${cat}</button>
+      `).join('');
+    }
+
+    function setCategory(cat) {
+      currentCategory = cat;
+      const pills = document.querySelectorAll('.pill');
+      pills.forEach(p => {
+        p.classList.toggle('active', p.textContent.trim() === cat);
+      });
+      renderProducts();
+    }
+
+    function handleSearch() {
+      renderProducts();
+    }
+
+    function renderProducts() {
+      const search = document.getElementById('searchInput').value.toLowerCase().trim();
+      const filtered = allProducts.filter(p => {
+        const matchCat = currentCategory === 'Todos' || p.category === currentCategory;
+        const matchSearch = !search || 
+          p.name.toLowerCase().includes(search) || 
+          (p.description && p.description.toLowerCase().includes(search)) ||
+          (p.category && p.category.toLowerCase().includes(search));
+        return matchCat && matchSearch;
+      });
+
+      const grid = document.getElementById('productsGrid');
+      if (filtered.length === 0) {
+        grid.innerHTML = `
+          <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 50px;">
+            <i class="fa-solid fa-box-open" style="font-size: 40px; margin-bottom: 12px;"></i>
+            <p>Nenhum produto encontrado nesta categoria ou pesquisa.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(prod => {
+        const brl = Number(prod.price_brl || prod.price).toFixed(2);
+        const usdt = Number(prod.price_usdt || (prod.price / 5.5)).toFixed(2);
+        const badgeClass = prod.type === 'key' ? 'badge-key' : (prod.type === 'vip' ? 'badge-vip' : (prod.category?.toLowerCase().includes('peça') ? 'badge-auto' : 'badge-digital'));
+        const badgeLabel = prod.type === 'key' ? 'Chave / Licença' : (prod.type === 'vip' ? 'Assinatura VIP' : (prod.category || 'Digital'));
+
+        return `
+          <div class="product-card">
+            <div class="product-thumb">
+              ${prod.image_url ? `<img src="${prod.image_url}" alt="${prod.name}">` : `<i class="fa-solid fa-cube product-thumb-placeholder"></i>`}
+              <span class="product-type-badge ${badgeClass}">${badgeLabel}</span>
+            </div>
+            <div class="product-info">
+              <span class="product-cat">${prod.category || 'Geral'}</span>
+              <h4 class="product-title">${prod.name}</h4>
+              <p class="product-desc">${prod.description ? prod.description.slice(0, 95) + '...' : 'Produto de alta qualidade com garantia de satisfação.'}</p>
+              <div class="product-pricing">
+                <span class="price-brl">R$ ${brl}</span>
+                <span class="price-usdt">&bull; ${usdt} USDT</span>
+              </div>
+              <div class="card-actions">
+                <button class="btn-detail" onclick="openDetailModal(${prod.id})"><i class="fa-solid fa-eye"></i> Detalhes</button>
+                <button class="btn-add" onclick="addToCart(${prod.id})"><i class="fa-solid fa-cart-plus"></i> Adicionar</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function openDetailModal(prodId) {
+      const prod = allProducts.find(p => p.id === prodId);
+      if (!prod) return;
+
+      const brl = Number(prod.price_brl || prod.price).toFixed(2);
+      const usdt = Number(prod.price_usdt || (prod.price / 5.5)).toFixed(2);
+
+      const content = document.getElementById('detailContent');
+      content.innerHTML = `
+        <div style="display: flex; gap: 16px; margin-bottom: 16px; align-items: center;">
+          <div style="width: 80px; height: 80px; background: #1e293b; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--primary);">
+            <i class="fa-solid fa-cube"></i>
+          </div>
+          <div>
+            <span style="font-size: 11px; color: var(--primary); font-weight: 700; text-transform: uppercase;">${prod.category || 'Geral'}</span>
+            <h3 style="font-size: 20px; font-weight: 800; line-height: 1.2;">${prod.name}</h3>
+            <div style="display: flex; gap: 4px; color: #f59e0b; font-size: 12px; margin-top: 4px;">
+              <i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i>
+              <span style="color: var(--text-muted); margin-left: 6px;">4.9 (42 avaliações de clientes)</span>
+            </div>
+          </div>
+        </div>
+
+        <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+          ${prod.description || 'Produto oficial verificado. Acesso imediato após confirmação do pagamento.'}
+        </p>
+
+        <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; margin-bottom: 20px;">
+          <h5 style="font-size: 12px; font-weight: 700; color: #fff; text-transform: uppercase; margin-bottom: 8px;">Especificações &amp; Compatibilidade:</h5>
+          <ul style="font-size: 13px; color: var(--text-muted); padding-left: 18px; line-height: 1.6;">
+            <li><strong>Tipo de Envio:</strong> Automático via WhatsApp &amp; E-mail</li>
+            <li><strong>Garantia:</strong> 30 dias de suporte direto</li>
+            <li><strong>Código do Produto / SKU:</strong> PROD-${prod.id}</li>
+            <li><strong>Disponibilidade:</strong> Em estoque imediato</li>
+          </ul>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--card-border); padding-top: 16px;">
+          <div>
+            <span style="font-size: 24px; font-weight: 800; color: #fff;">R$ ${brl}</span>
+            <span style="font-size: 13px; color: var(--gold); margin-left: 6px;">(${usdt} USDT)</span>
+          </div>
+          <button class="btn-add" style="padding: 12px 24px; font-size: 15px;" onclick="addToCart(${prod.id}); closeDetailModal();">
+            <i class="fa-solid fa-cart-plus"></i> Adicionar ao Carrinho
+          </button>
+        </div>
+      `;
+      document.getElementById('detailModal').classList.add('open');
+    }
+
+    function closeDetailModal() {
+      document.getElementById('detailModal').classList.remove('open');
+    }
+
+    // Cart logic
+    function addToCart(prodId) {
+      const prod = allProducts.find(p => p.id === prodId);
+      if (!prod) return;
+
+      const existing = cart.find(i => i.id === prodId);
+      if (existing) {
+        existing.quantity++;
+      } else {
+        cart.push({
+          id: prod.id,
+          name: prod.name,
+          price_brl: Number(prod.price_brl || prod.price),
+          price_usdt: Number(prod.price_usdt || (prod.price / 5.5)),
+          quantity: 1
+        });
+      }
+
+      updateCartUI();
+      showToast(`✅ "${prod.name}" adicionado ao carrinho!`);
+    }
+
+    function removeFromCart(prodId) {
+      cart = cart.filter(i => i.id !== prodId);
+      updateCartUI();
+    }
+
+    function changeQty(prodId, delta) {
+      const item = cart.find(i => i.id === prodId);
+      if (!item) return;
+      item.quantity += delta;
+      if (item.quantity <= 0) {
+        removeFromCart(prodId);
+      } else {
+        updateCartUI();
+      }
+    }
+
+    function updateCartUI() {
+      const countEl = document.getElementById('cartCountBadge');
+      const totalCount = cart.reduce((acc, i) => acc + i.quantity, 0);
+      countEl.textContent = totalCount;
+
+      const listEl = document.getElementById('cartItemsList');
+      if (cart.length === 0) {
+        listEl.innerHTML = `
+          <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">
+            <i class="fa-solid fa-cart-plus" style="font-size: 40px; margin-bottom: 12px; opacity: 0.5;"></i>
+            <p>Seu carrinho está vazio.</p>
+          </div>
+        `;
+      } else {
+        listEl.innerHTML = cart.map(item => `
+          <div class="cart-item">
+            <div class="cart-item-info">
+              <div class="cart-item-title">${item.name}</div>
+              <div class="cart-item-price">R$ ${(item.price_brl * item.quantity).toFixed(2)}</div>
+              <div class="cart-qty">
+                <button class="qty-btn" onclick="changeQty(${item.id}, -1)">-</button>
+                <span class="qty-num">${item.quantity}</span>
+                <button class="qty-btn" onclick="changeQty(${item.id}, 1)">+</button>
+              </div>
+            </div>
+            <button class="cart-item-del" onclick="removeFromCart(${item.id})"><i class="fa-solid fa-trash-can"></i></button>
+          </div>
+        `).join('');
+      }
+
+      let subtotal = cart.reduce((acc, i) => acc + (i.price_brl * i.quantity), 0);
+      let discount = 0;
+      if (appliedCoupon) {
+        if (appliedCoupon.discountType === 'percent') {
+          discount = subtotal * (appliedCoupon.discountValue / 100);
+        } else {
+          discount = Math.min(subtotal, appliedCoupon.discountValue);
+        }
+      }
+
+      const finalTotal = Math.max(0, subtotal - discount);
+      const usdtTotal = (finalTotal / 5.5).toFixed(2);
+
+      document.getElementById('cartSubtotalBRL').textContent = `R$ ${subtotal.toFixed(2)}`;
+      if (discount > 0) {
+        document.getElementById('cartDiscountRow').style.display = 'flex';
+        document.getElementById('cartDiscountBRL').textContent = `-R$ ${discount.toFixed(2)}`;
+      } else {
+        document.getElementById('cartDiscountRow').style.display = 'none';
+      }
+      document.getElementById('cartTotalBRL').textContent = `R$ ${finalTotal.toFixed(2)}`;
+      document.getElementById('cartTotalUSDT').textContent = `${usdtTotal} USDT`;
+      document.getElementById('checkoutBtnTotal').textContent = `R$ ${finalTotal.toFixed(2)}`;
+    }
+
+    async function applyCoupon() {
+      const code = document.getElementById('couponInput').value.trim();
+      if (!code) return;
+
+      const subtotal = cart.reduce((acc, i) => acc + (i.price_brl * i.quantity), 0);
+      try {
+        const res = await fetch('/api/store/coupon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, amount: subtotal })
+        });
+        const data = await res.json();
+        if (data.success && data.valid) {
+          appliedCoupon = data;
+          updateCartUI();
+          showToast(`🎉 Cupom "${code}" aplicado com sucesso!`);
+        } else {
+          showToast(`❌ ${data.error || 'Cupom inválido'}`);
+        }
+      } catch (e) {
+        showToast('❌ Erro ao validar cupom');
+      }
+    }
+
+    function toggleCart() {
+      document.getElementById('cartOverlay').classList.toggle('open');
+      document.getElementById('cartDrawer').classList.toggle('open');
+    }
+
+    function openCheckoutModal() {
+      if (cart.length === 0) {
+        showToast('Adicione produtos ao carrinho antes de finalizar.');
+        return;
+      }
+      toggleCart();
+      document.getElementById('checkoutResultArea').style.display = 'none';
+      document.getElementById('btnConfirmPay').style.display = 'flex';
+      document.getElementById('checkoutModal').classList.add('open');
+    }
+
+    function closeCheckoutModal() {
+      document.getElementById('checkoutModal').classList.remove('open');
+    }
+
+    function selectPayMethod(method) {
+      selectedMethod = method;
+      document.getElementById('optPix').classList.toggle('selected', method === 'pix');
+      document.getElementById('optBinance').classList.toggle('selected', method === 'binancepay');
+      document.getElementById('optWhatsApp').classList.toggle('selected', method === 'whatsapp');
+    }
+
+    async function submitOrder() {
+      const name = document.getElementById('custName').value.trim();
+      const phone = document.getElementById('custPhone').value.trim();
+      const address = document.getElementById('custAddress').value.trim();
+      const notes = document.getElementById('custNotes').value.trim();
+
+      if (!name || !phone) {
+        showToast('Preencha seu nome e WhatsApp para continuar.');
+        return;
+      }
+
+      const btn = document.getElementById('btnConfirmPay');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processando Pedido...';
+
+      try {
+        const res = await fetch('/api/store/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart,
+            customer: { name, phone, address, notes },
+            gateway: selectedMethod === 'whatsapp' ? 'pix' : selectedMethod,
+            couponCode: appliedCoupon ? appliedCoupon.code : null
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Falha ao gerar pedido');
+
+        const resultArea = document.getElementById('checkoutResultArea');
+        resultArea.style.display = 'block';
+        btn.style.display = 'none';
+
+        if (selectedMethod === 'whatsapp') {
+          resultArea.innerHTML = `
+            <div style="text-align: center;">
+              <i class="fa-brands fa-whatsapp" style="font-size: 44px; color: #25d366; margin-bottom: 10px;"></i>
+              <h4 style="font-size: 16px; font-weight: 800; color: #fff;">Pedido #${data.tradeNo} Gerado!</h4>
+              <p style="font-size: 13px; color: var(--text-muted); margin: 8px 0 16px;">
+                Clique no botão abaixo para enviar o resumo completo do pedido direto no WhatsApp do nosso atendente:
+              </p>
+              <a href="${data.whatsappUrl}" target="_blank" class="btn-checkout" style="background: #25d366; text-decoration: none;">
+                <i class="fa-brands fa-whatsapp"></i> Abrir WhatsApp Agora
+              </a>
+            </div>
+          `;
+        } else if (selectedMethod === 'pix') {
+          resultArea.innerHTML = `
+            <div style="text-align: center;">
+              <i class="fa-brands fa-pix" style="font-size: 40px; color: #10b981; margin-bottom: 8px;"></i>
+              <h4 style="font-size: 16px; font-weight: 800; color: #fff;">Pedido #${data.tradeNo} Gerado!</h4>
+              <p style="font-size: 13px; color: var(--text-muted); margin: 6px 0 14px;">Total: <strong>R$ ${data.finalBRL.toFixed(2)}</strong></p>
+              
+              <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px dashed var(--card-border); margin-bottom: 12px;">
+                <input type="text" value="${data.pixCode}" id="pixCopiaField" readonly style="width: 100%; background: transparent; border: none; color: #94a3b8; font-size: 11px; text-align: center; margin-bottom: 8px;">
+                <button class="btn-detail" style="width: 100%; background: #10b981; border: none;" onclick="copyPixCode()">
+                  <i class="fa-solid fa-copy"></i> Copiar Código PIX
+                </button>
+              </div>
+
+              <a href="${data.whatsappUrl}" target="_blank" style="font-size: 12px; color: #38bdf8; text-decoration: none; display: inline-block; margin-top: 8px;">
+                <i class="fa-brands fa-whatsapp"></i> Enviar comprovante via WhatsApp &rarr;
+              </a>
+            </div>
+          `;
+        } else {
+          resultArea.innerHTML = `
+            <div style="text-align: center;">
+              <i class="fa-solid fa-coins" style="font-size: 40px; color: #f59e0b; margin-bottom: 8px;"></i>
+              <h4 style="font-size: 16px; font-weight: 800; color: #fff;">Pagamento Cripto #${data.tradeNo}</h4>
+              <p style="font-size: 13px; color: var(--text-muted); margin: 6px 0 14px;">Total: <strong>${data.finalUSDT.toFixed(2)} USDT</strong></p>
+              <a href="${data.checkoutUrl || '#'}" target="_blank" class="btn-checkout" style="background: #f59e0b; text-decoration: none;">
+                <i class="fa-solid fa-up-right-from-square"></i> Pagar via Binance Pay
+              </a>
+            </div>
+          `;
+        }
+
+        // Limpa o carrinho
+        cart = [];
+        appliedCoupon = null;
+        updateCartUI();
+      } catch (err) {
+        showToast(`❌ ${err.message}`);
+        btn.disabled = false;
+        btn.innerHTML = `<span>Confirmar &bull; </span><span>${document.getElementById('cartTotalBRL').textContent}</span>`;
+      }
+    }
+
+    function copyPixCode() {
+      const field = document.getElementById('pixCopiaField');
+      field.select();
+      navigator.clipboard.writeText(field.value);
+      showToast('📋 Código PIX copiado com sucesso!');
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3000);
+    }
+
+    loadCatalog();
+  </script>
+</body>
+</html>

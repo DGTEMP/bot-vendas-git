@@ -81,6 +81,7 @@ function switchTab(tabName) {
   if (tabName === 'viral') loadViralRadarAll();
   if (tabName === 'social') loadSocialData();
   if (tabName === 'nlp') loadNlpData();
+  if (tabName === 'notices') loadNotices();
 }
 
 // 2. CARREGAMENTO GERAL
@@ -6583,4 +6584,190 @@ async function runDialogueSimulation(dryRun = true) {
   } catch (err) {
     alert('Erro no simulador: ' + err.message);
   }
+}
+
+
+// ==========================================
+// CENTRAL DE AVISOS & ALERTA INTER-PC (SISTEMAS_AVISOS_PC)
+// ==========================================
+let audioAlertsEnabled = true;
+let audioCtx = null;
+
+function toggleAudioAlerts() {
+  audioAlertsEnabled = !audioAlertsEnabled;
+  const statusEl = document.getElementById('audioAlertStatus');
+  if (statusEl) statusEl.textContent = audioAlertsEnabled ? 'Ativado' : 'Desativado';
+  const btn = document.getElementById('btnAudioToggle');
+  if (btn) {
+    btn.innerHTML = `<i class="fa-solid fa-volume-${audioAlertsEnabled ? 'high' : 'xmark'}"></i> Alerta Sonoro: <span id="audioAlertStatus">${audioAlertsEnabled ? 'Ativado' : 'Desativado'}</span>`;
+  }
+}
+
+function playAudioBeep(type = 'alarm') {
+  if (!audioAlertsEnabled) return;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    if (type === 'alarm' || type === 'urgente') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(659, audioCtx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.35);
+    } else {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.3);
+    }
+  } catch (_) {}
+}
+
+function updateNoticeColor(cat) {
+  const colors = {
+    urgente: '#f44336',
+    emergencia: '#d32f2f',
+    alerta: '#ff5722',
+    sucesso: '#4caf50',
+    trabalho: '#2196f3',
+    social: '#795548',
+    info: '#3b82f6'
+  };
+  const color = colors[cat] || '#2196f3';
+  const hiddenColor = document.getElementById('noticeColor');
+  if (hiddenColor) hiddenColor.value = color;
+}
+
+function applyQuickNotice(title, msg, category, color) {
+  document.getElementById('noticeTitle').value = title;
+  document.getElementById('noticeMessage').value = msg;
+  document.getElementById('noticeCategory').value = category;
+  document.getElementById('noticeColor').value = color;
+  playAudioBeep(category === 'urgente' || category === 'emergencia' ? 'alarm' : 'chime');
+}
+
+async function emitNotice(e) {
+  e.preventDefault();
+  const title = document.getElementById('noticeTitle').value.trim();
+  const message = document.getElementById('noticeMessage').value.trim();
+  const category = document.getElementById('noticeCategory').value;
+  const color = document.getElementById('noticeColor').value || '#2196f3';
+  const target = document.getElementById('noticeTarget').value;
+  const sound_alert = document.getElementById('noticeSoundAlert').checked ? 1 : 0;
+  const broadcast_whatsapp = document.getElementById('noticeBroadcastWA').checked;
+
+  try {
+    const res = await fetch('/api/notices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, message, category, color, sender: 'Admin Web', target, sound_alert, broadcast_whatsapp })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (sound_alert) playAudioBeep('alarm');
+      document.getElementById('noticeTitle').value = '';
+      document.getElementById('noticeMessage').value = '';
+      loadNotices();
+    } else {
+      alert('Erro ao emitir aviso: ' + (data.error || 'Falha desconhecida'));
+    }
+  } catch (err) {
+    alert('Erro de conexão ao emitir aviso: ' + err.message);
+  }
+}
+
+async function loadNotices() {
+  try {
+    const res = await fetch('/api/notices?status=active');
+    const data = await res.json();
+    if (!data.success || !Array.isArray(data.notices)) return;
+
+    const feed = document.getElementById('noticesFeed');
+    const countBadge = document.getElementById('activeNoticesCount');
+    if (countBadge) countBadge.textContent = `${data.notices.length} Ativos`;
+
+    if (data.notices.length === 0) {
+      feed.innerHTML = `
+        <div style="text-align: center; color: var(--text-muted); padding: 40px 0;">
+          <i class="fa-solid fa-bell-slash" style="font-size: 32px; margin-bottom: 8px; opacity: 0.5;"></i>
+          <p>Nenhum aviso ativo no momento.</p>
+        </div>
+      `;
+      return;
+    }
+
+    feed.innerHTML = data.notices.map(n => {
+      const timeStr = new Date(n.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const responsesHtml = (n.responses || []).map(r => `
+        <div style="background: rgba(0,0,0,0.25); border-left: 2px solid #38bdf8; padding: 4px 8px; border-radius: 4px; font-size: 11px; margin-top: 4px;">
+          <b style="color: #38bdf8;">${escapeHtml(r.respondent)}:</b> ${escapeHtml(r.response_text)}
+        </div>
+      `).join('');
+
+      return `
+        <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-left: 4px solid ${n.color || '#2196f3'}; border-radius: 8px; padding: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+            <b style="font-size: 14px; color: #fff;">${escapeHtml(n.title)}</b>
+            <span style="font-size: 11px; color: var(--text-muted);">${timeStr}</span>
+          </div>
+          <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 8px; line-height: 1.4;">${escapeHtml(n.message)}</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted);">
+            <span>Por: <b>${escapeHtml(n.sender)}</b> &bull; Destino: <b>${n.target}</b></span>
+            <div>
+              <button class="btn btn-sm btn-outline" style="padding: 2px 8px; font-size: 11px;" onclick="promptRespondNotice(${n.id})">
+                <i class="fa-solid fa-reply"></i> Responder
+              </button>
+              <button class="btn btn-sm btn-secondary" style="padding: 2px 8px; font-size: 11px; color: #ef4444;" onclick="archiveNotice(${n.id})">
+                <i class="fa-solid fa-check"></i> Concluir
+              </button>
+            </div>
+          </div>
+          ${responsesHtml ? `<div style="margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 6px;">${responsesHtml}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar avisos:', err);
+  }
+}
+
+async function promptRespondNotice(id) {
+  const text = prompt('Digite sua resposta para a central de avisos:');
+  if (!text || !text.trim()) return;
+
+  try {
+    const res = await fetch(`/api/notices/${id}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ respondent: 'Operador Web', response_text: text.trim() })
+    });
+    const data = await res.json();
+    if (data.success) {
+      loadNotices();
+    } else {
+      alert('Erro ao responder: ' + data.error);
+    }
+  } catch (e) {
+    alert('Erro de conexão ao responder: ' + e.message);
+  }
+}
+
+async function archiveNotice(id) {
+  try {
+    await fetch(`/api/notices/${id}`, { method: 'DELETE' });
+    loadNotices();
+  } catch (_) {}
 }

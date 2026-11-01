@@ -4220,6 +4220,190 @@ async function main() {
     }
   });
 
+  // ----------------------------------------------------------------
+  // 20. TESTES DE VITRINE AUTOREPUESTOS-PRO & CENTRAL DE AVISOS-PC
+  // ----------------------------------------------------------------
+  console.log('\n🏪 20. Testes de Vitrine AutoRepuestos-Pro & Central de Avisos-PC:');
+
+  await runAsyncTest('AutoRepuestos: Consulta de Produtos na Loja (GET /api/store/products)', async () => {
+    const { status, data } = await fetchApi('/api/store/products');
+    assert.strictEqual(status, 200);
+    assert(data.success === true);
+    assert(Array.isArray(data.products), 'Deve retornar array de produtos');
+    assert(Array.isArray(data.categories), 'Deve retornar array de categorias');
+  });
+
+  await runAsyncTest('AutoRepuestos: Validação de Cupom na Vitrine (POST /api/store/coupon)', async () => {
+    if (!models.getCouponByCode('AUTO10PRO')) {
+      models.createCoupon({
+        code: 'AUTO10PRO',
+        discount_type: 'percent',
+        discount_value: 10,
+        max_uses: 50
+      });
+    }
+
+    const { status, data } = await fetchApi('/api/store/coupon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: 'AUTO10PRO', amount: 150 })
+    });
+
+    assert.strictEqual(status, 200);
+    assert.strictEqual(data.valid, true);
+    assert.strictEqual(data.discountAmount, 15);
+    assert.strictEqual(data.finalAmount, 135);
+  });
+
+  await runAsyncTest('AutoRepuestos: Checkout Omnichannel com Carrinho Multi-Itens (POST /api/store/checkout)', async () => {
+    const p1 = models.createProduct({
+      name: 'Pastilha de Freio Cerâmica Pro',
+      price: 120.00,
+      price_brl: 120.00,
+      price_usdt: 24.00,
+      category: 'Auto Peças',
+      type: 'digital'
+    });
+
+    const checkoutPayload = {
+      items: [
+        { id: p1.id, quantity: 2 }
+      ],
+      customer: {
+        name: 'Carlos Mecânico',
+        phone: '5511999993333',
+        address: 'Av. Paulista 1000, SP',
+        notes: 'Entregar na oficina'
+      },
+      gateway: 'pix',
+      couponCode: 'AUTO10PRO'
+    };
+
+    const { status, data } = await fetchApi('/api/store/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(checkoutPayload)
+    });
+
+    assert.strictEqual(status, 200);
+    assert.strictEqual(data.success, true);
+    assert(data.tradeNo.startsWith('ORD_WEB_'));
+    assert.strictEqual(data.subtotalBRL, 240);
+    assert.strictEqual(data.discountBRL, 24);
+    assert.strictEqual(data.finalBRL, 216);
+    assert(data.whatsappMessage.includes('Carlos Mecânico'));
+    assert(data.whatsappUrl.includes('https://wa.me/'));
+  });
+
+  await runAsyncTest('Avisos PC: Emissão e Listagem de Avisos (POST & GET /api/notices)', async () => {
+    const { status: postStatus, data: postData } = await fetchApi('/api/notices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '🚨 URGENTE: Servidor em Manutenção',
+        message: 'Reinicialização programada dos nós em 5 minutos.',
+        category: 'urgente',
+        color: '#f44336',
+        sender: 'DevOps Central',
+        target: 'all',
+        sound_alert: 1
+      })
+    });
+
+    assert.strictEqual(postStatus, 200);
+    assert(postData.success === true);
+    assert(postData.notice.id > 0);
+
+    const { status: getStatus, data: getData } = await fetchApi('/api/notices');
+    assert.strictEqual(getStatus, 200);
+    assert(Array.isArray(getData.notices));
+    assert(getData.notices.some(n => n.id === postData.notice.id));
+  });
+
+  await runAsyncTest('Avisos PC: Resposta a Aviso da Equipe (POST /api/notices/:id/respond)', async () => {
+    const notice = models.createNotice({
+      title: '⚠️ ALERTA: Fila de Leads Alta',
+      message: 'Todos os vendedores focar no WhatsApp agora!',
+      category: 'alerta',
+      color: '#ff5722'
+    });
+
+    const { status, data } = await fetchApi(`/api/notices/${notice.id}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        respondent: 'Vendedor João',
+        response_text: 'Ciente! Assumindo os 5 primeiros da fila.'
+      })
+    });
+
+    assert.strictEqual(status, 200);
+    assert.strictEqual(data.success, true);
+    assert.strictEqual(data.response.respondent, 'Vendedor João');
+
+    const updated = models.getNoticeById(notice.id);
+    assert(updated.responses.some(r => r.response_text.includes('Assumindo')));
+  });
+
+  await runAsyncTest('AutoRepuestos & Avisos PC: Comandos WhatsApp (!loja, !aviso, !avisos, !confirmaraviso)', async () => {
+    const originalSock = whatsappBot.sock;
+    const originalSend = whatsappBot.sendMessage;
+    const sent = [];
+
+    try {
+      whatsappBot.sock = {
+        user: { id: '5511999990000:1@s.whatsapp.net' },
+        sendMessage: async (jid, payload) => {
+          sent.push({ jid, payload });
+          return { key: { id: 'ROUTED_STORE' } };
+        }
+      };
+      whatsappBot.sendMessage = async (jid, textOrObj) => {
+        sent.push({ jid, payload: typeof textOrObj === 'string' ? { text: textOrObj } : textOrObj });
+        return { key: { id: 'ROUTED_STORE2' } };
+      };
+
+      // 1. Testa !loja
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!loja' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('VITRINE DIGITAL & CATÁLOGO')));
+
+      // 2. Testa !urgente
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!urgente Atenção equipe reunião no Discord' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('AVISO REGISTRADO NA CENTRAL')));
+
+      // 3. Testa !avisos
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: '!avisos' }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('CENTRAL DE AVISOS')));
+
+      // 4. Testa !confirmaraviso
+      sent.length = 0;
+      const latestNotice = models.getNotices(1)[0];
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Tester',
+        message: { conversation: `!confirmaraviso ${latestNotice ? latestNotice.id : 1} Entendido perfeitamente` }
+      });
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('RESPOSTA REGISTRADA NA CENTRAL')));
+    } finally {
+      whatsappBot.sock = originalSock;
+      whatsappBot.sendMessage = originalSend;
+    }
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------
