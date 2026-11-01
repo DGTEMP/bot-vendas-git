@@ -2045,12 +2045,12 @@ async function main() {
   });
 
   // ----------------------------------------------------------------
-  // 14. Funcionalidades Gata Bot / Gata Nina (Stickers, Segurança, Anti-Fake, Anti-View-Once, IA, Fidelidade & Mini-Games)
+  // 14. Funcionalidades Spy Bot / Spy (Stickers, Segurança, Anti-Fake, Anti-View-Once, IA, Fidelidade & Mini-Games)
   // ----------------------------------------------------------------
-  console.log('\n🐾 14. Funcionalidades Gata Bot / Gata Nina (Stickers, Segurança, IA & Fidelidade):');
+  console.log('\n🐾 14. Funcionalidades Spy Bot / Spy (Stickers, Segurança, IA & Fidelidade):');
 
-  await runTest('Gata Nina: Sistema de Advertências (3-Strikes Auto-Ban)', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runTest('Spy: Sistema de Advertências (3-Strikes Auto-Ban)', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const testGroup = '120363011223344556@g.us';
     const badUser = '5511977771234';
 
@@ -2085,20 +2085,20 @@ async function main() {
     };
 
     // Strike 2
-    await gataFeatures.handleWarn(mockSock, testGroup, badUser, 'Desrespeito', 'Admin Carlos', true);
+    await spyFeatures.handleWarn(mockSock, testGroup, badUser, 'Desrespeito', 'Admin Carlos', true);
     assert(sentText.includes('ADVERTÊNCIA REGISTRADA (2/3)'));
     assert.strictEqual(bannedJid, null);
 
     // Strike 3 (Auto-ban)
-    await gataFeatures.handleWarn(mockSock, testGroup, badUser, 'Reincidência', 'Admin Carlos', true);
+    await spyFeatures.handleWarn(mockSock, testGroup, badUser, 'Reincidência', 'Admin Carlos', true);
     assert(sentText.includes('LIMITE DE ADVERTÊNCIAS ATINGIDO (3/3)'));
     assert(sentText.includes('banido do grupo automaticamente'));
     assert.strictEqual(bannedJid, `${badUser}@s.whatsapp.net`);
     assert.strictEqual(models.getWarningsCount(testGroup, badUser), 0, 'Advertências devem ser zeradas após expulsão');
   });
 
-  await runTest('Gata Nina: Proteção Anti-Fake (Ban de Números Estrangeiros Não +55)', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runTest('Spy: Proteção Anti-Fake (Ban de Números Estrangeiros Não +55)', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const testGroup = '120363099887766554@g.us';
 
     models.setSetting(`ANTIFAKE_${testGroup}`, 'true');
@@ -2121,14 +2121,14 @@ async function main() {
       '5511999998888@s.whatsapp.net'  // Número brasileiro legítimo
     ];
 
-    await gataFeatures.checkAntiFakeEntry(mockSock, testGroup, participants);
+    await spyFeatures.checkAntiFakeEntry(mockSock, testGroup, participants);
 
     assert(removedList.includes('14155552671@s.whatsapp.net'), 'Número americano (+1) deve ser banido');
     assert(!removedList.includes('5511999998888@s.whatsapp.net'), 'Número brasileiro (+55) NÃO deve ser banido');
     assert(sentNotice.includes('ANTI-FAKE ATIVADO'), 'Deve emitir aviso no grupo');
   });
 
-  await runTest('Gata Nina: Registro e Anti-View-Once (Visualização Única Revelada)', async () => {
+  await runTest('Spy: Registro e Anti-View-Once (Visualização Única Revelada)', async () => {
     const testGroup = '120363055443322110@g.us';
     const sender = '5511988887777';
 
@@ -2143,8 +2143,8 @@ async function main() {
     assert(logs.some(l => l.caption === 'Foto secreta temporária'));
   });
 
-  await runTest('Gata Nina: Google TTS & Google Translate Instantâneo', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runTest('Spy: Google TTS & Google Translate Instantâneo', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
 
     // 1. Tradução
     let translatedMsg = null;
@@ -2155,7 +2155,7 @@ async function main() {
       }
     };
 
-    await gataFeatures.handleTranslate(mockSockTr, 'test_chat', '!traduzir en Olá bom dia amigo');
+    await spyFeatures.handleTranslate(mockSockTr, 'test_chat', '!traduzir en Olá bom dia amigo');
     assert(translatedMsg.includes('TRADUÇÃO (EN)'));
     assert(translatedMsg.toLowerCase().includes('good morning') || translatedMsg.toLowerCase().includes('hello') || translatedMsg.toLowerCase().includes('friend'));
 
@@ -2168,13 +2168,13 @@ async function main() {
       }
     };
 
-    await gataFeatures.handleTTS(mockSockTts, 'test_chat', '!tts Bem vindo ao PayBot');
+    await spyFeatures.handleTTS(mockSockTts, 'test_chat', '!tts Bem vindo ao PayBot');
     assert(audioPayload && audioPayload.audio, 'Deve gerar buffer de áudio');
     assert.strictEqual(audioPayload.ptt, true, 'Deve ser formatado como PTT (áudio de voz)');
   });
 
-  await runTest('Gata Nina: Gamificação, Nível de Fidelidade & Resgate de Cupons', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runTest('Spy: Gamificação, Nível de Fidelidade & Resgate de Cupons', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const userPhone = '55119' + Date.now().toString().slice(-7) + Math.floor(Math.random() * 90 + 10);
 
     // 1. Perfil Inicial
@@ -2196,7 +2196,7 @@ async function main() {
       }
     };
 
-    await gataFeatures.handleDado(mockSockGame, 'test_chat', userPhone, 'Jogador Teste');
+    await spyFeatures.handleDado(mockSockGame, 'test_chat', userPhone, 'Jogador Teste');
     assert(dadoOutput.includes('JOGO DOS DADOS'));
     assert(dadoOutput.includes('Moedas de Fidelidade'));
 
@@ -2218,7 +2218,7 @@ async function main() {
     assert.strictEqual(couponInDb.active, 1);
   });
 
-  await runTest('Gata Nina: Roteamento de Comandos WhatsApp (!comandos, !perfil, !dado)', async () => {
+  await runTest('Spy: Roteamento de Comandos WhatsApp (!comandos, !perfil, !dado)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     let lastReply = null;
     const origSend = whatsappBot.sendMessage;
@@ -2233,7 +2233,7 @@ async function main() {
       message: { conversation: '!comandos' },
       pushName: 'Cliente VIP'
     });
-    assert(lastReply.includes('CATÁLOGO DE COMANDOS GATA NINA'));
+    assert(lastReply.includes('CATÁLOGO DE COMANDOS SPY BOT'));
     assert(lastReply.includes('!s'));
     assert(lastReply.includes('!play'));
     assert(lastReply.includes('!ia'));
@@ -2254,13 +2254,13 @@ async function main() {
       message: { conversation: '!roleta' },
       pushName: 'Cliente VIP'
     });
-    assert(lastReply.includes('ROLETA DA SORTE GATA NINA'));
+    assert(lastReply.includes('ROLETA DA SORTE SPY'));
 
     whatsappBot.sendMessage = origSend;
   });
 
-  await runTest('Gata Nina: Downloader de Música YouTube (!play / !ytmp3)', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runTest('Spy: Downloader de Música YouTube (!play / !ytmp3)', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const sentOutputs = [];
     const mockSock = {
       sendMessage: async (jid, payload) => {
@@ -2270,7 +2270,7 @@ async function main() {
     };
 
     // Executa busca e download da música
-    await gataFeatures.handlePlayMusic(mockSock, '5511999998888@s.whatsapp.net', '!play Imagine Dragons Believer');
+    await spyFeatures.handlePlayMusic(mockSock, '5511999998888@s.whatsapp.net', '!play Imagine Dragons Believer');
 
     assert(sentOutputs.length >= 2, 'Deve enviar cartão de status e em seguida o áudio');
     const firstMsg = sentOutputs[0];
@@ -2284,7 +2284,7 @@ async function main() {
     assert(audioMsg.fileName.includes('.mp3'));
   });
 
-  await runTest('Gata Nina: Conversor de Figurinhas WebP (!s / !sticker)', async () => {
+  await runTest('Spy: Conversor de Figurinhas WebP (!s / !sticker)', async () => {
     const stickerConverter = require('./src/utils/stickerConverter');
     const { execSync } = require('child_process');
 
@@ -2299,7 +2299,7 @@ async function main() {
     assert.strictEqual(webp.slice(8, 12).toString(), 'WEBP');
   });
 
-  await runTest('Gata Nina: Scraper & Auditoria de Perfil Instagram (!scrapinsta)', async () => {
+  await runTest('Spy: Scraper & Auditoria de Perfil Instagram (!scrapinsta)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     let lastMsg = null;
     const mockSock = {
@@ -2319,7 +2319,7 @@ async function main() {
     assert(lastMsg.includes('Seguidores:'));
   });
 
-  await runTest('Gata Nina: Download de Stories Instagram (!allstories)', async () => {
+  await runTest('Spy: Download de Stories Instagram (!allstories)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     let lastMsg = null;
     const mockSock = {
@@ -2337,7 +2337,7 @@ async function main() {
     assert(lastMsg.includes('github') || lastMsg.includes('story') || lastMsg.includes('stories'));
   });
 
-  await runTest('Gata Nina: Boas-Vindas e Despedida Automática com Objetos e Strings Baileys (!boasvindas & !despedida)', async () => {
+  await runTest('Spy: Boas-Vindas e Despedida Automática com Objetos e Strings Baileys (!boasvindas & !despedida)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     const testGroup = '120363011998877665@g.us';
 
@@ -2349,7 +2349,7 @@ async function main() {
     const sentMessages = [];
     const mockGroupSock = {
       user: { id: '5511988880000:1@s.whatsapp.net' },
-      groupMetadata: async (gid) => ({ subject: 'Grupo VIP Gata Nina', participants: [] }),
+      groupMetadata: async (gid) => ({ subject: 'Grupo VIP Spy', participants: [] }),
       sendMessage: async (jid, payload) => {
         sentMessages.push({ jid, payload });
         return { key: { id: 'mock_msg' } };
@@ -2387,7 +2387,7 @@ async function main() {
 
     assert.strictEqual(sentMessages.length, 1, 'Deve enviar 1 mensagem de despedida');
     assert(sentMessages[0].payload.text.includes('@5511999992222'));
-    assert(sentMessages[0].payload.text.includes('Grupo VIP Gata Nina'));
+    assert(sentMessages[0].payload.text.includes('Grupo VIP Spy'));
 
     // 3. Testa comando administrativo !despedida on/off e !despedida_msg
     let cmdReply = null;
@@ -2419,7 +2419,7 @@ async function main() {
     assert.strictEqual(models.getSetting(`BYE_MSG_${testGroup}`, ''), 'Adeus @{numero}! Sentiremos sua falta em {grupo}.');
   });
 
-  await runTest('Gata Nina: Downloader de Vídeos YouTube (!video / !ytmp4)', async () => {
+  await runTest('Spy: Downloader de Vídeos YouTube (!video / !ytmp4)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     let lastMsg = null;
     const mockSock = {
@@ -2436,7 +2436,7 @@ async function main() {
     assert(lastMsg.includes('DOWNLOADER DE VÍDEOS YOUTUBE'), 'Deve exibir instruções se comando vazio');
   });
 
-  await runTest('Gata Nina: Downloaders de Redes Sociais (!x & !fb)', async () => {
+  await runTest('Spy: Downloaders de Redes Sociais (!x & !fb)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     let lastMsg = null;
     const mockSock = {
@@ -2461,7 +2461,7 @@ async function main() {
     assert(lastMsg.includes('Facebook'), 'Deve solicitar link do Facebook');
   });
 
-  await runTest('Gata Nina: Utilitários Essenciais (!cep, !calc, !encurtar, !qr)', async () => {
+  await runTest('Spy: Utilitários Essenciais (!cep, !calc, !encurtar, !qr)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     const sent = [];
     const mockSock = {
@@ -2504,9 +2504,9 @@ async function main() {
     assert(qrRes.image && Buffer.isBuffer(qrRes.image), 'Deve retornar imagem em buffer do QR Code');
   });
 
-  await runTest('Gata Nina: Moderação Avançada (!todos, !antidelete & !antiprivado)', async () => {
+  await runTest('Spy: Moderação Avançada (!todos, !antidelete & !antiprivado)', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
-    const gataFeatures = require('./src/services/gataFeaturesService');
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const testGroup = '120363088776655443@g.us';
 
     let lastSent = null;
@@ -2548,10 +2548,10 @@ async function main() {
       pushName: 'Participante Teste',
       message: { conversation: 'Esta mensagem será apagada logo!' }
     };
-    gataFeatures.recordMessage(victimMsg);
+    spyFeatures.recordMessage(victimMsg);
 
     // Simula evento de exclusão / revoke
-    await gataFeatures.handleRevoke(mockAdminSock, testGroup, 'MSG_SECRETA_123', '5511911112222@s.whatsapp.net');
+    await spyFeatures.handleRevoke(mockAdminSock, testGroup, 'MSG_SECRETA_123', '5511911112222@s.whatsapp.net');
     assert(lastSent.text.includes('MENSAGEM APAGADA DETECTADA'));
     assert(lastSent.text.includes('Esta mensagem será apagada logo!'));
 
@@ -2582,7 +2582,7 @@ async function main() {
     models.setSetting('ANTIPRIVADO_GLOBAL', 'false');
   });
 
-  await runTest('Gata Nina & Painel Web: Configurações Expandidas de Grupo (/api/groups/:groupId/settings)', async () => {
+  await runTest('Spy & Painel Web: Configurações Expandidas de Grupo (/api/groups/:groupId/settings)', async () => {
     const testGid = '120363077665544332@g.us';
 
     // POST /api/groups/:groupId/settings com todos os novos toggles
@@ -2618,7 +2618,7 @@ async function main() {
     assert.strictEqual(getRes.data.byeMsg, 'Adeus @{numero} de {grupo}!');
   });
 
-  await runTest('Gata Nina: Central Multi-Contas WhatsApp & Jadibot / Serbot (/api/whatsapp/accounts & !serbot)', async () => {
+  await runTest('Spy: Central Multi-Contas WhatsApp & Jadibot / Serbot (/api/whatsapp/accounts & !serbot)', async () => {
     const localBaseUrl = `http://localhost:${testPort}`;
     const whatsappBot = require('./src/bots/whatsappBot');
 
@@ -2669,7 +2669,7 @@ async function main() {
       message: { conversation: '!serbot 5511966665555' }
     }, mockSerbotSock);
     assert(serbotReply !== null, 'Deve responder ao !serbot');
-    assert(serbotReply.text.includes('GATABOT / SUB-BOT MULTI-CONEXÃO'));
+    assert(serbotReply.text.includes('SPYBOT / SUB-BOT MULTI-CONEXÃO'));
     assert(serbotReply.text.includes('CÓDIGO DE CONEXÃO'));
     assert(serbotReply.text.includes('5511966665555'));
 
@@ -2880,7 +2880,7 @@ async function main() {
     assert.strictEqual(getOwnerData.owner_phone, '5511987654321');
   });
 
-  await runAsyncTest('Gata Nina: Catálogo de Comandos via !help e !bot', async () => {
+  await runAsyncTest('Spy: Catálogo de Comandos via !help e !bot', async () => {
     const whatsappBot = require('./src/bots/whatsappBot');
     
     // 1. Testa acionamento via !help
@@ -2895,7 +2895,7 @@ async function main() {
     }, mockSockHelp);
 
     assert(replyHelp !== null, 'Deve responder ao comando !help');
-    assert(replyHelp.text.includes('CATÁLOGO DE COMANDOS GATA NINA'), 'Deve retornar o catálogo em !help');
+    assert(replyHelp.text.includes('CATÁLOGO DE COMANDOS SPY BOT'), 'Deve retornar o catálogo em !help');
     assert(replyHelp.text.includes('!s'), 'Deve listar comando de figurinha !s');
     assert(replyHelp.text.includes('!play'), 'Deve listar comando de música !play');
 
@@ -2911,7 +2911,7 @@ async function main() {
     }, mockSockBot);
 
     assert(replyBot !== null, 'Deve responder ao comando !bot');
-    assert(replyBot.text.includes('CATÁLOGO DE COMANDOS GATA NINA'), 'Deve retornar o catálogo em !bot');
+    assert(replyBot.text.includes('CATÁLOGO DE COMANDOS SPY BOT'), 'Deve retornar o catálogo em !bot');
   });
 
   await runAsyncTest('Anti-Duplicação e Prioridade da Matriz em Grupos Compartilhados com Sub-Bots', async () => {
@@ -2959,7 +2959,7 @@ async function main() {
     assert.strictEqual(subBotReplies.length, 0, 'Sub-bot não deve responder quando a Matriz está no grupo');
     // Valida que a Matriz respondeu normalmente
     assert.strictEqual(matrizReplies.length, 1, 'Matriz principal deve responder no grupo');
-    assert(matrizReplies[0].text.includes('CATÁLOGO DE COMANDOS GATA NINA'));
+    assert(matrizReplies[0].text.includes('CATÁLOGO DE COMANDOS SPY BOT'));
 
     // 2. Se a mesma mensagem for reenviada, deduplicação global descarta
     await whatsappBot.handleIncomingMessage(groupIncomingMsg, mockMatrizSock);
@@ -2990,8 +2990,8 @@ async function main() {
     assert(profile3[1].includes('Safari') || profile3[1].includes('Chrome'));
   });
 
-  await runAsyncTest('Gata Nina: Busca de 20 Resultados com !lista e Seleção A1..A20 / V1..V20', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runAsyncTest('Spy: Busca de 20 Resultados com !lista e Seleção A1..A20 / V1..V20', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
 
     // Popula busca com 20 itens simulados
     const mockList = Array.from({ length: 20 }, (_, i) => ({
@@ -3000,24 +3000,24 @@ async function main() {
       timestamp: '03:30',
       author: { name: `Artista ${i + 1}` }
     }));
-    gataFeatures.userSearchResults.set('120363099@g.us', mockList);
+    spyFeatures.userSearchResults.set('120363099@g.us', mockList);
 
     // Valida que o cache tem 20 itens
-    const cached = gataFeatures.userSearchResults.get('120363099@g.us');
+    const cached = spyFeatures.userSearchResults.get('120363099@g.us');
     assert.strictEqual(cached.length, 20, 'Deve conter 20 itens no resultado');
     assert.strictEqual(cached[0].title, 'Música Teste 1');
     assert.strictEqual(cached[19].title, 'Música Teste 20');
   });
 
-  await runAsyncTest('Gata Nina: Diagnóstico de Latência, Uptime e Sub-Bots com !ping', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runAsyncTest('Spy: Diagnóstico de Latência, Uptime e Sub-Bots com !ping', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const sent = [];
     const mockSock = {
       sendMessage: async (jid, p) => { sent.push(p); return true; }
     };
 
     const startTime = Date.now() - 45; // 45ms de latência simulada
-    await gataFeatures.handlePing(mockSock, '5511999990000@s.whatsapp.net', startTime);
+    await spyFeatures.handlePing(mockSock, '5511999990000@s.whatsapp.net', startTime);
 
     assert(sent.length >= 1, 'Deve responder ao comando !ping');
     const text = sent[0].text;
@@ -3028,35 +3028,35 @@ async function main() {
     assert(text.includes('Sub-Bots'), 'Deve reportar sub-bots');
   });
 
-  await runAsyncTest('Gata Nina: Painel de Configuração e Alternância com !configurar', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runAsyncTest('Spy: Painel de Configuração e Alternância com !configurar', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const sent = [];
     const mockSock = {
       sendMessage: async (jid, p) => { sent.push(p); return true; }
     };
 
     // 1. Consulta painel de configurações
-    await gataFeatures.handleConfigurar(mockSock, '120363099@g.us', '!configurar');
+    await spyFeatures.handleConfigurar(mockSock, '120363099@g.us', '!configurar');
     assert(sent.length >= 1, 'Deve retornar o painel de configurações');
     assert(sent[0].text.includes('PAINEL DE CONFIGURAÇÕES'));
     assert(sent[0].text.includes('Anti-Link'));
 
     // 2. Alterna configuração antilink on
     sent.length = 0;
-    await gataFeatures.handleConfigurar(mockSock, '120363099@g.us', '!configurar antilink on');
+    await spyFeatures.handleConfigurar(mockSock, '120363099@g.us', '!configurar antilink on');
     assert(sent.length >= 1);
     assert(sent[0].text.includes('Anti-Link'));
     assert(sent[0].text.includes('ATIVADO'));
   });
 
-  await runAsyncTest('Gata Nina: Tutorial Completo de Usabilidade dos Sub-Bots com !subbothelp', async () => {
-    const gataFeatures = require('./src/services/gataFeaturesService');
+  await runAsyncTest('Spy: Tutorial Completo de Usabilidade dos Sub-Bots com !subbothelp', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
     const sent = [];
     const mockSock = {
       sendMessage: async (jid, p) => { sent.push(p); return true; }
     };
 
-    await gataFeatures.handleSubBotHelp(mockSock, '5511999990000@s.whatsapp.net', true);
+    await spyFeatures.handleSubBotHelp(mockSock, '5511999990000@s.whatsapp.net', true);
     assert(sent.length >= 1, 'Deve enviar o guia de sub-bots');
     const text = sent[0].text;
     assert(text.includes('GUIA DE USABILIDADE & CONTROLE DOS SUB-BOTS'));
@@ -3111,7 +3111,7 @@ async function main() {
     }
   });
 
-  await runAsyncTest('API REST: Configurações Expandidas Gata Nina e Dono via /api/settings', async () => {
+  await runAsyncTest('API REST: Configurações Expandidas Spy e Dono via /api/settings', async () => {
     // 1. Salva novas configs
     const postRes = await fetch(`http://localhost:${testPort}/api/settings`, {
       method: 'POST',
@@ -3662,7 +3662,7 @@ async function main() {
   // ----------------------------------------------------------------
   console.log('\n🕵️ 18. Testes das Funcionalidades Portadas do SpyBot (Aleatory-MD):');
 
-  const gataFeatures = require('./src/services/gataFeaturesService');
+  const spyFeatures = require('./src/services/spyFeaturesService');
   const whatsappBot = require('./src/bots/whatsappBot');
 
   await runAsyncTest('SpyBot: Fusão de Emojis (!emojimix) & Stickers Animados (!attp / !attp2)', async () => {
@@ -3675,28 +3675,28 @@ async function main() {
     };
 
     // 1. Emojimix sem parâmetros: instruções
-    await gataFeatures.handleEmojiMix(mockSock, '1203630123@g.us', '!emojimix');
+    await spyFeatures.handleEmojiMix(mockSock, '1203630123@g.us', '!emojimix');
     assert(sentMessages.length >= 1);
     assert(sentMessages[0].payload.text.includes('FUSÃO DE EMOJIS'));
 
     // 2. Emojimix válido: gera figurinha
     sentMessages.length = 0;
-    await gataFeatures.handleEmojiMix(mockSock, '1203630123@g.us', '!emojimix 😎+😭');
+    await spyFeatures.handleEmojiMix(mockSock, '1203630123@g.us', '!emojimix 😎+😭');
     assert(sentMessages.some(m => m.payload.sticker));
 
     // 3. Attp sem texto: instruções
     sentMessages.length = 0;
-    await gataFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp');
+    await spyFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp');
     assert(sentMessages[0].payload.text.includes('FIGURINHA ANIMADA DE TEXTO'));
 
     // 4. Attp válido: gera figurinha animada
     sentMessages.length = 0;
-    await gataFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp PayBot Vendas', false);
+    await spyFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp PayBot Vendas', false);
     assert(sentMessages.some(m => m.payload.sticker));
 
     // 5. Attp2 válido: gera figurinha animada estilo 2
     sentMessages.length = 0;
-    await gataFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp2 Gata Nina', true);
+    await spyFeatures.handleAttp(mockSock, '1203630123@g.us', '!attp2 Spy', true);
     assert(sentMessages.some(m => m.payload.sticker));
   });
 
@@ -3710,7 +3710,7 @@ async function main() {
     };
 
     // 1. !tomp3 sem mídia: instruções
-    await gataFeatures.handleToMp3(mockSock, '5511999998888@s.whatsapp.net', { message: { conversation: '!tomp3' } });
+    await spyFeatures.handleToMp3(mockSock, '5511999998888@s.whatsapp.net', { message: { conversation: '!tomp3' } });
     assert(sentMessages[0].payload.text.includes('CONVERSOR PARA ÁUDIO MP3'));
 
     // 2. !tomp3 com áudio citado: converte e envia
@@ -3726,12 +3726,12 @@ async function main() {
         }
       }
     };
-    await gataFeatures.handleToMp3(mockSock, '5511999998888@s.whatsapp.net', mockQuotedMsg);
+    await spyFeatures.handleToMp3(mockSock, '5511999998888@s.whatsapp.net', mockQuotedMsg);
     assert(sentMessages.some(m => m.payload.audio && m.payload.mimetype === 'audio/mp4'));
 
     // 3. !moedas: cotações em tempo real de USD, EUR, BTC
     sentMessages.length = 0;
-    await gataFeatures.handleMoedas(mockSock, '5511999998888@s.whatsapp.net');
+    await spyFeatures.handleMoedas(mockSock, '5511999998888@s.whatsapp.net');
     assert(sentMessages.length === 1);
     const moedasText = sentMessages[0].payload.text;
     assert(moedasText.includes('COTAÇÃO DE MOEDAS EM TEMPO REAL'));
@@ -3750,12 +3750,12 @@ async function main() {
     };
 
     // 1. !fazernick sem texto: instruções
-    await gataFeatures.handleFazerNick(mockSock, '5511999998888@s.whatsapp.net', '!fazernick');
+    await spyFeatures.handleFazerNick(mockSock, '5511999998888@s.whatsapp.net', '!fazernick');
     assert(sentMessages[0].payload.text.includes('GERADOR DE NICKS'));
 
     // 2. !fazernick PayBot: gera lista completa com 20 estilos
     sentMessages.length = 0;
-    await gataFeatures.handleFazerNick(mockSock, '5511999998888@s.whatsapp.net', '!fazernick PayBot');
+    await spyFeatures.handleFazerNick(mockSock, '5511999998888@s.whatsapp.net', '!fazernick PayBot');
     assert(sentMessages.length === 1);
     const nickText = sentMessages[0].payload.text;
     assert(nickText.includes('FONTES ESTILOSAS PARA: "PayBot"'));
@@ -3774,12 +3774,12 @@ async function main() {
     };
 
     // 1. Conselho Bíblico
-    await gataFeatures.handleConselhoBiblico(mockSock, '5511999998888@s.whatsapp.net');
+    await spyFeatures.handleConselhoBiblico(mockSock, '5511999998888@s.whatsapp.net');
     assert(sentMessages[0].payload.text.includes('CONSELHO & SABEDORIA BÍBLICA'));
 
     // 2. Conselho Motivacional
     sentMessages.length = 0;
-    await gataFeatures.handleConselho(mockSock, '5511999998888@s.whatsapp.net');
+    await spyFeatures.handleConselho(mockSock, '5511999998888@s.whatsapp.net');
     assert(sentMessages[0].payload.text.includes('CONSELHO DO DIA & MOTIVAÇÃO'));
   });
 
@@ -3801,21 +3801,21 @@ async function main() {
     };
 
     // 1. !totag com texto customizado
-    await gataFeatures.handleTotag(mockSock, '1203630999@g.us', null, '!totag Atenção a todos!', mockSock, true);
+    await spyFeatures.handleTotag(mockSock, '1203630999@g.us', null, '!totag Atenção a todos!', mockSock, true);
     assert(sentMessages.length === 1);
     assert(sentMessages[0].payload.text.includes('Atenção a todos!'));
     assert.strictEqual(sentMessages[0].payload.mentions.length, 3);
 
     // 2. !marcar2 gera links wa.me para todos
     sentMessages.length = 0;
-    await gataFeatures.handleMarcar2(mockSock, '1203630999@g.us', mockSock);
+    await spyFeatures.handleMarcar2(mockSock, '1203630999@g.us', mockSock);
     assert(sentMessages.length === 1);
     assert(sentMessages[0].payload.text.includes('https://wa.me/5511999990001'));
     assert(sentMessages[0].payload.text.includes('https://wa.me/5511999990002'));
 
     // 3. !limpar gera buffer invisível
     sentMessages.length = 0;
-    await gataFeatures.handleLimpar(mockSock, '1203630999@g.us');
+    await spyFeatures.handleLimpar(mockSock, '1203630999@g.us');
     assert(sentMessages.length === 1);
     assert(sentMessages[0].payload.text.includes('CHAT LIMPO PELA ADMINISTRAÇÃO'));
   });
@@ -3832,12 +3832,12 @@ async function main() {
     const gpId = '1203630888777@g.us';
 
     // 1. Ativar Anti-Palavrão
-    await gataFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra on', true, true);
+    await spyFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra on', true, true);
     assert(sentMessages.some(m => m.payload.text.includes('FILTRO ANTI-PALAVRÃO ATIVADO')));
 
     // 2. Adicionar palavra proibida
     sentMessages.length = 0;
-    await gataFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra add proibido123', true, true);
+    await spyFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra add proibido123', true, true);
     assert(sentMessages.some(m => m.payload.text.includes('adicionada')));
 
     // 3. Verificar mensagem com palavra proibida de não-admin: deve apagar
@@ -3845,19 +3845,19 @@ async function main() {
     const testBadMsg = {
       key: { remoteJid: gpId, id: 'BAD_MSG_1', participant: '5511988887777@s.whatsapp.net' }
     };
-    const wasDeleted = await gataFeatures.checkAntiPalavra(mockSock, gpId, testBadMsg, 'Isso é proibido123 cara', true, false);
+    const wasDeleted = await spyFeatures.checkAntiPalavra(mockSock, gpId, testBadMsg, 'Isso é proibido123 cara', true, false);
     assert.strictEqual(wasDeleted, true);
     assert(sentMessages.some(m => m.payload.delete));
     assert(sentMessages.some(m => m.payload.text && m.payload.text.includes('apagada por conter vocabulário não permitido')));
 
     // 4. Mensagem limpa: não deve apagar
     sentMessages.length = 0;
-    const wasCleanDeleted = await gataFeatures.checkAntiPalavra(mockSock, gpId, testBadMsg, 'Bom dia pessoal tudo bem?', true, false);
+    const wasCleanDeleted = await spyFeatures.checkAntiPalavra(mockSock, gpId, testBadMsg, 'Bom dia pessoal tudo bem?', true, false);
     assert.strictEqual(wasCleanDeleted, false);
 
     // 5. Desativar Anti-Palavrão
     sentMessages.length = 0;
-    await gataFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra off', true, true);
+    await spyFeatures.handleAntiPalavra(mockSock, gpId, '!antipalavra off', true, true);
     assert(sentMessages.some(m => m.payload.text.includes('DESATIVADO')));
   });
 
@@ -3878,29 +3878,29 @@ async function main() {
     };
 
     // 1. !cassino caça-níquel
-    await gataFeatures.handleCassino(mockSock, '5511999998888@s.whatsapp.net', '5511999998888', 'Tester');
+    await spyFeatures.handleCassino(mockSock, '5511999998888@s.whatsapp.net', '5511999998888', 'Tester');
     assert(sentMessages[0].payload.text.includes('CASSINO PAYBOT'));
 
     // 2. !casal combinação de casal
     sentMessages.length = 0;
-    await gataFeatures.handleBrincadeiras(mockSock, '1203630123@g.us', null, 'casal', '!casal', '5511999998888', mockSock);
+    await spyFeatures.handleBrincadeiras(mockSock, '1203630123@g.us', null, 'casal', '!casal', '5511999998888', mockSock);
     assert(sentMessages[0].payload.text.includes('COMBINAÇÃO PERFEITA DE CASAL'));
 
     // 3. !metadinha fotos de perfil combinando
     sentMessages.length = 0;
-    await gataFeatures.handleMetadinha(mockSock, '5511999998888@s.whatsapp.net');
+    await spyFeatures.handleMetadinha(mockSock, '5511999998888@s.whatsapp.net');
     assert.strictEqual(sentMessages.length, 2);
     assert(sentMessages[0].payload.caption.includes('Metadinha - ELE'));
     assert(sentMessages[1].payload.caption.includes('Metadinha - ELA'));
 
     // 4. !clima previsão do tempo
     sentMessages.length = 0;
-    await gataFeatures.handleClima(mockSock, '5511999998888@s.whatsapp.net', '!clima São Paulo');
+    await spyFeatures.handleClima(mockSock, '5511999998888@s.whatsapp.net', '!clima São Paulo');
     assert(sentMessages[0].payload.text.includes('São Paulo'));
 
     // 5. !ddd consulta de código telefônico
     sentMessages.length = 0;
-    await gataFeatures.handleDDD(mockSock, '5511999998888@s.whatsapp.net', '!ddd 48');
+    await spyFeatures.handleDDD(mockSock, '5511999998888@s.whatsapp.net', '!ddd 48');
     assert(sentMessages[0].payload.text.includes('DDD 48'));
     assert(sentMessages[0].payload.text.includes('Florianópolis'));
   });
@@ -3967,7 +3967,7 @@ async function main() {
   // 19. TESTES DAS FUNCIONALIDADES PORTADAS DO HATSUNE MIKU BOT
   // ----------------------------------------------------------------
   console.log('\n🎤 19. Testes das Funcionalidades Portadas do Hatsune Miku Bot:');
-  const gataFeaturesService = require('./src/services/gataFeaturesService');
+  const spyFeaturesService = require('./src/services/spyFeaturesService');
   const stickerConverter = require('./src/utils/stickerConverter');
 
   await runAsyncTest('Hatsune Miku: Geração de Figurinha Quote Chat (!qc)', async () => {
@@ -3978,7 +3978,7 @@ async function main() {
         return { key: { id: 'QC_1' } };
       }
     };
-    await gataFeaturesService.handleQC(mockSock, '5511977776666@s.whatsapp.net', null, '!qc Teste de mensagem dark mode', 'Miku Tester');
+    await spyFeaturesService.handleQC(mockSock, '5511977776666@s.whatsapp.net', null, '!qc Teste de mensagem dark mode', 'Miku Tester');
     assert(sent.length > 0, 'Deveria ter enviado a figurinha QC');
     assert(sent[0].payload.sticker, 'Payload deve conter buffer de figurinha');
   });
@@ -3991,7 +3991,7 @@ async function main() {
         return { key: { id: 'BRAT_1' } };
       }
     };
-    await gataFeaturesService.handleBrat(mockSock, '5511977776666@s.whatsapp.net', '!brat paybot vendas');
+    await spyFeaturesService.handleBrat(mockSock, '5511977776666@s.whatsapp.net', '!brat paybot vendas');
     assert(sent.length > 0, 'Deveria ter enviado figurinha brat');
     assert(sent[0].payload.sticker, 'Payload deve conter buffer de figurinha');
   });
@@ -4004,7 +4004,7 @@ async function main() {
         return { key: { id: 'SS_1' } };
       }
     };
-    await gataFeaturesService.handleSSWeb(mockSock, '5511977776666@s.whatsapp.net', '!ssweb google.com');
+    await spyFeaturesService.handleSSWeb(mockSock, '5511977776666@s.whatsapp.net', '!ssweb google.com');
     assert(sent.some(s => s.payload.image || (s.payload.text && s.payload.text.includes('Capturando tela'))));
   });
 
@@ -4023,13 +4023,13 @@ async function main() {
         }
       }
     };
-    const origExtract = gataFeaturesService.extractMediaBuffer;
+    const origExtract = spyFeaturesService.extractMediaBuffer;
     try {
-      gataFeaturesService.extractMediaBuffer = async () => ({ buffer: Buffer.from('mock_img_bytes'), type: 'image' });
-      await gataFeaturesService.handleToUrl(mockSock, '5511977776666@s.whatsapp.net', mockMsg, 'Tester');
+      spyFeaturesService.extractMediaBuffer = async () => ({ buffer: Buffer.from('mock_img_bytes'), type: 'image' });
+      await spyFeaturesService.handleToUrl(mockSock, '5511977776666@s.whatsapp.net', mockMsg, 'Tester');
       assert(sent.some(s => s.payload.text && (s.payload.text.includes('Link') || s.payload.text.includes('Enviando arquivo'))));
     } finally {
-      gataFeaturesService.extractMediaBuffer = origExtract;
+      spyFeaturesService.extractMediaBuffer = origExtract;
     }
   });
 
@@ -4041,7 +4041,7 @@ async function main() {
         return { key: { id: 'GIT_1' } };
       }
     };
-    await gataFeaturesService.handleGitClone(mockSock, '5511977776666@s.whatsapp.net', '!gitclone Brauliovh3/HATSUNE-MIKU');
+    await spyFeaturesService.handleGitClone(mockSock, '5511977776666@s.whatsapp.net', '!gitclone Brauliovh3/HATSUNE-MIKU');
     assert(sent.some(s => s.payload.text && (s.payload.text.includes('Repositório') || s.payload.text.includes('Consultando'))));
   });
 
@@ -4058,7 +4058,7 @@ async function main() {
     const groupJid = '120363000000000000@g.us';
 
     // 1. Ativa AFK
-    await gataFeaturesService.handleAFK(mockSock, groupJid, '!afk Fui almoçar volto logo', afkUser, 'UserAFK');
+    await spyFeaturesService.handleAFK(mockSock, groupJid, '!afk Fui almoçar volto logo', afkUser, 'UserAFK');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('MODO AFK ATIVADO')));
 
     // 2. Outro usuário menciona o usuário AFK
@@ -4073,16 +4073,16 @@ async function main() {
         }
       }
     };
-    const handledAlert = await gataFeaturesService.checkAFK(mockSock, groupJid, mentionMsg, 'Ei @5511988889999 veja isso', '5511977776666', 'Friend');
+    const handledAlert = await spyFeaturesService.checkAFK(mockSock, groupJid, mentionMsg, 'Ei @5511988889999 veja isso', '5511977776666', 'Friend');
     assert(handledAlert === true, 'Deveria ter detectado usuário AFK');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('USUÁRIO EM MODO AUSENTE')));
 
     // 3. Usuário AFK envia mensagem e sai do AFK
     sent.length = 0;
     const returnMsg = { message: { conversation: 'Voltei galera' } };
-    await gataFeaturesService.checkAFK(mockSock, groupJid, returnMsg, 'Voltei galera', afkUser, 'UserAFK');
+    await spyFeaturesService.checkAFK(mockSock, groupJid, returnMsg, 'Voltei galera', afkUser, 'UserAFK');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('BEM-VINDO DE VOLTA')));
-    assert(!gataFeaturesService.afkMap.has(afkUser), 'Estado AFK deve ter sido removido');
+    assert(!spyFeaturesService.afkMap.has(afkUser), 'Estado AFK deve ter sido removido');
   });
 
   await runAsyncTest('Hatsune Miku: Sistema de Casamento e Divórcio (!casar / !divorciar)', async () => {
@@ -4110,7 +4110,7 @@ async function main() {
         }
       }
     };
-    await gataFeaturesService.handleCasar(mockSock, groupJid, proposalMsg, userA, 'Romeo');
+    await spyFeaturesService.handleCasar(mockSock, groupJid, proposalMsg, userA, 'Romeo');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('PEDIDO DE CASAMENTO')));
 
     // 2. User B aceita propondo de volta
@@ -4123,19 +4123,19 @@ async function main() {
         }
       }
     };
-    await gataFeaturesService.handleCasar(mockSock, groupJid, acceptMsg, userB, 'Juliet');
+    await spyFeaturesService.handleCasar(mockSock, groupJid, acceptMsg, userB, 'Juliet');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('FELIZ CASAMENTO NO GRUPO')));
     assert.strictEqual(models.getSetting(`MARRIAGE_${userA}`, ''), userB);
     assert.strictEqual(models.getSetting(`MARRIAGE_${userB}`, ''), userA);
 
     // 3. Verifica se perfil exibe casamento
     sent.length = 0;
-    await gataFeaturesService.handlePerfil(mockSock, groupJid, userA, 'Romeo');
+    await spyFeaturesService.handlePerfil(mockSock, groupJid, userA, 'Romeo');
     assert(sent.some(s => s.payload.text && s.payload.text.includes(`Casado(a) com @${userB}`)));
 
     // 4. Divórcio
     sent.length = 0;
-    await gataFeaturesService.handleDivorciar(mockSock, groupJid, userA);
+    await spyFeaturesService.handleDivorciar(mockSock, groupJid, userA);
     assert(sent.some(s => s.payload.text && s.payload.text.includes('CERTIDÃO DE DIVÓRCIO')));
     assert.strictEqual(models.getSetting(`MARRIAGE_${userA}`, ''), '');
     assert.strictEqual(models.getSetting(`MARRIAGE_${userB}`, ''), '');
@@ -4152,7 +4152,7 @@ async function main() {
     const userPhone = '5511955556666';
     models.addLoyaltyPoints('whatsapp', userPhone, 100, 100);
 
-    await gataFeaturesService.handleCoinflip(mockSock, '5511955556666@s.whatsapp.net', '!coinflip 20 cara', userPhone, 'Gambler');
+    await spyFeaturesService.handleCoinflip(mockSock, '5511955556666@s.whatsapp.net', '!coinflip 20 cara', userPhone, 'Gambler');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('A MOEDA GIROU NO AR')));
   });
 
@@ -4165,7 +4165,7 @@ async function main() {
       }
     };
     const userPhone = '5511966667777';
-    await gataFeaturesService.handleWork(mockSock, '5511966667777@s.whatsapp.net', userPhone, 'Worker');
+    await spyFeaturesService.handleWork(mockSock, '5511966667777@s.whatsapp.net', userPhone, 'Worker');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('EXPEDIENTE DE TRABALHO CONCLUÍDO')));
   });
 
@@ -4179,7 +4179,7 @@ async function main() {
     };
     const userPhone = '5511988881111';
     models.addLoyaltyPoints('whatsapp', userPhone, 300, 300);
-    await gataFeaturesService.handleCrime(mockSock, '5511988881111@s.whatsapp.net', userPhone, 'Outlaw');
+    await spyFeaturesService.handleCrime(mockSock, '5511988881111@s.whatsapp.net', userPhone, 'Outlaw');
     assert(sent.some(s => s.payload.text && (s.payload.text.includes('GOLPE PERFEITO') || s.payload.text.includes('EM CANA'))));
   });
 
@@ -4191,7 +4191,7 @@ async function main() {
         return { key: { id: 'PPCP_1' } };
       }
     };
-    await gataFeaturesService.handlePPCouple(mockSock, '5511977776666@s.whatsapp.net');
+    await spyFeaturesService.handlePPCouple(mockSock, '5511977776666@s.whatsapp.net');
     assert(sent.some(s => s.payload.text && s.payload.text.includes('Metadinhas Anime')));
   });
 
@@ -4638,6 +4638,136 @@ async function main() {
 
     const createdOrder = models.getOrderByTradeNo(checkoutRes.data.tradeNo);
     assert.strictEqual(createdOrder.seller_id, subChip.id);
+  });
+
+  // ----------------------------------------------------------------
+  // 21. TESTES DE TUNNEL CLOUDFLARE, REPRODUÇÃO COM QUALIDADE H/S & SPY BOT
+  // ----------------------------------------------------------------
+  console.log('\n🌐 21. Testes de Tunnel Cloudflare, Qualidade de Áudio/Vídeo (H/S) & Spy Bot:');
+
+  runTest('Parser de Qualidade de Download YouTube (H / S)', () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
+
+    // 1. Áudio High e Standard
+    const q1 = spyFeatures.parseDownloadQuery('!play Imagine Dragons Believer H', 'high');
+    assert.strictEqual(q1.cleanQuery, 'Imagine Dragons Believer');
+    assert.strictEqual(q1.quality, 'high');
+
+    const q2 = spyFeatures.parseDownloadQuery('!play Imagine Dragons Believer S', 'high');
+    assert.strictEqual(q2.cleanQuery, 'Imagine Dragons Believer');
+    assert.strictEqual(q2.quality, 'standard');
+
+    // 2. Comandos sufixados com H e S
+    const q3 = spyFeatures.parseDownloadQuery('!playh Vintage Culture', 'high');
+    assert.strictEqual(q3.cleanQuery, 'Vintage Culture');
+    assert.strictEqual(q3.quality, 'high');
+
+    const q4 = spyFeatures.parseDownloadQuery('!plays Vintage Culture', 'high');
+    assert.strictEqual(q4.cleanQuery, 'Vintage Culture');
+    assert.strictEqual(q4.quality, 'standard');
+
+    const q5 = spyFeatures.parseDownloadQuery('!videoh Podcast 100', 'high');
+    assert.strictEqual(q5.cleanQuery, 'Podcast 100');
+    assert.strictEqual(q5.quality, 'high');
+
+    const q6 = spyFeatures.parseDownloadQuery('!videos Podcast 100', 'high');
+    assert.strictEqual(q6.cleanQuery, 'Podcast 100');
+    assert.strictEqual(q6.quality, 'standard');
+
+    // 3. Atalhos de seleção da lista A1H e V1S
+    const q7 = spyFeatures.parseDownloadQuery('A1H', 'high');
+    assert.strictEqual(q7.cleanQuery, '1');
+    assert.strictEqual(q7.quality, 'high');
+
+    const q8 = spyFeatures.parseDownloadQuery('V1S', 'standard');
+    assert.strictEqual(q8.cleanQuery, '1');
+    assert.strictEqual(q8.quality, 'standard');
+  });
+
+  await runTest('Download de Áudio com Qualidade S e Nome de Arquivo no Título', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    await spyFeatures.handlePlayMusic(mockSock, '5511999998888@s.whatsapp.net', '!plays Imagine Dragons Believer');
+    assert(sent.length >= 2, 'Deve enviar aviso/cartão e o áudio');
+    const audioMsg = sent.find(m => m.audio);
+    assert(audioMsg, 'Mensagem com áudio deve existir');
+    assert(audioMsg.fileName && audioMsg.fileName.endsWith('.mp3'), 'Nome do arquivo deve terminar em .mp3');
+    assert(audioMsg.fileName.toLowerCase().includes('believer'), 'Nome do arquivo deve conter o título da música');
+    assert(audioMsg.contextInfo?.externalAdReply, 'Deve conter externalAdReply para card de mídia no WhatsApp');
+  });
+
+  await runTest('Download de Vídeo com Seleção de Qualidade (H e S)', async () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    await spyFeatures.handlePlayVideo(mockSock, '5511999998888@s.whatsapp.net', '!videos Imagine Dragons Believer');
+    assert(sent.length >= 2, 'Deve enviar status e vídeo');
+    const vidMsg = sent.find(m => m.video || m.document);
+    assert(vidMsg, 'Mensagem com vídeo deve ser entregue');
+    assert(vidMsg.fileName && vidMsg.fileName.endsWith('.mp4'), 'Nome do vídeo deve terminar em .mp4');
+    assert(vidMsg.fileName.toLowerCase().includes('believer'), 'Nome do arquivo deve conter o título');
+  });
+
+  await runTest('Túnel Remoto Cloudflare (Endpoints e WhatsApp !tunnel)', async () => {
+    const tunnelService = require('./src/services/tunnelService');
+    models.setSetting('TUNNEL_URL', 'https://spybot-secure-test.trycloudflare.com');
+
+    // 1. GET /api/tunnel
+    const res = await fetchApi('/api/tunnel');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.data.success, true);
+    assert.strictEqual(res.data.url, 'https://spybot-secure-test.trycloudflare.com');
+    assert.strictEqual(res.data.active, true);
+
+    // 2. Comando !tunnel via whatsappBot
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const replies = [];
+    const origSend = whatsappBot.sendMessage;
+    whatsappBot.sendMessage = async (jid, textOrObj, opts, customSock) => {
+      const payload = typeof textOrObj === 'string' ? { text: textOrObj } : textOrObj;
+      replies.push(payload);
+      return { key: { id: 'TEST_TUNNEL_REPLY' } };
+    };
+
+    const mockMsg = {
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!tunnel' }
+    };
+
+    try {
+      await whatsappBot.handleIncomingMessage(mockMsg);
+      assert(replies.length > 0, 'Deve responder ao comando !tunnel');
+      const tunnelText = replies[0].text || replies[0].caption || '';
+      assert(tunnelText.includes('PAINEL WEB & ACESSO REMOTO'), 'Deve identificar painel web');
+      assert(tunnelText.includes('spybot-secure-test.trycloudflare.com'), 'Deve incluir a URL do túnel');
+      assert(tunnelText.includes('Cloudflare Tunnel'), 'Deve citar Cloudflare Tunnel');
+    } finally {
+      whatsappBot.sendMessage = origSend;
+    }
+  });
+
+  runTest('Erradicação Completa de Referências "Gata Nina" no Sistema', () => {
+    const spyFeatures = require('./src/services/spyFeaturesService');
+    assert(spyFeatures, 'SpyFeaturesService deve estar ativo');
+    assert(typeof spyFeatures.handlePlayMusic === 'function');
+    assert(typeof spyFeatures.handlePlayVideo === 'function');
+
+    // O arquivo legado gataFeaturesService.js deve apenas redirecionar
+    const legacyGata = require('./src/services/gataFeaturesService');
+    assert.strictEqual(legacyGata, spyFeatures, 'gataFeaturesService deve ser um stub para spyFeaturesService');
   });
 
   await new Promise(resolve => testServer.close(resolve));

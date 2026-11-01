@@ -2452,7 +2452,7 @@ const models = {
   },
 
   // ==========================================
-  // 17. GATA NINA SECURITY: SISTEMA DE ADVERTÊNCIAS (WARNS)
+  // 17. SPY SECURITY: SISTEMA DE ADVERTÊNCIAS (WARNS)
   // ==========================================
   addWarning(groupId, userPhone, reason = 'Violação de regras do grupo', warnedBy = 'Admin') {
     const cleanPhone = String(userPhone).replace(/\D/g, '');
@@ -2511,7 +2511,7 @@ const models = {
   },
 
   // ==========================================
-  // 18. GATA NINA GAMIFICAÇÃO & FIDELIDADE (LOYALTY / RPG)
+  // 18. SPY GAMIFICAÇÃO & FIDELIDADE (LOYALTY / RPG)
   // ==========================================
   getUserLoyalty(platform = 'whatsapp', userId, userName = null) {
     const cleanId = String(userId).trim();
@@ -2585,7 +2585,7 @@ const models = {
   },
 
   // ==========================================
-  // 19. GATA NINA ANTI-VIEW-ONCE
+  // 19. SPY ANTI-VIEW-ONCE
   // ==========================================
   logViewOnceMedia(chatId, senderPhone, mediaType, mediaCaption = '') {
     const res = db.prepare(`

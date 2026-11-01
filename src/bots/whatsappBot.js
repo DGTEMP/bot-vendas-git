@@ -9,7 +9,8 @@ const models = require('../db/models');
 const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
-const gataFeatures = require('../services/gataFeaturesService');
+const spyFeatures = require('../services/spyFeaturesService');
+
 
 function safeExtractJid(val) {
   if (!val) return '';
@@ -173,7 +174,7 @@ class WhatsAppBotService {
           if (!msg.message) continue;
 
           // Rastreia mensagem no cache Anti-Delete
-          gataFeatures.recordMessage(msg);
+          spyFeatures.recordMessage(msg);
 
           // Detecta se a mensagem é um aviso de mensagem apagada (protocolMessage revoke)
           const proto = msg.message?.protocolMessage;
@@ -181,7 +182,7 @@ class WhatsAppBotService {
             const targetId = proto.key?.id;
             const chatJid = proto.key?.remoteJid || msg.key?.remoteJid;
             const deleterJid = msg.key?.participant || msg.key?.remoteJid;
-            await gataFeatures.handleRevoke(this.sock, chatJid, targetId, deleterJid);
+            await spyFeatures.handleRevoke(this.sock, chatJid, targetId, deleterJid);
             continue;
           }
           
@@ -202,7 +203,7 @@ class WhatsAppBotService {
             const chatJid = upd.key?.remoteJid;
             const targetId = upd.key?.id;
             const deleterJid = upd.key?.participant || chatJid;
-            await gataFeatures.handleRevoke(this.sock, chatJid, targetId, deleterJid);
+            await spyFeatures.handleRevoke(this.sock, chatJid, targetId, deleterJid);
           }
         }
       });
@@ -234,8 +235,8 @@ class WhatsAppBotService {
           console.warn('[Meteórico ⚠️] Erro ao verificar transbordamento de grupo:', metErr.message);
         }
 
-        // Anti-Fake / Anti-Estrangeiro (Gata Nina Security)
-        await gataFeatures.checkAntiFakeEntry(sock, id, normalizedParticipants);
+        // Anti-Fake / Anti-Estrangeiro (Spy Security)
+        await spyFeatures.checkAntiFakeEntry(sock, id, normalizedParticipants);
 
         const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
         if (!isWelcomeActive) return;
@@ -491,13 +492,13 @@ class WhatsAppBotService {
 
     // Rastreia atividade de participantes do grupo (para detector de membros fantasmas)
     if (isGroup && senderPhone) {
-      gataFeatures.recordActivity(from, senderPhone);
+      spyFeatures.recordActivity(from, senderPhone);
     }
 
     // Interceptador Anti-View-Once: Revela fotos e vídeos de visualização única
     if (!isFromMe) {
       try {
-        await gataFeatures.handleAntiViewOnce(activeSock, msg, from);
+        await spyFeatures.handleAntiViewOnce(activeSock, msg, from);
       } catch (err) {
         console.error('[AntiViewOnce Erro]:', err.message);
       }
@@ -538,7 +539,7 @@ class WhatsAppBotService {
       const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
       const isGlobalAdmin = !!(adminPhoneSetting && (adminPhoneSetting.includes(senderPhone) || senderPhone.includes(adminPhoneSetting)));
       if (isAntiPrivado && !isGlobalAdmin && !lower.startsWith('!admin') && !lower.startsWith('!status') && !lower.startsWith('!antiprivado') && !lower.startsWith('!serbot') && !lower.startsWith('!code') && !lower.startsWith('!subbot') && !lower.startsWith('!jadibot') && !lower.startsWith('!conectar')) {
-        const redirected = await gataFeatures.handleAntiPrivado(activeSock, from, senderPhone);
+        const redirected = await spyFeatures.handleAntiPrivado(activeSock, from, senderPhone);
         if (redirected) return;
       }
     }
@@ -752,7 +753,7 @@ class WhatsAppBotService {
     if (isGroup && !isFromMe) {
       try {
         const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
-        const deleted = await gataFeatures.checkAntiPalavra(activeSock, from, msg, text, isGroup, adminStatus.isRequesterAdmin);
+        const deleted = await spyFeatures.checkAntiPalavra(activeSock, from, msg, text, isGroup, adminStatus.isRequesterAdmin);
         if (deleted) return;
       } catch (_) {}
     }
@@ -760,7 +761,7 @@ class WhatsAppBotService {
     // 0.26 Interceptador AFK em Grupos (Hatsune Miku System)
     if (isGroup && !isFromMe) {
       try {
-        await gataFeatures.checkAFK(activeSock, from, msg, text, senderPhone, senderName);
+        await spyFeatures.checkAFK(activeSock, from, msg, text, senderPhone, senderName);
       } catch (_) {}
     }
 
@@ -1353,7 +1354,7 @@ class WhatsAppBotService {
           details: customMsg || 'Aviso geral para todos os membros'
         });
 
-        return gataFeatures.handleTagAll(activeSock, from, text, adminStatus.metadata);
+        return spyFeatures.handleTagAll(activeSock, from, text, adminStatus.metadata);
       }
 
       // 12. Configurar Proteção Anti-Link: !antilink on/off
@@ -1555,7 +1556,7 @@ class WhatsAppBotService {
         }
 
         if (!reason) reason = 'Desrespeito às regras do grupo';
-        return gataFeatures.handleWarn(activeSock, from, targetPhone, reason, senderName, adminStatus.isBotAdmin);
+        return spyFeatures.handleWarn(activeSock, from, targetPhone, reason, senderName, adminStatus.isBotAdmin);
       }
 
       // 16. Remover Advertência: !unwarn, !tiraraviso
@@ -1587,7 +1588,7 @@ class WhatsAppBotService {
           return this.sendMessage(from, `ℹ️ *Como remover advertência:*\n• Responda à mensagem do participante com *!unwarn*\n• Ou envie *!unwarn @usuario*`);
         }
 
-        return gataFeatures.handleUnwarn(activeSock, from, targetPhone);
+        return spyFeatures.handleUnwarn(activeSock, from, targetPhone);
       }
 
       // 17. Consultar Advertências: !warns, !avisos
@@ -1613,7 +1614,7 @@ class WhatsAppBotService {
           targetPhone = senderPhone;
         }
 
-        return gataFeatures.handleWarnsList(activeSock, from, targetPhone);
+        return spyFeatures.handleWarnsList(activeSock, from, targetPhone);
       }
 
       // 18. Configurar Anti-Fake: !antifake on/off
@@ -1682,7 +1683,7 @@ class WhatsAppBotService {
         if (!adminStatus.isRequesterAdmin) {
           return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem usar hidetag.');
         }
-        return gataFeatures.handleHidetag(activeSock, from, text, adminStatus.metadata);
+        return spyFeatures.handleHidetag(activeSock, from, text, adminStatus.metadata);
       }
 
       // 21. Membros Fantasmas: !fantasmas, !inativos
@@ -1691,7 +1692,7 @@ class WhatsAppBotService {
         if (!adminStatus.isRequesterAdmin) {
           return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem escanear membros fantasmas.');
         }
-        return gataFeatures.handleFantasmas(activeSock, from, adminStatus.metadata);
+        return spyFeatures.handleFantasmas(activeSock, from, adminStatus.metadata);
       }
 
       // 22. Anti-Delete: !antidelete on/off
@@ -1744,7 +1745,7 @@ class WhatsAppBotService {
         if (!adminStatus.isRequesterAdmin) {
           return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem usar o comando *!totag*.');
         }
-        return gataFeatures.handleTotag(activeSock, from, msg, text, activeSock, true);
+        return spyFeatures.handleTotag(activeSock, from, msg, text, activeSock, true);
       }
 
       // 25. Marcar com Links Diretos do WhatsApp: !marcar2 / !tagalllinks
@@ -1753,13 +1754,13 @@ class WhatsAppBotService {
         if (!adminStatus.isRequesterAdmin) {
           return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem usar este comando.');
         }
-        return gataFeatures.handleMarcar2(activeSock, from, activeSock);
+        return spyFeatures.handleMarcar2(activeSock, from, activeSock);
       }
 
       // 26. Moderação Anti-Palavrão (SpyBot): !antipalavra / !addpalavra / !delpalavra / !listapalavras
       if (/^(?:!|\/)(?:antipalavra|antipalavrao|addpalavra|delpalavra|listapalavras)(?:\s.*)?$/i.test(lower)) {
         const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
-        return gataFeatures.handleAntiPalavra(activeSock, from, text, isGroup, adminStatus.isRequesterAdmin);
+        return spyFeatures.handleAntiPalavra(activeSock, from, text, isGroup, adminStatus.isRequesterAdmin);
       }
 
       // 27. Limpar Tela do Grupo: !limpar / !clean
@@ -1768,7 +1769,7 @@ class WhatsAppBotService {
         if (!adminStatus.isRequesterAdmin) {
           return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem limpar a tela.');
         }
-        return gataFeatures.handleLimpar(activeSock, from);
+        return spyFeatures.handleLimpar(activeSock, from);
       }
     }
 
@@ -1847,167 +1848,184 @@ class WhatsAppBotService {
     }
 
     // ==========================================
-    // 0.4 COMANDOS GATA BOT / GATA NINA (STICKERS, DOWNLOADERS, IA, GAMES)
+    // 0.4 COMANDOS SPY BOT / SPY (STICKERS, DOWNLOADERS, IA, GAMES)
     // ==========================================
 
     // 1. Criador de Figurinha: !s / !sticker
     if (/^(?:!|\/)(?:s|sticker|fig|figurinha)$/i.test(lower)) {
-      return gataFeatures.handleSticker(activeSock, from, msg, senderName);
+      return spyFeatures.handleSticker(activeSock, from, msg, senderName);
     }
 
     // 1.1 Fusão de Emojis (SpyBot / Google Kitchen): !emojimix / !mix
     if (/^(?:!|\/)(?:emojimix|mix|fusao|emojikitchen)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleEmojiMix(activeSock, from, text);
+      return spyFeatures.handleEmojiMix(activeSock, from, text);
     }
 
     // 2. Texto para Figurinha Animada (ATTP Rainbow): !attp / !attp2
     if (/^(?:!|\/)(?:attp2)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleAttp(activeSock, from, text, true);
+      return spyFeatures.handleAttp(activeSock, from, text, true);
     }
     if (/^(?:!|\/)(?:attp)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleAttp(activeSock, from, text, false);
+      return spyFeatures.handleAttp(activeSock, from, text, false);
     }
 
     // 2.1 Texto para Figurinha Estática: !ttp
     if (/^(?:!|\/)(?:ttp)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleTextToSticker(activeSock, from, text, senderName);
+      return spyFeatures.handleTextToSticker(activeSock, from, text, senderName);
     }
 
     // 2.15 Quote Chat (Hatsune Miku): !qc / !quotechat / !citacao
     if (/^(?:!|\/)(?:qc|quotechat|citacao)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleQC(activeSock, from, msg, text, senderName);
+      return spyFeatures.handleQC(activeSock, from, msg, text, senderName);
     }
 
     // 2.16 Figurinha Estilo Brat (Hatsune Miku / Charli XCX): !brat / !charli
     if (/^(?:!|\/)(?:brat|charli)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleBrat(activeSock, from, text);
+      return spyFeatures.handleBrat(activeSock, from, text);
     }
 
     // 2.2 Conversor de Vídeo / Áudio para MP3: !tomp3 / !toaudio
     if (/^(?:!|\/)(?:tomp3|toaudio|paramp3|extrairaudio)$/i.test(lower)) {
-      return gataFeatures.handleToMp3(activeSock, from, msg);
+      return spyFeatures.handleToMp3(activeSock, from, msg);
     }
 
     // 3. Figurinha para Imagem: !toimg
     if (/^(?:!|\/)(?:toimg|paraimg)$/i.test(lower)) {
-      return gataFeatures.handleToImg(activeSock, from, msg);
+      return spyFeatures.handleToImg(activeSock, from, msg);
     }
 
     // 4. Texto para Voz: !tts / !voz
     if (/^(?:!|\/)(?:tts|voz)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleTTS(activeSock, from, text);
+      return spyFeatures.handleTTS(activeSock, from, text);
     }
 
     // 5.0 Busca no YouTube com 20 Resultados: !lista / !search / !pesquisar / !buscar
     if (/^(?:!|\/)(?:lista|search|pesquisar|buscar)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleLista(activeSock, from, text);
+      return spyFeatures.handleLista(activeSock, from, text);
     }
 
-    // 5.1 Atalhos Rápidos da !lista (ex: A1, A2... para áudio, V1, V2... para vídeo)
-    const listChoiceMatch = lower.match(/^(?:([av])|audio|video|mp3|mp4|baixar\s+([av]))\s*(\d+)$/i);
+    // 5.1 Atalhos Rápidos da !lista (ex: A1, A2, A1H, A1S para áudio, V1, V2, V1H, V1S para vídeo)
+    const listChoiceMatch = lower.match(/^(?:([av])|audio|video|mp3|mp4|baixar\s+([av]))\s*(\d+)\s*([hs])?$/i);
     if (listChoiceMatch) {
       const type = (listChoiceMatch[1] || listChoiceMatch[2] || (lower.startsWith('a') ? 'a' : 'v')).toLowerCase();
       const num = listChoiceMatch[3];
+      const qual = (listChoiceMatch[4] || '').toUpperCase();
+      const finalParam = qual ? `${num} ${qual}` : num;
       if (type.startsWith('a') || lower.startsWith('audio') || lower.startsWith('mp3')) {
-        return gataFeatures.handlePlayMusic(activeSock, from, num);
+        return spyFeatures.handlePlayMusic(activeSock, from, finalParam);
       } else {
-        return gataFeatures.handlePlayVideo(activeSock, from, num);
+        return spyFeatures.handlePlayVideo(activeSock, from, finalParam);
       }
     }
 
-    // 5. Downloader de Música YouTube: !play / !ytmp3 / !audio
-    if (/^(?:!|\/)(?:play|ytmp3|musica|audio|mp3)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handlePlayMusic(activeSock, from, text);
+    // 5. Downloader de Música YouTube: !play / !ytmp3 / !audio / !playh / !plays (com suporte a qualidade H ou S)
+    if (/^(?:!|\/)(?:play[hs]?|ytmp3[hs]?|musica|audio|mp3)(?:\s+.*)?$/i.test(lower)) {
+      return spyFeatures.handlePlayMusic(activeSock, from, text);
     }
 
     // 6. Downloader de TikTok: !tiktok / !tt
     if (/^(?:!|\/)(?:tiktok|tt)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleTikTok(activeSock, from, text);
+      return spyFeatures.handleTikTok(activeSock, from, text);
     }
 
     // 7. Downloader de Instagram: !ig / !instagram / !reels
     if (/^(?:!|\/)(?:ig|instagram|reels)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleInstagram(activeSock, from, text);
+      return spyFeatures.handleInstagram(activeSock, from, text);
     }
 
     // 7.1 Baixar todos os Stories de um @perfil: !allstories / !stories
     if (/^(?:!|\/)(?:allstories|stories|todosstories)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleAllStories(activeSock, from, text);
+      return spyFeatures.handleAllStories(activeSock, from, text);
     }
 
     // 7.2 Scraper Completo & Auditoria de Perfil/Audiência: !scrapinsta / !stalkinsta / !spyinsta
     if (/^(?:!|\/)(?:scrapinsta|stalkinsta|spyinsta|insta)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleScrapInsta(activeSock, from, text);
+      return spyFeatures.handleScrapInsta(activeSock, from, text);
     }
 
-    // 7.3 Downloader de Vídeos YouTube (sem limite de 50MB): !video / !ytmp4 / !play2 / !mp4
-    if (/^(?:!|\/)(?:video|ytmp4|play2|mp4)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handlePlayVideo(activeSock, from, text);
+    // 7.3 Downloader de Vídeos YouTube (sem limite de 50MB): !video / !videoh / !videos / !ytmp4 / !ytmp4h / !ytmp4s / !play2 / !mp4
+    if (/^(?:!|\/)(?:video[hs]?|ytmp4[hs]?|play2|mp4)(?:\s+.*)?$/i.test(lower)) {
+      return spyFeatures.handlePlayVideo(activeSock, from, text);
+    }
+
+    // 7.3.1 Comando !tunnel / !painel / !remoto / !linkpainel (Acesso Remoto via Túnel Cloudflare)
+    if (/^(?:!|\/)(?:tunnel|tunel|painel|remoto|acessoremoto|linkpainel)$/i.test(lower)) {
+      const tunnelService = require('../services/tunnelService');
+      const tunnelUrl = tunnelService.getUrl();
+      const tunnelMsg =
+        `🌐 *PAINEL WEB & ACESSO REMOTO (SPY)* 🌐\n\n` +
+        `Acesse o painel administrativo de vendas de qualquer lugar pelo celular ou computador sem abrir portas no roteador:\n\n` +
+        (tunnelUrl
+          ? `🔗 *Link Remoto Seguro (HTTPS):*\n👉 ${tunnelUrl}\n\n`
+          : `⏳ *Túnel inicializando...*\nCaso ainda não tenha gerado, acesse localmente em:\n👉 http://localhost:3000\n\n`) +
+        `🏠 *Acesso Local:* http://localhost:3000\n` +
+        `⚡ *Segurança:* Criptografia SSL ponta a ponta ativa via Cloudflare Tunnel.`;
+      return this.sendMessage(from, tunnelMsg, {}, activeSock);
     }
 
     // 7.4 Downloader de Twitter / X: !twitter / !x / !twdl
     if (/^(?:!|\/)(?:twitter|x|twdl)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleTwitter(activeSock, from, text);
+      return spyFeatures.handleTwitter(activeSock, from, text);
     }
 
     // 7.5 Downloader de Facebook: !fb / !facebook
     if (/^(?:!|\/)(?:fb|facebook)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleFacebook(activeSock, from, text);
+      return spyFeatures.handleFacebook(activeSock, from, text);
     }
 
     // 8. Inteligência Artificial: !ia / !gpt / !gemini
     if (/^(?:!|\/)(?:ia|gpt|gemini)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleAIChat(activeSock, from, text, senderName);
+      return spyFeatures.handleAIChat(activeSock, from, text, senderName);
     }
 
     // 9. Gerador de Imagens IA: !imagine / !dalle / !desenhe
     if (/^(?:!|\/)(?:imagine|dalle|desenhe)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleImagine(activeSock, from, text);
+      return spyFeatures.handleImagine(activeSock, from, text);
     }
 
     // 10. Tradutor Instantâneo: !traduzir / !translate
     if (/^(?:!|\/)(?:traduzir|translate)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleTranslate(activeSock, from, text);
+      return spyFeatures.handleTranslate(activeSock, from, text);
     }
 
     // 10.1 Encurtador de Links: !encurtar / !tinyurl
     if (/^(?:!|\/)(?:encurtar|tinyurl|shorturl)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleEncurtar(activeSock, from, text);
+      return spyFeatures.handleEncurtar(activeSock, from, text);
     }
 
     // 10.2 Gerador de QR Code: !qr / !qrcode
     if (/^(?:!|\/)(?:qr|qrcode)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleQRCode(activeSock, from, text);
+      return spyFeatures.handleQRCode(activeSock, from, text);
     }
 
     // 10.3 Consulta de CEP / Endereço: !cep / !endereco
     if (/^(?:!|\/)(?:cep|endereco)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleCEP(activeSock, from, text);
+      return spyFeatures.handleCEP(activeSock, from, text);
     }
 
     // 10.4 Calculadora Inteligente: !calc / !calcular
     if (/^(?:!|\/)(?:calc|calcular)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleCalc(activeSock, from, text);
+      return spyFeatures.handleCalc(activeSock, from, text);
     }
 
     // 10.41 Screenshot de Websites (Hatsune Miku): !ssweb / !ss / !screenshot / !printweb
     if (/^(?:!|\/)(?:ssweb|ss|screenshot|printweb)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleSSWeb(activeSock, from, text);
+      return spyFeatures.handleSSWeb(activeSock, from, text);
     }
 
     // 10.42 Upload de Mídia para Link Direto (Hatsune Miku): !tourl / !paralink / !gerarlink
     if (/^(?:!|\/)(?:tourl|paralink|gerarlink)$/i.test(lower)) {
-      return gataFeatures.handleToUrl(activeSock, from, msg, senderName);
+      return spyFeatures.handleToUrl(activeSock, from, msg, senderName);
     }
 
     // 10.43 Download de Repositório GitHub em ZIP (Hatsune Miku): !gitclone / !git / !clonegit
     if (/^(?:!|\/)(?:gitclone|git|clonegit)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleGitClone(activeSock, from, text);
+      return spyFeatures.handleGitClone(activeSock, from, text);
     }
 
     // 10.5 Latência e Status do Sistema: !ping / !p / !latencia / !statusbot
     if (/^(?:!|\/)(?:ping|p|latencia|statusbot|pong)$/i.test(lower)) {
-      return gataFeatures.handlePing(activeSock, from, msg);
+      return spyFeatures.handlePing(activeSock, from, msg);
     }
 
     // 10.51 Otimização Instantânea de Memória RAM & Ping: !otimizar / !limparram
@@ -2018,7 +2036,7 @@ class WhatsAppBotService {
       const db = require('../db/database');
       if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
       this.cleanupMemory();
-      if (typeof gataFeatures.cleanupMemory === 'function') gataFeatures.cleanupMemory();
+      if (typeof spyFeatures.cleanupMemory === 'function') spyFeatures.cleanupMemory();
       if (typeof global.gc === 'function') global.gc();
 
       const afterRss = (process.memoryUsage().rss / (1024 * 1024)).toFixed(1);
@@ -2037,155 +2055,155 @@ class WhatsAppBotService {
 
     // 10.6 Painel de Configurações Interativo: !configurar / !config / !painel
     if (/^(?:!|\/)(?:configurar|config|configuracoes|painelbot)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleConfigurar(activeSock, from, text, isAdmin);
+      return spyFeatures.handleConfigurar(activeSock, from, text, isAdmin);
     }
 
     // 10.7 Cotação de Moedas em Tempo Real (SpyBot): !moedas / !cotacao / !dolar
     if (/^(?:!|\/)(?:moedas|cotacao|cotacoes|dolar|cambio)$/i.test(lower)) {
-      return gataFeatures.handleMoedas(activeSock, from);
+      return spyFeatures.handleMoedas(activeSock, from);
     }
 
     // 10.8 Fazer Nick & Tabela de Fontes Estilosas (SpyBot): !fazernick / !tabela
     if (/^(?:!|\/)(?:fazernick|gerarnick|tabela|fontes)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleFazerNick(activeSock, from, text);
+      return spyFeatures.handleFazerNick(activeSock, from, text);
     }
 
     // 10.9 Conselhos Bíblicos e Sabedoria (SpyBot): !conselhobiblico / !biblia / !versiculo
     if (/^(?:!|\/)(?:conselhobiblico|biblia|versiculo|palavradodia)$/i.test(lower)) {
-      return gataFeatures.handleConselhoBiblico(activeSock, from);
+      return spyFeatures.handleConselhoBiblico(activeSock, from);
     }
 
     // 10.10 Conselhos de Vida e Motivação (SpyBot): !conselho / !motivacao
     if (/^(?:!|\/)(?:conselho|motivacao|frasedodia)$/i.test(lower)) {
-      return gataFeatures.handleConselho(activeSock, from);
+      return spyFeatures.handleConselho(activeSock, from);
     }
 
     // 10.11 Metadinhas para Casais e Amigos (SpyBot): !metadinha / !metadinhas
     if (/^(?:!|\/)(?:metadinha|metadinhas)$/i.test(lower)) {
-      return gataFeatures.handleMetadinha(activeSock, from);
+      return spyFeatures.handleMetadinha(activeSock, from);
     }
 
     // 10.12 Previsão do Tempo em Tempo Real: !clima / !tempo
     if (/^(?:!|\/)(?:clima|tempo)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleClima(activeSock, from, text);
+      return spyFeatures.handleClima(activeSock, from, text);
     }
 
     // 10.13 Consulta de DDD do Brasil: !ddd <número>
     if (/^(?:!|\/)(?:ddd)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleDDD(activeSock, from, text);
+      return spyFeatures.handleDDD(activeSock, from, text);
     }
 
     // 11. Perfil de Fidelidade: !perfil / !me / !nivel / !pontos
     if (/^(?:!|\/)(?:perfil|me|nivel|pontos|carteira)$/i.test(lower)) {
-      return gataFeatures.handlePerfil(activeSock, from, senderPhone, senderName);
+      return spyFeatures.handlePerfil(activeSock, from, senderPhone, senderName);
     }
 
     // 12. Resgatar Cupom de Fidelidade: !resgatar
     if (/^(?:!|\/)(?:resgatar|resgate|trocarcupom)$/i.test(lower)) {
-      return gataFeatures.handleResgatar(activeSock, from, senderPhone);
+      return spyFeatures.handleResgatar(activeSock, from, senderPhone);
     }
 
     // 13. Mini-game Dado: !dado / !dice
     if (/^(?:!|\/)(?:dado|dice)$/i.test(lower)) {
-      return gataFeatures.handleDado(activeSock, from, senderPhone, senderName);
+      return spyFeatures.handleDado(activeSock, from, senderPhone, senderName);
     }
 
     // 14. Mini-game Roleta da Sorte: !roleta / !spin
     if (/^(?:!|\/)(?:roleta|spin)$/i.test(lower)) {
-      return gataFeatures.handleRoleta(activeSock, from, senderPhone, senderName);
+      return spyFeatures.handleRoleta(activeSock, from, senderPhone, senderName);
     }
 
     // 14.1 Mini-game Cassino Caça-Níquel (SpyBot): !cassino / !slots
     if (/^(?:!|\/)(?:cassino|slots|cacaniquel)$/i.test(lower)) {
-      return gataFeatures.handleCassino(activeSock, from, senderPhone, senderName);
+      return spyFeatures.handleCassino(activeSock, from, senderPhone, senderName);
     }
 
     // 14.2 Brincadeiras e Interações em Grupos (SpyBot): !casal, !ship, !gado, !corno, !feio, !gostoso, !chance
     if (/^(?:!|\/)(?:casal|ship|gado|corno|feio|gostoso|gostosa|chance)(?:\s+.*)?$/i.test(lower)) {
       const cmd = lower.split(/\s+/)[0].replace(/^[!/]/, '');
-      return gataFeatures.handleBrincadeiras(activeSock, from, msg, cmd, text, senderPhone, activeSock);
+      return spyFeatures.handleBrincadeiras(activeSock, from, msg, cmd, text, senderPhone, activeSock);
     }
 
     // 14.21 Modo Ausente / AFK (Hatsune Miku): !afk / !ausente
     if (/^(?:!|\/)(?:afk|ausente)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleAFK(activeSock, from, text, senderPhone, senderName);
+      return spyFeatures.handleAFK(activeSock, from, text, senderPhone, senderName);
     }
 
     // 14.22 Sistema de Casamento (Hatsune Miku): !casar / !marry / !casamento
     if (/^(?:!|\/)(?:casar|marry|casamento)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleCasar(activeSock, from, msg, senderPhone, senderName);
+      return spyFeatures.handleCasar(activeSock, from, msg, senderPhone, senderName);
     }
 
     // 14.23 Divórcio (Hatsune Miku): !divorciar / !divorce
     if (/^(?:!|\/)(?:divorciar|divorce)$/i.test(lower)) {
-      return gataFeatures.handleDivorciar(activeSock, from, senderPhone);
+      return spyFeatures.handleDivorciar(activeSock, from, senderPhone);
     }
 
     // 14.24 Jogo Coinflip / Cara ou Coroa (Hatsune Miku): !coinflip / !cf / !flip / !caraoucoroa
     if (/^(?:!|\/)(?:coinflip|cf|flip|caraoucoroa)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleCoinflip(activeSock, from, text, senderPhone, senderName);
+      return spyFeatures.handleCoinflip(activeSock, from, text, senderPhone, senderName);
     }
 
     // 14.25 Trabalho RPG com Salário (Hatsune Miku): !trabalhar / !work / !chamba / !trampo
     if (/^(?:!|\/)(?:trabalhar|work|chamba|trampo)$/i.test(lower)) {
-      return gataFeatures.handleWork(activeSock, from, senderPhone, senderName);
+      return spyFeatures.handleWork(activeSock, from, senderPhone, senderName);
     }
 
     // 14.26 Crime RPG de Alto Risco (Hatsune Miku): !crime / !assalto
     if (/^(?:!|\/)(?:crime|assalto)$/i.test(lower)) {
-      return gataFeatures.handleCrime(activeSock, from, senderPhone, senderName);
+      return spyFeatures.handleCrime(activeSock, from, senderPhone, senderName);
     }
 
     // 14.27 Metadinhas Anime Casal (Hatsune Miku): !ppcouple / !ppcp / !metadinha2
     if (/^(?:!|\/)(?:ppcouple|ppcp|metadinha2)$/i.test(lower)) {
-      return gataFeatures.handlePPCouple(activeSock, from);
+      return spyFeatures.handlePPCouple(activeSock, from);
     }
 
     // 14.28 Vitrine Digital & Catálogo E-Commerce (AutoRepuestos Pro): !loja / !catalogo / !vitrine
     if (/^(?:!|\/)(?:loja|catalogo|vitrine|store|vercatalogo)$/i.test(lower)) {
-      return gataFeatures.handleLoja(activeSock, from);
+      return spyFeatures.handleLoja(activeSock, from);
     }
 
     // 14.29 Central de Avisos & Alertas da Equipe (Sistemas Avisos PC): !aviso / !notificar / !urgente / !comunicado
     if (/^(?:!|\/)(?:urgente|alertaurgente)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleEmitAviso(activeSock, from, text, senderPhone, senderName, true);
+      return spyFeatures.handleEmitAviso(activeSock, from, text, senderPhone, senderName, true);
     }
     if (/^(?:!|\/)(?:aviso|notificar|comunicado)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleEmitAviso(activeSock, from, text, senderPhone, senderName, false);
+      return spyFeatures.handleEmitAviso(activeSock, from, text, senderPhone, senderName, false);
     }
 
     // 14.30 Consulta de Avisos Ativos (Sistemas Avisos PC): !avisos
     if (/^(?:!|\/)(?:avisos|alertas|comunicados)$/i.test(lower)) {
-      return gataFeatures.handleListAvisos(activeSock, from);
+      return spyFeatures.handleListAvisos(activeSock, from);
     }
 
     // 14.31 Resposta a Aviso da Central (Sistemas Avisos PC): !responderaviso / !confirmaraviso
     if (/^(?:!|\/)(?:responderaviso|confirmaraviso|respostaviso)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleResponderAviso(activeSock, from, text, senderPhone, senderName);
+      return spyFeatures.handleResponderAviso(activeSock, from, text, senderPhone, senderName);
     }
 
     // 14. MULTI-CONTAS, SUB-BOTS & FUNÇÕES EXCLUSIVAS DO DONO E BOT PRINCIPAL
     // 14.0 Guia de Usabilidade & Controle dos Sub-Bots: !subbothelp / !subbotajuda
     if (/^(?:!|\/)(?:subbothelp|subbotajuda|ajudasubbot|guiasubbot|comosubbot)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
-      return gataFeatures.handleSubBotHelp(activeSock, from, isOwnerUser);
+      return spyFeatures.handleSubBotHelp(activeSock, from, isOwnerUser);
     }
 
     // 14.1 Lista de Bots & Painel dos Sub-Bots: !bots / !subbots / !painelsubbots / !subbotstatus / !listabots
     if (/^(?:!|\/)(?:bots|subbots|painelsubbots|subbotstatus|listabots|chips)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
-      return gataFeatures.handleListBots(activeSock, from, isOwnerUser);
+      return spyFeatures.handleListBots(activeSock, from, isOwnerUser);
     }
 
     // 14.2 Conectar Sub-bot: !serbot / !jadibot / !subbot / !code / !conectar
     if (/^(?:!|\/)(?:serbot|jadibot|subbot|conectar|code)(?:\s+.*)?$/i.test(lower)) {
-      return gataFeatures.handleSerBot(activeSock, from, text, senderPhone, isGroup);
+      return spyFeatures.handleSerBot(activeSock, from, text, senderPhone, isGroup);
     }
 
     // 14.3 Parar Sub-bot: !stopbot / !pararbot / !desconectarbot / !pararsubbot
     if (/^(?:!|\/)(?:stopbot|pararbot|desconectarbot|pararsubbot)(?:\s+.*)?$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
-      return gataFeatures.handleStopBot(activeSock, from, senderPhone, text, isOwnerUser);
+      return spyFeatures.handleStopBot(activeSock, from, senderPhone, text, isOwnerUser);
     }
 
     // 14.4 Reiniciar Sub-bot: !reiniciarsubbot / !restartbot / !reiniciarbot
@@ -2194,7 +2212,7 @@ class WhatsAppBotService {
       if (!isOwnerUser) {
         return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nEste comando é exclusivo para o Dono (Owner) e o Bot Principal controlarem os sub-bots.` });
       }
-      return gataFeatures.handleRestartSubBot(activeSock, from, text);
+      return spyFeatures.handleRestartSubBot(activeSock, from, text);
     }
 
     // 14.5 Resetar Sub-bot: !resetarsubbot / !limparsubbot
@@ -2203,7 +2221,7 @@ class WhatsAppBotService {
       if (!isOwnerUser) {
         return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nEste comando é exclusivo para o Dono (Owner) e o Bot Principal controlarem os sub-bots.` });
       }
-      return gataFeatures.handleResetSubBot(activeSock, from, text);
+      return spyFeatures.handleResetSubBot(activeSock, from, text);
     }
 
     // 14.6 Definir Dono: !setowner <numero>
@@ -2212,7 +2230,7 @@ class WhatsAppBotService {
       if (!isOwnerUser) {
         return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nApenas o Dono atual ou o Bot Principal pode definir um novo dono.` });
       }
-      return gataFeatures.handleSetOwner(activeSock, from, text);
+      return spyFeatures.handleSetOwner(activeSock, from, text);
     }
 
     // 14.7 Divulgação em Massa pelo Exército de Sub-Bots: !divulgar / !bcbot / !broadcast
@@ -2221,7 +2239,7 @@ class WhatsAppBotService {
       if (!isOwnerUser) {
         return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nA função de divulgação em massa pelo Exército de Sub-Bots é exclusiva do Dono e do Bot Principal.` });
       }
-      return gataFeatures.handleBroadcastSubBots(activeSock, from, text);
+      return spyFeatures.handleBroadcastSubBots(activeSock, from, text);
     }
 
     // 14.8 Promover Produto do Catálogo via Sub-Bots: !promover / !divulgarproduto
@@ -2230,7 +2248,7 @@ class WhatsAppBotService {
       if (!isOwnerUser) {
         return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nA função de divulgação de produtos pelo Exército de Sub-Bots é exclusiva do Dono e do Bot Principal.` });
       }
-      return gataFeatures.handlePromoteProduct(activeSock, from, text);
+      return spyFeatures.handlePromoteProduct(activeSock, from, text);
     }
 
     // 14.9 Divulgação em Grupos via Sub-Bots: !divulgargrupos / !bcgrupos / !bcgc
@@ -2239,7 +2257,7 @@ class WhatsAppBotService {
       if (!isOwnerUser) {
         return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nA transmissão em grupos é exclusiva do Dono e do Bot Principal.` });
       }
-      return gataFeatures.handleBroadcastGroups(activeSock, from, text);
+      return spyFeatures.handleBroadcastGroups(activeSock, from, text);
     }
 
     // 14.10 Lançamento Meteórico (Multi-Grupos, Auto-Transbordamento & Aquecimento com Sub-Bots): !meteorico / !meteoro
@@ -2262,12 +2280,16 @@ class WhatsAppBotService {
       return this.handleViralRadarCommand(activeSock, from, text, isOwnerUser);
     }
 
-    // 15. Menu Geral de Comandos Gata Nina + Loja: !help / !bot / !comandos / !menu2 / !gatanina / !ajudatudo
-    if (/^(?:!|\/)?(?:help|bot|comandos|menu2|gatanina|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
+    // 15. Menu Geral de Comandos Spy Bot + Loja: !help / !bot / !comandos / !menu2 / !spy / !spybot / !ajudatudo
+    if (/^(?:!|\/)?(?:help|bot|comandos|menu2|spy|spybot|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
-      let gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
-        `💡 _Acesse este menu a qualquer momento enviando *!help* ou *!bot*_\n\n` +
-        `🎨 *Figurinhas & Mídia (Hatsune Miku + SpyBot + Gata Nina):*\n` +
+      const tunnelService = require('../services/tunnelService');
+      const tunnelUrl = tunnelService.getUrl();
+      const webUrl = tunnelUrl ? `${tunnelUrl}` : 'http://localhost:3000';
+
+      let spyMenu = `🕵️‍♂️ *CATÁLOGO DE COMANDOS SPY BOT + PAYBOT* 🕵️‍♂️\n\n` +
+        `💡 _Acesse este menu a qualquer momento enviando *!help*, *!bot* ou *!comandos*_\n\n` +
+        `🎨 *Figurinhas & Mídia (Hatsune Miku + SpyBot):*\n` +
         `• *!s* ou *!sticker* — Cria figurinha de foto ou vídeo\n` +
         `• *!qc <texto>* — Figurinha Quote Chat balão escuro oficial WhatsApp\n` +
         `• *!brat <texto>* — Figurinha viral Charli XCX verde-limão com desfoque\n` +
@@ -2276,21 +2298,23 @@ class WhatsAppBotService {
         `• *!tomp3* — Converte vídeo ou áudio respondido em música MP3\n` +
         `• *!toimg* — Converte figurinha em imagem JPG\n` +
         `• *!tts <texto>* — Converte texto em áudio falado pelo bot\n\n` +
-        `📥 *Downloads & Ferramentas na Nuvem:*\n` +
+        `📥 *Downloads & Ferramentas na Nuvem (Qualidade H = Alta / S = Padrão):*\n` +
+        `• *!play <música> [H|S]* — Baixa música do YouTube em MP3 com título oficial e capa\n` +
+        `• *!video <vídeo> [H|S]* — Baixa vídeo em MP4 sem limite de tamanho (H: 720p/1080p | S: 360p)\n` +
+        `• *A1, A2... / V1, V2...* — Atalhos rápidos com suporte a qualidade (ex: A1H, V1S)\n` +
+        `• *!lista <busca>* — Busca os 20 melhores vídeos do YouTube com atalhos\n` +
         `• *!ssweb <url>* — Print em alta resolução de qualquer página da internet\n` +
         `• *!tourl* — Transforma foto, vídeo, áudio ou figurinha em link público CDN\n` +
         `• *!gitclone <link>* — Baixa repositório GitHub inteiro em arquivo .ZIP\n` +
-        `• *!lista <busca>* — Busca os 20 melhores vídeos do YouTube com atalhos\n` +
-        `• *!play <música|número>* — Baixa música do YouTube em MP3\n` +
-        `• *!video <vídeo|número>* — Baixa vídeo em MP4 (sem limite de 50MB, até 200MB)\n` +
-        `• *A1, A2... / V1, V2...* — Atalhos rápidos para baixar áudio ou vídeo da !lista\n` +
         `• *!tiktok <link>* — Baixa vídeo do TikTok sem marca d'água\n` +
         `• *!ig <link>* — Baixa fotos e reels do Instagram\n` +
         `• *!x <link>* — Baixa vídeos e posts do Twitter / X\n` +
         `• *!fb <link>* — Baixa vídeos e reels do Facebook\n` +
         `• *!allstories <@usuario>* — Baixa todos os stories de um perfil\n` +
         `• *!scrapinsta <@usuario>* — Raio-X completo: métricas, rede e maturidade intelectual\n\n` +
-        `🔗 *Multi-Dispositivos & Sub-Bots (GataBot-MD):*\n` +
+        `🌐 *Acesso Remoto & Dashboard:* \n` +
+        `• *!tunnel* ou *!painel* — Link seguro HTTPS para acesso remoto ao painel web\n\n` +
+        `🔗 *Multi-Dispositivos & Sub-Bots (SpyBot Multi-Device):*\n` +
         `• *!serbot <numero>* ou *!code <numero>* — Conecta outro WhatsApp com código de 8 dígitos\n` +
         `• *!bots* ou *!subbots* — Lista todos os WhatsApps conectados e seus status\n` +
         `• *!stopbot* — Desconecta sua sessão de sub-bot\n` +
@@ -2310,7 +2334,7 @@ class WhatsAppBotService {
         `• *!viralscan* — Faz varredura de virais em todos os perfis agora\n\n`;
 
       if (isOwnerUser) {
-        gataMenu += `👑 *Controle de Sub-Bots & Divulgação (Exclusivo Dono / Bot Principal):*\n` +
+        spyMenu += `👑 *Controle de Sub-Bots & Divulgação (Exclusivo Dono / Bot Principal):*\n` +
           `• *!painelsubbots* — Painel consolidado do exército de sub-bots\n` +
           `• *!divulgar <mensagem>* — Disparo em massa com Spintax via sub-bots para leads\n` +
           `• *!promover <id_produto>* — Dispara promoção do catálogo via sub-bots\n` +
@@ -2321,7 +2345,7 @@ class WhatsAppBotService {
           `• *!setowner <numero>* — Define número do Dono\n\n`;
       }
 
-      gataMenu += `🤖 *Inteligência Artificial & Utilitários SpyBot:*\n` +
+      spyMenu += `🤖 *Inteligência Artificial & Utilitários SpyBot:*\n` +
         `• *!moedas* — Cotações em tempo real (USD, EUR, GBP, USDT, BTC e ETH)\n` +
         `• *!fazernick <texto>* ou *!tabela* — 20 estilos de fontes elegantes para nicks\n` +
         `• *!conselhobiblico* — Versículo bíblico e reflexão de sabedoria\n` +
@@ -2366,10 +2390,10 @@ class WhatsAppBotService {
         `• *!urgente <mensagem>* — Emite alerta crítico com som e prioridade\n` +
         `• *!avisos* — Lista os avisos ativos no sistema\n` +
         `• *!confirmaraviso <id>* — Confirma recebimento ou responde\n\n` +
-        `🌐 *Painel Web Completo:* http://localhost:3000\n` +
+        `🌐 *Painel Web:* ${webUrl}\n` +
         `🛡️ *Moderação de Grupos:* Envie *!admin* para ver comandos de gestão.`;
 
-      return this.sendMessage(from, gataMenu);
+      return this.sendMessage(from, spyMenu);
     }
 
     // Comandos de menu

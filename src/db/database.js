@@ -477,7 +477,7 @@ function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_support_tickets ON support_tickets(status, platform, seller_id);
 
-    -- Sistema de Advertências (Gata Nina Security)
+    -- Sistema de Advertências (Spy Security)
     CREATE TABLE IF NOT EXISTS group_warnings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id TEXT NOT NULL,
@@ -488,7 +488,7 @@ function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_group_warnings ON group_warnings(group_id, user_phone);
 
-    -- Sistema de Fidelidade & Gamificação (Gata Nina Loyalty / RPG)
+    -- Sistema de Fidelidade & Gamificação (Spy Loyalty / RPG)
     CREATE TABLE IF NOT EXISTS user_loyalty (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       platform TEXT NOT NULL DEFAULT 'whatsapp',

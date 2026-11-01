@@ -321,10 +321,10 @@ function createServer() {
       const beforeHeap = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
 
       const db = require('../db/database');
-      const gataFeatures = require('../services/gataFeaturesService');
+      const spyFeatures = require('../services/spyFeaturesService');
       if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
       if (typeof whatsappBot.cleanupMemory === 'function') whatsappBot.cleanupMemory();
-      if (typeof gataFeatures.cleanupMemory === 'function') gataFeatures.cleanupMemory();
+      if (typeof spyFeatures.cleanupMemory === 'function') spyFeatures.cleanupMemory();
       if (typeof global.gc === 'function') global.gc();
 
       const afterRss = Math.round(process.memoryUsage().rss / 1024 / 1024);
@@ -997,7 +997,7 @@ function createServer() {
       WELCOME_MESSAGE: current.WELCOME_MESSAGE || '👋 Olá! Seja muito bem-vindo.',
       SUPPORT_CONTACT: current.SUPPORT_CONTACT || '@suporte',
 
-      // Automações, Moderação de Grupos & Segurança Gata Nina
+      // Automações, Moderação de Grupos & Segurança Spy
       ANTILINK_DEFAULT: current.ANTILINK_DEFAULT === 'true',
       ANTIDELETE_DEFAULT: current.ANTIDELETE_DEFAULT !== 'false',
       ANTIFAKE_DEFAULT: current.ANTIFAKE_DEFAULT !== 'false',
@@ -1140,7 +1140,7 @@ function createServer() {
       models.setSetting('PUBLIC_URL', body.PUBLIC_URL.trim().replace(/\/$/, ''));
     }
 
-    // Automações, Moderação de Grupos & Segurança Gata Nina
+    // Automações, Moderação de Grupos & Segurança Spy
     if (body.ANTILINK_DEFAULT !== undefined) {
       models.setSetting('ANTILINK_DEFAULT', String(body.ANTILINK_DEFAULT));
     }
@@ -2804,6 +2804,30 @@ function createServer() {
       const id = Number(req.params.id);
       models.archiveNotice(id);
       res.json({ success: true, archived: id });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // 19. TÚNEL REMOTO CLOUDFLARE (ACESSO EXTERNO)
+  // ==========================================
+  app.get('/api/tunnel', (req, res) => {
+    try {
+      const tunnelService = require('../services/tunnelService');
+      const url = tunnelService.getUrl();
+      res.json({ success: true, url, active: !!url });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tunnel/restart', async (req, res) => {
+    try {
+      const tunnelService = require('../services/tunnelService');
+      const config = require('../config');
+      const url = await tunnelService.restart(config.port);
+      res.json({ success: true, url, active: !!url });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

@@ -13,6 +13,8 @@ let armyQrPollingInterval = null;
 document.addEventListener('DOMContentLoaded', () => {
   initNav();
   loadAllData();
+  checkTunnelStatus();
+  setInterval(checkTunnelStatus, 20000);
   renderCommandsTable();
   refreshSystemPing();
 
@@ -1777,7 +1779,7 @@ async function loadSettings() {
       document.getElementById('whLivepix').innerText = cfg.webhooks.livepix;
     }
 
-    // Automações e Segurança Gata Nina
+    // Automações e Segurança Spy
     if (document.getElementById('cfgAntiLinkDefault')) {
       document.getElementById('cfgAntiLinkDefault').checked = cfg.ANTILINK_DEFAULT === true;
     }
@@ -1886,7 +1888,7 @@ async function saveSettings(e) {
     AFFILIATION_PRODUCT_RESTRICTED: document.getElementById('cfgAffiliationProductRestricted')?.checked ?? false,
     PUBLIC_URL: document.getElementById('cfgPublicUrl').value,
 
-    // Automações, Moderação de Grupos & Segurança Gata Nina
+    // Automações, Moderação de Grupos & Segurança Spy
     ANTILINK_DEFAULT: document.getElementById('cfgAntiLinkDefault')?.checked ?? false,
     ANTIDELETE_DEFAULT: document.getElementById('cfgAntiDeleteDefault')?.checked ?? true,
     ANTIFAKE_DEFAULT: document.getElementById('cfgAntiFakeDefault')?.checked ?? true,
@@ -6770,4 +6772,37 @@ async function archiveNotice(id) {
     await fetch(`/api/notices/${id}`, { method: 'DELETE' });
     loadNotices();
   } catch (_) {}
+}
+
+// ==========================================
+// TÚNEL REMOTO CLOUDFLARE (ACESSO EXTERNO)
+// ==========================================
+async function checkTunnelStatus() {
+  try {
+    const res = await fetch('/api/tunnel');
+    const data = await res.json();
+    const badge = document.getElementById('tunnelStatusBadge');
+    const text = document.getElementById('tunnelStatusText');
+    const btn = document.getElementById('btnCopyTunnel');
+    if (!badge || !text) return;
+
+    if (data.active && data.url) {
+      window.remoteTunnelUrl = data.url;
+      text.innerHTML = `Remoto: <a href="${data.url}" target="_blank" style="color: #60a5fa; text-decoration: underline; font-weight: 600;">${data.url.replace('https://', '')}</a>`;
+      if (btn) btn.style.display = 'inline-block';
+      badge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      badge.style.background = 'rgba(16, 185, 129, 0.15)';
+      badge.style.color = '#34d399';
+    } else {
+      text.textContent = 'Remoto: Conectando...';
+      if (btn) btn.style.display = 'none';
+    }
+  } catch (_) {}
+}
+
+function copyTunnelUrl() {
+  if (window.remoteTunnelUrl) {
+    navigator.clipboard.writeText(window.remoteTunnelUrl);
+    showToast('Link de acesso remoto copiado com sucesso!');
+  }
 }

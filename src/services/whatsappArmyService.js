@@ -101,7 +101,7 @@ class WhatsAppArmyService {
         if (v && v.version) version = v.version;
       } catch (_) {}
 
-      // Configuração baseada na arquitetura multi-device do GataBot-MD com perfil realista
+      // Configuração baseada na arquitetura multi-device do SpyBot-MD com perfil realista
       const sock = makeWASocket({
         version,
         auth: {

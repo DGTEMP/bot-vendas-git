@@ -30,6 +30,12 @@ async function bootstrap() {
   server.listen(config.port, () => {
     console.log(`🌐 [Painel Web & API] Rodando em: http://localhost:${config.port}`);
     console.log(`🔔 [Webhook Binance] Endpoint: http://localhost:${config.port}/api/binance/webhook`);
+
+    // Inicia Túnel Remoto Cloudflare para acesso externo seguro (HTTPS)
+    const tunnelService = require('./services/tunnelService');
+    tunnelService.start(config.port).catch(err => {
+      console.warn('⚠️ [Tunnel] Falha ao iniciar túnel:', err.message);
+    });
   });
 
   // 2. Inicia Cron de Verificação Automática (Polling Binance + Expiração VIP)
@@ -62,12 +68,12 @@ async function bootstrap() {
 
   // 6. Monitor & Coletor Automático de Otimização de Memória RAM e Ping
   const db = require('./db/database');
-  const gataFeatures = require('./services/gataFeaturesService');
+  const spyFeatures = require('./services/spyFeaturesService');
   const memoryCleanupInterval = setInterval(() => {
     try {
       if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
       if (typeof whatsappBot.cleanupMemory === 'function') whatsappBot.cleanupMemory();
-      if (typeof gataFeatures.cleanupMemory === 'function') gataFeatures.cleanupMemory();
+      if (typeof spyFeatures.cleanupMemory === 'function') spyFeatures.cleanupMemory();
       if (typeof global.gc === 'function') global.gc();
     } catch (_) {}
   }, 300000); // Executa a cada 5 minutos
@@ -76,6 +82,8 @@ async function bootstrap() {
   const shutdown = async () => {
     console.log('\n🛑 Encerrando serviços graciosamente...');
     clearInterval(memoryCleanupInterval);
+    const tunnelService = require('./services/tunnelService');
+    tunnelService.stop();
     subscriptionCron.stop();
     await telegramBot.stop();
     await whatsappBot.stop();

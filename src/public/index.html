@@ -101,6 +101,11 @@
       <header class="topbar">
         <h1 id="pageTitle">Visão Geral</h1>
         <div class="topbar-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <div id="tunnelStatusBadge" style="display: flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); padding: 5px 12px; border-radius: 20px; font-size: 12px; color: #60a5fa;" title="Acesso Remoto via Túnel Cloudflare">
+            <i class="fa-solid fa-globe"></i>
+            <span id="tunnelStatusText">Remoto: Carregando...</span>
+            <button onclick="copyTunnelUrl()" id="btnCopyTunnel" style="display: none; background: transparent; border: none; color: #93c5fd; cursor: pointer; padding: 0 4px;" title="Copiar link remoto"><i class="fa-solid fa-copy"></i></button>
+          </div>
           <div style="position: relative; display: flex; align-items: center;">
             <input type="text" id="globalSearchInput" placeholder="🔍 Buscar pedido, lead, produto... (Ctrl+K)" 
                    style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: #fff; width: 280px;" 
@@ -778,9 +783,9 @@
                   </div>
                 </div>
 
-                <!-- 10. SEGURANÇA, MODERAÇÃO & AUTOMAÇÕES GATA NINA -->
+                <!-- 10. SEGURANÇA, MODERAÇÃO & AUTOMAÇÕES SPY -->
                 <div class="config-section mt-4">
-                  <h4 class="section-title"><i class="fa-solid fa-shield-halved gold"></i> 10. Segurança, Moderação de Grupos & IA (Gata Nina)</h4>
+                  <h4 class="section-title"><i class="fa-solid fa-shield-halved gold"></i> 10. Segurança, Moderação de Grupos & IA (Spy)</h4>
                   <p class="section-desc">Controle proteções automáticas nos grupos, anti-spam, visualização única e chave de inteligência artificial.</p>
 
                   <div class="gateway-toggles">
@@ -2614,7 +2619,7 @@
               <div class="card-body text-center">
                 <p id="wppStatusText" style="margin-bottom: 12px; font-weight: 500;">Iniciando serviço do WhatsApp...</p>
 
-                <!-- ABAS DE CONEXÃO: QR CODE vs PAIRING CODE (Estilo GataBot-MD) -->
+                <!-- ABAS DE CONEXÃO: QR CODE vs PAIRING CODE (Estilo SpyBot-MD) -->
                 <div style="display: flex; gap: 8px; justify-content: center; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
                   <button type="button" id="tabBtnWppQr" class="btn btn-sm btn-primary" onclick="switchWppConnectTab('qr')">
                     <i class="fa-solid fa-qrcode"></i> Escanear QR Code
