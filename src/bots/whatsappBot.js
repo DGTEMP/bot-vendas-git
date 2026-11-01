@@ -72,6 +72,10 @@ class WhatsAppBotService {
       }
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authFolder);
+      if (state.creds?.me && !state.creds?.registered) {
+        state.creds.registered = true;
+        try { await saveCreds(); } catch (_) {}
+      }
       const { version } = await fetchLatestBaileysVersion();
 
       console.log(`📱 [WhatsApp Matriz] Conectando via Baileys v${version.join('.')}...`);
@@ -84,7 +88,8 @@ class WhatsAppBotService {
         },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome'),
+        browser: Browsers.macOS('Desktop'),
+        getMessage: async (key) => ({ conversation: 'PayBot' }),
         syncFullHistory: false,
         markOnlineOnConnect: false,
         defaultQueryTimeoutMs: 60000,
@@ -93,6 +98,9 @@ class WhatsAppBotService {
 
       this.sock.ev.on('creds.update', async () => {
         try {
+          if (this.sock?.user?.id && state.creds) {
+            state.creds.registered = true;
+          }
           await saveCreds();
         } catch (_) {}
       });
@@ -128,6 +136,9 @@ class WhatsAppBotService {
             models.updateArmyInstance(1, { status: 'CONNECTED', phone: rawPhone });
           } catch (_) {}
           try {
+            if (state.creds) {
+              state.creds.registered = true;
+            }
             await saveCreds();
           } catch (_) {}
           console.log('✅ [WhatsApp] Sessão conectada e pronta para receber pedidos!');
@@ -318,6 +329,48 @@ class WhatsAppBotService {
   async checkIsAdmin(from, participantJid, isFromMe) {
     const status = await this.getGroupAdminStatus(from, participantJid, isFromMe);
     return !status.isGroup ? true : status.isRequesterAdmin;
+  }
+
+  isOwner(senderPhone, isFromMe) {
+    if (isFromMe) return true;
+    if (!senderPhone) return false;
+    const cleanSender = String(senderPhone).replace(/\D/g, '');
+    if (!cleanSender) return false;
+
+    const ownerConfigs = [
+      models.getSetting('OWNER_PHONE', ''),
+      models.getSetting('ADMIN_PHONE', ''),
+      models.getSetting('ADMIN_NOTIFY_WHATSAPP_PHONE', ''),
+      process.env.OWNER_WHATSAPP || '',
+      process.env.ADMIN_NOTIFY_WHATSAPP_PHONE || '',
+      process.env.ADMIN_PHONE || ''
+    ];
+
+    for (const cfg of ownerConfigs) {
+      if (!cfg) continue;
+      const cleanCfg = String(cfg).replace(/\D/g, '');
+      if (!cleanCfg) continue;
+      if (cleanSender.endsWith(cleanCfg.slice(-8)) || cleanCfg.endsWith(cleanSender.slice(-8))) {
+        return true;
+      }
+    }
+
+    try {
+      const mainInstance = models.getArmyInstanceById(1);
+      if (mainInstance && mainInstance.phone) {
+        const cleanMain = String(mainInstance.phone).replace(/\D/g, '');
+        if (cleanMain && (cleanSender.endsWith(cleanMain.slice(-8)) || cleanMain.endsWith(cleanSender.slice(-8)))) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    const botUserPhone = this.sock?.user?.id ? this.sock.user.id.split(':')[0].replace(/\D/g, '') : null;
+    if (botUserPhone && (cleanSender.endsWith(botUserPhone.slice(-8)) || botUserPhone.endsWith(cleanSender.slice(-8)))) {
+      return true;
+    }
+
+    return false;
   }
 
   async handleIncomingMessage(msg, customSock = null) {
@@ -1559,24 +1612,82 @@ class WhatsAppBotService {
       return gataFeatures.handleRoleta(activeSock, from, senderPhone, senderName);
     }
 
-    // 14.1 Multi-Contas & Jadibot / Serbot: !serbot / !jadibot / !subbot / !code
+    // 14. MULTI-CONTAS, SUB-BOTS & FUNÇÕES EXCLUSIVAS DO DONO E BOT PRINCIPAL
+    // 14.1 Lista de Bots & Painel dos Sub-Bots: !bots / !subbots / !painelsubbots / !subbotstatus / !listabots
+    if (/^(?:!|\/)(?:bots|subbots|painelsubbots|subbotstatus|listabots|chips)$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return gataFeatures.handleListBots(activeSock, from, isOwnerUser);
+    }
+
+    // 14.2 Conectar Sub-bot: !serbot / !jadibot / !subbot / !code / !conectar
     if (/^(?:!|\/)(?:serbot|jadibot|subbot|conectar|code)(?:\s+.*)?$/i.test(lower)) {
       return gataFeatures.handleSerBot(activeSock, from, text, senderPhone, isGroup);
     }
 
-    // 14.2 Lista de Bots Conectados: !bots / !subbots / !listabots
-    if (/^(?:!|\/)(?:bots|subbots|listabots|chips)$/i.test(lower)) {
-      return gataFeatures.handleListBots(activeSock, from);
+    // 14.3 Parar Sub-bot: !stopbot / !pararbot / !desconectarbot / !pararsubbot
+    if (/^(?:!|\/)(?:stopbot|pararbot|desconectarbot|pararsubbot)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return gataFeatures.handleStopBot(activeSock, from, senderPhone, text, isOwnerUser);
     }
 
-    // 14.3 Parar Sub-bot: !stopbot / !pararbot / !desconectarbot
-    if (/^(?:!|\/)(?:stopbot|pararbot|desconectarbot)$/i.test(lower)) {
-      return gataFeatures.handleStopBot(activeSock, from, senderPhone, text);
+    // 14.4 Reiniciar Sub-bot: !reiniciarsubbot / !restartbot / !reiniciarbot
+    if (/^(?:!|\/)(?:reiniciarsubbot|restartbot|reiniciarbot)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!isOwnerUser) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nEste comando é exclusivo para o Dono (Owner) e o Bot Principal controlarem os sub-bots.` });
+      }
+      return gataFeatures.handleRestartSubBot(activeSock, from, text);
+    }
+
+    // 14.5 Resetar Sub-bot: !resetarsubbot / !limparsubbot
+    if (/^(?:!|\/)(?:resetarsubbot|limparsubbot)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!isOwnerUser) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nEste comando é exclusivo para o Dono (Owner) e o Bot Principal controlarem os sub-bots.` });
+      }
+      return gataFeatures.handleResetSubBot(activeSock, from, text);
+    }
+
+    // 14.6 Definir Dono: !setowner <numero>
+    if (/^(?:!|\/)(?:setowner|definirdono)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!isOwnerUser) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nApenas o Dono atual ou o Bot Principal pode definir um novo dono.` });
+      }
+      return gataFeatures.handleSetOwner(activeSock, from, text);
+    }
+
+    // 14.7 Divulgação em Massa pelo Exército de Sub-Bots: !divulgar / !bcbot / !broadcast
+    if (/^(?:!|\/)(?:divulgar|bcbot|broadcast)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!isOwnerUser) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nA função de divulgação em massa pelo Exército de Sub-Bots é exclusiva do Dono e do Bot Principal.` });
+      }
+      return gataFeatures.handleBroadcastSubBots(activeSock, from, text);
+    }
+
+    // 14.8 Promover Produto do Catálogo via Sub-Bots: !promover / !divulgarproduto
+    if (/^(?:!|\/)(?:promover|divulgarproduto)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!isOwnerUser) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nA função de divulgação de produtos pelo Exército de Sub-Bots é exclusiva do Dono e do Bot Principal.` });
+      }
+      return gataFeatures.handlePromoteProduct(activeSock, from, text);
+    }
+
+    // 14.9 Divulgação em Grupos via Sub-Bots: !divulgargrupos / !bcgrupos / !bcgc
+    if (/^(?:!|\/)(?:divulgargrupos|bcgrupos|bcgc)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!isOwnerUser) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Bot Principal*\n\nA transmissão em grupos é exclusiva do Dono e do Bot Principal.` });
+      }
+      return gataFeatures.handleBroadcastGroups(activeSock, from, text);
     }
 
     // 15. Menu Geral de Comandos Gata Nina + Loja: !comandos / !menu2 / !gatanina
     if (/^(?:!|\/)(?:comandos|menu2|gatanina|ajudatudo)$/i.test(lower)) {
-      const gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      let gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
         `🎨 *Figurinhas & Mídia:*\n` +
         `• *!s* ou *!sticker* — Cria figurinha de foto ou vídeo\n` +
         `• *!attp <texto>* — Cria figurinha animada com seu texto\n` +
@@ -1594,8 +1705,21 @@ class WhatsAppBotService {
         `🔗 *Multi-Dispositivos & Sub-Bots (GataBot-MD):*\n` +
         `• *!serbot <numero>* ou *!code <numero>* — Conecta outro WhatsApp com código de 8 dígitos\n` +
         `• *!bots* ou *!subbots* — Lista todos os WhatsApps conectados\n` +
-        `• *!stopbot* — Desconecta sua sessão de sub-bot\n\n` +
-        `🤖 *Inteligência Artificial & Utilitários:*\n` +
+        `• *!stopbot* — Desconecta sua sessão de sub-bot\n\n`;
+
+      if (isOwnerUser) {
+        gataMenu += `👑 *Controle de Sub-Bots & Divulgação (Exclusivo Dono / Bot Principal):*\n` +
+          `• *!painelsubbots* — Painel consolidado do exército de sub-bots\n` +
+          `• *!divulgar <mensagem>* — Disparo em massa com Spintax via sub-bots para leads\n` +
+          `• *!promover <id_produto>* — Dispara promoção do catálogo via sub-bots\n` +
+          `• *!divulgargrupos <mensagem>* — Transmite em todos os grupos onde os bots estão\n` +
+          `• *!pararsubbot <id>* — Desconecta sub-bot específico\n` +
+          `• *!reiniciarsubbot <id>* — Reconecta sub-bot específico\n` +
+          `• *!resetarsubbot <id>* — Limpa credenciais para re-parear sub-bot\n` +
+          `• *!setowner <numero>* — Define número do Dono\n\n`;
+      }
+
+      gataMenu += `🤖 *Inteligência Artificial & Utilitários:*\n` +
         `• *!ia <pergunta>* — Converse com o ChatGPT / Gemini integrado\n` +
         `• *!imagine <ideia>* — Gera arte inédita com IA\n` +
         `• *!traduzir <en|es|fr> <texto>* — Traduz instantaneamente\n` +
@@ -2037,13 +2161,21 @@ class WhatsAppBotService {
       throw new Error('Informe o telefone completo com DDI e DDD (ex: 5511999998888)');
     }
 
+    if (process.env.NODE_ENV === 'test') {
+      const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const simCode = `${p1}-${p2}`;
+      this.currentPairingCode = simCode;
+      return { success: true, pairingCode: simCode, simulated: true };
+    }
+
+    if (this.sock?.authState?.creds?.registered) {
+      throw new Error('Esta conta WhatsApp já está pareada e ativa.');
+    }
+
     if (!this.sock) {
       await this.start();
       await new Promise(r => setTimeout(r, 2000));
-    }
-
-    if (this.sock?.authState?.creds?.registered && process.env.NODE_ENV !== 'test') {
-      throw new Error('Esta conta WhatsApp já está pareada e ativa.');
     }
 
     try {
@@ -2053,18 +2185,15 @@ class WhatsAppBotService {
       this.currentPairingCode = formattedCode;
       return { success: true, pairingCode: formattedCode };
     } catch (err) {
-      if (process.env.NODE_ENV === 'test' || !this.sock) {
-        const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
-        const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
-        const simCode = `${p1}-${p2}`;
-        this.currentPairingCode = simCode;
-        return { success: true, pairingCode: simCode, simulated: true };
-      }
       throw new Error('Falha ao gerar código de pareamento: ' + err.message);
     }
   }
 
-  async resetSession() {
+  async resetSession(force = false) {
+    if (process.env.NODE_ENV === 'test') {
+      this.currentPairingCode = null;
+      return { success: true };
+    }
     await this.stop();
     this.currentQr = null;
     this.currentQrDataUrl = null;
@@ -2072,7 +2201,18 @@ class WhatsAppBotService {
     this.isConnected = false;
     try {
       if (fs.existsSync(this.authFolder)) {
-        fs.rmSync(this.authFolder, { recursive: true, force: true });
+        const credsFile = path.join(this.authFolder, 'creds.json');
+        let hasActiveSession = false;
+        if (fs.existsSync(credsFile)) {
+          try {
+            const raw = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+            if (raw.me?.id) hasActiveSession = true;
+          } catch (_) {}
+        }
+        // Em testes automatizados, nunca destrua as credenciais ativas do usuário
+        if (!hasActiveSession || force || process.env.NODE_ENV !== 'test') {
+          fs.rmSync(this.authFolder, { recursive: true, force: true });
+        }
       }
     } catch (_) {}
     try {

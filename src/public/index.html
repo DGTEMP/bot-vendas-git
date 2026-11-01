@@ -1263,6 +1263,109 @@
             </div>
           </div>
 
+          <!-- 0. Central de Divulgação & Controle do Dono (Owner Broadcast Hub) -->
+          <div class="card" style="margin-bottom: 25px; border-left: 4px solid var(--primary-gold);">
+            <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3><i class="fa-solid fa-crown gold"></i> Central de Divulgação do Dono & Exército de Sub-Bots</h3>
+                <p class="section-desc">Transmita mensagens comerciais e campanhas balanceadas via todos os sub-bots com Spintax anti-ban e controle total de entrega.</p>
+              </div>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+                  <span style="font-size: 12px; color: var(--text-muted);"><i class="fa-solid fa-user-shield gold"></i> Telefone do Dono:</span>
+                  <input type="text" id="ownerPhoneInput" placeholder="5511999998888" style="background: transparent; border: none; color: #fff; font-weight: bold; width: 140px; font-size: 13px;" />
+                  <button class="btn btn-sm btn-secondary" onclick="saveOwnerPhone()" title="Salvar Telefone do Dono">
+                    <i class="fa-solid fa-floppy-disk"></i> Salvar
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+                <!-- Coluna Esquerda: Mensagem com Spintax e Promoção de Produtos -->
+                <div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="font-weight: 600; font-size: 13px;">Mensagem de Divulgação (Suporta Spintax {A|B}):</label>
+                    <div style="display: flex; gap: 5px;">
+                      <button type="button" class="btn btn-xs btn-secondary" onclick="insertSpintaxTag('{Olá|Oi|E aí}')">+ Saudação</button>
+                      <button type="button" class="btn btn-xs btn-secondary" onclick="insertSpintaxTag('{amigo|cliente|parceiro}')">+ Cliente</button>
+                      <button type="button" class="btn btn-xs btn-secondary" onclick="insertSpintaxTag('{produto}')">+ Produto</button>
+                      <button type="button" class="btn btn-xs btn-secondary" onclick="insertSpintaxTag('{link}')">+ Link</button>
+                    </div>
+                  </div>
+                  <textarea id="broadcastMessageInput" class="form-control" rows="5" placeholder="{Olá|Oi|E aí} {amigo|cliente}! Temos novidades exclusivas hoje no catálogo. Aproveite! Digite MENU para ver ofertas."></textarea>
+
+                  <div style="display: flex; gap: 12px; margin-top: 12px; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 220px;">
+                      <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Ou Promova um Produto do Catálogo:</label>
+                      <select id="broadcastProductSelect" class="form-control" onchange="applyProductBroadcastTemplate()">
+                        <option value="">-- Selecione um produto para autopreencher a copy --</option>
+                      </select>
+                    </div>
+                    <div style="flex: 1; min-width: 200px;">
+                      <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Modo de Transmissão:</label>
+                      <select id="broadcastTargetType" class="form-control" onchange="toggleBroadcastTargetInput()">
+                        <option value="leads">Todos os Leads da Base (Distribuição Anti-Ban)</option>
+                        <option value="groups">Todos os Grupos Conectados</option>
+                        <option value="custom">Lista Manual de Telefones</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div id="broadcastCustomTargetsBox" style="display: none; margin-top: 12px;">
+                    <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Telefones dos Destinatários (um por linha ou separados por vírgula):</label>
+                    <textarea id="broadcastCustomTargets" class="form-control" rows="3" placeholder="5511999998888&#10;5521988887777"></textarea>
+                  </div>
+
+                  <div style="margin-top: 15px; display: flex; gap: 10px;">
+                    <button class="btn btn-primary" id="btnDispatchBroadcast" onclick="dispatchOwnerBroadcast()">
+                      <i class="fa-solid fa-bullhorn"></i> Disparar Divulgação pelo Exército
+                    </button>
+                    <button class="btn btn-secondary" onclick="previewBroadcastSpintax()">
+                      <i class="fa-solid fa-eye"></i> Visualizar Variação Spintax
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Coluna Direita: Status dos Sub-Bots & Capacidade -->
+                <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+                  <h4 style="font-size: 14px; margin-bottom: 12px; color: var(--primary-gold);"><i class="fa-solid fa-robot"></i> Status do Exército</h4>
+                  <div style="margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                      <span style="color: var(--text-muted);">Sub-Bots Online:</span>
+                      <strong id="summaryOnlineSubBots" style="color: #10b981;">0 / 0</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                      <span style="color: var(--text-muted);">Disparos Hoje:</span>
+                      <strong id="summaryTotalSentToday">0</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                      <span style="color: var(--text-muted);">Capacidade Restante:</span>
+                      <strong id="summaryCapacityRemaining">0 msgs</strong>
+                    </div>
+                  </div>
+                  <div style="border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 10px;">
+                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 6px;">COMANDOS RÁPIDOS NO CHAT:</span>
+                    <ul style="font-size: 11px; color: var(--text-muted); padding-left: 15px; line-height: 1.6;">
+                      <li><code style="color: #f59e0b;">!divulgar &lt;msg&gt;</code> — Transmissão geral</li>
+                      <li><code style="color: #f59e0b;">!promover &lt;id&gt;</code> — Promover produto</li>
+                      <li><code style="color: #f59e0b;">!divulgargrupos &lt;msg&gt;</code> — Envio em grupos</li>
+                      <li><code style="color: #f59e0b;">!painelsubbots</code> — Ver métricas</li>
+                      <li><code style="color: #f59e0b;">!pararsubbot &lt;id&gt;</code> — Pausar sub-bot</li>
+                      <li><code style="color: #f59e0b;">!reiniciarsubbot &lt;id&gt;</code> — Reconectar</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Box de Relatório de Divulgação -->
+              <div id="broadcastReportBox" style="display: none; margin-top: 15px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 8px; padding: 15px;">
+                <h4 style="color: #10b981; font-size: 14px; margin-bottom: 8px;"><i class="fa-solid fa-circle-check"></i> Relatório de Disparo Concluído</h4>
+                <div id="broadcastReportContent" style="font-size: 13px;"></div>
+              </div>
+            </div>
+          </div>
+
           <!-- 1. Gestão de Instâncias / Chips -->
           <div class="card" style="margin-bottom: 25px;">
             <div class="card-header">

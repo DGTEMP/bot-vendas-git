@@ -1996,7 +1996,10 @@ async function loadArmyData() {
     loadArmyInstances(),
     loadArmyLinks(),
     loadArmyCampaigns(),
-    loadFunnelStats()
+    loadFunnelStats(),
+    loadOwnerSettings(),
+    loadSubBotsSummary(),
+    loadBroadcastProducts()
   ]);
   updateArmyMetrics();
 }
@@ -4538,5 +4541,207 @@ async function deleteWhatsAppAccount(id) {
     }
   } catch (err) {
     alert('Erro ao excluir conta: ' + err.message);
+  }
+}
+
+
+// ==========================================
+// 19. CENTRAL DE DIVULGAÇÃO DO DONO & CONTROLE DE SUB-BOTS
+// ==========================================
+
+async function loadOwnerSettings() {
+  try {
+    const res = await fetch('/api/army/owner');
+    const data = await res.json();
+    const input = document.getElementById('ownerPhoneInput');
+    if (input && data.owner_phone) {
+      input.value = data.owner_phone;
+    }
+  } catch (_) {}
+}
+
+async function saveOwnerPhone() {
+  const input = document.getElementById('ownerPhoneInput');
+  if (!input) return;
+  const phone = input.value.trim();
+  if (!phone) {
+    alert('Por favor, informe o telefone do dono.');
+    return;
+  }
+  try {
+    const res = await fetch('/api/army/set-owner', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert('👑 Dono atualizado com sucesso: +' + data.owner_phone);
+    } else {
+      alert('Erro: ' + (data.error || 'Falha ao salvar dono'));
+    }
+  } catch (err) {
+    alert('Erro ao salvar dono: ' + err.message);
+  }
+}
+
+async function loadSubBotsSummary() {
+  try {
+    const res = await fetch('/api/army/subbots/summary');
+    const data = await res.json();
+    const elOnline = document.getElementById('summaryOnlineSubBots');
+    if (elOnline) {
+      elOnline.innerText = `${data.onlineSubBots} / ${data.totalSubBots}`;
+    }
+    const elSent = document.getElementById('summaryTotalSentToday');
+    if (elSent) {
+      elSent.innerText = `${data.totalSentToday} msgs`;
+    }
+    const elCap = document.getElementById('summaryCapacityRemaining');
+    if (elCap) {
+      const remaining = Math.max(0, data.totalDailyCapacity - data.totalSentToday);
+      elCap.innerText = `${remaining} msgs`;
+    }
+  } catch (_) {}
+}
+
+function insertSpintaxTag(tag) {
+  const textarea = document.getElementById('broadcastMessageInput');
+  if (!textarea) return;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = textarea.value;
+  textarea.value = text.substring(0, start) + tag + text.substring(end);
+  textarea.focus();
+  textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+}
+
+async function loadBroadcastProducts() {
+  try {
+    const res = await fetch('/api/products');
+    const products = await res.json();
+    const select = document.getElementById('broadcastProductSelect');
+    if (!select) return;
+    select.innerHTML = '<option value="">-- Selecione um produto para autopreencher a copy --</option>';
+    products.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `[${p.id}] ${p.name} - R$ ${Number(p.price).toFixed(2)}`;
+      opt.dataset.name = p.name;
+      opt.dataset.price = Number(p.price).toFixed(2);
+      opt.dataset.desc = p.description || '';
+      select.appendChild(opt);
+    });
+  } catch (_) {}
+}
+
+function applyProductBroadcastTemplate() {
+  const select = document.getElementById('broadcastProductSelect');
+  const textarea = document.getElementById('broadcastMessageInput');
+  if (!select || !textarea || !select.value) return;
+
+  const opt = select.selectedOptions[0];
+  const name = opt.dataset.name;
+  const price = opt.dataset.price;
+  const desc = opt.dataset.desc || 'Produto de alta qualidade e entrega imediata!';
+
+  const template = `{🔥 OFERTA EXCLUSIVA|🚀 SUPER NOVIDADE|💎 OPORTUNIDADE IMPERDÍVEL}!\n\n` +
+    `*${name}*\n` +
+    `💰 Por apenas: *R$ ${price}*\n` +
+    `📝 ${desc}\n\n` +
+    `👉 {Para garantir o seu agora mesmo, envie|Peça já o seu enviando}: *MENU* ou *P${select.value}*`;
+
+  textarea.value = template;
+}
+
+function toggleBroadcastTargetInput() {
+  const select = document.getElementById('broadcastTargetType');
+  const box = document.getElementById('broadcastCustomTargetsBox');
+  if (!select || !box) return;
+  box.style.display = select.value === 'custom' ? 'block' : 'none';
+}
+
+function previewBroadcastSpintax() {
+  const textarea = document.getElementById('broadcastMessageInput');
+  if (!textarea || !textarea.value.trim()) {
+    alert('Digite uma mensagem com Spintax para pré-visualizar.');
+    return;
+  }
+  let preview = textarea.value;
+  // Resolve spintax simples no cliente para visualização imediata
+  preview = preview.replace(/\{([^{}]+)\}/g, (match, choices) => {
+    const parts = choices.split('|');
+    return parts[Math.floor(Math.random() * parts.length)].trim();
+  });
+  alert('✨ PRÉ-VISUALIZAÇÃO DE UMA VARIAÇÃO SPINTAX:\n\n' + preview);
+}
+
+async function dispatchOwnerBroadcast() {
+  const textarea = document.getElementById('broadcastMessageInput');
+  const targetSelect = document.getElementById('broadcastTargetType');
+  const customTargetsTextarea = document.getElementById('broadcastCustomTargets');
+  const btn = document.getElementById('btnDispatchBroadcast');
+  const reportBox = document.getElementById('broadcastReportBox');
+  const reportContent = document.getElementById('broadcastReportContent');
+
+  if (!textarea || !textarea.value.trim()) {
+    alert('Digite o texto da mensagem para disparar a divulgação.');
+    return;
+  }
+
+  const message = textarea.value.trim();
+  const targetType = targetSelect ? targetSelect.value : 'leads';
+  let targets = [];
+
+  if (targetType === 'custom') {
+    const raw = customTargetsTextarea ? customTargetsTextarea.value : '';
+    targets = raw.split(/[\n,;]+/).map(s => s.trim().replace(/\D/g, '')).filter(s => s.length >= 8);
+    if (targets.length === 0) {
+      alert('Informe ao menos um número de telefone válido na lista manual.');
+      return;
+    }
+  }
+
+  if (!confirm(`Confirmar disparo em massa pelo Exército de Sub-Bots?\n\nModo de Envio: ${targetType.toUpperCase()}\nAs mensagens serão distribuídas com proteção anti-ban e variação Spintax.`)) {
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Disparando pelo Exército...';
+  if (reportBox) reportBox.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/army/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        targetType,
+        targets
+      })
+    });
+    const result = await res.json();
+    if (res.ok) {
+      if (reportBox && reportContent) {
+        reportBox.style.display = 'block';
+        reportContent.innerHTML = `
+          <p><b>Sub-bots utilizados:</b> ${result.subBotsCount || 0}</p>
+          <p><b>Total de destinatários:</b> ${result.totalRecipients || 0}</p>
+          <p style="color: #10b981;"><b>Mensagens entregues com sucesso:</b> ${result.dispatched || 0} ✅</p>
+          <p style="color: #ef4444;"><b>Falhas registradas:</b> ${result.failed || 0} ❌</p>
+          <p style="margin-top: 8px; color: var(--text-muted); font-size: 12px;">${result.message || 'Transmissão concluída com sucesso!'}</p>
+        `;
+      }
+      alert('🚀 Divulgação concluída com sucesso!');
+      await loadSubBotsSummary();
+      await loadArmyInstances();
+    } else {
+      alert('Erro na transmissão: ' + (result.error || 'Falha ao disparar'));
+    }
+  } catch (err) {
+    alert('Erro de rede ao disparar transmissão: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-bullhorn"></i> Disparar Divulgação pelo Exército';
   }
 }

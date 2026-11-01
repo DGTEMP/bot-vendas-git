@@ -1372,18 +1372,22 @@ class GataFeaturesService {
     }
   }
 
-  // Comando !bots / !subbots / !listabots
-  async handleListBots(sock, from) {
+  // Comando !bots / !subbots / !listabots / !painelsubbots
+  async handleListBots(sock, from, isOwnerUser = false) {
     const whatsappArmyService = require('./whatsappArmyService');
+    const models = require('../db/models');
     try {
+      const summary = whatsappArmyService.getSubBotsStatusSummary();
       const accounts = whatsappArmyService.getAllAccounts();
       const onlineCount = accounts.filter(a => a.connected).length;
 
-      let msg = `📱 *CONTAS DE WHATSAPP CONECTADAS (MULTI-DEVICE)* 📱\n\n` +
-        `Total de contas cadastradas: *${accounts.length}* (${onlineCount} Online)\n\n`;
+      let msg = `📱 *EXÉRCITO DE BOTS & MULTI-CONTAS (CONTAS DE WHATSAPP CONECTADAS)* 📱\n\n` +
+        `Total de contas registradas: *${accounts.length}* (${onlineCount} Online)\n` +
+        `Mensagens enviadas hoje: *${summary.totalSentToday}*\n` +
+        `Capacidade diária: *${summary.totalDailyCapacity} msgs*\n\n`;
 
       accounts.forEach((a, idx) => {
-        const icon = a.is_main ? '👑' : '🤖';
+        const icon = a.is_main ? '👑 [Matriz Principal]' : `🤖 [Sub-Bot #${a.id}]`;
         const stIcon = a.connected ? '🟢 Conectado' : (a.hasQr ? '🟡 Aguardando QR' : '🔴 Desconectado');
         const phoneFormatted = a.phone ? `+${a.phone}` : 'Sem número registrado';
         msg += `${idx + 1}. ${icon} *${a.name}*\n` +
@@ -1392,6 +1396,17 @@ class GataFeaturesService {
                `   • Envios hoje: ${a.messages_sent_today || 0}/${a.daily_limit || 50}\n\n`;
       });
 
+      if (isOwnerUser) {
+        msg += `👑 *Comandos Exclusivos do Dono (Owner):*\n` +
+          `• *!divulgar <mensagem>* — Divulgação em massa com Spintax via sub-bots\n` +
+          `• *!promover <id_produto>* — Dispara oferta do produto via sub-bots\n` +
+          `• *!divulgargrupos <mensagem>* — Divulga em todos os grupos conectados\n` +
+          `• *!pararsubbot <id>* — Desconecta o sub-bot indicado\n` +
+          `• *!reiniciarsubbot <id>* — Reconecta o sub-bot indicado\n` +
+          `• *!resetarsubbot <id>* — Reseta credenciais do sub-bot indicado\n` +
+          `• *!setowner <numero>* — Altera o número do Dono\n\n`;
+      }
+
       msg += `💡 Para conectar mais um WhatsApp, envie *!serbot <numero>* ou use o Painel Web em http://localhost:3000 > *Conexões*!`;
       return sock.sendMessage(from, { text: msg });
     } catch (err) {
@@ -1399,14 +1414,34 @@ class GataFeaturesService {
     }
   }
 
-  // Comando !stopbot / !pararbot / !desconectarbot
-  async handleStopBot(sock, from, senderPhone, text) {
+  // Comando !stopbot / !pararbot / !desconectarbot / !pararsubbot
+  async handleStopBot(sock, from, senderPhone, text, isOwnerUser = false) {
     const whatsappArmyService = require('./whatsappArmyService');
     const models = require('../db/models');
     try {
+      const match = text.match(/\d+/);
+      const targetId = match ? parseInt(match[0], 10) : null;
+
+      // Se for o Dono e informou o ID da instância
+      if (isOwnerUser && targetId) {
+        const inst = models.getArmyInstanceById(targetId);
+        if (!inst) {
+          return sock.sendMessage(from, { text: `⚠️ Instância de sub-bot #${targetId} não encontrada.` });
+        }
+        if (inst.is_main) {
+          return sock.sendMessage(from, { text: `⚠️ A Matriz Principal não pode ser parada por este comando. Use o painel web se desejar desconectar.` });
+        }
+        await whatsappArmyService.stopInstance(targetId);
+        return sock.sendMessage(from, { text: `🛑 [Dono] Sub-bot #${targetId} (*${inst.name}*) foi desconectado com sucesso.` });
+      }
+
+      // Se não passou ID ou não é dono, busca o sub-bot pelo número de quem mandou
       const instances = models.getArmyInstances();
       const myInst = instances.find(i => !i.is_main && i.phone && senderPhone && i.phone.includes(senderPhone));
       if (!myInst) {
+        if (isOwnerUser) {
+          return sock.sendMessage(from, { text: `⚠️ Informe o ID do sub-bot que deseja parar. Exemplo: *!pararsubbot 2*` });
+        }
         return sock.sendMessage(from, { text: `⚠️ Nenhuma sessão secundária vinculada ao seu número para desconectar.` });
       }
 
@@ -1414,6 +1449,206 @@ class GataFeaturesService {
       return sock.sendMessage(from, { text: `🛑 Sua sessão de WhatsApp secundário (*${myInst.name}*) foi desconectada com sucesso.` });
     } catch (err) {
       return sock.sendMessage(from, { text: `❌ Erro ao desconectar: ${err.message}` });
+    }
+  }
+
+  // Comando !reiniciarsubbot / !restartbot <id>
+  async handleRestartSubBot(sock, from, text) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    const models = require('../db/models');
+    try {
+      const match = text.match(/\d+/);
+      const targetId = match ? parseInt(match[0], 10) : null;
+      if (!targetId) {
+        return sock.sendMessage(from, { text: `⚠️ Informe o ID do sub-bot para reiniciar. Exemplo: *!reiniciarsubbot 2*` });
+      }
+
+      const inst = models.getArmyInstanceById(targetId);
+      if (!inst) {
+        return sock.sendMessage(from, { text: `⚠️ Sub-bot #${targetId} não encontrado.` });
+      }
+
+      await sock.sendMessage(from, { text: `🔄 [Sub-Bot #${targetId}] Reiniciando conexão de *${inst.name}*...` });
+      await whatsappArmyService.startInstance(targetId);
+      return sock.sendMessage(from, { text: `✅ [Sub-Bot #${targetId}] Comando de reinicialização enviado com sucesso!` });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao reiniciar sub-bot: ${err.message}` });
+    }
+  }
+
+  // Comando !resetarsubbot / !limparsubbot <id>
+  async handleResetSubBot(sock, from, text) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    const models = require('../db/models');
+    try {
+      const match = text.match(/\d+/);
+      const targetId = match ? parseInt(match[0], 10) : null;
+      if (!targetId) {
+        return sock.sendMessage(from, { text: `⚠️ Informe o ID do sub-bot para resetar. Exemplo: *!resetarsubbot 2*` });
+      }
+
+      const inst = models.getArmyInstanceById(targetId);
+      if (!inst) {
+        return sock.sendMessage(from, { text: `⚠️ Sub-bot #${targetId} não encontrado.` });
+      }
+
+      await sock.sendMessage(from, { text: `♻️ [Sub-Bot #${targetId}] Limpando credenciais antigas de *${inst.name}*...` });
+      await whatsappArmyService.resetInstanceSession(targetId);
+      return sock.sendMessage(from, { text: `✅ [Sub-Bot #${targetId}] Sessão resetada com sucesso! Pronto para novo pareamento via *!serbot ${inst.phone || ''}* ou via Painel Web.` });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao resetar sub-bot: ${err.message}` });
+    }
+  }
+
+  // Comando !setowner <numero>
+  async handleSetOwner(sock, from, text) {
+    const models = require('../db/models');
+    try {
+      const rawArg = text.replace(/^(?:!|\/)(?:setowner|definirdono)\s*/i, '').trim();
+      let cleanPhone = rawArg.replace(/\D/g, '');
+      if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+        cleanPhone = '55' + cleanPhone;
+      }
+      if (!cleanPhone || cleanPhone.length < 10) {
+        return sock.sendMessage(from, { text: `⚠️ Informe o número com DDI e DDD. Exemplo: *!setowner 5511999998888*` });
+      }
+
+      models.setSetting('OWNER_PHONE', cleanPhone);
+      return sock.sendMessage(from, {
+        text: `👑 *DONO REGISTRADO COM SUCESSO!* 👑\n\n` +
+              `O número *+${cleanPhone}* foi cadastrado como Dono Supremo (Owner).\n` +
+              `Agora ele possui controle total sobre os sub-bots, transmissões em massa e gestão do exército de bots.`
+      });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao registrar dono: ${err.message}` });
+    }
+  }
+
+  // Comando !divulgar / !bcbot / !broadcast <mensagem>
+  async handleBroadcastSubBots(sock, from, text) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    const models = require('../db/models');
+    try {
+      const broadcastMsg = text.replace(/^(?:!|\/)(?:divulgar|bcbot|broadcast)\s*/i, '').trim();
+      if (!broadcastMsg) {
+        const guide = `📢 *CENTRAL DE DIVULGAÇÃO EM MASSA (EXÉRCITO DE BOTS)* 📢\n\n` +
+          `Este comando dispara sua mensagem através de *TODOS os sub-bots conectados* de forma balanceada e com proteção anti-ban!\n\n` +
+          `📝 *Como Usar:*\n` +
+          `*!divulgar <sua mensagem com Spintax>*\n\n` +
+          `🎯 *Exemplo Prático:*\n` +
+          `*!divulgar {Olá|Oi|E aí}! {Temos novidades incríveis|Confira as super promoções de hoje} no catálogo! Acesse nosso catálogo digitando MENU.*\n\n` +
+          `💡 *Recursos Automáticos:*\n` +
+          `• Variação de texto Spintax: \`{opção 1|opção 2|opção 3}\`\n` +
+          `• Intervalo seguro anti-ban entre disparos (2.5s a 4.5s)\n` +
+          `• Rotação round-robin entre todas as contas conectadas`;
+        return sock.sendMessage(from, { text: guide });
+      }
+
+      await sock.sendMessage(from, { text: `🚀 *Iniciando divulgação em massa pelo Exército de Sub-Bots...*\n\nDistribuindo mensagens entre as contas conectadas com proteção anti-ban. Aguarde o relatório de conclusão!` });
+
+      const result = await whatsappArmyService.broadcastViaAllSubBots({
+        message: broadcastMsg,
+        targetType: 'leads'
+      });
+
+      const report = `📊 *RELATÓRIO DE DIVULGAÇÃO CONCLUÍDO* 📊\n\n` +
+        `• Sub-bots empregados: *${result.subBotsCount}*\n` +
+        `• Total de destinatários: *${result.totalRecipients}*\n` +
+        `• Mensagens enviadas: *${result.dispatched}* ✅\n` +
+        `• Falhas/Erros: *${result.failed}* ❌\n\n` +
+        `✨ A carga foi distribuída entre os chips com variação Spintax ativa!`;
+
+      return sock.sendMessage(from, { text: report });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro no disparo de divulgação: ${err.message}` });
+    }
+  }
+
+  // Comando !promover / !divulgarproduto <id_produto>
+  async handlePromoteProduct(sock, from, text) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    const models = require('../db/models');
+    try {
+      const rawArg = text.replace(/^(?:!|\/)(?:promover|divulgarproduto)\s*/i, '').trim();
+      const match = rawArg.match(/\d+/);
+      const prodId = match ? parseInt(match[0], 10) : null;
+
+      const products = models.getProducts();
+      if (!prodId) {
+        let msg = `🛍️ *PROMOÇÃO DE PRODUTOS VIA SUB-BOTS* 🛍️\n\n` +
+          `Informe o ID do produto para divulgar automaticamente para a base de clientes!\n\n` +
+          `📦 *Produtos Disponíveis:*\n`;
+        products.forEach(p => {
+          msg += `• [ID ${p.id}] *${p.name}* — R$ ${Number(p.price).toFixed(2)}\n`;
+        });
+        msg += `\n👉 Para divulgar, envie: *!promover <id>*\nExemplo: *!promover 1*`;
+        return sock.sendMessage(from, { text: msg });
+      }
+
+      const product = products.find(p => p.id === prodId);
+      if (!product) {
+        return sock.sendMessage(from, { text: `⚠️ Produto com ID #${prodId} não foi encontrado no catálogo.` });
+      }
+
+      const promoCopy = `{🔥 OFERTA EXCLUSIVA|🚀 SUPER NOVIDADE|💎 OPORTUNIDADE IMPERDÍVEL}!\n\n` +
+        `*{produto_nome}*\n` +
+        `💰 Por apenas: *R$ {produto_preco}*\n` +
+        `📝 {produto_descricao}\n\n` +
+        `👉 {Para garantir o seu agora mesmo, envie|Peça já o seu enviando}: *MENU* ou *P${product.id}*`;
+
+      const formattedMessage = promoCopy
+        .replace(/\{produto_nome\}/g, product.name)
+        .replace(/\{produto_preco\}/g, Number(product.price).toFixed(2))
+        .replace(/\{produto_descricao\}/g, product.description || 'Produto de alta qualidade com entrega imediata!');
+
+      await sock.sendMessage(from, {
+        text: `🚀 *Promovendo "${product.name}" via Exército de Sub-Bots...*\n\nIniciando disparos com proteção anti-ban para a base de contatos. Aguarde!`
+      });
+
+      const result = await whatsappArmyService.broadcastViaAllSubBots({
+        message: formattedMessage,
+        targetType: 'leads',
+        vars: { product: product.name }
+      });
+
+      const report = `📊 *PROMOÇÃO DE "${product.name}" FINALIZADA* 📊\n\n` +
+        `• Sub-bots utilizados: *${result.subBotsCount}*\n` +
+        `• Destinatários: *${result.totalRecipients}*\n` +
+        `• Disparos com sucesso: *${result.dispatched}* ✅\n` +
+        `• Falhas: *${result.failed}* ❌`;
+
+      return sock.sendMessage(from, { text: report });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao promover produto: ${err.message}` });
+    }
+  }
+
+  // Comando !divulgargrupos / !bcgrupos <mensagem>
+  async handleBroadcastGroups(sock, from, text) {
+    const whatsappArmyService = require('./whatsappArmyService');
+    try {
+      const broadcastMsg = text.replace(/^(?:!|\/)(?:divulgargrupos|bcgrupos|bcgc)\s*/i, '').trim();
+      if (!broadcastMsg) {
+        return sock.sendMessage(from, {
+          text: `📢 *TRANSMISSÃO EM TODOS OS GRUPOS*\n\nUso: *!divulgargrupos <mensagem com Spintax>*\nExemplo: *!divulgargrupos {Atenção|Aviso}! {Promoção relâmpago liberada|Novo lote disponível}!*`
+        });
+      }
+
+      await sock.sendMessage(from, { text: `🚀 *Transmitindo em todos os grupos onde os bots são membros...* Aguarde o envio seguro.` });
+
+      const result = await whatsappArmyService.broadcastViaAllSubBots({
+        message: broadcastMsg,
+        targetType: 'groups'
+      });
+
+      return sock.sendMessage(from, {
+        text: `📊 *TRANSMISSÃO EM GRUPOS CONCLUÍDA* 📊\n\n` +
+              `• Grupos alcançados: *${result.dispatched}* de *${result.totalRecipients}*\n` +
+              `• Sub-bots empregados: *${result.subBotsCount}*\n` +
+              `• Falhas: *${result.failed}*`
+      });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro na transmissão em grupos: ${err.message}` });
     }
   }
 }

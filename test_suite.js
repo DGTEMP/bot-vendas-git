@@ -2640,6 +2640,159 @@ async function main() {
     });
   });
 
+    await runAsyncTest('Persistência de Sessões WhatsApp e Proteção de Credenciais (Session Auto-Lock)', async () => {
+    const fs = require('fs');
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const whatsappArmyService = require('./src/services/whatsappArmyService');
+    const path = require('path');
+
+    // 1. Verifica se creds.registered está definido como true se creds.me existir
+    const authFolder = path.join(__dirname, 'data', 'whatsapp_auth');
+    const credsFile = path.join(authFolder, 'creds.json');
+    if (fs.existsSync(credsFile)) {
+      const raw = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+      if (raw.me?.id) {
+        assert.strictEqual(raw.registered, true, 'Sessão com creds.me deve ter registered: true para não cair na reinicialização');
+      }
+    }
+
+    // 2. Verifica se resetSession em ambiente de teste não destrói credenciais reais ativas
+    const res = await whatsappBot.resetSession(false);
+    assert.strictEqual(res.success, true);
+    if (fs.existsSync(credsFile)) {
+      const after = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+      assert(after.me?.id, 'Credenciais ativas reais não devem ser apagadas por testes');
+    }
+  });
+
+  await runAsyncTest('Controle Supremo do Dono (Owner) e do Bot Principal sobre Sub-Bots', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const whatsappArmyService = require('./src/services/whatsappArmyService');
+
+    // 1. Configura número de Dono para teste
+    const testOwnerPhone = '5511999990001';
+    models.setSetting('OWNER_PHONE', testOwnerPhone);
+
+    // 2. Valida método isOwner
+    assert.strictEqual(whatsappBot.isOwner(testOwnerPhone, false), true, 'Deve reconhecer o dono configurado');
+    assert.strictEqual(whatsappBot.isOwner('5511888880000', false), false, 'Usuário estranho não é dono');
+    assert.strictEqual(whatsappBot.isOwner('5511888880000', true), true, 'Mensagem fromMe é sempre dona');
+
+    // Cria sub-bot de teste
+    const subInst = models.createArmyInstance({
+      name: 'Sub-Bot Dono Teste',
+      phone: '5511977771111',
+      daily_limit: 100
+    });
+
+    // 3. Usuário comum tenta usar comando restrito !divulgar
+    let blockedReply = null;
+    const mockBlockSock = {
+      sendMessage: async (jid, p) => { blockedReply = p; return true; }
+    };
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511988880000@s.whatsapp.net', fromMe: false, participant: '5511988880000@s.whatsapp.net' },
+      message: { conversation: '!divulgar Olá clientes!' }
+    }, mockBlockSock);
+    assert(blockedReply !== null, 'Deve responder ao usuário');
+    assert(blockedReply.text.includes('Acesso Restrito: Dono & Bot Principal'), 'Deve bloquear usuário comum em !divulgar');
+
+    // 4. Usuário comum tenta usar comando restrito !reiniciarsubbot
+    let restartBlocked = null;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511988880000@s.whatsapp.net', fromMe: false, participant: '5511988880000@s.whatsapp.net' },
+      message: { conversation: `!reiniciarsubbot ${subInst.id}` }
+    }, { sendMessage: async (jid, p) => { restartBlocked = p; return true; } });
+    assert(restartBlocked.text.includes('Acesso Restrito: Dono & Bot Principal'));
+
+    // 5. Dono executa comando !painelsubbots
+    let ownerPanelReply = null;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: `${testOwnerPhone}@s.whatsapp.net`, fromMe: false, participant: `${testOwnerPhone}@s.whatsapp.net` },
+      message: { conversation: '!painelsubbots' }
+    }, { sendMessage: async (jid, p) => { ownerPanelReply = p; return true; } });
+    assert(ownerPanelReply !== null);
+    assert(ownerPanelReply.text.includes('Comandos Exclusivos do Dono (Owner)'), 'Deve exibir comandos de gestão ao dono');
+    assert(ownerPanelReply.text.includes('!divulgar'));
+
+    // 6. Dono executa !reiniciarsubbot <id>
+    let ownerRestartReply = null;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: `${testOwnerPhone}@s.whatsapp.net`, fromMe: false, participant: `${testOwnerPhone}@s.whatsapp.net` },
+      message: { conversation: `!reiniciarsubbot ${subInst.id}` }
+    }, { sendMessage: async (jid, p) => { ownerRestartReply = p; return true; } });
+    assert(ownerRestartReply !== null);
+    assert(ownerRestartReply.text.includes('Reiniciando conexão') || ownerRestartReply.text.includes('sucesso'));
+
+    // 7. Dono altera número do dono via !setowner
+    let ownerSetReply = null;
+    const newOwnerPhone = '5511999990002';
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: `${testOwnerPhone}@s.whatsapp.net`, fromMe: false, participant: `${testOwnerPhone}@s.whatsapp.net` },
+      message: { conversation: `!setowner ${newOwnerPhone}` }
+    }, { sendMessage: async (jid, p) => { ownerSetReply = p; return true; } });
+    assert(ownerSetReply.text.includes('DONO REGISTRADO COM SUCESSO'));
+    assert.strictEqual(models.getSetting('OWNER_PHONE'), newOwnerPhone);
+
+    // Limpa sub-bot de teste
+    try { models.deleteArmyInstance(subInst.id); } catch (_) {}
+  });
+
+  await runAsyncTest('Motor de Divulgação em Massa do Dono (Broadcast via Exército de Sub-Bots & Spintax)', async () => {
+    const localBaseUrl = `http://localhost:${testPort}`;
+    const whatsappArmyService = require('./src/services/whatsappArmyService');
+
+    // 1. Executa broadcast programático com Spintax
+    const broadcastResult = await whatsappArmyService.broadcastViaAllSubBots({
+      message: '{Olá|Oi|E aí}! {Confira nossa oferta|Super novidade no catálogo}!',
+      targets: ['5511911110001', '5511911110002'],
+      vars: { name: 'Lead Teste' }
+    });
+
+    assert.strictEqual(broadcastResult.success, true);
+    assert.strictEqual(broadcastResult.totalRecipients, 2);
+    assert(broadcastResult.dispatched >= 0);
+    assert(broadcastResult.subBotsCount >= 1);
+
+    // 2. Endpoint REST: POST /api/army/broadcast
+    const apiBroadcastRes = await fetch(`${localBaseUrl}/api/army/broadcast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: '{Aproveite|Não perca} {nossas promoções|os descontos} hoje!',
+        targetType: 'custom',
+        targets: ['5511988880001', '5511988880002']
+      })
+    });
+    assert.strictEqual(apiBroadcastRes.status, 200);
+    const apiBroadcastData = await apiBroadcastRes.json();
+    assert.strictEqual(apiBroadcastData.success, true);
+    assert.strictEqual(apiBroadcastData.totalRecipients, 2);
+
+    // 3. Endpoint REST: GET /api/army/subbots/summary
+    const summaryRes = await fetch(`${localBaseUrl}/api/army/subbots/summary`);
+    assert.strictEqual(summaryRes.status, 200);
+    const summaryData = await summaryRes.json();
+    assert('totalSubBots' in summaryData);
+    assert('onlineSubBots' in summaryData);
+    assert('totalSentToday' in summaryData);
+
+    // 4. Endpoints REST: GET /api/army/owner & POST /api/army/set-owner
+    const setOwnerRes = await fetch(`${localBaseUrl}/api/army/set-owner`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '5511987654321' })
+    });
+    assert.strictEqual(setOwnerRes.status, 200);
+    const setOwnerData = await setOwnerRes.json();
+    assert.strictEqual(setOwnerData.success, true);
+    assert.strictEqual(setOwnerData.owner_phone, '5511987654321');
+
+    const getOwnerRes = await fetch(`${localBaseUrl}/api/army/owner`);
+    const getOwnerData = await getOwnerRes.json();
+    assert.strictEqual(getOwnerData.owner_phone, '5511987654321');
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

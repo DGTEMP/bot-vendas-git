@@ -1301,6 +1301,55 @@ function createServer() {
     }
   });
 
+  // 5. Divulgação em Massa do Dono e Controle Centralizado de Sub-Bots
+  app.post('/api/army/broadcast', async (req, res) => {
+    try {
+      const { message, targets, targetType, specificInstanceId, vars } = req.body;
+      const result = await whatsappArmyService.broadcastViaAllSubBots({
+        message,
+        targets,
+        targetType: targetType || 'leads',
+        specificInstanceId: specificInstanceId ? parseInt(specificInstanceId, 10) : null,
+        vars: vars || {}
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/army/subbots/summary', (req, res) => {
+    try {
+      res.json(whatsappArmyService.getSubBotsStatusSummary());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/army/owner', (req, res) => {
+    try {
+      const ownerPhone = models.getSetting('OWNER_PHONE', process.env.OWNER_WHATSAPP || '');
+      res.json({ owner_phone: ownerPhone });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/army/set-owner', (req, res) => {
+    try {
+      const { phone } = req.body;
+      let clean = String(phone || '').replace(/\D/g, '');
+      if (clean.length === 10 || clean.length === 11) clean = '55' + clean;
+      if (!clean || clean.length < 10) {
+        return res.status(400).json({ error: 'Informe um telefone válido com DDD (ex: 5511999998888).' });
+      }
+      models.setSetting('OWNER_PHONE', clean);
+      res.json({ success: true, owner_phone: clean });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ==========================================
   // 11. REDES SOCIAIS (INSTAGRAM DIRECT & FACEBOOK MESSENGER)
   // ==========================================
