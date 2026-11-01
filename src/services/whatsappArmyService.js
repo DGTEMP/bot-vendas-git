@@ -15,6 +15,21 @@ class WhatsAppArmyService {
     this.isSimulationMode = config.binance?.simulationMode || process.env.PIX_SIMULATION_MODE === 'true';
   }
 
+  parseSpintax(text, vars = {}) {
+    let result = models.parseSpintax(text);
+    if (vars) {
+      if (vars.name) result = result.replace(/\{nome\}|\{cliente\}|\{amigo\}/gi, vars.name);
+      if (vars.product) result = result.replace(/\{produto\}/gi, vars.product);
+      if (vars.link) result = result.replace(/\{link\}/gi, vars.link);
+    }
+    return result;
+  }
+
+  async sendMessageViaInstance(instanceId, target, text) {
+    const cleanPhone = String(target).split('@')[0].replace(/\D/g, '');
+    return this.sendArmyMessage(instanceId, cleanPhone, text);
+  }
+
   // ==========================================
   // 1. GERENCIAMENTO DE INSTÂNCIAS / CHIPS
   // ==========================================

@@ -2421,10 +2421,25 @@ const models = {
   // 19. GATA NINA ANTI-VIEW-ONCE
   // ==========================================
   logViewOnceMedia(chatId, senderPhone, mediaType, mediaCaption = '') {
-    db.prepare(`
+    const res = db.prepare(`
       INSERT INTO view_once_logs (chat_id, sender_phone, media_type, media_caption)
       VALUES (?, ?, ?, ?)
     `).run(chatId, senderPhone, mediaType, mediaCaption);
+    return {
+      id: res.lastInsertRowid,
+      chat_id: chatId,
+      sender_phone: senderPhone,
+      media_type: mediaType,
+      media_caption: mediaCaption,
+      caption: mediaCaption
+    };
+  },
+
+  getViewOnceLogs(chatId = null, limit = 50) {
+    if (chatId) {
+      return db.prepare(`SELECT id, chat_id, sender_phone, media_type, media_caption, media_caption as caption, created_at FROM view_once_logs WHERE chat_id = ? ORDER BY id DESC LIMIT ?`).all(chatId, limit);
+    }
+    return db.prepare(`SELECT id, chat_id, sender_phone, media_type, media_caption, media_caption as caption, created_at FROM view_once_logs ORDER BY id DESC LIMIT ?`).all(limit);
   }
 };
 

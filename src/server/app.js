@@ -1632,13 +1632,14 @@ function createServer() {
       if (!q) return res.json({ orders: [], products: [], sellers: [], affiliates: [], tickets: [] });
 
       const orders = db.prepare(`
-        SELECT id, trade_no, product_name, amount, currency, status, platform, platform_user_name, created_at
-        FROM orders
-        WHERE LOWER(trade_no) LIKE '%' || ? || '%' 
-           OR LOWER(product_name) LIKE '%' || ? || '%' 
-           OR LOWER(platform_user_name) LIKE '%' || ? || '%'
-           OR LOWER(platform_user_id) LIKE '%' || ? || '%'
-        ORDER BY id DESC LIMIT 5
+        SELECT o.id, o.merchant_trade_no as trade_no, p.name as product_name, o.amount, o.currency, o.status, o.platform, o.platform_user_name, o.created_at
+        FROM orders o
+        LEFT JOIN products p ON o.product_id = p.id
+        WHERE LOWER(o.merchant_trade_no) LIKE '%' || ? || '%' 
+           OR LOWER(p.name) LIKE '%' || ? || '%' 
+           OR LOWER(o.platform_user_name) LIKE '%' || ? || '%'
+           OR LOWER(o.platform_user_id) LIKE '%' || ? || '%'
+        ORDER BY o.id DESC LIMIT 5
       `).all(q, q, q, q);
 
       const products = db.prepare(`
@@ -1656,7 +1657,7 @@ function createServer() {
       `).all(q, q);
 
       const affiliates = db.prepare(`
-        SELECT id, name, ref_code, phone, status
+        SELECT id, name, ref_code, phone, active
         FROM affiliates
         WHERE LOWER(name) LIKE '%' || ? || '%' OR LOWER(ref_code) LIKE '%' || ? || '%'
         ORDER BY id DESC LIMIT 5
@@ -1695,8 +1696,9 @@ function createServer() {
           goodsName: product.name,
           payerName: customerName
         });
-        pixCode = pixRes.pixCode;
-        qrContent = pixRes.qrContent;
+        pixCode = pixRes.data?.pixCode || pixRes.pixCode;
+        qrContent = pixRes.data?.qrCodeBase64 || pixRes.data?.checkoutUrl || pixRes.qrContent;
+        checkoutUrl = pixRes.data?.checkoutUrl || pixRes.checkoutUrl;
       } else {
         const binRes = await binancePay.createOrder({
           merchantTradeNo: tradeNo,
@@ -1705,12 +1707,12 @@ function createServer() {
           goodsName: product.name,
           goodsDetail: product.description
         });
-        checkoutUrl = binRes.checkoutUrl || binRes.universalUrl;
-        qrContent = binRes.qrContent;
+        checkoutUrl = binRes.data?.checkoutUrl || binRes.data?.universalUrl || binRes.checkoutUrl || binRes.universalUrl;
+        qrContent = binRes.data?.qrContent || binRes.data?.qrcodeLink || binRes.qrContent;
       }
 
       models.createOrder({
-        trade_no: tradeNo,
+        merchant_trade_no: tradeNo,
         product_id: product.id,
         product_name: product.name,
         platform: 'whatsapp',
@@ -1754,7 +1756,7 @@ function createServer() {
       }
 
       // Se matriz não conectada, envia através do serviço do exército (simulado ou chip)
-      await whatsappArmyService.sendMessageViaInstance(1, `${cleanPhone}@s.whatsapp.net`, parsedText);
+      await whatsappArmyService.sendArmyMessage(1, cleanPhone, parsedText);
       res.json({ success: true, sentVia: 'whatsapp_army', phone: cleanPhone, text: parsedText });
     } catch (err) {
       res.status(500).json({ error: err.message });

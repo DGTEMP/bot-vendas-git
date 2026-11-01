@@ -226,7 +226,7 @@ class WhatsAppBotService {
 
   async handleIncomingMessage(msg, customSock = null) {
     const prevDispatchSock = this.currentDispatchSock;
-    this.currentDispatchSock = customSock || this.sock;
+    this.currentDispatchSock = customSock;
     try {
       return await this._processIncomingMessage(msg, customSock);
     } finally {
@@ -235,10 +235,11 @@ class WhatsAppBotService {
   }
 
   async _processIncomingMessage(msg, customSock = null) {
-    const activeSock = this.currentDispatchSock || this.sock || {
-      sendMessage: (jid, content) => this.sendMessage(jid, content),
-      groupParticipantsUpdate: (jid, participants, action) => this.sock?.groupParticipantsUpdate(jid, participants, action),
-      groupMetadata: (jid) => this.sock?.groupMetadata(jid)
+    const activeSock = this.currentDispatchSock || customSock || {
+      user: this.sock?.user,
+      sendMessage: (jid, content, options) => this.sendMessage(jid, content, options),
+      groupParticipantsUpdate: (jid, participants, action) => this.sock?.groupParticipantsUpdate ? this.sock.groupParticipantsUpdate(jid, participants, action) : null,
+      groupMetadata: (jid) => this.sock?.groupMetadata ? this.sock.groupMetadata(jid) : null
     };
     const from = msg.key?.remoteJid;
     if (!from) return;
@@ -1717,7 +1718,7 @@ class WhatsAppBotService {
 
   async sendMessage(jid, text, options = {}, customSock = null) {
     const sock = customSock || options.sock || this.currentDispatchSock || this.sock;
-    if (!sock) {
+    if (!sock || (sock !== this && sock.ev && !sock.user?.id)) {
       console.log(`[WhatsApp ⚠️] Não conectado. Mensagem para ${jid} não enviada: ${typeof text === 'string' ? text.slice(0, 40) : 'objeto'}...`);
       return false;
     }

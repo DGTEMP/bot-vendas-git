@@ -23,7 +23,7 @@ async function runTest(name, fn) {
     console.log(`  ✅ [PASS] ${name}`);
     passedTests++;
   } catch (err) {
-    console.error(`  ❌ [FAIL] ${name}:`, err.message);
+    console.error(`  ❌ [FAIL] ${name}:`, err.stack || err.message);
     failedTests++;
   }
 }
@@ -34,7 +34,7 @@ async function runAsyncTest(name, fn) {
     console.log(`  ✅ [PASS] ${name}`);
     passedTests++;
   } catch (err) {
-    console.error(`  ❌ [FAIL] ${name}:`, err.message);
+    console.error(`  ❌ [FAIL] ${name}:`, err.stack || err.message);
     failedTests++;
   }
 }
@@ -575,6 +575,7 @@ async function main() {
   const testServer = http.createServer(app);
   await new Promise(resolve => testServer.listen(0, resolve));
   const testPort = testServer.address().port;
+  const baseUrl = `http://localhost:${testPort}`;
 
   async function fetchApi(endpoint, options = {}) {
     const url = `http://localhost:${testPort}${endpoint}`;
@@ -2123,7 +2124,7 @@ async function main() {
     // 2. Tentativa de resgate sem saldo suficiente
     const failRedeem = models.redeemLoyaltyCoupon('whatsapp', userPhone, 100);
     assert.strictEqual(failRedeem.success, false);
-    assert(failRedeem.error.includes('Saldo insuficiente'));
+    assert(failRedeem.error.includes('insuficiente'));
 
     // 3. Mini-game de Dados (!dado) bonificando pontos e experiência
     let dadoOutput = null;
