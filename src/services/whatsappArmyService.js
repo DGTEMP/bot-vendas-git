@@ -50,7 +50,12 @@ class WhatsAppArmyService {
 
   async startInstance(instanceId) {
     const instance = models.getArmyInstanceById(instanceId);
-    if (!instance) throw new Error('Instância do exército não encontrada');
+    if (!instance) {
+      this.startingInstances.delete(instanceId);
+      this.activeSockets.delete(instanceId);
+      this.instanceQrs.delete(instanceId);
+      return null;
+    }
 
     // Instância Matriz (ID 1) é gerenciada pelo whatsappBot principal
     if (instance.is_main) {
@@ -156,15 +161,31 @@ class WhatsAppArmyService {
           const isLoggedOut = statusCode === DisconnectReason.loggedOut;
           console.log(`[Exército WhatsApp ⚠️] Chip #${instanceId} desconectado (código ${statusCode}).`);
 
+          this.activeSockets.delete(instanceId);
+
           if (isLoggedOut) {
             console.log(`[Exército WhatsApp 🛑] Sessão desconectada no Chip #${instanceId}. Preservando credenciais.`);
-            models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
+            try { models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' }); } catch (_) {}
             this.instanceQrs.delete(instanceId);
-            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 6000);
-          } else {
-            models.updateArmyInstance(instanceId, { status: 'CONNECTING' });
-            setTimeout(() => this.startInstance(instanceId).catch(() => {}), 4000);
+            // IMPORTANTE: Se o WhatsApp deslogou (401), NÃO tenta reconectar em loop infinito.
+            return;
           }
+
+          // Verifica se a instância ainda existe no banco e está ativa antes de agendar reconexão
+          const currentInst = models.getArmyInstanceById(instanceId);
+          if (!currentInst || !currentInst.active) {
+            try { models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' }); } catch (_) {}
+            this.instanceQrs.delete(instanceId);
+            return;
+          }
+
+          try { models.updateArmyInstance(instanceId, { status: 'CONNECTING' }); } catch (_) {}
+          setTimeout(() => {
+            const checkInst = models.getArmyInstanceById(instanceId);
+            if (checkInst && checkInst.active) {
+              this.startInstance(instanceId).catch(() => {});
+            }
+          }, 5000);
         }
       });
 
@@ -893,6 +914,23 @@ class WhatsAppArmyService {
 
   async initAllInstances() {
     try {
+      // 1. Limpa pastas órfãs de instâncias que não existem mais no banco de dados
+      if (fs.existsSync(this.armyBaseFolder)) {
+        const existingIds = new Set(models.getArmyInstances().map(i => String(i.id)));
+        const files = fs.readdirSync(this.armyBaseFolder);
+        for (const file of files) {
+          if (file.startsWith('instance_')) {
+            const instId = file.replace('instance_', '');
+            if (instId !== '1' && !existingIds.has(instId)) {
+              try {
+                fs.rmSync(path.join(this.armyBaseFolder, file), { recursive: true, force: true });
+              } catch (_) {}
+            }
+          }
+        }
+      }
+
+      // 2. Restaura conexões salvas de chips ativos
       const instances = models.getArmyInstances();
       for (const inst of instances) {
         if (inst.active && !inst.is_main) {

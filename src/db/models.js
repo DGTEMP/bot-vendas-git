@@ -1133,7 +1133,7 @@ const models = {
 
   updateArmyInstance(id, data = {}) {
     const existing = models.getArmyInstanceById(id);
-    if (!existing) throw new Error('Instância do exército não encontrada');
+    if (!existing) return null;
 
     const name = data.name !== undefined ? data.name : existing.name;
     const phone = data.phone !== undefined ? data.phone : existing.phone;
@@ -1161,7 +1161,16 @@ const models = {
       db.prepare('UPDATE campaign_leads SET sender_instance_id = 1 WHERE sender_instance_id = ?').run(id);
       db.prepare('UPDATE lead_funnel_conversations SET assigned_instance_id = 1 WHERE assigned_instance_id = ?').run(id);
     } catch (_) {}
-    return db.prepare('DELETE FROM whatsapp_army_instances WHERE id = ?').run(id);
+    const res = db.prepare('DELETE FROM whatsapp_army_instances WHERE id = ?').run(id);
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const armyFolder = path.join(__dirname, '..', '..', 'data', 'whatsapp_army', `instance_${id}`);
+      if (fs.existsSync(armyFolder)) {
+        fs.rmSync(armyFolder, { recursive: true, force: true });
+      }
+    } catch (_) {}
+    return res;
   },
 
   incrementInstanceSentCount(id) {

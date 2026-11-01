@@ -2095,7 +2095,7 @@ class WhatsAppBotService {
       }
 
       // Envia Imagem do QR Code
-      await this.sock.sendMessage(to, {
+      await this.sendMessage(to, {
         image: qrBuffer,
         caption: caption
       });
@@ -2197,7 +2197,7 @@ class WhatsAppBotService {
         caption += `\n\n🧪 *[MODO DE TESTE]*\nSimule o pagamento em:\n${payData.checkoutUrl}`;
       }
 
-      await this.sock.sendMessage(to, {
+      await this.sendMessage(to, {
         image: qrBuffer,
         caption: caption
       });
@@ -2237,32 +2237,54 @@ class WhatsAppBotService {
   }
 
   async sendMessage(jid, text, options = {}, customSock = null) {
+    if (!jid || typeof jid !== 'string') return false;
+    let targetJid = jid.trim();
+
+    // Se for número puro de telefone sem @, adiciona sufixo padrão WhatsApp
+    if (!targetJid.includes('@')) {
+      const digits = targetJid.replace(/\D/g, '');
+      if (digits.length >= 8) {
+        targetJid = `${digits}@s.whatsapp.net`;
+      } else {
+        // JID inválido ou ID de teste sem telefone real (ex: 'quick_test_123')
+        return false;
+      }
+    }
+
+    // Se for JID individual, valida se o usuário possui apenas dígitos
+    if (targetJid.endsWith('@s.whatsapp.net')) {
+      const userPart = targetJid.split('@')[0].split(':')[0];
+      if (!/^\d+$/.test(userPart)) {
+        return false;
+      }
+    }
+
     const sock = customSock || options.sock || this.currentDispatchSock || this.sock;
     if (!sock || (sock !== this && sock.ev && !sock.user?.id)) {
-      console.log(`[WhatsApp ⚠️] Não conectado. Mensagem para ${jid} não enviada: ${typeof text === 'string' ? text.slice(0, 40) : 'objeto'}...`);
+      console.log(`[WhatsApp ⚠️] Não conectado. Mensagem para ${targetJid} não enviada: ${typeof text === 'string' ? text.slice(0, 40) : 'objeto'}...`);
       return false;
     }
 
     try {
       if (typeof sock.sendPresenceUpdate === 'function') {
-        await sock.sendPresenceUpdate('composing', jid);
+        await sock.sendPresenceUpdate('composing', targetJid);
         if (process.env.NODE_ENV !== 'test') {
           const delay = Math.min(1200, Math.max(400, (typeof text === 'string' ? text.length * 15 : 600)));
           await new Promise(resolve => setTimeout(resolve, delay));
-          await sock.sendPresenceUpdate('paused', jid);
+          await sock.sendPresenceUpdate('paused', targetJid);
         }
       }
     } catch (_) {}
 
     try {
       if (typeof text === 'object' && text !== null) {
-        await sock.sendMessage(jid, text);
+        await sock.sendMessage(targetJid, text);
       } else {
-        await sock.sendMessage(jid, { text, ...options });
+        await sock.sendMessage(targetJid, { text, ...options });
       }
       return true;
     } catch (err) {
-      console.error(`[WhatsApp ❌ Falha ao enviar para ${jid}]:`, err.message);
+      console.error(`[WhatsApp ❌ Falha ao enviar para ${targetJid}]:`, err.message);
       return false;
     }
   }

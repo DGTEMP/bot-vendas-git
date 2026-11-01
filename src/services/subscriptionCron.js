@@ -120,12 +120,15 @@ class SubscriptionCronService {
           }
           await fulfillment.sendTelegramMessage(order.platform_user_id, message);
         } else if (order.platform === 'whatsapp' && fulfillment.sendWhatsAppMessage) {
-          if (order.pix_code) {
-            message += `\n\n📋 *Código Pix Copia e Cola:*\n\`${order.pix_code}\``;
-          } else if (order.checkout_url) {
-            message += `\n\n🔗 *Link Direto de Pagamento:*\n${order.checkout_url}`;
+          const cleanPhone = String(order.platform_user_id || '').replace(/\D/g, '');
+          if (cleanPhone.length >= 8) {
+            if (order.pix_code) {
+              message += `\n\n📋 *Código Pix Copia e Cola:*\n\`${order.pix_code}\``;
+            } else if (order.checkout_url) {
+              message += `\n\n🔗 *Link Direto de Pagamento:*\n${order.checkout_url}`;
+            }
+            await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, message);
           }
-          await fulfillment.sendWhatsAppMessage(order.platform_user_id, message);
         }
 
         models.markOrderRecoverySent(order.id);
@@ -154,10 +157,13 @@ class SubscriptionCronService {
         if (sub.platform === 'telegram' && fulfillment.sendTelegramMessage) {
           await fulfillment.sendTelegramMessage(sub.platform_user_id, reminderMsg);
         } else if (sub.platform === 'whatsapp' && fulfillment.sendWhatsAppMessage) {
-          await fulfillment.sendWhatsAppMessage(sub.platform_user_id, reminderMsg);
+          const cleanPhone = String(sub.platform_user_id || '').replace(/\D/g, '');
+          if (cleanPhone.length >= 8) {
+            await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, reminderMsg);
+          }
         }
         models.markReminderSent(sub.id);
-        console.log(`[Cron 🔔] Lembrete de renovação enviado para ${sub.platform_user_id} (${sub.platform})`);
+        console.log(`[Cron 🔔] Lembrete de renovação processado para ${sub.platform_user_id} (${sub.platform})`);
       } catch (err) {
         console.error(`[Cron ⚠️ Erro no lembrete para ${sub.platform_user_id}]:`, err.message);
       }
@@ -188,7 +194,10 @@ class SubscriptionCronService {
         if (sub.platform === 'telegram' && fulfillment.sendTelegramMessage) {
           await fulfillment.sendTelegramMessage(sub.platform_user_id, expiredMsg);
         } else if (sub.platform === 'whatsapp' && fulfillment.sendWhatsAppMessage) {
-          await fulfillment.sendWhatsAppMessage(sub.platform_user_id, expiredMsg);
+          const cleanPhone = String(sub.platform_user_id || '').replace(/\D/g, '');
+          if (cleanPhone.length >= 8) {
+            await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, expiredMsg);
+          }
         }
       } catch (err) {
         console.error(`[Cron ⚠️ Erro ao notificar expiração para ${sub.platform_user_id}]:`, err.message);

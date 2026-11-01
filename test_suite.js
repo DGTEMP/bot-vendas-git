@@ -2635,6 +2635,7 @@ async function main() {
     // Limpeza de instâncias secundárias de teste do banco para manter DB impecável
     models.getArmyInstances().forEach(i => {
       if (!i.is_main) {
+        try { whatsappArmyService.stopInstance(i.id); } catch (_) {}
         try { models.deleteArmyInstance(i.id); } catch (_) {}
       }
     });
@@ -2735,6 +2736,7 @@ async function main() {
     assert.strictEqual(models.getSetting('OWNER_PHONE'), newOwnerPhone);
 
     // Limpa sub-bot de teste
+    try { await whatsappArmyService.stopInstance(subInst.id); } catch (_) {}
     try { models.deleteArmyInstance(subInst.id); } catch (_) {}
   });
 
