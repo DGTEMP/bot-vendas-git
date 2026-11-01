@@ -3165,6 +3165,158 @@ async function main() {
     assert(stageMsg.includes('ETAPA #2 DO METEÓRICO EXECUTADA'));
   });
 
+  // ----------------------------------------------------------------
+  // 16. TESTES DO RADAR VIRAL & CRIADOR DE POSTS (@ INSTA & FACEBOOK)
+  // ----------------------------------------------------------------
+  console.log('\n🔥 16. Testes do Radar Viral & Criador de Posts (@ Insta e Facebook):');
+
+  let testViralProfileInsta, testViralProfileFb, testCapturedPost;
+
+  runTest('Cadastro e Sanitização de Perfis Rastreados (@ de Insta e Facebook)', () => {
+    testViralProfileInsta = models.createViralProfile({
+      platform: 'instagram',
+      username: '@trader.expert.brasil',
+      display_name: 'Trader Expert Brasil',
+      niche: 'Criptomoedas & Sinais VIP',
+      notes: 'Ganchos virais de lucros em USDT'
+    });
+
+    assert(testViralProfileInsta.id > 0);
+    assert.strictEqual(testViralProfileInsta.username, 'trader.expert.brasil');
+    assert.strictEqual(testViralProfileInsta.platform, 'instagram');
+
+    testViralProfileFb = models.createViralProfile({
+      platform: 'facebook',
+      username: 'https://facebook.com/paginavendaspro/',
+      display_name: 'Vendas Pro Brasil',
+      niche: 'Marketing Digital'
+    });
+
+    assert(testViralProfileFb.id > 0);
+    assert.strictEqual(testViralProfileFb.platform, 'facebook');
+  });
+
+  await runAsyncTest('Captura e Análise de Conteúdos Virais (Hooks, Métricas e Viral Score)', async () => {
+    const viralRadarService = require('./src/services/viralRadarService');
+    const scrapeRes = await viralRadarService.scrapeProfile(testViralProfileInsta.id);
+
+    assert(scrapeRes.capturedCount >= 1);
+    const posts = models.getViralCapturedPosts({ profile_id: testViralProfileInsta.id });
+    assert(posts.length >= 1);
+    testCapturedPost = posts[0];
+
+    assert(testCapturedPost.viral_score >= 80, 'Score viral deve ser alto');
+    assert(testCapturedPost.hook_text.length > 5, 'Deve extrair gancho de retenção');
+    assert(testCapturedPost.likes_count > 0);
+  });
+
+  await runAsyncTest('Síntese e Geração do Nosso Post com Base no Viral Capturado (Copywriting Engine)', async () => {
+    const viralRadarService = require('./src/services/viralRadarService');
+    const result = await viralRadarService.generateOurPost({
+      viralPostId: testCapturedPost.id,
+      targetPlatform: 'whatsapp',
+      tone: 'Comercial & Persuasivo',
+      objective: 'Vendas & Conversão'
+    });
+
+    assert.strictEqual(result.success, true);
+    assert(result.post.id > 0);
+    assert(result.post.full_content.length > 50);
+    assert(result.post.hook.length > 5);
+    assert(result.post.cta.includes('http') || result.post.cta.includes('👉'));
+
+    // Verifica se o post de origem foi marcado como USED
+    const refreshed = models.getViralCapturedPostById(testCapturedPost.id);
+    assert.strictEqual(refreshed.status, 'USED');
+  });
+
+  await runAsyncTest('Rotas da API do Radar Viral (/api/viral/profiles, posts, stats, generate)', async () => {
+    const localBaseUrl = `http://localhost:${testPort}`;
+    // 1. Estatísticas
+    const statsRes = await fetch(`${localBaseUrl}/api/viral/stats`);
+    assert.strictEqual(statsRes.status, 200);
+    const stats = await statsRes.json();
+    assert(stats.totalProfiles >= 2);
+    assert(stats.totalCaptured >= 2);
+    assert(stats.totalGenerated >= 1);
+
+    // 2. Criação de Perfil via API
+    const newProfRes = await fetch(`${localBaseUrl}/api/viral/profiles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform: 'instagram',
+        username: '@ia.futuro.brasil',
+        niche: 'Inteligência Artificial'
+      })
+    });
+    assert.strictEqual(newProfRes.status, 201);
+    const newProf = await newProfRes.json();
+    assert.strictEqual(newProf.username, 'ia.futuro.brasil');
+
+    // 3. Listagem de Posts Virais
+    const postsRes = await fetch(`${localBaseUrl}/api/viral/posts?min_score=80`);
+    assert.strictEqual(postsRes.status, 200);
+    const posts = await postsRes.json();
+    assert(posts.length > 0);
+
+    // 4. Geração de Post via API
+    const genRes = await fetch(`${localBaseUrl}/api/viral/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        viralPostId: testCapturedPost.id,
+        targetPlatform: 'instagram',
+        tone: 'Educativo & Autoridade',
+        objective: 'Geração de Leads'
+      })
+    });
+    assert.strictEqual(genRes.status, 200);
+    const genData = await genRes.json();
+    assert(genData.post.full_content.includes('bio') || genData.post.full_content.includes('👉'));
+
+    // 5. Exclusão de perfil temporário
+    const delRes = await fetch(`${localBaseUrl}/api/viral/profiles/${newProf.id}`, { method: 'DELETE' });
+    assert.strictEqual(delRes.status, 200);
+  });
+
+  await runAsyncTest('Comandos no WhatsApp (!viral, !radar, !viraladd, !gerarpost)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+
+    // 1. Comando !viral / !radar
+    let radarReply = null;
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        radarReply = payload;
+        return true;
+      }
+    };
+
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: true },
+      message: { conversation: '!viral' }
+    }, mockSock);
+
+    assert(radarReply !== null);
+    assert(radarReply.text.includes('RADAR DE CONTEÚDO VIRAL'));
+    assert(radarReply.text.includes('Perfis Rastreados'));
+
+    // 2. Comando !gerarpost
+    let genReply = null;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: true },
+      message: { conversation: `!gerarpost ${testCapturedPost.id}` }
+    }, {
+      sendMessage: async (jid, payload) => {
+        genReply = payload;
+        return true;
+      }
+    });
+
+    assert(genReply !== null);
+    assert(genReply.text.includes('NOSSO POST GERADO'));
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

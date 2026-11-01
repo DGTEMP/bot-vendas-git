@@ -2661,6 +2661,297 @@ const models = {
 
   incrementMeteoricLeads(campaignId = 1) {
     db.prepare('UPDATE meteoric_campaigns SET total_leads_reached = total_leads_reached + 1 WHERE id = ?').run(campaignId);
+  },
+
+  // ==========================================
+  // 17. RADAR VIRAL & CRIADOR DE POSTS
+  // ==========================================
+  getViralProfiles(filter = {}) {
+    let sql = 'SELECT * FROM viral_tracked_profiles WHERE 1=1';
+    const params = [];
+
+    if (filter.platform) {
+      sql += ' AND platform = ?';
+      params.push(filter.platform.toLowerCase());
+    }
+    if (filter.auto_scrape !== undefined) {
+      sql += ' AND auto_scrape = ?';
+      params.push(filter.auto_scrape ? 1 : 0);
+    }
+
+    sql += ' ORDER BY created_at DESC';
+    return db.prepare(sql).all(...params);
+  },
+
+  getViralProfileById(id) {
+    return db.prepare('SELECT * FROM viral_tracked_profiles WHERE id = ?').get(id);
+  },
+
+  getViralProfileByUsername(platform, username) {
+    const cleanUser = String(username).replace(/^@+/, '').trim().toLowerCase();
+    return db.prepare('SELECT * FROM viral_tracked_profiles WHERE platform = ? AND LOWER(username) = ?').get(platform.toLowerCase(), cleanUser);
+  },
+
+  createViralProfile({ platform, username, display_name = null, profile_url = null, niche = 'Geral', auto_scrape = 1, notes = null }) {
+    const cleanPlat = String(platform || 'instagram').toLowerCase();
+    const cleanUser = String(username).replace(/^@+/, '').trim().toLowerCase();
+    const existing = this.getViralProfileByUsername(cleanPlat, cleanUser);
+    if (existing) return existing;
+
+    const fullUrl = profile_url || (cleanPlat === 'instagram' ? `https://instagram.com/${cleanUser}` : `https://facebook.com/${cleanUser}`);
+    const name = display_name || cleanUser;
+
+    const stmt = db.prepare(`
+      INSERT INTO viral_tracked_profiles (platform, username, display_name, profile_url, niche, auto_scrape, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(cleanPlat, cleanUser, name, fullUrl, niche || 'Geral', auto_scrape ? 1 : 0, notes || null);
+    return this.getViralProfileById(Number(res.lastInsertRowid));
+  },
+
+  updateViralProfile(id, updates = {}) {
+    const allowed = ['display_name', 'profile_url', 'niche', 'followers_count', 'avg_likes', 'auto_scrape', 'last_scraped_at', 'total_captured', 'notes'];
+    const sets = [];
+    const vals = [];
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (allowed.includes(k)) {
+        sets.push(`${k} = ?`);
+        vals.push(v);
+      }
+    }
+
+    if (sets.length > 0) {
+      vals.push(id);
+      db.prepare(`UPDATE viral_tracked_profiles SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    }
+    return this.getViralProfileById(id);
+  },
+
+  deleteViralProfile(id) {
+    try {
+      db.prepare('DELETE FROM viral_captured_posts WHERE profile_id = ?').run(id);
+      db.prepare('DELETE FROM viral_generated_posts WHERE profile_id = ?').run(id);
+    } catch (_) {}
+    return db.prepare('DELETE FROM viral_tracked_profiles WHERE id = ?').run(id);
+  },
+
+  getViralCapturedPosts(filter = {}) {
+    let sql = `
+      SELECT vcp.*, vtp.display_name as profile_display_name, vtp.followers_count as profile_followers
+      FROM viral_captured_posts vcp
+      LEFT JOIN viral_tracked_profiles vtp ON vcp.profile_id = vtp.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (filter.platform) {
+      sql += ' AND vcp.platform = ?';
+      params.push(filter.platform.toLowerCase());
+    }
+    if (filter.profile_id) {
+      sql += ' AND vcp.profile_id = ?';
+      params.push(Number(filter.profile_id));
+    }
+    if (filter.min_score) {
+      sql += ' AND vcp.viral_score >= ?';
+      params.push(Number(filter.min_score));
+    }
+    if (filter.status) {
+      sql += ' AND vcp.status = ?';
+      params.push(filter.status);
+    }
+
+    sql += ' ORDER BY vcp.viral_score DESC, vcp.captured_at DESC';
+    if (filter.limit) {
+      sql += ' LIMIT ?';
+      params.push(Number(filter.limit));
+    }
+
+    return db.prepare(sql).all(...params);
+  },
+
+  getViralCapturedPostById(id) {
+    return db.prepare(`
+      SELECT vcp.*, vtp.display_name as profile_display_name, vtp.followers_count as profile_followers
+      FROM viral_captured_posts vcp
+      LEFT JOIN viral_tracked_profiles vtp ON vcp.profile_id = vtp.id
+      WHERE vcp.id = ?
+    `).get(id);
+  },
+
+  createViralCapturedPost(data) {
+    const existing = db.prepare('SELECT id FROM viral_captured_posts WHERE post_url = ? OR (post_id IS NOT NULL AND post_id = ?)').get(data.post_url, data.post_id || null);
+    if (existing) {
+      return this.updateViralCapturedPost(existing.id, data);
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO viral_captured_posts (
+        profile_id, platform, source_username, post_id, post_url,
+        media_type, media_url, thumbnail_url, caption, hook_text,
+        likes_count, comments_count, shares_count, views_count, viral_score, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const res = stmt.run(
+      data.profile_id || null,
+      data.platform || 'instagram',
+      data.source_username || '',
+      data.post_id || null,
+      data.post_url,
+      data.media_type || 'video',
+      data.media_url || null,
+      data.thumbnail_url || null,
+      data.caption || '',
+      data.hook_text || (data.caption ? data.caption.split('\n')[0].slice(0, 150) : ''),
+      Number(data.likes_count || 0),
+      Number(data.comments_count || 0),
+      Number(data.shares_count || 0),
+      Number(data.views_count || 0),
+      Number(data.viral_score || 80),
+      data.status || 'NEW'
+    );
+
+    if (data.profile_id) {
+      db.prepare("UPDATE viral_tracked_profiles SET total_captured = total_captured + 1, last_scraped_at = datetime('now') WHERE id = ?").run(data.profile_id);
+    }
+
+    return this.getViralCapturedPostById(Number(res.lastInsertRowid));
+  },
+
+  updateViralCapturedPost(id, updates = {}) {
+    const allowed = ['caption', 'hook_text', 'likes_count', 'comments_count', 'shares_count', 'views_count', 'viral_score', 'status', 'thumbnail_url', 'media_url'];
+    const sets = [];
+    const vals = [];
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (allowed.includes(k)) {
+        sets.push(`${k} = ?`);
+        vals.push(v);
+      }
+    }
+
+    if (sets.length > 0) {
+      vals.push(id);
+      db.prepare(`UPDATE viral_captured_posts SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    }
+    return this.getViralCapturedPostById(id);
+  },
+
+  deleteViralCapturedPost(id) {
+    return db.prepare('DELETE FROM viral_captured_posts WHERE id = ?').run(id);
+  },
+
+  getViralGeneratedPosts(filter = {}) {
+    let sql = `
+      SELECT vgp.*, p.name as product_name, p.price_brl as product_price_brl,
+             vcp.source_username as source_username, vcp.post_url as source_post_url
+      FROM viral_generated_posts vgp
+      LEFT JOIN products p ON vgp.product_id = p.id
+      LEFT JOIN viral_captured_posts vcp ON vgp.source_post_id = vcp.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (filter.status) {
+      sql += ' AND vgp.status = ?';
+      params.push(filter.status);
+    }
+    if (filter.profile_id) {
+      sql += ' AND vgp.profile_id = ?';
+      params.push(Number(filter.profile_id));
+    }
+
+    sql += ' ORDER BY vgp.created_at DESC';
+    if (filter.limit) {
+      sql += ' LIMIT ?';
+      params.push(Number(filter.limit));
+    }
+
+    return db.prepare(sql).all(...params);
+  },
+
+  getViralGeneratedPostById(id) {
+    return db.prepare(`
+      SELECT vgp.*, p.name as product_name, p.price_brl as product_price_brl,
+             vcp.source_username as source_username, vcp.post_url as source_post_url
+      FROM viral_generated_posts vgp
+      LEFT JOIN products p ON vgp.product_id = p.id
+      LEFT JOIN viral_captured_posts vcp ON vgp.source_post_id = vcp.id
+      WHERE vgp.id = ?
+    `).get(id);
+  },
+
+  createViralGeneratedPost(data) {
+    const stmt = db.prepare(`
+      INSERT INTO viral_generated_posts (
+        source_post_id, profile_id, title, target_platform, tone, objective,
+        product_id, hook, body, cta, hashtags, media_suggestion, full_content, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const res = stmt.run(
+      data.source_post_id || null,
+      data.profile_id || null,
+      data.title || 'Novo Post Viral',
+      data.target_platform || 'whatsapp',
+      data.tone || 'Comercial & Persuasivo',
+      data.objective || 'Vendas & Conversão',
+      data.product_id || null,
+      data.hook || '',
+      data.body || '',
+      data.cta || '',
+      data.hashtags || '',
+      data.media_suggestion || '',
+      data.full_content || '',
+      data.status || 'READY'
+    );
+
+    if (data.source_post_id) {
+      try {
+        db.prepare("UPDATE viral_captured_posts SET status = 'USED' WHERE id = ?").run(data.source_post_id);
+      } catch (_) {}
+    }
+
+    return this.getViralGeneratedPostById(Number(res.lastInsertRowid));
+  },
+
+  updateViralGeneratedPost(id, updates = {}) {
+    const allowed = ['title', 'target_platform', 'tone', 'objective', 'product_id', 'hook', 'body', 'cta', 'hashtags', 'media_suggestion', 'full_content', 'status', 'published_at'];
+    const sets = [];
+    const vals = [];
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (allowed.includes(k)) {
+        sets.push(`${k} = ?`);
+        vals.push(v);
+      }
+    }
+
+    if (sets.length > 0) {
+      vals.push(id);
+      db.prepare(`UPDATE viral_generated_posts SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    }
+    return this.getViralGeneratedPostById(id);
+  },
+
+  deleteViralGeneratedPost(id) {
+    return db.prepare('DELETE FROM viral_generated_posts WHERE id = ?').run(id);
+  },
+
+  getViralStats() {
+    const profiles = db.prepare('SELECT COUNT(*) as count FROM viral_tracked_profiles').get().count;
+    const captured = db.prepare('SELECT COUNT(*) as count FROM viral_captured_posts').get().count;
+    const generated = db.prepare('SELECT COUNT(*) as count FROM viral_generated_posts').get().count;
+    const avgScore = db.prepare('SELECT ROUND(AVG(viral_score), 1) as avg FROM viral_captured_posts').get().avg || 0;
+
+    return {
+      totalProfiles: profiles,
+      totalCaptured: captured,
+      totalGenerated: generated,
+      avgViralScore: avgScore
+    };
   }
 };
 

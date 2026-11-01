@@ -72,6 +72,7 @@ function switchTab(tabName) {
   if (tabName === 'coupons') loadCoupons();
   if (tabName === 'army') loadArmyData();
   if (tabName === 'meteoric') loadMeteoricData();
+  if (tabName === 'viral') loadViralRadarAll();
   if (tabName === 'social') loadSocialData();
   if (tabName === 'nlp') loadNlpData();
 }
@@ -98,7 +99,8 @@ async function loadAllData() {
     loadChannelMetrics(),
     loadSupportTickets(),
     loadCustomTriggers(),
-    loadMeteoricData()
+    loadMeteoricData(),
+    loadViralRadarAll()
   ]);
 }
 
@@ -5411,5 +5413,465 @@ function copyMeteoricRedirectUrl() {
 function copyMeteoricGroupLink(url) {
   navigator.clipboard.writeText(url).then(() => {
     alert('Convite do grupo copiado: ' + url);
+  });
+}
+
+// ==========================================
+// 15. RADAR VIRAL & CRIADOR DE POSTS COM IA
+// ==========================================
+let globalViralCapturedCache = [];
+
+async function loadViralRadarAll() {
+  await Promise.all([
+    loadViralStats(),
+    loadViralProfiles(),
+    loadViralCapturedPosts(),
+    loadViralGeneratedPosts()
+  ]);
+}
+
+async function loadViralStats() {
+  try {
+    const res = await fetch('/api/viral/stats');
+    if (!res.ok) return;
+    const stats = await res.json();
+    const elProf = document.getElementById('viralStatProfiles');
+    const elCapt = document.getElementById('viralStatCaptured');
+    const elGen = document.getElementById('viralStatGenerated');
+    const elAvg = document.getElementById('viralStatAvgScore');
+
+    if (elProf) elProf.innerText = `${stats.totalProfiles} contas`;
+    if (elCapt) elCapt.innerText = `${stats.totalCaptured} virais`;
+    if (elGen) elGen.innerText = `${stats.totalGenerated} copies`;
+    if (elAvg) elAvg.innerText = `${stats.avgViralScore} / 100`;
+  } catch (_) {}
+}
+
+async function loadViralProfiles() {
+  const tbody = document.getElementById('viralProfilesTableBody');
+  if (!tbody) return;
+
+  try {
+    const res = await fetch('/api/viral/profiles');
+    if (!res.ok) return;
+    const profiles = await res.json();
+
+    if (profiles.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 25px; color: var(--text-muted);">Nenhum perfil cadastrado. Clique no botão acima para adicionar um @ do Instagram ou Facebook!</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = profiles.map(p => {
+      const isIg = p.platform === 'instagram';
+      const platBadge = isIg
+        ? `<span class="badge" style="background: rgba(225,48,108,0.15); color: #e1306c;"><i class="fa-brands fa-instagram"></i> Instagram</span>`
+        : `<span class="badge" style="background: rgba(24,119,242,0.15); color: #1877f2;"><i class="fa-brands fa-facebook"></i> Facebook</span>`;
+      const dateStr = p.last_scraped_at ? new Date(p.last_scraped_at).toLocaleString('pt-BR') : 'Ainda não varrido';
+
+      return `
+        <tr>
+          <td>${platBadge}</td>
+          <td>
+            <a href="${p.profile_url || '#'}" target="_blank" style="color: #60a5fa; font-weight: 600; text-decoration: none;">
+              @${p.username} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 10px;"></i>
+            </a>
+          </td>
+          <td><b>${p.display_name || p.username}</b></td>
+          <td><span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0;">${p.niche || 'Geral'}</span></td>
+          <td>${p.followers_count > 0 ? p.followers_count.toLocaleString('pt-BR') : '~15.000'}</td>
+          <td><b style="color: #f97316;">${p.total_captured || 0} posts</b></td>
+          <td style="font-size: 12px; color: var(--text-muted);">${dateStr}</td>
+          <td style="text-align: right;">
+            <div style="display: flex; gap: 6px; justify-content: flex-end;">
+              <button class="btn btn-sm btn-primary" onclick="triggerViralProfileScrape(${p.id})" title="Buscar virais deste perfil agora" style="background: #f97316; border-color: #f97316;">
+                <i class="fa-solid fa-arrows-rotate"></i> Varrer
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deleteViralProfile(${p.id})" title="Remover perfil do radar">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #ef4444; padding: 20px;">Falha ao carregar perfis: ${err.message}</td></tr>`;
+  }
+}
+
+async function loadViralCapturedPosts() {
+  const container = document.getElementById('viralPostsGrid');
+  if (!container) return;
+
+  const platform = document.getElementById('viralFilterPlatform')?.value || '';
+  const minScore = document.getElementById('viralFilterScore')?.value || '';
+
+  try {
+    const params = new URLSearchParams();
+    if (platform) params.append('platform', platform);
+    if (minScore) params.append('min_score', minScore);
+
+    const res = await fetch(`/api/viral/posts?${params.toString()}`);
+    if (!res.ok) return;
+    const posts = await res.json();
+    globalViralCapturedCache = posts;
+
+    // Atualiza opções do select de modal se existir
+    updateViralSelectOptions(posts);
+
+    if (posts.length === 0) {
+      container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">Nenhum conteúdo viral encontrado com esses filtros. Tente clicar em "Varredura Geral" para capturar novidades!</div>`;
+      return;
+    }
+
+    container.innerHTML = posts.map(p => {
+      const isIg = p.platform === 'instagram';
+      const platIcon = isIg ? '<i class="fa-brands fa-instagram" style="color: #e1306c;"></i>' : '<i class="fa-brands fa-facebook" style="color: #1877f2;"></i>';
+      const scoreColor = p.viral_score >= 90 ? '#ef4444' : '#f97316';
+      const statusBadge = p.status === 'USED' 
+        ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981;"><i class="fa-solid fa-check"></i> Post Já Criado</span>`
+        : `<span class="badge" style="background: rgba(249,115,22,0.15); color: #f97316;">🔥 Novo Viral</span>`;
+
+      return `
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 10px; overflow: hidden;">
+          <div style="position: relative; height: 160px; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+            <img src="${p.thumbnail_url || 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=500&auto=format&fit=crop&q=60'}" 
+                 alt="Thumbnail" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.65;">
+            <div style="position: absolute; top: 10px; left: 10px; display: flex; gap: 6px;">
+              <span class="badge" style="background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); font-size: 11px;">
+                ${platIcon} @${p.source_username}
+              </span>
+            </div>
+            <div style="position: absolute; top: 10px; right: 10px;">
+              <span class="badge" style="background: ${scoreColor}; color: #fff; font-weight: 700; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
+                🔥 ${p.viral_score}/100
+              </span>
+            </div>
+            <div style="position: absolute; bottom: 8px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 11px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px;">
+              <span><i class="fa-solid fa-heart" style="color: #ef4444;"></i> ${p.likes_count.toLocaleString('pt-BR')}</span>
+              <span><i class="fa-solid fa-comment" style="color: #3b82f6;"></i> ${p.comments_count.toLocaleString('pt-BR')}</span>
+              <span><i class="fa-solid fa-share" style="color: #10b981;"></i> ${p.shares_count.toLocaleString('pt-BR')}</span>
+            </div>
+          </div>
+          <div style="padding: 16px; flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                ${statusBadge}
+                <small style="color: var(--text-muted); font-size: 11px;">${new Date(p.captured_at).toLocaleDateString('pt-BR')}</small>
+              </div>
+              <h4 style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.4; color: #f8fafc;">
+                "${p.hook_text || p.caption.slice(0, 90)}..."
+              </h4>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 0 0 14px 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                ${p.caption}
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px; border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: auto;">
+              <button class="btn btn-sm btn-primary flex-1" onclick="openGenerateViralPostModal(${p.id})" style="background: #10b981; border-color: #10b981; font-weight: 600;">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Gerar Nosso Post
+              </button>
+              <a href="${p.post_url}" target="_blank" class="btn btn-sm btn-outline" title="Ver post original">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i>
+              </a>
+              <button class="btn btn-sm btn-outline" onclick="deleteViralCapturedPost(${p.id})" title="Excluir post viral">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #ef4444; padding: 30px;">Erro ao carregar conteúdos virais: ${err.message}</div>`;
+  }
+}
+
+function updateViralSelectOptions(posts) {
+  const sel = document.getElementById('genViralPostId');
+  if (!sel) return;
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">Selecione um post viral de referência...</option>' +
+    posts.map(p => `
+      <option value="${p.id}">[Score ${p.viral_score}/100] @${p.source_username}: "${(p.hook_text || p.caption).slice(0, 70)}..."</option>
+    `).join('');
+  if (currentVal) sel.value = currentVal;
+}
+
+async function loadViralGeneratedPosts() {
+  const container = document.getElementById('viralGeneratedList');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/viral/generated');
+    if (!res.ok) return;
+    const list = await res.json();
+
+    if (list.length === 0) {
+      container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 30px;">Nenhum post gerado ainda. Selecione qualquer viral acima e clique em "Gerar Nosso Post com IA"!</div>`;
+      return;
+    }
+
+    container.innerHTML = list.map(g => {
+      const isPublished = g.status === 'PUBLISHED';
+      const statusBadge = isPublished
+        ? `<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981;"><i class="fa-solid fa-circle-check"></i> Publicado / Disparado</span>`
+        : `<span class="badge" style="background: rgba(59,130,246,0.2); color: #3b82f6;"><i class="fa-solid fa-clock"></i> Pronto para Uso</span>`;
+
+      return `
+        <div class="card" style="border: 1px solid rgba(16,185,129,0.25); background: rgba(16,185,129,0.02); border-radius: 10px; padding: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+            <div>
+              <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap;">
+                ${statusBadge}
+                <span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0;"><i class="fa-solid fa-bullseye"></i> ${g.objective || 'Vendas'}</span>
+                <span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0;"><i class="fa-solid fa-comment-dots"></i> ${g.tone || 'Persuasivo'}</span>
+                <span class="badge" style="background: rgba(37,211,102,0.15); color: #25d366;"><i class="fa-brands fa-whatsapp"></i> ${g.target_platform.toUpperCase()}</span>
+                ${g.product_name ? `<span class="badge" style="background: rgba(245,158,11,0.15); color: #f59e0b;"><i class="fa-solid fa-box-open"></i> ${g.product_name}</span>` : ''}
+              </div>
+              <h4 style="margin: 0; color: #fff; font-size: 15px;">${g.title}</h4>
+              <small style="color: var(--text-muted);">Inspirado no viral de @${g.source_username || 'referência'} • Criado em ${new Date(g.created_at).toLocaleString('pt-BR')}</small>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button class="btn btn-sm btn-primary" onclick="copyViralContent(${JSON.stringify(g.full_content).replace(/"/g, '&quot;')})" style="background: #10b981; border-color: #10b981; font-weight: 600;">
+                <i class="fa-solid fa-copy"></i> Copiar Copy
+              </button>
+              <button class="btn btn-sm btn-primary" onclick="broadcastViralPost(${g.id}, 'subbots')" style="background: #25d366; border-color: #25d366; font-weight: 600;" title="Disparar via Exército de Sub-Bots WhatsApp">
+                <i class="fa-solid fa-tower-broadcast"></i> Disparar Sub-Bots
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="deleteViralGeneratedPost(${g.id})" title="Excluir este post">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </div>
+
+          <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin-bottom: 12px; white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: #cbd5e1; font-family: inherit;">
+${g.full_content}
+          </div>
+
+          ${g.media_suggestion ? `
+            <div style="background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.2); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #93c5fd;">
+              <b>💡 Roteiro Visual Sugerido:</b> ${g.media_suggestion}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="text-align: center; color: #ef4444; padding: 20px;">Falha ao carregar posts gerados: ${err.message}</div>`;
+  }
+}
+
+// Modais e Ações do Radar Viral
+function openAddViralProfileModal() {
+  document.getElementById('formAddViralProfile')?.reset();
+  const m = document.getElementById('modalAddViralProfile');
+  if (m) m.classList.add('active');
+}
+
+function closeAddViralProfileModal() {
+  const m = document.getElementById('modalAddViralProfile');
+  if (m) m.classList.remove('active');
+}
+
+async function saveViralProfile(event) {
+  event.preventDefault();
+  const platform = document.getElementById('viralNewPlatform').value;
+  const username = document.getElementById('viralNewUsername').value;
+  const niche = document.getElementById('viralNewNiche').value;
+  const notes = document.getElementById('viralNewNotes').value;
+
+  try {
+    const res = await fetch('/api/viral/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform, username, niche, notes })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro ao cadastrar perfil');
+    }
+    closeAddViralProfileModal();
+    alert(`✅ Perfil @${username} cadastrado com sucesso! Iniciando varredura de virais...`);
+    await loadViralRadarAll();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function deleteViralProfile(id) {
+  if (!confirm('Deseja realmente remover este perfil e todos os posts virais capturados dele?')) return;
+  try {
+    const res = await fetch(`/api/viral/profiles/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      await loadViralRadarAll();
+    }
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
+  }
+}
+
+async function triggerViralProfileScrape(id) {
+  try {
+    const res = await fetch(`/api/viral/profiles/${id}/scrape`, { method: 'POST' });
+    const data = await res.json();
+    alert(`✅ Varredura concluída! ${data.capturedCount || 0} posts virais atualizados.`);
+    await loadViralRadarAll();
+  } catch (err) {
+    alert('Erro na varredura: ' + err.message);
+  }
+}
+
+async function triggerViralScrapeAll() {
+  try {
+    const res = await fetch('/api/viral/scrape-all', { method: 'POST' });
+    const data = await res.json();
+    alert(`✅ Varredura geral concluída em ${data.results?.length || 0} perfis monitorados!`);
+    await loadViralRadarAll();
+  } catch (err) {
+    alert('Erro na varredura geral: ' + err.message);
+  }
+}
+
+async function openGenerateViralPostModal(preselectedPostId = null) {
+  const m = document.getElementById('modalGenerateViralPost');
+  if (!m) return;
+
+  // Carrega produtos no select se ainda não carregados
+  const prodSel = document.getElementById('genViralProductId');
+  if (prodSel) {
+    try {
+      const res = await fetch('/api/products');
+      if (res.ok) {
+        const prods = await res.json();
+        prodSel.innerHTML = prods.map(p => `
+          <option value="${p.id}">${p.name} - R$ ${(p.price_brl || 0).toFixed(2)} (${p.price_usdt || 0} USDT)</option>
+        `).join('');
+      }
+    } catch (_) {}
+  }
+
+  // Preenche select de posts virais a partir do cache
+  updateViralSelectOptions(globalViralCapturedCache);
+
+  if (preselectedPostId) {
+    const postSel = document.getElementById('genViralPostId');
+    if (postSel) postSel.value = preselectedPostId;
+    onSelectViralPostForGen();
+  }
+
+  m.classList.add('active');
+}
+
+function closeGenerateViralPostModal() {
+  const m = document.getElementById('modalGenerateViralPost');
+  if (m) m.classList.remove('active');
+}
+
+function onSelectViralPostForGen() {
+  const val = document.getElementById('genViralPostId')?.value;
+  const box = document.getElementById('genViralPreviewBox');
+  const txt = document.getElementById('genViralHookPreview');
+  if (!val || !box || !txt) {
+    if (box) box.style.display = 'none';
+    return;
+  }
+
+  const found = globalViralCapturedCache.find(p => String(p.id) === String(val));
+  if (found) {
+    txt.innerText = `"${found.hook_text || found.caption}"`;
+    box.style.display = 'block';
+  } else {
+    box.style.display = 'none';
+  }
+}
+
+async function executeGenerateViralPost(event) {
+  event.preventDefault();
+  const btn = document.getElementById('btnSubmitGenViral');
+  const viralPostId = document.getElementById('genViralPostId').value;
+  const productId = document.getElementById('genViralProductId').value;
+  const targetPlatform = document.getElementById('genViralPlatform').value;
+  const tone = document.getElementById('genViralTone').value;
+  const objective = document.getElementById('genViralObjective').value;
+  const customInstructions = document.getElementById('genViralInstructions').value;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Criando post persuasivo...`;
+  }
+
+  try {
+    const res = await fetch('/api/viral/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        viralPostId,
+        productId,
+        targetPlatform,
+        tone,
+        objective,
+        customInstructions
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Falha ao gerar post');
+    }
+
+    const data = await res.json();
+    closeGenerateViralPostModal();
+    alert(`🎉 Post gerado com sucesso com base no viral de @${data.sourceViral?.source_username}!\n\nConfira na seção "Nossos Posts Prontos".`);
+    await loadViralRadarAll();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Gerar Nosso Post com IA`;
+    }
+  }
+}
+
+async function deleteViralCapturedPost(id) {
+  if (!confirm('Deseja excluir este post viral capturado?')) return;
+  try {
+    await fetch(`/api/viral/posts/${id}`, { method: 'DELETE' });
+    await loadViralRadarAll();
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
+  }
+}
+
+async function deleteViralGeneratedPost(id) {
+  if (!confirm('Deseja excluir este post gerado?')) return;
+  try {
+    await fetch(`/api/viral/generated/${id}`, { method: 'DELETE' });
+    await loadViralRadarAll();
+  } catch (err) {
+    alert('Erro ao excluir: ' + err.message);
+  }
+}
+
+async function broadcastViralPost(id, channel = 'subbots') {
+  if (!confirm('Deseja disparar esta copy gerada através dos Sub-Bots do WhatsApp?')) return;
+  try {
+    const res = await fetch(`/api/viral/generated/${id}/broadcast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel })
+    });
+    if (res.ok) {
+      alert('🚀 Disparo iniciado com sucesso através do Exército de WhatsApp!');
+      await loadViralGeneratedPosts();
+    }
+  } catch (err) {
+    alert('Erro ao disparar: ' + err.message);
+  }
+}
+
+function copyViralContent(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    alert('📋 Copy completa copiada para a área de transferência!');
   });
 }

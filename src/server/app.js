@@ -1657,6 +1657,153 @@ function createServer() {
   });
 
   // ==========================================
+  // 12. RADAR VIRAL & CRIADOR DE POSTS (@ INSTA & FACEBOOK)
+  // ==========================================
+  const viralRadarService = require('../services/viralRadarService');
+
+  // Métricas do Radar Viral
+  app.get('/api/viral/stats', (req, res) => {
+    try {
+      res.json(models.getViralStats());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Listar Perfis Rastreados
+  app.get('/api/viral/profiles', (req, res) => {
+    try {
+      const { platform, auto_scrape } = req.query;
+      res.json(models.getViralProfiles({ platform, auto_scrape }));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Cadastrar Novo Perfil (@ insta ou facebook)
+  app.post('/api/viral/profiles', async (req, res) => {
+    try {
+      const { platform, username, niche, notes } = req.body;
+      if (!username) return res.status(400).json({ error: 'Informe o @ do perfil' });
+      const profile = await viralRadarService.addTrackedProfile({ platform, username, niche, notes });
+      res.status(201).json(profile);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Excluir Perfil Rastreado
+  app.delete('/api/viral/profiles/:id', (req, res) => {
+    try {
+      models.deleteViralProfile(parseInt(req.params.id, 10));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Forçar Varredura de um Perfil Específico
+  app.post('/api/viral/profiles/:id/scrape', async (req, res) => {
+    try {
+      const result = await viralRadarService.scrapeProfile(parseInt(req.params.id, 10));
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Varredura Geral de Todos os Perfis Rastreados
+  app.post('/api/viral/scrape-all', async (req, res) => {
+    try {
+      const results = await viralRadarService.scrapeAllProfiles();
+      res.json({ success: true, results });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Listar Conteúdos Virais Capturados
+  app.get('/api/viral/posts', (req, res) => {
+    try {
+      const { platform, profile_id, min_score, status, limit } = req.query;
+      res.json(models.getViralCapturedPosts({ platform, profile_id, min_score, status, limit }));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Detalhe de um Post Viral Capturado
+  app.get('/api/viral/posts/:id', (req, res) => {
+    try {
+      const post = models.getViralCapturedPostById(parseInt(req.params.id, 10));
+      if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+      res.json(post);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Excluir Post Viral
+  app.delete('/api/viral/posts/:id', (req, res) => {
+    try {
+      models.deleteViralCapturedPost(parseInt(req.params.id, 10));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Gerar Nosso Post com Base em um Post Viral
+  app.post('/api/viral/generate', async (req, res) => {
+    try {
+      const { viralPostId, targetPlatform, tone, objective, productId, customInstructions } = req.body;
+      if (!viralPostId) return res.status(400).json({ error: 'Informe o ID do post viral de referência' });
+      const result = await viralRadarService.generateOurPost({
+        viralPostId: parseInt(viralPostId, 10),
+        targetPlatform,
+        tone,
+        objective,
+        productId,
+        customInstructions
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Listar Nossos Posts Gerados
+  app.get('/api/viral/generated', (req, res) => {
+    try {
+      const { status, profile_id, limit } = req.query;
+      res.json(models.getViralGeneratedPosts({ status, profile_id, limit }));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Excluir Post Gerado
+  app.delete('/api/viral/generated/:id', (req, res) => {
+    try {
+      models.deleteViralGeneratedPost(parseInt(req.params.id, 10));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Disparar Post Gerado via WhatsApp Sub-Bots ou Telegram VIP
+  app.post('/api/viral/generated/:id/broadcast', async (req, res) => {
+    try {
+      const { channel, targets } = req.body || {};
+      const result = await viralRadarService.broadcastGeneratedPost(parseInt(req.params.id, 10), { channel, targets });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // NLP / NLU EM PORTUGUÊS BRASILEIRO (ANÁLISE & DIAGNÓSTICO)
   // ==========================================
   app.post('/api/nlp/analyze', async (req, res) => {

@@ -59,6 +59,9 @@
         <a href="#" class="nav-item" data-tab="social">
           <i class="fa-brands fa-instagram" style="color: #e1306c;"></i> Redes Sociais (Meta)
         </a>
+        <a href="#" class="nav-item" data-tab="viral">
+          <i class="fa-solid fa-fire" style="color: #ef4444;"></i> Radar Viral &amp; Posts IA
+        </a>
         <a href="#" class="nav-item" data-tab="nlp">
           <i class="fa-solid fa-brain" style="color: #38bdf8;"></i> Linguagem Natural (NLP)
         </a>
@@ -1935,6 +1938,150 @@
           </div>
         </section>
 
+        <!-- TAB: RADAR VIRAL & CRIADOR DE POSTS (@ INSTA & FACEBOOK) -->
+        <section id="tab-viral" class="tab-pane">
+          <!-- Métricas do Radar Viral -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-users-viewfinder"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Perfis Monitorados</span>
+                <h3 id="viralStatProfiles">0 contas</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="background: rgba(249, 115, 22, 0.15); color: #f97316;"><i class="fa-solid fa-fire"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Virais Capturados</span>
+                <h3 id="viralStatCaptured">0 posts</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon green"><i class="fa-solid fa-pen-nib"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Nossos Posts Criados</span>
+                <h3 id="viralStatGenerated">0 copies</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon gold"><i class="fa-solid fa-chart-line"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Score Viral Médio</span>
+                <h3 id="viralStatAvgScore">0 / 100</h3>
+              </div>
+            </div>
+          </div>
+
+          <!-- Banner Informativo & Ações Rápidas -->
+          <div class="card" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(249, 115, 22, 0.08)); border: 1px solid rgba(239, 68, 68, 0.25); margin-bottom: 25px;">
+            <div class="card-body" style="padding: 18px 24px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div>
+                  <h4 style="margin: 0 0 6px 0; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-wand-magic-sparkles" style="color: #ef4444;"></i> Radar Viral &amp; Engenharia Reversa de Posts
+                  </h4>
+                  <p style="margin: 0; font-size: 13px; color: var(--text-muted);">
+                    Monitore contas de concorrentes ou referências no <b>Instagram</b> e <b>Facebook</b>. O robô captura os posts com maior taxa de engajamento e a IA cria <b>nossos próprios posts persuasivos</b> com ganchos validados e chamadas para ação dos nossos produtos!
+                  </p>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-sm btn-primary" onclick="openAddViralProfileModal()" style="background: #ef4444; border-color: #ef4444; font-weight: 600;">
+                    <i class="fa-solid fa-plus"></i> Monitorar Novo @
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="triggerViralScrapeAll()">
+                    <i class="fa-solid fa-arrows-rotate"></i> Varredura Geral
+                  </button>
+                  <button type="button" class="btn btn-sm btn-primary" onclick="openGenerateViralPostModal()" style="background: #3b82f6; border-color: #3b82f6; font-weight: 600;">
+                    <i class="fa-solid fa-bolt"></i> Criar Post com IA
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SEÇÃO 1: PERFIS MONITORADOS (@ INSTA & FACEBOOK) -->
+          <div class="card" style="margin-bottom: 25px;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3 style="margin: 0;"><i class="fa-solid fa-id-card-clip" style="color: #ef4444;"></i> Perfis Cadastrados para Rastreamento</h3>
+                <small style="color: var(--text-muted);">Contas monitoradas de Instagram e páginas de Facebook para captação contínua de ganchos virais</small>
+              </div>
+              <button class="btn btn-sm btn-outline" onclick="loadViralProfiles()">
+                <i class="fa-solid fa-rotate"></i> Recarregar Perfis
+              </button>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div class="table-responsive">
+                <table class="table" style="margin: 0;">
+                  <thead>
+                    <tr>
+                      <th>Plataforma</th>
+                      <th>Perfil / @</th>
+                      <th>Nome / Referência</th>
+                      <th>Nicho</th>
+                      <th>Seguidores</th>
+                      <th>Virais Capturados</th>
+                      <th>Última Varredura</th>
+                      <th style="text-align: right;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="viralProfilesTableBody">
+                    <tr><td colspan="8" style="text-align: center; padding: 25px; color: var(--text-muted);">Carregando perfis cadastrados...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- SEÇÃO 2: FEED DE CONTEÚDOS VIRAIS CAPTURADOS -->
+          <div class="card" style="margin-bottom: 25px;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 style="margin: 0;"><i class="fa-solid fa-fire-flame-curved" style="color: #f97316;"></i> Radar de Conteúdos Virais Capturados</h3>
+                <small style="color: var(--text-muted);">Publicações reais de alta retenção capturadas e ranqueadas por pontuação viral (Score 0-100)</small>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <select id="viralFilterPlatform" class="form-control" style="width: 140px; font-size: 12px;" onchange="loadViralCapturedPosts()">
+                  <option value="">Todas as Redes</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                </select>
+                <select id="viralFilterScore" class="form-control" style="width: 150px; font-size: 12px;" onchange="loadViralCapturedPosts()">
+                  <option value="">Todos os Scores</option>
+                  <option value="90">🔥 Super Viral (90+)</option>
+                  <option value="80">🚀 Alto Engajamento (80+)</option>
+                </select>
+                <button class="btn btn-sm btn-secondary" onclick="loadViralCapturedPosts()">
+                  <i class="fa-solid fa-filter"></i> Filtrar
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="viralPostsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 18px;">
+                <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">Carregando conteúdos virais capturados...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SEÇÃO 3: NOSSOS POSTS GERADOS COM IA (PRONTOS PARA DISPARO) -->
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3 style="margin: 0;"><i class="fa-solid fa-paper-plane" style="color: #10b981;"></i> Nossos Posts Prontos (Copies Geradas)</h3>
+                <small style="color: var(--text-muted);">Posts adaptados com ganchos hipnóticos e CTAs dos nossos produtos, prontos para disparar ou copiar</small>
+              </div>
+              <button class="btn btn-sm btn-primary" onclick="openGenerateViralPostModal()" style="background: #10b981; border-color: #10b981;">
+                <i class="fa-solid fa-plus"></i> Gerar Novo Post
+              </button>
+            </div>
+            <div class="card-body">
+              <div id="viralGeneratedList" style="display: flex; flex-direction: column; gap: 16px;">
+                <div style="text-align: center; color: var(--text-muted); padding: 30px;">Nenhum post gerado ainda. Clique em "Gerar Nosso Post" em qualquer conteúdo viral acima!</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- TAB 6: PRODUTOS & ASSINATURAS -->
         <section id="tab-products" class="tab-pane">
           <div class="card">
@@ -3743,6 +3890,123 @@
       <div class="modal-footer" style="display: flex; justify-content: flex-end; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
         <button type="button" class="btn btn-secondary" onclick="closeLinkBuilderModal()">Fechar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL CADASTRAR PERFIL VIRAL (@) -->
+  <div id="modalAddViralProfile" class="modal">
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-users-viewfinder" style="color: #ef4444;"></i> Monitorar Perfil no Radar Viral</h3>
+        <button type="button" class="btn-close" onclick="closeAddViralProfileModal()">&times;</button>
+      </div>
+      <form id="formAddViralProfile" onsubmit="saveViralProfile(event)">
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Plataforma *</label>
+            <select id="viralNewPlatform" class="form-control" required>
+              <option value="instagram">Instagram (@usuario)</option>
+              <option value="facebook">Facebook (página ou @)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Usuário / @ do Perfil *</label>
+            <input type="text" id="viralNewUsername" class="form-control" required placeholder="Ex: @marketingdigital ou eliezerscherer">
+            <small style="color: var(--text-muted); font-size: 11px;">Pode digitar com ou sem @ ou colar a URL do perfil.</small>
+          </div>
+          <div class="form-group">
+            <label>Nicho / Segmento</label>
+            <input type="text" id="viralNewNiche" class="form-control" placeholder="Ex: Marketing Digital, Cripto & Investimentos, E-commerce, IA">
+          </div>
+          <div class="form-group">
+            <label>Observações Estratégicas</label>
+            <textarea id="viralNewNotes" class="form-control" rows="2" placeholder="Ex: Referência em ganchos de curiosidade e copies curtas para reels"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeAddViralProfileModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #ef4444; border-color: #ef4444; font-weight: 600;">
+            <i class="fa-solid fa-radar"></i> Rastrear &amp; Capturar Virais
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL GERAR NOSSO POST COM IA -->
+  <div id="modalGenerateViralPost" class="modal">
+    <div class="modal-content" style="max-width: 680px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden;">
+      <div class="modal-header" style="flex-shrink: 0;">
+        <h3><i class="fa-solid fa-wand-magic-sparkles" style="color: #ef4444;"></i> Gerador de Post Persuasivo com IA</h3>
+        <button type="button" class="btn-close" onclick="closeGenerateViralPostModal()">&times;</button>
+      </div>
+      <form id="formGenerateViralPost" onsubmit="executeGenerateViralPost(event)" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">
+        <div class="modal-body-scroll" style="overflow-y: auto; flex: 1; padding: 15px;">
+          <div class="form-group">
+            <label>Post Viral de Referência *</label>
+            <select id="genViralPostId" class="form-control" required onchange="onSelectViralPostForGen()">
+              <option value="">Selecione um post viral capturado...</option>
+            </select>
+          </div>
+
+          <!-- Preview do Gancho Original Selecionado -->
+          <div id="genViralPreviewBox" style="display: none; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+            <div style="font-size: 11px; color: #f97316; font-weight: 600; margin-bottom: 4px;"><i class="fa-solid fa-fire"></i> Gancho Original do Viral:</div>
+            <div id="genViralHookPreview" style="font-size: 13px; font-style: italic; color: #e2e8f0;"></div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Produto / Oferta Vinculada *</label>
+              <select id="genViralProductId" class="form-control" required>
+                <option value="">Carregando produtos...</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label>Canal de Destino *</label>
+              <select id="genViralPlatform" class="form-control" required>
+                <option value="whatsapp">WhatsApp (Grupos / Broadcast / Direct)</option>
+                <option value="instagram">Instagram (Legenda + Roteiro de Reels)</option>
+                <option value="facebook">Facebook (Post / Copy Longa)</option>
+                <option value="telegram">Telegram (Canal VIP / Comunidade)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Tom de Voz</label>
+              <select id="genViralTone" class="form-control">
+                <option value="Comercial & Persuasivo">Comercial &amp; Persuasivo</option>
+                <option value="Storytelling & Curiosidade">Storytelling &amp; Curiosidade</option>
+                <option value="Educativo & Autoridade">Educativo &amp; Autoridade</option>
+                <option value="Meme & Provocativo">Meme &amp; Provocativo</option>
+                <option value="Urgência & Escassez">Urgência &amp; Escassez Relâmpago</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label>Objetivo Principal</label>
+              <select id="genViralObjective" class="form-control">
+                <option value="Vendas & Conversão">Vendas &amp; Conversão Imediata</option>
+                <option value="Geração de Leads">Geração de Leads / Curiosidade</option>
+                <option value="Engajamento & Viralização">Engajamento &amp; Compartilhamentos</option>
+                <option value="Quebra de Objeções">Quebra de Objeções Fortes</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Instruções Customizadas (Opcional)</label>
+            <textarea id="genViralInstructions" class="form-control" rows="2" placeholder="Ex: Mencione que restam poucas vagas no lote promocional e inclua emojis chamativos"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 15px; border-top: 1px solid var(--border-color); flex-shrink: 0;">
+          <button type="button" class="btn btn-secondary" onclick="closeGenerateViralPostModal()">Cancelar</button>
+          <button type="submit" id="btnSubmitGenViral" class="btn btn-primary" style="background: #10b981; border-color: #10b981; font-weight: 600;">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Gerar Nosso Post com IA
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 

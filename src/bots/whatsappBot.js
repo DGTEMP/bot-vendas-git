@@ -1773,6 +1773,16 @@ class WhatsAppBotService {
       return this.handleMeteoricCommand(activeSock, from, text, isOwnerUser);
     }
 
+    // 14.11 Radar Viral & Criador de Posts (@ Insta & Facebook): !viral / !radar / !viraladd / !gerarpost
+    if (/^(?:!|\/)(?:viral|radar|viraladd|gerarpost|viralscan)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const isChatAdmin = await this.checkIsAdmin(from, participantJid, isFromMe);
+      if (!isOwnerUser && !isChatAdmin) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Administradores*\n\nO Radar Viral e Criador de Posts é exclusivo para administradores e o Dono do Bot.` });
+      }
+      return this.handleViralRadarCommand(activeSock, from, text, isOwnerUser);
+    }
+
     // 15. Menu Geral de Comandos Gata Nina + Loja: !help / !bot / !comandos / !menu2 / !gatanina / !ajudatudo
     if (/^(?:!|\/)?(?:help|bot|comandos|menu2|gatanina|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
@@ -1806,7 +1816,12 @@ class WhatsAppBotService {
         `• *!meteorico etapa <1-5>* — Dispara diretrizes de aquecimento com sub-bots\n` +
         `• *!meteorico aquecer* — Aciona conversa rápida dos sub-bots no grupo\n` +
         `• *!meteorico fechar / abrir* — Alterna modo anúncio do grupo\n` +
-        `• *!meteorico link* — Exibe link ativo do grupo e redirecionador\n\n`;
+        `• *!meteorico link* — Exibe link ativo do grupo e redirecionador\n\n` +
+        `🔥 *Radar Viral & Criador de Posts (@ Insta e Facebook):*\n` +
+        `• *!viral* ou *!radar* — Painel do radar e virais capturados\n` +
+        `• *!viraladd <insta|fb> <@perfil> [nicho]* — Cadastra perfil para capturar virais\n` +
+        `• *!gerarpost <id_ou_perfil>* — Gera nosso post adaptado com gancho e CTA\n` +
+        `• *!viralscan* — Faz varredura de virais em todos os perfis agora\n\n`;
 
       if (isOwnerUser) {
         gataMenu += `👑 *Controle de Sub-Bots & Divulgação (Exclusivo Dono / Bot Principal):*\n` +
@@ -2447,6 +2462,163 @@ class WhatsAppBotService {
     }
 
     return sock.sendMessage(from, { text: `⚠️ Comando meteórico desconhecido. Envie *!meteorico* para ver todas as opções.` });
+  }
+
+  async handleViralRadarCommand(sock, from, text, isOwnerUser = false) {
+    const viralRadarService = require('../services/viralRadarService');
+    const models = require('../db/models');
+    const parts = text.trim().split(/\s+/);
+    const mainCmd = parts[0]?.toLowerCase().replace(/^(?:!|\/)/, '');
+    const subCmd = parts[1]?.toLowerCase();
+
+    // 1. Comando Direto !viraladd <insta|fb> <@perfil> [nicho]
+    if (mainCmd === 'viraladd') {
+      const platArg = parts[1]?.toLowerCase();
+      const userArg = parts[2] || (parts[1]?.startsWith('@') ? parts[1] : null);
+      const nicheArg = parts.slice(userArg === parts[1] ? 2 : 3).join(' ') || 'Geral';
+
+      if (!userArg) {
+        return sock.sendMessage(from, {
+          text: `⚠️ *Uso correto:* *!viraladd <insta|fb> <@usuario> [nicho]*\n\nExemplo: *!viraladd insta @marketingdigital.brasil Marketing*\nExemplo: *!viraladd fb viverdecripto Criptomoedas*`
+        });
+      }
+
+      const platform = platArg === 'fb' || platArg === 'facebook' ? 'facebook' : 'instagram';
+      await sock.sendMessage(from, { text: `⏳ *Cadastrando e rastreando virais de ${userArg} (${platform.toUpperCase()})...*` });
+
+      try {
+        const profile = await viralRadarService.addTrackedProfile({
+          platform,
+          username: userArg,
+          niche: nicheArg
+        });
+
+        const captured = models.getViralCapturedPosts({ profile_id: profile.id, limit: 3 });
+        let reply = `✅ *PERFIL CADASTRADO NO RADAR VIRAL!*\n\n` +
+          `• *Plataforma:* ${profile.platform.toUpperCase()}\n` +
+          `• *Perfil:* @${profile.username}\n` +
+          `• *Nome:* ${profile.display_name}\n` +
+          `• *Nicho:* ${profile.niche}\n` +
+          `• *Total de Virais Capturados:* ${captured.length}\n\n`;
+
+        if (captured.length > 0) {
+          reply += `🔥 *Principais Ganchos Virais Identificados:*\n`;
+          captured.forEach((c, idx) => {
+            reply += `${idx + 1}. [Score: ${c.viral_score}/100] "${c.hook_text}"\n`;
+          });
+          reply += `\n👉 Para gerar nosso post agora baseado nesse perfil, envie: *!gerarpost @${profile.username}* ou *!gerarpost ${captured[0].id}*`;
+        }
+
+        return sock.sendMessage(from, { text: reply });
+      } catch (err) {
+        return sock.sendMessage(from, { text: `❌ Erro ao adicionar perfil: ${err.message}` });
+      }
+    }
+
+    // 2. Comando Direto !gerarpost <id_ou_perfil>
+    if (mainCmd === 'gerarpost' || (mainCmd === 'viral' && subCmd === 'gerar')) {
+      const targetArg = mainCmd === 'gerarpost' ? parts[1] : parts[2];
+      let targetPost = null;
+
+      if (!targetArg) {
+        // Pega o post com maior viral_score
+        const topPosts = models.getViralCapturedPosts({ limit: 1 });
+        targetPost = topPosts[0];
+      } else if (/^\d+$/.test(targetArg)) {
+        targetPost = models.getViralCapturedPostById(parseInt(targetArg, 10));
+      } else {
+        const cleanUser = viralRadarService.cleanUsername(targetArg);
+        const profile = models.getViralProfileByUsername('instagram', cleanUser) || models.getViralProfileByUsername('facebook', cleanUser);
+        if (profile) {
+          const profilePosts = models.getViralCapturedPosts({ profile_id: profile.id, limit: 1 });
+          targetPost = profilePosts[0];
+        }
+      }
+
+      if (!targetPost) {
+        return sock.sendMessage(from, {
+          text: `⚠️ Nenhum post viral encontrado com esse ID ou @. Envie *!viral* para ver a lista de posts capturados!`
+        });
+      }
+
+      await sock.sendMessage(from, {
+        text: `🧠 *Criando nosso post persuasivo baseado no viral #${targetPost.id} (@${targetPost.source_username})...*\nAguarde alguns instantes enquanto a IA reestrutura o gancho, corpo e CTA!`
+      });
+
+      try {
+        const result = await viralRadarService.generateOurPost({
+          viralPostId: targetPost.id,
+          targetPlatform: 'whatsapp',
+          tone: 'Comercial & Persuasivo',
+          objective: 'Vendas & Conversão'
+        });
+
+        const p = result.post;
+        const msg = `✍️ *NOSSO POST GERADO (Baseado no Viral #${targetPost.id} de @${targetPost.source_username})*\n\n` +
+          `${p.full_content}\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `📌 *Sugestão de Mídia / Roteiro:*\n${p.media_suggestion}\n\n` +
+          `💡 _Copie o texto acima para disparar nos grupos ou no direct!_`;
+
+        return sock.sendMessage(from, { text: msg });
+      } catch (err) {
+        return sock.sendMessage(from, { text: `❌ Erro ao gerar post: ${err.message}` });
+      }
+    }
+
+    // 3. Varredura Geral !viralscan
+    if (mainCmd === 'viralscan' || (mainCmd === 'viral' && subCmd === 'scan')) {
+      await sock.sendMessage(from, { text: `🔍 *Iniciando varredura geral em todos os perfis do Instagram e Facebook...*` });
+      try {
+        const results = await viralRadarService.scrapeAllProfiles();
+        const totalNew = results.reduce((acc, r) => acc + (r.captured || 0), 0);
+        return sock.sendMessage(from, {
+          text: `✅ *VARREDURA CONCLUÍDA!*\n\n` +
+            `• Perfis Verificados: ${results.length}\n` +
+            `• Novos Posts/Ganchos Virais: ${totalNew}\n\n` +
+            `👉 Envie *!viral* para ver o ranking dos melhores conteúdos!`
+        });
+      } catch (err) {
+        return sock.sendMessage(from, { text: `❌ Falha na varredura: ${err.message}` });
+      }
+    }
+
+    // 4. Status Geral do Radar Viral (!viral / !radar)
+    const stats = models.getViralStats();
+    const profiles = models.getViralProfiles();
+    const topPosts = models.getViralCapturedPosts({ limit: 4 });
+
+    let card = `🔥 *RADAR DE CONTEÚDO VIRAL & CRIADOR DE POSTS* 🔥\n\n` +
+      `📊 *Estatísticas Atuais:*\n` +
+      `• *Perfis Rastreados:* *${stats.totalProfiles} contas* (Insta & Facebook)\n` +
+      `• *Virais Capturados:* *${stats.totalCaptured} publicações*\n` +
+      `• *Nossos Posts Gerados:* *${stats.totalGenerated} copies*\n` +
+      `• *Média de Viral Score:* *${stats.avgViralScore}/100*\n\n`;
+
+    if (profiles.length > 0) {
+      card += `👥 *Perfis Monitorados:*\n`;
+      profiles.slice(0, 4).forEach(p => {
+        card += `• ${p.platform === 'instagram' ? '📸' : '📘'} *${p.display_name}* (@${p.username}) — Nicho: ${p.niche} (${p.total_captured} virais)\n`;
+      });
+      card += `\n`;
+    }
+
+    if (topPosts.length > 0) {
+      card += `🚀 *Melhores Ganchos Virais Capturados:*\n`;
+      topPosts.forEach(c => {
+        card += `• *ID #${c.id}* [${c.viral_score}/100] (@${c.source_username}):\n  "${c.hook_text}"\n  Curtidas: ~${c.likes_count.toLocaleString('pt-BR')} | Comentários: ~${c.comments_count.toLocaleString('pt-BR')}\n`;
+      });
+      card += `\n`;
+    }
+
+    card += `⚙️ *Comandos Disponíveis:*\n` +
+      `• *!viraladd <insta|fb> <@perfil> [nicho]* — Cadastra novo perfil\n` +
+      `• *!gerarpost <id>* — Gera nosso post persuasivo baseado no viral\n` +
+      `• *!gerarpost @perfil* — Gera nosso post usando o melhor viral do perfil\n` +
+      `• *!viralscan* — Força varredura de novos virais agora\n\n` +
+      `🌐 *Painel Web Completo:* http://localhost:3000/#viral`;
+
+    return sock.sendMessage(from, { text: card });
   }
 
   async requestPairingCode(phone) {

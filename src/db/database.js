@@ -541,6 +541,63 @@ function initDatabase() {
       executed_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS viral_tracked_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL, -- 'instagram', 'facebook'
+      username TEXT NOT NULL, -- '@eliezerscherer', 'marketingpro', etc.
+      display_name TEXT,
+      profile_url TEXT,
+      niche TEXT DEFAULT 'Geral',
+      followers_count INTEGER DEFAULT 0,
+      avg_likes INTEGER DEFAULT 0,
+      auto_scrape INTEGER DEFAULT 1,
+      last_scraped_at DATETIME,
+      total_captured INTEGER DEFAULT 0,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS viral_captured_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES viral_tracked_profiles(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL, -- 'instagram', 'facebook'
+      source_username TEXT NOT NULL,
+      post_id TEXT,
+      post_url TEXT NOT NULL,
+      media_type TEXT DEFAULT 'video', -- 'video', 'image', 'reel', 'carousel', 'story'
+      media_url TEXT,
+      thumbnail_url TEXT,
+      caption TEXT,
+      hook_text TEXT,
+      likes_count INTEGER DEFAULT 0,
+      comments_count INTEGER DEFAULT 0,
+      shares_count INTEGER DEFAULT 0,
+      views_count INTEGER DEFAULT 0,
+      viral_score INTEGER DEFAULT 80, -- 0 a 100
+      status TEXT DEFAULT 'NEW', -- 'NEW', 'USED', 'ARCHIVED'
+      captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS viral_generated_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_post_id INTEGER REFERENCES viral_captured_posts(id) ON DELETE SET NULL,
+      profile_id INTEGER REFERENCES viral_tracked_profiles(id) ON DELETE SET NULL,
+      title TEXT,
+      target_platform TEXT DEFAULT 'whatsapp', -- 'whatsapp', 'instagram', 'facebook', 'telegram'
+      tone TEXT DEFAULT 'Comercial & Persuasivo', -- 'Comercial & Persuasivo', 'Storytelling', 'Educativo', 'Meme'
+      objective TEXT DEFAULT 'Vendas & Conversão', -- 'Vendas & Conversão', 'Engajamento', 'Geração de Leads'
+      product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+      hook TEXT,
+      body TEXT,
+      cta TEXT,
+      hashtags TEXT,
+      media_suggestion TEXT,
+      full_content TEXT NOT NULL,
+      status TEXT DEFAULT 'READY', -- 'READY', 'PUBLISHED', 'ARCHIVED'
+      published_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Migrações seguras
@@ -846,7 +903,101 @@ function initDatabase() {
     );
   }
 
-  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados e Redes Sociais!');
+  // Semeia perfis rastreados e conteúdos virais de exemplo se vazios
+  const viralProfilesCount = db.prepare('SELECT COUNT(*) as count FROM viral_tracked_profiles').get().count;
+  if (viralProfilesCount === 0) {
+    const p1 = db.prepare(`
+      INSERT INTO viral_tracked_profiles (platform, username, display_name, profile_url, niche, followers_count, avg_likes, auto_scrape, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `).run(
+      'instagram',
+      'marketingdigital.brasil',
+      'Marketing Digital Brasil',
+      'https://instagram.com/marketingdigital.brasil',
+      'Marketing & Vendas Online',
+      185000,
+      4200,
+      'Referência em copies virais de alta conversão para infoprodutos e WhatsApp'
+    );
+
+    const p2 = db.prepare(`
+      INSERT INTO viral_tracked_profiles (platform, username, display_name, profile_url, niche, followers_count, avg_likes, auto_scrape, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+    `).run(
+      'facebook',
+      'viverdecripto',
+      'Viver de Cripto & Renda Passiva',
+      'https://facebook.com/viverdecripto',
+      'Criptomoedas & Finanças',
+      92000,
+      2100,
+      'Página viral no Facebook sobre estratégias de USDT, Bitcoin e sinais'
+    );
+
+    const prof1Id = Number(p1.lastInsertRowid);
+    const prof2Id = Number(p2.lastInsertRowid);
+
+    const insertPost = db.prepare(`
+      INSERT INTO viral_captured_posts (profile_id, platform, source_username, post_id, post_url, media_type, thumbnail_url, caption, hook_text, likes_count, comments_count, shares_count, views_count, viral_score, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW')
+    `);
+
+    insertPost.run(
+      prof1Id,
+      'instagram',
+      'marketingdigital.brasil',
+      'reel_mkt_01',
+      'https://instagram.com/p/reel_mkt_01',
+      'video',
+      'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=500&auto=format&fit=crop&q=60',
+      'O maior erro de quem tenta vender no WhatsApp é mandar preço logo na primeira mensagem. Quem faz isso parece um vendedor desesperado. Faça isso em vez disso: 1) Faça uma pergunta de qualificação; 2) Mostre uma prova social rápida de 5 segundos; 3) Mande o link exclusivo com condição relâmpago. Salva esse post antes que o algoritmo esconda!',
+      'O maior erro de quem tenta vender no WhatsApp é mandar preço logo na primeira mensagem.',
+      14200,
+      890,
+      2100,
+      185000,
+      96
+    );
+
+    insertPost.run(
+      prof1Id,
+      'instagram',
+      'marketingdigital.brasil',
+      'reel_mkt_02',
+      'https://instagram.com/p/reel_mkt_02',
+      'video',
+      'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=500&auto=format&fit=crop&q=60',
+      'Pouca gente sabe, mas existe uma ferramenta que faz toda a entrega de produtos digitais no Pix e USDT sem você precisar mexer um dedo. Enquanto você dorme, ela atende, envia QR Code e entrega o acesso no mesmo segundo. Comente BOT que te mando o passo a passo no direct!',
+      'Pouca gente sabe, mas existe uma ferramenta que faz toda a entrega de produtos digitais no Pix e USDT sem você mexer um dedo.',
+      9800,
+      1420,
+      1200,
+      112000,
+      92
+    );
+
+    insertPost.run(
+      prof2Id,
+      'facebook',
+      'viverdecripto',
+      'fb_post_01',
+      'https://facebook.com/viverdecripto/posts/fb_post_01',
+      'video',
+      'https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=500&auto=format&fit=crop&q=60',
+      'Se você tivesse começado a acumular USDT e seguir sinais VIP há 6 meses, hoje sua conta estaria completamente diferente. A maioria das pessoas perde dinheiro tentando adivinhar o mercado sozinha, enquanto quem segue método copia e cola lucra todos os dias. O link da sala VIP está no primeiro comentário com desconto exclusivo para os 20 primeiros!',
+      'Se você tivesse começado a acumular USDT e seguir sinais VIP há 6 meses, sua conta estaria completamente diferente.',
+      5400,
+      630,
+      890,
+      76000,
+      89
+    );
+
+    db.prepare("UPDATE viral_tracked_profiles SET total_captured = 2, last_scraped_at = datetime('now') WHERE id = ?").run(prof1Id);
+    db.prepare("UPDATE viral_tracked_profiles SET total_captured = 1, last_scraped_at = datetime('now') WHERE id = ?").run(prof2Id);
+  }
+
+  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais e Radar Viral!');
 }
 
 initDatabase();
