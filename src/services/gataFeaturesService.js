@@ -319,46 +319,57 @@ class GataFeaturesService {
 
   // Helper: Extrai áudio de vídeo do YouTube usando yt-dlp ou fallbacks
   async downloadYouTubeAudio(videoUrl) {
-    // 1. Tenta extração via yt-dlp nativo com suporte a JavaScript runtime (Node.js)
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const { spawn } = require('child_process');
+
+    // 1. Tenta extração via yt-dlp nativo com suporte a JavaScript runtime (Node.js) e cliente Android de alta velocidade
+    const tmpAudio = path.join(os.tmpdir(), `ytdl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.m4a`);
     try {
-      const { spawn } = require('child_process');
       const buf = await new Promise((resolve, reject) => {
         const proc = spawn('python', [
           '-m', 'yt_dlp',
           '--js-runtimes', 'node',
           '--no-warnings',
           '--no-playlist',
+          '--extractor-args', 'youtube:player_client=android,web',
           '--socket-timeout', '15',
-          '-f', 'ba[ext=m4a]/ba/b',
-          '-o', '-',
+          '-f', '140/ba[ext=m4a]/18/ba/b',
+          '-o', tmpAudio,
           videoUrl
         ]);
-        const chunks = [];
-        let errData = '';
 
-        proc.stdout.on('data', chunk => chunks.push(chunk));
+        let errData = '';
         proc.stderr.on('data', d => { errData += d.toString(); });
 
-        proc.on('error', err => reject(err));
         proc.on('close', code => {
-          if (code === 0 && chunks.length > 0) {
-            resolve(Buffer.concat(chunks));
+          if (code === 0 && fs.existsSync(tmpAudio)) {
+            try {
+              const fileBuf = fs.readFileSync(tmpAudio);
+              try { fs.unlinkSync(tmpAudio); } catch (_) {}
+              resolve(fileBuf);
+            } catch (e) {
+              reject(e);
+            }
           } else {
+            if (fs.existsSync(tmpAudio)) try { fs.unlinkSync(tmpAudio); } catch (_) {}
             reject(new Error(`yt-dlp falhou (${code}): ${errData.slice(0, 100)}`));
           }
         });
 
         setTimeout(() => {
           try { proc.kill(); } catch (_) {}
+          if (fs.existsSync(tmpAudio)) try { fs.unlinkSync(tmpAudio); } catch (_) {}
           reject(new Error('Tempo limite excedido'));
-        }, 40000);
+        }, 50000);
       });
 
       if (buf && buf.length > 5000) {
         return { buffer: buf, mimetype: 'audio/mp4', ext: 'm4a' };
       }
     } catch (err) {
-      console.warn('[GataFeatures ⚠️ Falha no yt-dlp stdout]:', err.message);
+      console.warn('[GataFeatures ⚠️ Falha no yt-dlp]:', err.message);
     }
 
     // 2. Tenta extração de URL direta do stream via yt-dlp --get-url
@@ -1083,6 +1094,9 @@ class GataFeaturesService {
 
       // 1. Tenta baixar via yt-dlp local (com suporte a vídeos de até 500MB)
       let videoBuffer = null;
+      const os = require('os');
+      const fs = require('fs');
+      const tmpVideo = path.join(os.tmpdir(), `ytvideo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.mp4`);
       try {
         const { spawn } = require('child_process');
         videoBuffer = await new Promise((resolve, reject) => {
@@ -1091,20 +1105,32 @@ class GataFeaturesService {
             '--js-runtimes', 'node',
             '--no-warnings',
             '--no-playlist',
-            '--socket-timeout', '20',
-            '-f', 'best[ext=mp4][filesize<500M]/bestvideo[height<=720]+bestaudio/best[height<=720]/b',
+            '--extractor-args', 'youtube:player_client=android,web',
+            '--socket-timeout', '25',
+            '-f', '22/18/best[ext=mp4][filesize<500M]/best[height<=720]/b',
             '--max-filesize', '500M',
-            '-o', '-',
+            '-o', tmpVideo,
             video.url
           ]);
-          const chunks = [];
-          proc.stdout.on('data', chunk => chunks.push(chunk));
+          let errData = '';
+          proc.stderr.on('data', d => { errData += d.toString(); });
           proc.on('close', code => {
-            if (code === 0 && chunks.length > 0) resolve(Buffer.concat(chunks));
-            else reject(new Error('yt-dlp video falhou'));
+            if (code === 0 && fs.existsSync(tmpVideo)) {
+              try {
+                const fBuf = fs.readFileSync(tmpVideo);
+                try { fs.unlinkSync(tmpVideo); } catch (_) {}
+                resolve(fBuf);
+              } catch (e) {
+                reject(e);
+              }
+            } else {
+              if (fs.existsSync(tmpVideo)) try { fs.unlinkSync(tmpVideo); } catch (_) {}
+              reject(new Error('yt-dlp video falhou'));
+            }
           });
           setTimeout(() => {
             try { proc.kill(); } catch (_) {}
+            if (fs.existsSync(tmpVideo)) try { fs.unlinkSync(tmpVideo); } catch (_) {}
             reject(new Error('Timeout de download de vídeo'));
           }, 90000);
         });
