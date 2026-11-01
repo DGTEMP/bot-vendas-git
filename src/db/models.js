@@ -2476,6 +2476,182 @@ const models = {
       return db.prepare(`SELECT id, chat_id, sender_phone, media_type, media_caption, media_caption as caption, created_at FROM view_once_logs WHERE chat_id = ? ORDER BY id DESC LIMIT ?`).all(chatId, limit);
     }
     return db.prepare(`SELECT id, chat_id, sender_phone, media_type, media_caption, media_caption as caption, created_at FROM view_once_logs ORDER BY id DESC LIMIT ?`).all(limit);
+  },
+
+  // ==========================================
+  // 20. LANÇAMENTO METEÓRICO & MULTI-GRUPOS
+  // ==========================================
+  getMeteoricCampaign(id = 1) {
+    const row = db.prepare('SELECT * FROM meteoric_campaigns WHERE id = ?').get(id);
+    if (!row) {
+      return {
+        id: 1,
+        name: 'Lançamento Meteórico VIP',
+        group_base_name: 'Oferta VIP #{num}',
+        max_members_per_group: 200,
+        active: 1,
+        current_group_id: null,
+        current_stage: 1,
+        group_description: 'Grupo VIP oficial de lançamento. Acompanhe os avisos!',
+        total_groups_created: 0,
+        total_leads_reached: 0
+      };
+    }
+    return row;
+  },
+
+  updateMeteoricCampaign(updates = {}, id = 1) {
+    const allowed = [
+      'name', 'group_base_name', 'max_members_per_group', 'active',
+      'current_group_id', 'current_stage', 'group_description',
+      'total_groups_created', 'total_leads_reached'
+    ];
+    const sets = [];
+    const vals = [];
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (allowed.includes(k)) {
+        sets.push(`${k} = ?`);
+        vals.push(v);
+      }
+    }
+
+    if (sets.length === 0) return this.getMeteoricCampaign(id);
+
+    sets.push('updated_at = CURRENT_TIMESTAMP');
+    vals.push(id);
+
+    db.prepare(`UPDATE meteoric_campaigns SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    return this.getMeteoricCampaign(id);
+  },
+
+  getMeteoricGroups(campaignId = 1) {
+    return db.prepare(`
+      SELECT * FROM meteoric_groups 
+      WHERE campaign_id = ? 
+      ORDER BY group_num ASC, id ASC
+    `).all(campaignId);
+  },
+
+  getMeteoricGroupById(id) {
+    return db.prepare('SELECT * FROM meteoric_groups WHERE id = ?').get(id);
+  },
+
+  getMeteoricGroupByJid(jid) {
+    return db.prepare('SELECT * FROM meteoric_groups WHERE group_jid = ?').get(jid);
+  },
+
+  getActiveMeteoricGroup(campaignId = 1) {
+    // 1. Tenta pegar o grupo atual marcado na campanha se não estiver lotado
+    const campaign = this.getMeteoricCampaign(campaignId);
+    if (campaign && campaign.current_group_id) {
+      const current = this.getMeteoricGroupById(campaign.current_group_id);
+      if (current && !current.is_full) {
+        return current;
+      }
+    }
+    // 2. Procura o último grupo criado que ainda não atingiu o limite de capacidade
+    const group = db.prepare(`
+      SELECT * FROM meteoric_groups 
+      WHERE campaign_id = ? AND is_full = 0 
+      ORDER BY group_num DESC, id DESC 
+      LIMIT 1
+    `).get(campaignId);
+
+    return group || null;
+  },
+
+  createMeteoricGroup(data) {
+    const {
+      campaign_id = 1,
+      group_jid,
+      group_num = 1,
+      title,
+      invite_code = '',
+      invite_url = '',
+      member_count = 0,
+      max_limit = 200,
+      is_full = 0,
+      is_closed = 1
+    } = data;
+
+    const res = db.prepare(`
+      INSERT INTO meteoric_groups (
+        campaign_id, group_jid, group_num, title,
+        invite_code, invite_url, member_count, max_limit,
+        is_full, is_closed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      campaign_id, group_jid, group_num, title,
+      invite_code, invite_url, member_count, max_limit,
+      is_full, is_closed
+    );
+
+    const newGroup = this.getMeteoricGroupById(Number(res.lastInsertRowid));
+
+    // Atualiza campanha com este grupo como ativo e incrementa contador
+    db.prepare(`
+      UPDATE meteoric_campaigns 
+      SET current_group_id = ?, total_groups_created = total_groups_created + 1, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(newGroup.id, campaign_id);
+
+    return newGroup;
+  },
+
+  updateMeteoricGroup(id, updates = {}) {
+    const allowed = [
+      'title', 'invite_code', 'invite_url', 'member_count',
+      'max_limit', 'is_full', 'is_closed'
+    ];
+    const sets = [];
+    const vals = [];
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (allowed.includes(k)) {
+        sets.push(`${k} = ?`);
+        vals.push(v);
+      }
+    }
+
+    if (sets.length > 0) {
+      vals.push(id);
+      db.prepare(`UPDATE meteoric_groups SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    }
+
+    return this.getMeteoricGroupById(id);
+  },
+
+  getMeteoricStages() {
+    return db.prepare('SELECT * FROM meteoric_stages ORDER BY stage_num ASC').all();
+  },
+
+  getMeteoricStage(stageNum) {
+    return db.prepare('SELECT * FROM meteoric_stages WHERE stage_num = ?').get(stageNum);
+  },
+
+  updateMeteoricStage(stageNum, updates = {}) {
+    const allowed = ['title', 'description', 'admin_announcement', 'group_mode', 'subbot_scripts', 'executed_at'];
+    const sets = [];
+    const vals = [];
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (allowed.includes(k)) {
+        sets.push(`${k} = ?`);
+        vals.push(typeof v === 'object' ? JSON.stringify(v) : v);
+      }
+    }
+
+    if (sets.length > 0) {
+      vals.push(stageNum);
+      db.prepare(`UPDATE meteoric_stages SET ${sets.join(', ')} WHERE stage_num = ?`).run(...vals);
+    }
+
+    return this.getMeteoricStage(stageNum);
+  },
+
+  incrementMeteoricLeads(campaignId = 1) {
+    db.prepare('UPDATE meteoric_campaigns SET total_leads_reached = total_leads_reached + 1 WHERE id = ?').run(campaignId);
   }
 };
 

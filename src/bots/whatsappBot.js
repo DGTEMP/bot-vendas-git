@@ -226,6 +226,14 @@ class WhatsAppBotService {
       if (!normalizedParticipants.length) return;
 
       if (action === 'add') {
+        // Monitoramento de Lançamento Meteórico (Transbordamento & Limite de Participantes)
+        try {
+          const meteoricService = require('../services/meteoricService');
+          await meteoricService.handleParticipantJoined(id, sock);
+        } catch (metErr) {
+          console.warn('[Meteórico ⚠️] Erro ao verificar transbordamento de grupo:', metErr.message);
+        }
+
         // Anti-Fake / Anti-Estrangeiro (Gata Nina Security)
         await gataFeatures.checkAntiFakeEntry(sock, id, normalizedParticipants);
 
@@ -1755,6 +1763,16 @@ class WhatsAppBotService {
       return gataFeatures.handleBroadcastGroups(activeSock, from, text);
     }
 
+    // 14.10 Lançamento Meteórico (Multi-Grupos, Auto-Transbordamento & Aquecimento com Sub-Bots): !meteorico / !meteoro
+    if (/^(?:!|\/)(?:meteorico|meteoro|lancamentometeorico)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const isChatAdmin = await this.checkIsAdmin(from, participantJid, isFromMe);
+      if (!isOwnerUser && !isChatAdmin) {
+        return activeSock.sendMessage(from, { text: `❌ *Acesso Restrito: Dono & Administradores*\n\nO gerenciamento do Lançamento Meteórico é exclusivo para administradores e o Dono do Bot.` });
+      }
+      return this.handleMeteoricCommand(activeSock, from, text, isOwnerUser);
+    }
+
     // 15. Menu Geral de Comandos Gata Nina + Loja: !help / !bot / !comandos / !menu2 / !gatanina / !ajudatudo
     if (/^(?:!|\/)?(?:help|bot|comandos|menu2|gatanina|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
@@ -1780,7 +1798,15 @@ class WhatsAppBotService {
         `• *!serbot <numero>* ou *!code <numero>* — Conecta outro WhatsApp com código de 8 dígitos\n` +
         `• *!bots* ou *!subbots* — Lista todos os WhatsApps conectados e seus status\n` +
         `• *!stopbot* — Desconecta sua sessão de sub-bot\n` +
-        `• *!subbothelp* — Guia completo de usabilidade e conexão de sub-bots\n\n`;
+        `• *!subbothelp* — Guia completo de usabilidade e conexão de sub-bots\n\n` +
+        `🚀 *Lançamento Meteórico (Multi-Grupos & Sub-Bots):*\n` +
+        `• *!meteorico* — Painel do lançamento, grupos e link inteligente\n` +
+        `• *!meteorico ativar [nome] [limite]* — Ativa transbordamento automático\n` +
+        `• *!meteorico criargrupo* — Cria novo grupo com sub-bots integrados\n` +
+        `• *!meteorico etapa <1-5>* — Dispara diretrizes de aquecimento com sub-bots\n` +
+        `• *!meteorico aquecer* — Aciona conversa rápida dos sub-bots no grupo\n` +
+        `• *!meteorico fechar / abrir* — Alterna modo anúncio do grupo\n` +
+        `• *!meteorico link* — Exibe link ativo do grupo e redirecionador\n\n`;
 
       if (isOwnerUser) {
         gataMenu += `👑 *Controle de Sub-Bots & Divulgação (Exclusivo Dono / Bot Principal):*\n` +
@@ -2239,6 +2265,166 @@ class WhatsAppBotService {
       console.error(`[WhatsApp ❌ Falha ao enviar para ${jid}]:`, err.message);
       return false;
     }
+  }
+
+  async handleMeteoricCommand(sock, from, text, isOwnerUser = false) {
+    const meteoricService = require('../services/meteoricService');
+    const parts = text.trim().split(/\s+/).slice(1);
+    const subCmd = parts[0]?.toLowerCase();
+
+    // 1. Status / Ajuda Geral
+    if (!subCmd || subCmd === 'status' || subCmd === 'ajuda' || subCmd === 'help') {
+      const status = meteoricService.getCampaignStatus();
+      const c = status.campaign;
+      const g = status.activeGroup;
+
+      const card = `🚀 *LANÇAMENTO METEÓRICO & MULTI-GRUPOS* 🚀\n\n` +
+        `⚙️ *Status do Lançamento:* ${c.active ? '🟢 ATIVO (Auto-Transbordamento Ligado)' : '🔴 PAUSADO'}\n` +
+        `🏷️ *Nome Base:* \`${c.group_base_name}\`\n` +
+        `👥 *Capacidade por Grupo:* *${c.max_members_per_group} membros*\n` +
+        `📦 *Total de Grupos Criados:* *${status.totalGroups}*\n` +
+        `📈 *Total de Leads/Membros:* *${status.totalMembers} participantes*\n` +
+        `🎯 *Etapa Atual:* *${status.currentStage?.title || 'Etapa 1'}*\n` +
+        `🤖 *Sub-Bots de Aquecimento:* 🟢 *${status.onlineSubBots} online* de ${status.totalSubBots}\n\n` +
+        `🔗 *Link Central de Tráfego (Auto-Redirect):*\n` +
+        `👉 *http://localhost:3000/l/vip*\n` +
+        `_(Redireciona sempre para o grupo com vagas abertas!)_\n\n` +
+        (g ? `📌 *Grupo Ativo Agora:* *${g.title}*\n👥 *Membros:* ${g.member_count}/${g.max_limit}\n🔗 *Convite:* ${g.invite_url || 'Gerando link...'}\n\n` : `⚠️ *Nenhum grupo ativo criado ainda.*\n\n`) +
+        `🛠️ *Comandos Rápidos no WhatsApp:*\n` +
+        `• *!meteorico ativar [nome] [limite]* — Ativa campanha\n` +
+        `• *!meteorico pausar* — Pausa campanha\n` +
+        `• *!meteorico criargrupo [nome]* — Cria o próximo grupo agora\n` +
+        `• *!meteorico etapa <1-5>* — Dispara a etapa e aquece com sub-bots\n` +
+        `• *!meteorico aquecer [msg]* — Força aquecimento rápido no grupo\n` +
+        `• *!meteorico fechar* — Fecha o grupo (apenas admins)\n` +
+        `• *!meteorico abrir* — Abre o grupo para todos conversarem\n` +
+        `• *!meteorico limite <num>* — Altera limite por grupo\n` +
+        `• *!meteorico link* — Mostra link de entrada e redirecionador\n\n` +
+        `🌐 *Painel Web Completo:* http://localhost:3000`;
+
+      return sock.sendMessage(from, { text: card });
+    }
+
+    // 2. Ativar Lançamento
+    if (subCmd === 'ativar' || subCmd === 'ligar' || subCmd === 'iniciar') {
+      const updates = { active: 1 };
+      if (parts[1] && !isNaN(parts[1])) {
+        updates.max_members_per_group = parseInt(parts[1], 10);
+      } else if (parts[1]) {
+        updates.group_base_name = parts.slice(1).join(' ');
+      }
+      meteoricService.updateConfig(updates);
+      meteoricService.toggleCampaign(true);
+      return sock.sendMessage(from, {
+        text: `✅ *Lançamento Meteórico ATIVADO com sucesso!*\n\nO monitoramento de lotação e criação automática de novos grupos está operante.\n🌐 Acesse: http://localhost:3000`
+      });
+    }
+
+    // 3. Pausar Lançamento
+    if (subCmd === 'pausar' || subCmd === 'parar' || subCmd === 'desligar') {
+      meteoricService.toggleCampaign(false);
+      return sock.sendMessage(from, {
+        text: `⏸️ *Lançamento Meteórico PAUSADO.*\n\nA criação automática e o transbordamento foram suspensos.`
+      });
+    }
+
+    // 4. Criar Próximo Grupo Manualmente
+    if (subCmd === 'criargrupo' || subCmd === 'novogrupo' || subCmd === 'criar') {
+      const customTitle = parts.slice(1).join(' ');
+      await sock.sendMessage(from, { text: `⏳ *Criando novo grupo meteórico no WhatsApp...* Adicionando sub-bots e gerando link de convite!` });
+      try {
+        const result = await meteoricService.createNewMeteoricGroup({ title: customTitle || null });
+        const grp = result.group;
+        return sock.sendMessage(from, {
+          text: `🎉 *Novo Grupo Meteórico Criado com Sucesso!*\n\n` +
+            `📌 *Nome:* *${grp.title}*\n` +
+            `🔢 *Número do Grupo:* #${grp.group_num}\n` +
+            `👥 *Capacidade:* ${grp.max_limit} membros\n` +
+            `🔗 *Link de Convite:* ${grp.invite_url || 'Aguardando'}\n\n` +
+            `🚀 O redirecionador global *http://localhost:3000/l/vip* já está apontando para este novo grupo!`
+        });
+      } catch (err) {
+        return sock.sendMessage(from, { text: `❌ Erro ao criar grupo: ${err.message}` });
+      }
+    }
+
+    // 5. Executar Etapa de Aquecimento com Sub-Bots
+    if (subCmd === 'etapa' || subCmd === 'fase') {
+      const stageNum = parseInt(parts[1], 10);
+      if (!stageNum || stageNum < 1 || stageNum > 5) {
+        return sock.sendMessage(from, {
+          text: `⚠️ *Informe o número da etapa (1 a 5)*.\n\nExemplo: *!meteorico etapa 1* (Antecipação) ou *!meteorico etapa 3* (Abertura do Carrinho)`
+        });
+      }
+
+      await sock.sendMessage(from, { text: `⏳ *Disparando Etapa #${stageNum} nos grupos meteóricos...* Os sub-bots iniciarão o diálogo nos próximos instantes!` });
+      try {
+        const report = await meteoricService.executeStageWarmup(stageNum, from.endsWith('@g.us') ? from : null);
+        return sock.sendMessage(from, {
+          text: `🔥 *ETAPA #${stageNum} DO METEÓRICO EXECUTADA!* 🔥\n\n` +
+            `📌 *Título:* *${report.stageTitle}*\n` +
+            `🔒 *Modo do Grupo:* ${report.groupMode === 'announcement' ? 'Fechado para Anúncios' : 'Aberto para Conversas'}\n` +
+            `📢 *Anúncios Enviados:* ${report.announcementsSent}\n` +
+            `💬 *Falas dos Sub-Bots Agendadas:* ${report.subbotInteractionsScheduled} interações\n` +
+            `👥 *Grupos Impactados:* ${report.targetGroupsCount} grupo(s)`
+        });
+      } catch (err) {
+        return sock.sendMessage(from, { text: `❌ Erro ao executar etapa: ${err.message}` });
+      }
+    }
+
+    // 6. Aquecimento Rápido / Imediato no Grupo
+    if (subCmd === 'aquecer' || subCmd === 'esquentar' || subCmd === 'warmup') {
+      const customTopic = parts.slice(1).join(' ');
+      await meteoricService.executeInstantWarmup(from, customTopic || null);
+      return sock.sendMessage(from, {
+        text: `💬 *Aquecimento com Sub-Bots iniciado neste grupo!*\n\nOs sub-bots entrarão em ação com interações nos próximos instantes.`
+      });
+    }
+
+    // 7. Fechar Grupo (Apenas Admins / Modo Anúncio)
+    if (subCmd === 'fechar' || subCmd === 'silenciar') {
+      await meteoricService.setGroupMode(from, 'closed');
+      return sock.sendMessage(from, {
+        text: `🔒 *Grupo FECHADO com sucesso!* Apenas administradores e sub-bots podem enviar mensagens.`
+      });
+    }
+
+    // 8. Abrir Grupo (Todos os Membros Podem Falar)
+    if (subCmd === 'abrir' || subCmd === 'liberar') {
+      await meteoricService.setGroupMode(from, 'open');
+      return sock.sendMessage(from, {
+        text: `🔓 *Grupo ABERTO com sucesso!* Todos os participantes podem enviar mensagens e dúvidas.`
+      });
+    }
+
+    // 9. Alterar Limite de Membros
+    if (subCmd === 'limite' || subCmd === 'max') {
+      const newLimit = parseInt(parts[1], 10);
+      if (!newLimit || newLimit < 2) {
+        return sock.sendMessage(from, { text: `⚠️ Informe um número válido para o limite. Exemplo: *!meteorico limite 250*` });
+      }
+      meteoricService.updateConfig({ max_members_per_group: newLimit });
+      return sock.sendMessage(from, {
+        text: `✅ *Capacidade máxima por grupo alterada para:* *${newLimit} participantes*.\n\nQuando um grupo atingir essa marca, o próximo será criado automaticamente!`
+      });
+    }
+
+    // 10. Links do Lançamento
+    if (subCmd === 'link' || subCmd === 'links' || subCmd === 'convite') {
+      const status = meteoricService.getCampaignStatus();
+      const g = status.activeGroup;
+      return sock.sendMessage(from, {
+        text: `🔗 *LINKS DO LANÇAMENTO METEÓRICO*\n\n` +
+          `📌 *Grupo Ativo Atual:* ${g?.title || 'Nenhum'}\n` +
+          `👉 *Convite Direto:* ${g?.invite_url || 'Sem link ativo'}\n\n` +
+          `🌐 *Link de Tráfego Inteligente (Auto-Redirect):*\n` +
+          `👉 *http://localhost:3000/l/vip*\n\n` +
+          `💡 _Use o Link Inteligente em seus anúncios e redes sociais; ele direciona automaticamente o visitante para o grupo mais recente com vagas abertas!_`
+      });
+    }
+
+    return sock.sendMessage(from, { text: `⚠️ Comando meteórico desconhecido. Envie *!meteorico* para ver todas as opções.` });
   }
 
   async requestPairingCode(phone) {

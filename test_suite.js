@@ -3016,6 +3016,153 @@ async function main() {
     assert.strictEqual(settings.WELCOME_MSG_DEFAULT, 'Bem-vindo ao grupo {nome}!');
   });
 
+  // ----------------------------------------------------------------
+  // 15. TESTES DO LANÇAMENTO METEÓRICO & MULTI-GRUPOS COM SUB-BOTS
+  // ----------------------------------------------------------------
+  console.log('\n🚀 15. Testes do Lançamento Meteórico (Multi-Grupos, Auto-Transbordamento & Sub-Bots):');
+
+  await runAsyncTest('Meteórico: Consulta e Atualização de Configuração via Model e API', async () => {
+    const meteoricService = require('./src/services/meteoricService');
+    const models = require('./src/db/models');
+
+    // 1. Atualiza configuração
+    const updated = meteoricService.updateConfig({
+      group_base_name: 'VIP Black #{num}',
+      max_members_per_group: 50,
+      group_description: 'Grupo VIP de Testes'
+    });
+    assert.strictEqual(updated.group_base_name, 'VIP Black #{num}');
+    assert.strictEqual(updated.max_members_per_group, 50);
+
+    // 2. Consulta status pela API
+    const res = await fetch(`http://localhost:${testPort}/api/meteoric/status`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.campaign.group_base_name, 'VIP Black #{num}');
+    assert.strictEqual(data.campaign.max_members_per_group, 50);
+    assert(Array.isArray(models.getMeteoricStages()));
+    assert.strictEqual(models.getMeteoricStages().length, 5);
+  });
+
+  await runAsyncTest('Meteórico: Criação Sequencial de Grupos e Geração de Convite', async () => {
+    const meteoricService = require('./src/services/meteoricService');
+    const models = require('./src/db/models');
+
+    const result = await meteoricService.createNewMeteoricGroup();
+    assert.strictEqual(result.success, true);
+    assert(result.group);
+    assert(result.group.title.includes('VIP Black'));
+    assert(result.group.invite_url.startsWith('https://chat.whatsapp.com/'));
+    assert.strictEqual(result.group.is_full, 0);
+
+    const activeGroup = models.getActiveMeteoricGroup();
+    assert(activeGroup);
+    assert.strictEqual(activeGroup.id, result.group.id);
+  });
+
+  await runAsyncTest('Meteórico: Monitoramento de Capacidade e Transbordamento Automático ao Lotar', async () => {
+    const meteoricService = require('./src/services/meteoricService');
+    const models = require('./src/db/models');
+
+    // Pega o grupo ativo atual
+    const currentActive = models.getActiveMeteoricGroup();
+    assert(currentActive, 'Deve haver um grupo ativo');
+
+    // Simula entrada de participantes até atingir o limite (50)
+    const mockSock = {
+      groupMetadata: async () => ({
+        participants: new Array(50).fill({ id: '5511999990000@s.whatsapp.net' })
+      }),
+      sendMessage: async () => true
+    };
+
+    const overflowResult = await meteoricService.handleParticipantJoined(currentActive.group_jid, mockSock);
+    assert.strictEqual(overflowResult.overflow, true, 'Deve disparar transbordamento');
+    assert(overflowResult.newGroup, 'Deve criar o próximo grupo automaticamente');
+    assert.strictEqual(overflowResult.newGroup.group_num, currentActive.group_num + 1);
+
+    // O grupo anterior deve estar marcado como is_full = 1
+    const oldGroup = models.getMeteoricGroupById(currentActive.id);
+    assert.strictEqual(oldGroup.is_full, 1);
+
+    // O novo grupo deve ser o novo grupo ativo
+    const newActive = models.getActiveMeteoricGroup();
+    assert.strictEqual(newActive.id, overflowResult.newGroup.id);
+  });
+
+  await runAsyncTest('Meteórico: Redirecionamento Inteligente de Tráfego (/l/vip & /meteoro)', async () => {
+    const models = require('./src/db/models');
+    const res = await fetch(`http://localhost:${testPort}/l/vip`, { redirect: 'manual' });
+    // Deve ser um redirect 302
+    assert.strictEqual(res.status, 302);
+    const location = res.headers.get('location');
+    assert(location && location.startsWith('https://chat.whatsapp.com/'));
+
+    // Verifica que o contador de leads foi incrementado
+    const campaign = models.getMeteoricCampaign();
+    assert(campaign.total_leads_reached > 0);
+  });
+
+  await runAsyncTest('Meteórico: Orquestração de Etapa de Aquecimento e Diálogo com Sub-Bots', async () => {
+    const meteoricService = require('./src/services/meteoricService');
+
+    // Dispara Etapa 1
+    const report1 = await meteoricService.executeStageWarmup(1);
+    assert.strictEqual(report1.stageNum, 1);
+    assert(report1.stageTitle.includes('Antecipação'));
+    assert.strictEqual(report1.groupMode, 'announcement');
+    assert(report1.subbotInteractionsScheduled > 0);
+
+    // Dispara Etapa 2 (Abertura para dúvidas)
+    const report2 = await meteoricService.executeStageWarmup(2);
+    assert.strictEqual(report2.stageNum, 2);
+    assert(report2.stageTitle.includes('Revelação'));
+    assert.strictEqual(report2.groupMode, 'not_announcement');
+
+    // Dispara Etapa 3 (Abertura do carrinho e prova social)
+    const report3 = await meteoricService.executeStageWarmup(3);
+    assert.strictEqual(report3.stageNum, 3);
+    assert(report3.stageTitle.includes('Abertura Oficial'));
+  });
+
+  await runAsyncTest('Meteórico: Comandos no WhatsApp (!meteorico status, ativar, criargrupo, etapa)', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, p) => { sent.push(p); return true; }
+    };
+
+    // 1. !meteorico status
+    sent.length = 0;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: true },
+      message: { conversation: '!meteorico' }
+    }, mockSock);
+    assert(sent.length >= 1);
+    assert(sent[0].text.includes('LANÇAMENTO METEÓRICO'));
+    assert(sent[0].text.includes('http://localhost:3000/l/vip'));
+
+    // 2. !meteorico criargrupo
+    sent.length = 0;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: true },
+      message: { conversation: '!meteorico criargrupo Turma VIP Extra' }
+    }, mockSock);
+    assert(sent.length >= 2);
+    const lastMsg = sent[sent.length - 1].text;
+    assert(lastMsg.includes('Novo Grupo Meteórico Criado'));
+
+    // 3. !meteorico etapa 2
+    sent.length = 0;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: true },
+      message: { conversation: '!meteorico etapa 2' }
+    }, mockSock);
+    assert(sent.length >= 2);
+    const stageMsg = sent[sent.length - 1].text;
+    assert(stageMsg.includes('ETAPA #2 DO METEÓRICO EXECUTADA'));
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

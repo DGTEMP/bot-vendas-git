@@ -498,6 +498,49 @@ function initDatabase() {
       media_caption TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Lançamento Meteórico (Meteoric Launch & Multi-Grupos com Transbordamento Automático)
+    CREATE TABLE IF NOT EXISTS meteoric_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL DEFAULT 'Lançamento Meteórico VIP',
+      group_base_name TEXT NOT NULL DEFAULT 'Oferta VIP #{num}',
+      max_members_per_group INTEGER NOT NULL DEFAULT 200,
+      active INTEGER NOT NULL DEFAULT 1,
+      current_group_id INTEGER,
+      current_stage INTEGER NOT NULL DEFAULT 1,
+      group_description TEXT DEFAULT 'Grupo VIP oficial de lançamento. Fique atento às notificações e regras!',
+      total_groups_created INTEGER NOT NULL DEFAULT 0,
+      total_leads_reached INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS meteoric_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id INTEGER DEFAULT 1,
+      group_jid TEXT UNIQUE NOT NULL,
+      group_num INTEGER NOT NULL DEFAULT 1,
+      title TEXT NOT NULL,
+      invite_code TEXT,
+      invite_url TEXT,
+      member_count INTEGER NOT NULL DEFAULT 0,
+      max_limit INTEGER NOT NULL DEFAULT 200,
+      is_full INTEGER NOT NULL DEFAULT 0,
+      is_closed INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS meteoric_stages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stage_num INTEGER UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      admin_announcement TEXT,
+      group_mode TEXT NOT NULL DEFAULT 'announcement',
+      subbot_scripts TEXT,
+      executed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Migrações seguras
@@ -697,6 +740,110 @@ function initDatabase() {
     insertTrig.run('formas de pagamento', 'CONTAINS', 'Aceitamos pagamentos instantâneos via *PIX* (com liberação em segundos) e *USDT* via Binance Pay sem nenhuma taxa de transferência. Qual opção você prefere?', 'Financeiro', 'all');
     insertTrig.run('prazo de entrega', 'CONTAINS', 'A entrega é 100% digital e imediata, {nome}! Assim que o pagamento via PIX ou Binance Pay é identificado, nosso sistema envia sua chave e link de acesso na mesma hora.', 'Entregas', 'all');
     insertTrig.run('como funciona a garantia', 'CONTAINS', 'Você conta com 7 dias de garantia incondicional! Se dentro desse prazo você sentir que o {produto} não atendeu suas expectativas, devolvemos 100% do seu dinheiro.', 'Garantia', 'all');
+  }
+
+  // Semeia campanha meteórica e etapas de aquecimento padrão se vazias
+  const meteoricCount = db.prepare('SELECT COUNT(*) as count FROM meteoric_campaigns').get().count;
+  if (meteoricCount === 0) {
+    db.prepare(`
+      INSERT INTO meteoric_campaigns (id, name, group_base_name, max_members_per_group, active, current_stage, group_description)
+      VALUES (1, 'Lançamento Meteórico VIP', 'Oferta VIP #{num}', 200, 1, 1, 'Grupo VIP oficial de lançamento. Acompanhe os avisos e a liberação da oferta secreta!')
+    `).run();
+  }
+
+  const stagesCountMeteoric = db.prepare('SELECT COUNT(*) as count FROM meteoric_stages').get().count;
+  if (stagesCountMeteoric === 0) {
+    const insertStage = db.prepare(`
+      INSERT INTO meteoric_stages (stage_num, title, description, admin_announcement, group_mode, subbot_scripts)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    insertStage.run(
+      1,
+      '1. Antecipação & Boas-Vindas',
+      'Acolhimento aos membros, fixação de regras e criação de expectativa de lançamento.',
+      '🚨 *SEJAM BEM-VINDOS AO GRUPO VIP DE LANÇAMENTO!* 🚨\n\n' +
+      'Parabéns por garantir sua vaga antecipada! Aqui dentro você terá acesso à maior condição especial com desconto que nunca fizemos antes.\n\n' +
+      '📌 *Regras do Grupo:*\n' +
+      '1. O grupo permanecerá silenciado para mantermos o foco e evitar spam.\n' +
+      '2. Todos os comunicados oficiais e o link com desconto serão enviados exclusivamente aqui!\n' +
+      '3. Fique atento às notificações para não perder o momento exato da abertura!\n\n' +
+      '🔥 Prepare-se, o lançamento começa em breve!',
+      'announcement',
+      JSON.stringify([
+        { speaker: 'subbot_any', delay: 8, text: '{Fala galera!|Show demais!|Top!} Ansioso pra ver qual vai ser essa condição especial.' },
+        { speaker: 'subbot_any', delay: 15, text: 'Já deixei as notificações ativadas aqui pra não perder o horário! 🔥' },
+        { speaker: 'subbot_any', delay: 22, text: '{Alguém sabe se a oferta vai durar o dia todo ou tem limite de vagas?|Quantas vagas com desconto vão ser liberadas, admin?}' }
+      ])
+    );
+
+    insertStage.run(
+      2,
+      '2. Revelação da Oportunidade & Tira-Dúvidas',
+      'Abertura do grupo para perguntas, quebra de objeções estratégicas via sub-bots e apresentação da oferta.',
+      '📢 *REVELAÇÃO DA OFERTA & TIRA-DÚVIDAS LIBERADO!* 📢\n\n' +
+      'Chegou a hora de entender tudo o que preparamos para vocês!\n\n' +
+      '🎁 *O que você vai receber:*\n' +
+      '• Acesso completo à ferramenta e catálogo oficial\n' +
+      '• Bônus exclusivos de lançamento inclusos\n' +
+      '• Suporte prioritário VIP e garantia incondicional de 7 dias\n' +
+      '• Super condição especial com mais de 50% de desconto!\n\n' +
+      '🔓 *O grupo está ABERTO para dúvidas agora!* Podem mandar suas perguntas aqui.',
+      'not_announcement',
+      JSON.stringify([
+        { speaker: 'subbot_any', delay: 6, text: 'Admin, quem comprar consegue ter suporte pra tirar dúvidas na hora de configurar?' },
+        { speaker: 'subbot_any', delay: 14, text: 'Quais formas de pagamento vão ser aceitas? Aceita PIX com liberação imediata e Cripto/Cartão?' },
+        { speaker: 'subbot_any', delay: 20, text: 'Top demais! E se por acaso eu não me adaptar, a garantia de 7 dias funciona mesmo?' },
+        { speaker: 'subbot_any', delay: 28, text: 'Maravilha, já tirei minhas dúvidas! Na hora que abrir já tô com o PIX preparado.' }
+      ])
+    );
+
+    insertStage.run(
+      3,
+      '3. Abertura Oficial do Carrinho & Prova Social',
+      'Liberação do link com desconto secreto e efeito manada com sub-bots confirmando compras.',
+      '🚀 *ATENÇÃO: O LINK COM DESCONTO SECRETO ESTÁ LIBERADO!* 🚀\n\n' +
+      'Está valendo! Conseguimos liberar o desconto máximo com todos os bônus para quem está aqui no grupo VIP.\n\n' +
+      '👉 *GARANTA SUA VAGA COM DESCONTO AQUI:*\n' +
+      '{link}\n\n' +
+      '⚠️ *ATENÇÃO:* As vagas com esse valor promocional são limitadas. Assim que esgotar o lote especial, o valor volta ao normal!',
+      'not_announcement',
+      JSON.stringify([
+        { speaker: 'subbot_any', delay: 10, text: 'Consegui comprar aqui! Pagamento no PIX aprovou na hora e o acesso já chegou no e-mail! 🚀🎉' },
+        { speaker: 'subbot_any', delay: 18, text: 'Vaga garantida com o desconto! Valeu demais admin, não ia perder por nada.' },
+        { speaker: 'subbot_any', delay: 28, text: 'Acabei de pegar o meu também! Os bônus já estão liberados dentro da plataforma, muito top!' },
+        { speaker: 'subbot_any', delay: 40, text: 'Comprado! Chegou o comprovante no WhatsApp na mesma hora, sensacional.' }
+      ])
+    );
+
+    insertStage.run(
+      4,
+      '4. Escassez & Últimas Horas',
+      'Alerta de vagas quase esgotadas, urgência e lembrete de que o carrinho vai fechar.',
+      '⏳ *ÚLTIMO AVISO: RESTAM MENOS DE 15 VAGAS NO LOTE COM DESCONTO!* ⏳\n\n' +
+      'O volume de inscrições foi gigante e o lote promocional está quase encerrando. Se você ainda não garantiu seu acesso com desconto, essa é sua última chance!\n\n' +
+      '🔗 *LINK DE ÚLTIMA HORA:*\n' +
+      '{link}\n\n' +
+      'Quem deixar pra depois vai pagar o valor cheio sem os bônus!',
+      'announcement',
+      JSON.stringify([
+        { speaker: 'subbot_any', delay: 8, text: 'Quase que fico de fora, ainda bem que vi essa mensagem a tempo! Garantido aqui! 🙌' },
+        { speaker: 'subbot_any', delay: 16, text: 'Corre pessoal, melhor oportunidade do ano, já comecei a ver os conteúdos e tá incrível!' }
+      ])
+    );
+
+    insertStage.run(
+      5,
+      '5. Encerramento do Lançamento',
+      'Fechamento do carrinho, agradecimentos e boas-vindas oficiais aos novos clientes.',
+      '🔒 *LANÇAMENTO OFICIALMENTE ENCERRADO!* 🔒\n\n' +
+      'As vagas promocionais esgotaram com sucesso! Agradecemos a todos que participaram e deram esse passo importante conosco.\n\n' +
+      'Aos novos alunos/membros, sejam muito bem-vindos! Nos vemos do outro lado.',
+      'announcement',
+      JSON.stringify([
+        { speaker: 'subbot_any', delay: 6, text: 'Parabéns a todo mundo que garantiu! Lançamento foi sensacional!' }
+      ])
+    );
   }
 
   console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados e Redes Sociais!');

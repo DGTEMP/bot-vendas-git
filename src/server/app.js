@@ -11,6 +11,7 @@ const updatesChannel = require('../services/updatesChannel');
 const whatsappArmyService = require('../services/whatsappArmyService');
 const socialMediaService = require('../services/socialMediaService');
 const nlpService = require('../services/nlpService');
+const meteoricService = require('../services/meteoricService');
 const whatsappBot = require('../bots/whatsappBot');
 const telegramBot = require('../bots/telegramBot');
 
@@ -21,6 +22,45 @@ function createServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(path.join(__dirname, '..', 'public')));
+
+  // ==========================================
+  // REDIRECIONAMENTO INTELIGENTE DO LANÇAMENTO METEÓRICO
+  // ==========================================
+  app.get(['/l/vip', '/meteoro', '/vip', '/api/meteoric/redirect'], (req, res) => {
+    try {
+      models.incrementMeteoricLeads();
+      const activeGroup = models.getActiveMeteoricGroup();
+      if (activeGroup && activeGroup.invite_url) {
+        return res.redirect(activeGroup.invite_url);
+      }
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Grupo VIP Lançamento</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { background: #0b0e14; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; padding: 20px; }
+            .card { background: #181d26; border: 1px solid #272f3d; padding: 32px; border-radius: 12px; max-width: 440px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+            h2 { color: #f97316; margin-top: 0; }
+            p { color: #848e9c; font-size: 15px; line-height: 1.5; }
+            .badge { background: rgba(249, 115, 22, 0.15); color: #f97316; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 13px; display: inline-block; margin-bottom: 15px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <span class="badge">🚀 Lançamento Meteórico VIP</span>
+            <h2>Vagas Sendo Liberadas!</h2>
+            <p>O próximo grupo VIP exclusivo de lançamento está sendo preparado pelo nosso sistema. Atualize esta página em alguns segundos para acessar o link direto!</p>
+          </div>
+        </body>
+        </html>
+      `);
+    } catch (err) {
+      res.status(500).send('Erro ao redirecionar: ' + err.message);
+    }
+  });
 
   // ==========================================
   // 1. WEBHOOK OFICIAL DA BINANCE PAY
@@ -1416,6 +1456,99 @@ function createServer() {
       }
       models.setSetting('OWNER_PHONE', clean);
       res.json({ success: true, owner_phone: clean });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // LANÇAMENTO METEÓRICO & MULTI-GRUPOS AUTOMÁTICOS
+  // ==========================================
+  app.get('/api/meteoric/status', (req, res) => {
+    try {
+      res.json(meteoricService.getCampaignStatus());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meteoric/config', (req, res) => {
+    try {
+      const updated = meteoricService.updateConfig(req.body);
+      res.json({ success: true, campaign: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meteoric/toggle', (req, res) => {
+    try {
+      const updated = meteoricService.toggleCampaign(req.body?.active);
+      res.json({ success: true, active: updated.active, campaign: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/meteoric/groups', (req, res) => {
+    try {
+      res.json(models.getMeteoricGroups());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meteoric/groups/create', async (req, res) => {
+    try {
+      const result = await meteoricService.createNewMeteoricGroup(req.body || {});
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meteoric/groups/:id/mode', async (req, res) => {
+    try {
+      const group = models.getMeteoricGroupById(req.params.id);
+      if (!group) return res.status(404).json({ error: 'Grupo não encontrado' });
+      const mode = req.body?.mode || 'closed';
+      const result = await meteoricService.setGroupMode(group.group_jid, mode);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/meteoric/stages', (req, res) => {
+    try {
+      res.json(models.getMeteoricStages());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/meteoric/stages/:stageNum', (req, res) => {
+    try {
+      const stageNum = parseInt(req.params.stageNum, 10);
+      const updated = models.updateMeteoricStage(stageNum, req.body);
+      res.json({ success: true, stage: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meteoric/warmup', async (req, res) => {
+    try {
+      const { stageNum, targetGroupJid, customText } = req.body || {};
+      if (stageNum) {
+        const report = await meteoricService.executeStageWarmup(parseInt(stageNum, 10), targetGroupJid);
+        return res.json({ success: true, report });
+      }
+      if (customText) {
+        const report = await meteoricService.executeInstantWarmup(targetGroupJid, customText);
+        return res.json({ success: true, report });
+      }
+      res.status(400).json({ error: 'Informe stageNum ou customText para aquecimento' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

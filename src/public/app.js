@@ -71,6 +71,7 @@ function switchTab(tabName) {
   if (tabName === 'channel') loadChannelTab();
   if (tabName === 'coupons') loadCoupons();
   if (tabName === 'army') loadArmyData();
+  if (tabName === 'meteoric') loadMeteoricData();
   if (tabName === 'social') loadSocialData();
   if (tabName === 'nlp') loadNlpData();
 }
@@ -96,7 +97,8 @@ async function loadAllData() {
     loadGroupAuditLogs(),
     loadChannelMetrics(),
     loadSupportTickets(),
-    loadCustomTriggers()
+    loadCustomTriggers(),
+    loadMeteoricData()
   ]);
 }
 
@@ -4810,6 +4812,16 @@ const SYSTEM_COMMANDS = [
   { cmd: '!setowner', syntax: '!setowner <numero>', desc: 'Definir o número do Dono Supremo com permissões totais', perm: 'Dono/Owner', category: 'subbots' },
   { cmd: '!subbothelp', syntax: '!subbothelp', desc: 'Guia completo passo-a-passo de como conectar e usar sub-bots', perm: 'Todos', category: 'subbots' },
 
+  // LANÇAMENTO METEÓRICO & MULTI-GRUPOS COM SUB-BOTS
+  { cmd: '!meteorico', syntax: '!meteorico', desc: 'Painel do lançamento meteórico, status de grupos e link inteligente /l/vip', perm: 'Admins', category: 'subbots' },
+  { cmd: '!meteorico ativar', syntax: '!meteorico ativar [nome] [limite]', desc: 'Ativar modo meteórico e criação automática de grupos ao lotar', perm: 'Admins', category: 'subbots' },
+  { cmd: '!meteorico criargrupo', syntax: '!meteorico criargrupo [nome]', desc: 'Criar imediatamente o próximo grupo meteórico com sub-bots integrados', perm: 'Admins', category: 'subbots' },
+  { cmd: '!meteorico etapa', syntax: '!meteorico etapa <1-5>', desc: 'Disparar etapa de aquecimento com comunicado e diálogo de sub-bots', perm: 'Admins', category: 'subbots' },
+  { cmd: '!meteorico aquecer', syntax: '!meteorico aquecer [mensagem]', desc: 'Acionar interação rápida de aquecimento e quebra de objeções dos sub-bots', perm: 'Admins', category: 'subbots' },
+  { cmd: '!meteorico fechar', syntax: '!meteorico fechar', desc: 'Silenciar grupo meteórico (apenas administradores e sub-bots falam)', perm: 'Admins', category: 'subbots' },
+  { cmd: '!meteorico abrir', syntax: '!meteorico abrir', desc: 'Abrir grupo meteórico para dúvidas e mensagens de todos os participantes', perm: 'Admins', category: 'subbots' },
+  { cmd: '!meteorico link', syntax: '!meteorico link', desc: 'Exibir o link do grupo ativo atual e o redirecionador inteligente /l/vip', perm: 'Admins', category: 'subbots' },
+
   // MÍDIA & YOUTUBE 200MB
   { cmd: '!lista', syntax: '!lista <busca>', desc: 'Busca os 20 principais vídeos do YouTube com opções rápidas de download', perm: 'Todos', category: 'media' },
   { cmd: 'A1 .. A20', syntax: 'A1 até A20', desc: 'Baixa o áudio MP3 (1 a 20) da última busca feita com !lista', perm: 'Todos', category: 'media' },
@@ -5000,4 +5012,404 @@ async function sendSubBotBroadcastFromWeb() {
   } catch (err) {
     alert('Erro de conexão ao disparar transmissão: ' + err.message);
   }
+}
+
+// ==========================================
+// LANÇAMENTO METEÓRICO & MULTI-GRUPOS COM SUB-BOTS
+// ==========================================
+
+let currentMeteoricCampaign = null;
+let currentMeteoricStages = [];
+let currentMeteoricGroups = [];
+let currentEditingStageNum = 1;
+
+async function loadMeteoricData() {
+  await Promise.all([
+    loadMeteoricStatus(),
+    loadMeteoricStages(),
+    loadMeteoricGroupsList()
+  ]);
+}
+
+async function loadMeteoricStatus() {
+  try {
+    const res = await fetch('/api/meteoric/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    currentMeteoricCampaign = data.campaign;
+
+    // Métricas
+    const elGroups = document.getElementById('meteoricStatGroups');
+    if (elGroups) elGroups.innerText = `${data.totalGroups} grupos`;
+
+    const elMembers = document.getElementById('meteoricStatMembers');
+    if (elMembers) elMembers.innerText = `${data.totalMembers} membros`;
+
+    const elSubBots = document.getElementById('meteoricStatSubBots');
+    if (elSubBots) elSubBots.innerText = `${data.onlineSubBots} online`;
+
+    const elStage = document.getElementById('meteoricStatStage');
+    if (elStage) elStage.innerText = data.currentStage?.title || 'Etapa 1';
+
+    // Badge Ativo/Pausado
+    const badge = document.getElementById('meteoricActiveBadge');
+    const btnToggle = document.getElementById('btnToggleMeteoric');
+    if (badge) {
+      if (data.campaign.active) {
+        badge.innerHTML = '<i class="fa-solid fa-circle-check"></i> Monitoramento Ativo';
+        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+        badge.style.color = '#10b981';
+        badge.style.borderColor = '#10b981';
+      } else {
+        badge.innerHTML = '<i class="fa-solid fa-circle-pause"></i> Lançamento Pausado';
+        badge.style.background = 'rgba(239, 68, 68, 0.15)';
+        badge.style.color = '#ef4444';
+        badge.style.borderColor = '#ef4444';
+      }
+    }
+    if (btnToggle) {
+      btnToggle.innerHTML = data.campaign.active 
+        ? '<i class="fa-solid fa-pause"></i> Pausar Lançamento' 
+        : '<i class="fa-solid fa-play"></i> Ativar Lançamento';
+    }
+
+    // Formulário de Configuração
+    const inputName = document.getElementById('cfgMeteoricName');
+    if (inputName) inputName.value = data.campaign.name || 'Lançamento Meteórico VIP';
+
+    const inputBaseName = document.getElementById('cfgMeteoricBaseName');
+    if (inputBaseName) inputBaseName.value = data.campaign.group_base_name || 'Oferta VIP #{num}';
+
+    const inputMax = document.getElementById('cfgMeteoricMaxLimit');
+    if (inputMax) inputMax.value = data.campaign.max_members_per_group || 200;
+
+    const inputDesc = document.getElementById('cfgMeteoricDesc');
+    if (inputDesc) inputDesc.value = data.campaign.group_description || '';
+
+    // Grupo Ativo Atual
+    const g = data.activeGroup;
+    const titleEl = document.getElementById('activeGroupTitle');
+    const linkEl = document.getElementById('activeGroupLinkText');
+    const capTextEl = document.getElementById('activeGroupCapacityText');
+    const barEl = document.getElementById('activeGroupProgressBar');
+
+    if (g) {
+      if (titleEl) titleEl.innerText = g.title;
+      if (linkEl) linkEl.innerText = g.invite_url || 'Sem link gerado ainda';
+      if (capTextEl) capTextEl.innerText = `${g.member_count} / ${g.max_limit}`;
+      const pct = Math.min(100, Math.round((g.member_count / g.max_limit) * 100));
+      if (barEl) {
+        barEl.style.width = `${pct}%`;
+        barEl.style.background = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#f97316';
+      }
+    } else {
+      if (titleEl) titleEl.innerText = 'Nenhum grupo ativo (Crie um abaixo)';
+      if (linkEl) linkEl.innerText = '-';
+      if (capTextEl) capTextEl.innerText = '0 / 0';
+      if (barEl) barEl.style.width = '0%';
+    }
+  } catch (err) {
+    console.error('Erro ao carregar status do meteórico:', err);
+  }
+}
+
+async function saveMeteoricConfig(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const name = document.getElementById('cfgMeteoricName')?.value.trim();
+  const group_base_name = document.getElementById('cfgMeteoricBaseName')?.value.trim();
+  const max_members_per_group = parseInt(document.getElementById('cfgMeteoricMaxLimit')?.value, 10) || 200;
+  const group_description = document.getElementById('cfgMeteoricDesc')?.value.trim();
+
+  try {
+    const res = await fetch('/api/meteoric/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, group_base_name, max_members_per_group, group_description })
+    });
+    if (res.ok) {
+      alert('✅ Configurações do Lançamento Meteórico salvas com sucesso!');
+      await loadMeteoricStatus();
+    } else {
+      const err = await res.json();
+      alert('Erro ao salvar: ' + (err.error || 'Falha na resposta'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function toggleMeteoricCampaign() {
+  try {
+    const res = await fetch('/api/meteoric/toggle', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      alert(data.active ? '🚀 Lançamento Meteórico ATIVADO! Grupos serão criados automaticamente ao lotar.' : '⏸️ Lançamento Meteórico PAUSADO.');
+      await loadMeteoricStatus();
+    }
+  } catch (err) {
+    alert('Erro ao alternar campanha: ' + err.message);
+  }
+}
+
+async function triggerCreateMeteoricGroup() {
+  const customTitle = prompt('Digite o nome do novo grupo (ou deixe vazio para usar a numeração automática):', '');
+  if (customTitle === null) return; // cancelou
+
+  try {
+    const res = await fetch('/api/meteoric/groups/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: customTitle.trim() || undefined })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`🎉 Grupo "${data.group?.title}" criado com sucesso!\nConvite: ${data.group?.invite_url || 'Gerado'}`);
+      await loadMeteoricData();
+    } else {
+      alert('Erro ao criar grupo: ' + (data.error || 'Falha no servidor'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+async function loadMeteoricGroupsList() {
+  const tbody = document.getElementById('tableMeteoricGroupsBody');
+  if (!tbody) return;
+
+  try {
+    const res = await fetch('/api/meteoric/groups');
+    if (!res.ok) return;
+    const groups = await res.json();
+    currentMeteoricGroups = groups;
+
+    if (!groups || groups.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-muted);">Nenhum grupo cadastrado ainda. Clique em "Forçar Novo Grupo Agora" ou envie !meteorico criargrupo no WhatsApp.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = groups.map(g => {
+      const pct = Math.min(100, Math.round(((g.member_count || 0) / (g.max_limit || 200)) * 100));
+      const statusBadge = g.is_full 
+        ? '<span class="badge" style="background:#ef444420; color:#ef4444; border:1px solid #ef444450;"><i class="fa-solid fa-lock"></i> Lotado</span>'
+        : '<span class="badge badge-paid"><i class="fa-solid fa-door-open"></i> Vagas Abertas</span>';
+
+      const modeBadge = g.is_closed
+        ? '<span class="badge" style="background:#f59e0b20; color:#f59e0b; font-size:11px;">🔒 Anúncio</span>'
+        : '<span class="badge" style="background:#10b98120; color:#10b981; font-size:11px;">🔓 Aberto</span>';
+
+      return `
+        <tr>
+          <td><b style="color: #f97316;">#${g.group_num}</b></td>
+          <td><b>${g.title}</b></td>
+          <td>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+              <span>${g.member_count || 0} membros</span>
+              <b>${pct}%</b>
+            </div>
+            <div class="progress" style="height:6px; background:rgba(255,255,255,0.05); border-radius:3px;">
+              <div class="progress-bar" style="width:${pct}%; background:${pct >= 90 ? '#ef4444' : '#f97316'}; height:100%;"></div>
+            </div>
+          </td>
+          <td>
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              ${statusBadge}
+              ${modeBadge}
+            </div>
+          </td>
+          <td>
+            ${g.invite_url ? `
+              <div style="display:flex; align-items:center; gap:6px;">
+                <code style="background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px;">${g.invite_url}</code>
+                <button class="btn btn-sm btn-secondary" onclick="copyMeteoricGroupLink('${g.invite_url}')" title="Copiar Link"><i class="fa-solid fa-copy"></i></button>
+              </div>
+            ` : '<span style="color:var(--text-muted); font-size:12px;">Sem link</span>'}
+          </td>
+          <td style="text-align:center;">
+            <div style="display:flex; gap:6px; justify-content:center;">
+              <button class="btn btn-sm btn-secondary" onclick="toggleMeteoricGroupMode(${g.id}, '${g.is_closed ? 'open' : 'closed'}')" title="${g.is_closed ? 'Abrir grupo para conversas' : 'Fechar grupo (apenas admins)'}">
+                <i class="fa-solid ${g.is_closed ? 'fa-lock-open' : 'fa-lock'}"></i>
+              </button>
+              <button class="btn btn-sm btn-primary" onclick="triggerWarmupForGroup('${g.group_jid}')" title="Disparar conversa de sub-bots neste grupo" style="background:#f97316; border-color:#f97316;">
+                <i class="fa-solid fa-fire"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao listar grupos meteóricos:', err);
+  }
+}
+
+async function loadMeteoricStages() {
+  try {
+    const res = await fetch('/api/meteoric/stages');
+    if (!res.ok) return;
+    currentMeteoricStages = await res.json();
+    selectMeteoricStageView(currentEditingStageNum);
+  } catch (err) {
+    console.error('Erro ao carregar etapas meteóricas:', err);
+  }
+}
+
+function selectMeteoricStageView(stageNum) {
+  currentEditingStageNum = stageNum;
+
+  // Atualiza botões das abas
+  const tabs = document.querySelectorAll('#meteoricStageTabs button');
+  tabs.forEach((b, idx) => {
+    if (idx + 1 === stageNum) {
+      b.className = 'btn btn-sm btn-primary';
+      b.style.background = '#f97316';
+      b.style.borderColor = '#f97316';
+    } else {
+      b.className = 'btn btn-sm btn-secondary';
+      b.style.background = '';
+      b.style.borderColor = '';
+    }
+  });
+
+  const stage = currentMeteoricStages.find(s => s.stage_num === stageNum);
+  if (!stage) return;
+
+  const titleEl = document.getElementById('stageEditorTitle');
+  if (titleEl) titleEl.innerText = stage.title;
+
+  const modeSelect = document.getElementById('stageEditorGroupMode');
+  if (modeSelect) modeSelect.value = stage.group_mode || 'announcement';
+
+  const annEl = document.getElementById('stageEditorAnnouncement');
+  if (annEl) annEl.value = stage.admin_announcement || '';
+
+  const scriptsEl = document.getElementById('stageEditorScripts');
+  if (scriptsEl) {
+    let pretty = stage.subbot_scripts;
+    try {
+      if (typeof pretty === 'string') pretty = JSON.stringify(JSON.parse(pretty), null, 2);
+    } catch (_) {}
+    scriptsEl.value = pretty || '[]';
+  }
+}
+
+async function saveMeteoricStageEditor() {
+  const stageNum = currentEditingStageNum;
+  const group_mode = document.getElementById('stageEditorGroupMode')?.value;
+  const admin_announcement = document.getElementById('stageEditorAnnouncement')?.value.trim();
+  const scriptsRaw = document.getElementById('stageEditorScripts')?.value.trim();
+
+  let subbot_scripts = [];
+  try {
+    subbot_scripts = JSON.parse(scriptsRaw);
+  } catch (e) {
+    alert('Erro no formato JSON das falas dos sub-bots: ' + e.message);
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/meteoric/stages/${stageNum}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_mode, admin_announcement, subbot_scripts })
+    });
+    if (res.ok) {
+      alert(`✅ Diretrizes da Etapa #${stageNum} salvas com sucesso!`);
+      await loadMeteoricStages();
+    } else {
+      alert('Erro ao salvar diretrizes da etapa');
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function triggerMeteoricStageWarmup() {
+  const stageNum = currentEditingStageNum;
+  if (!confirm(`Confirmar disparo da ETAPA #${stageNum} nos grupos meteóricos?\n\nO comunicado oficial será postado no grupo e os sub-bots iniciarão a conversação e aquecimento agendados.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/meteoric/warmup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stageNum })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`🚀 Etapa #${stageNum} disparada com sucesso em ${data.report?.targetGroupsCount || 1} grupo(s)!\nAnúncios enviados: ${data.report?.announcementsSent}\nFalas de Sub-Bots agendadas: ${data.report?.subbotInteractionsScheduled}`);
+      await loadMeteoricData();
+    } else {
+      alert('Erro ao disparar etapa: ' + (data.error || 'Falha'));
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function triggerInstantWarmupPrompt() {
+  const customText = prompt('Digite a frase ou dúvida que deseja que os Sub-Bots enviem agora no grupo (ou deixe vazio para usar frases prontas de aquecimento):', '');
+  if (customText === null) return;
+
+  try {
+    const res = await fetch('/api/meteoric/warmup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customText: customText.trim() || undefined })
+    });
+    if (res.ok) {
+      alert('💬 Aquecimento com Sub-Bots disparado com sucesso!');
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function triggerWarmupForGroup(groupJid) {
+  const custom = prompt('Digite a mensagem para os Sub-Bots interagirem neste grupo (ou deixe vazio para quebra de objeções padrão):', '');
+  if (custom === null) return;
+
+  try {
+    const res = await fetch('/api/meteoric/warmup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetGroupJid: groupJid, customText: custom.trim() || undefined })
+    });
+    if (res.ok) {
+      alert('🔥 Aquecimento dos sub-bots ativado para este grupo!');
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function toggleMeteoricGroupMode(groupId, mode) {
+  try {
+    const res = await fetch(`/api/meteoric/groups/${groupId}/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode })
+    });
+    if (res.ok) {
+      alert(`Grupo ${mode === 'open' ? 'ABERTO para mensagens de todos' : 'FECHADO para modo anúncio'}!`);
+      await loadMeteoricGroupsList();
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+function copyMeteoricRedirectUrl() {
+  const input = document.getElementById('meteoricRedirectUrlInput');
+  const url = input ? input.value : 'http://localhost:3000/l/vip';
+  navigator.clipboard.writeText(url).then(() => {
+    alert('🔗 Link de Tráfego Inteligente copiado!\n' + url);
+  });
+}
+
+function copyMeteoricGroupLink(url) {
+  navigator.clipboard.writeText(url).then(() => {
+    alert('Convite do grupo copiado: ' + url);
+  });
 }
