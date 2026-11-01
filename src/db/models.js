@@ -4,18 +4,19 @@ const models = {
   // ==========================================
   // 1. PRODUTOS & CATEGORIAS
   // ==========================================
-  getProducts(activeOnly = true) {
-    const sql = activeOnly 
-      ? `SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
+  getProducts(activeOnly = true, includeSubbots = false) {
+    let whereClause = '';
+    if (activeOnly) {
+      whereClause = includeSubbots ? 'WHERE p.active = 1' : 'WHERE p.active = 1 AND (p.army_instance_id IS NULL OR p.army_instance_id = 0)';
+    } else if (!includeSubbots) {
+      whereClause = 'WHERE (p.army_instance_id IS NULL OR p.army_instance_id = 0)';
+    }
+
+    const sql = `SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
          FROM products p
          LEFT JOIN companies c ON p.company_id = c.id
          LEFT JOIN products u ON p.upsell_product_id = u.id
-         WHERE p.active = 1 
-         ORDER BY p.id ASC`
-      : `SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
-         FROM products p
-         LEFT JOIN companies c ON p.company_id = c.id
-         LEFT JOIN products u ON p.upsell_product_id = u.id
+         ${whereClause}
          ORDER BY p.id ASC`;
     const products = db.prepare(sql).all();
     for (const p of products) {
@@ -74,7 +75,7 @@ const models = {
   },
 
   getCategories() {
-    const rows = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' ORDER BY category ASC").all();
+    const rows = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' AND (army_instance_id IS NULL OR army_instance_id = 0) ORDER BY category ASC").all();
     return rows.map(r => r.category);
   },
 
@@ -1146,14 +1147,131 @@ const models = {
     const messages_sent_today = data.messages_sent_today !== undefined ? Number(data.messages_sent_today) : existing.messages_sent_today;
     const warmup_mode = data.warmup_mode !== undefined ? (data.warmup_mode ? 1 : 0) : existing.warmup_mode;
     const active = data.active !== undefined ? (data.active ? 1 : 0) : existing.active;
+    const is_business = data.is_business !== undefined ? (data.is_business ? 1 : 0) : (existing.is_business || 0);
+    const business_catalog_synced = data.business_catalog_synced !== undefined ? (data.business_catalog_synced ? 1 : 0) : (existing.business_catalog_synced || 0);
+    const catalog_products = data.catalog_products !== undefined ? (typeof data.catalog_products === 'string' ? data.catalog_products : JSON.stringify(data.catalog_products)) : (existing.catalog_products || '[]');
 
     db.prepare(`
       UPDATE whatsapp_army_instances
-      SET name = ?, phone = ?, status = ?, daily_limit = ?, messages_sent_today = ?, warmup_mode = ?, active = ?
+      SET name = ?, phone = ?, status = ?, daily_limit = ?, messages_sent_today = ?, warmup_mode = ?, active = ?, is_business = ?, business_catalog_synced = ?, catalog_products = ?
       WHERE id = ?
-    `).run(name, phone || null, status, daily_limit, messages_sent_today, warmup_mode, active, id);
+    `).run(name, phone || null, status, daily_limit, messages_sent_today, warmup_mode, active, is_business, business_catalog_synced, catalog_products, id);
 
     return models.getArmyInstanceById(id);
+  },
+
+  // Verifica se uma instância de Sub-Bot é uma conta WhatsApp Business
+  isSubBotBusiness(instanceId) {
+    if (!instanceId) return false;
+    const inst = models.getArmyInstanceById(instanceId);
+    if (!inst) return false;
+    return Boolean(inst.is_business || inst.business_catalog_synced);
+  },
+
+  // Retorna os produtos exclusivos de um Sub-Bot (WhatsApp Business ou atribuídos)
+  getSubBotProducts(instanceId, phone = null) {
+    if (!instanceId) return [];
+    const inst = models.getArmyInstanceById(instanceId);
+    if (!inst) return [];
+
+    // 1. Busca produtos já cadastrados/sincronizados na tabela products com army_instance_id
+    const dbProds = db.prepare('SELECT * FROM products WHERE army_instance_id = ? AND active = 1 ORDER BY id ASC').all(instanceId);
+    if (dbProds && dbProds.length > 0) {
+      return dbProds.map(p => ({
+        ...p,
+        is_subbot_catalog: true,
+        army_instance_id: instanceId
+      }));
+    }
+
+    // 2. Se houver catálogo JSON salvo na instância
+    if (inst.catalog_products) {
+      try {
+        const parsed = JSON.parse(inst.catalog_products);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((p, idx) => ({
+            id: p.id || (idx + 1),
+            name: p.name,
+            description: p.description || '',
+            price: Number(p.price || p.price_brl || 0),
+            price_brl: Number(p.price_brl || p.price || 0),
+            price_usdt: Number(p.price_usdt || ((p.price || 10) / 5.5).toFixed(2)),
+            currency: p.currency || 'BRL',
+            type: p.type || 'digital',
+            duration_days: p.duration_days || 0,
+            image_url: p.image_url || p.imageUrl || '',
+            category: p.category || 'Catálogo Business',
+            is_subbot_catalog: true,
+            army_instance_id: instanceId
+          }));
+        }
+      } catch (_) {}
+    }
+
+    // 3. Verifica vendedor cadastrado com o mesmo telefone deste sub-bot
+    const cleanPhone = (phone || inst.phone || '').replace(/\D/g, '');
+    if (cleanPhone) {
+      const seller = db.prepare('SELECT * FROM sellers WHERE replace(replace(replace(replace(phone, " ", ""), "-", ""), "+", ""), "(", "") LIKE ?').get(`%${cleanPhone.slice(-8)}%`);
+      if (seller) {
+        const sProds = models.getSellerProducts(seller.id);
+        if (sProds && sProds.length > 0) {
+          return sProds.map(sp => models.getProductById(sp.id)).filter(Boolean).map(p => ({
+            ...p,
+            is_subbot_catalog: true,
+            army_instance_id: instanceId,
+            seller_id: seller.id
+          }));
+        }
+      }
+    }
+
+    return [];
+  },
+
+  // Salva e sincroniza produtos de um catálogo WhatsApp Business para o banco de dados
+  saveSubBotCatalogProducts(instanceId, rawProducts = []) {
+    if (!instanceId || !Array.isArray(rawProducts)) return [];
+    const saved = [];
+
+    for (const p of rawProducts) {
+      const name = String(p.name || '').trim();
+      if (!name) continue;
+
+      const rawPrice = Number(p.price || p.price_brl || 10.0);
+      const priceBrl = rawPrice > 1000 ? (rawPrice / 1000) : rawPrice;
+      const priceUsdt = Number((priceBrl / 5.5).toFixed(2));
+      const desc = p.description || '';
+      const img = p.image_url || p.imageUrl || '';
+
+      // Procura se já existe produto com esse nome para essa instância
+      let prod = db.prepare('SELECT * FROM products WHERE name = ? AND army_instance_id = ?').get(name, instanceId);
+
+      if (!prod) {
+        const stmt = db.prepare(`
+          INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, image_url, category, army_instance_id, active)
+          VALUES (?, ?, ?, ?, ?, 'BRL', 'digital', 0, ?, 'WhatsApp Business', ?, 1)
+        `);
+        const res = stmt.run(name, desc, priceBrl, priceBrl, priceUsdt, img, instanceId);
+        prod = models.getProductById(Number(res.lastInsertRowid));
+      } else {
+        db.prepare(`
+          UPDATE products
+          SET description = ?, price = ?, price_brl = ?, price_usdt = ?, image_url = ?, active = 1
+          WHERE id = ?
+        `).run(desc, priceBrl, priceBrl, priceUsdt, img, prod.id);
+        prod = models.getProductById(prod.id);
+      }
+
+      if (prod) saved.push(prod);
+    }
+
+    models.updateArmyInstance(instanceId, {
+      is_business: 1,
+      business_catalog_synced: 1,
+      catalog_products: JSON.stringify(saved)
+    });
+
+    return saved;
   },
 
   deleteArmyInstance(id) {
@@ -3056,7 +3174,7 @@ const models = {
   // 18. VITRINE & CATÁLOGO E-COMMERCE (AUTOREPUESTOS-PRO)
   // ==========================================
   getStoreProducts(category = null, search = null) {
-    let sql = 'SELECT * FROM products WHERE active = 1';
+    let sql = 'SELECT * FROM products WHERE active = 1 AND (army_instance_id IS NULL OR army_instance_id = 0)';
     const params = [];
     if (category && category !== 'Todos') {
       sql += ' AND category = ?';

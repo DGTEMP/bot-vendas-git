@@ -404,7 +404,8 @@
 
     async function loadCatalog() {
       try {
-        const res = await fetch('/api/store/products');
+        const query = window.location.search || '';
+        const res = await fetch('/api/store/products' + query);
         const data = await res.json();
         if (data.products && Array.isArray(data.products)) {
           allProducts = data.products;
@@ -706,6 +707,8 @@
       btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processando Pedido...';
 
       try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const subbot = urlParams.get('subbot');
         const res = await fetch('/api/store/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -713,7 +716,8 @@
             items: cart,
             customer: { name, phone, address, notes },
             gateway: selectedMethod === 'whatsapp' ? 'pix' : selectedMethod,
-            couponCode: appliedCoupon ? appliedCoupon.code : null
+            couponCode: appliedCoupon ? appliedCoupon.code : null,
+            subbot: subbot || null
           })
         });
 

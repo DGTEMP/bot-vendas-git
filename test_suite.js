@@ -4438,6 +4438,208 @@ async function main() {
     }
   });
 
+  // ================================================================
+  // 21. TESTES DE OPERAÇÃO EXCLUSIVA DE CATÁLOGO PRÓPRIO PARA SUB-BOT WHATSAPP BUSINESS
+  // ================================================================
+  await runAsyncTest('WhatsApp Business Sub-Bot: Sincronização de catálogo e identificação comercial', async () => {
+    // 1. Cria instância de subbot
+    const subChip = models.createArmyInstance({
+      name: 'Sub-Bot Business Loja 1',
+      phone: '5511999997701',
+      role: 'subbot'
+    });
+    assert(subChip && subChip.id);
+
+    // 2. Mock do socket Baileys com catálogo comercial do WhatsApp Business
+    const mockBizSock = {
+      user: { id: `${subChip.phone}:1@s.whatsapp.net` },
+      instanceId: subChip.id,
+      getBusinessProfile: async () => ({
+        description: 'Loja Oficial WhatsApp Business',
+        category: 'Automotive Store'
+      }),
+      getCatalog: async () => ({
+        products: [
+          {
+            id: 'biz_item_001',
+            name: 'Kit Embreagem Especial Business',
+            description: 'Item exclusivo da loja filial',
+            price: 150000,
+            currency: 'BRL'
+          },
+          {
+            id: 'biz_item_002',
+            name: 'Óleo Sintético 5W30 Business',
+            description: 'Óleo importado exclusivo',
+            price: 60000,
+            currency: 'BRL'
+          }
+        ]
+      })
+    };
+
+    // 3. Executa sincronização do catálogo
+    await whatsappArmyService.syncSubBotBusinessCatalog(subChip.id, mockBizSock);
+
+    // 4. Valida se a instância foi marcada como Business
+    assert.strictEqual(models.isSubBotBusiness(subChip.id), true);
+
+    // 5. Valida se os produtos foram persistidos e filtrados para o sub-bot
+    const subProds = models.getSubBotProducts(subChip.id);
+    assert.strictEqual(subProds.length, 2);
+    assert.strictEqual(subProds[0].name, 'Kit Embreagem Especial Business');
+    assert.strictEqual(subProds[0].price_brl, 150.00);
+    assert.strictEqual(subProds[1].name, 'Óleo Sintético 5W30 Business');
+    assert.strictEqual(subProds[1].price_brl, 60.00);
+    assert.strictEqual(subProds[0].army_instance_id, subChip.id);
+  });
+
+  await runAsyncTest('WhatsApp Business Sub-Bot: Isolamento estrito de catálogo e compras exclusivas', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const originalSock = whatsappBot.sock;
+    const originalSend = whatsappBot.sendMessage;
+    const sent = [];
+
+    const subChip = models.createArmyInstance({
+      name: 'Sub-Bot Business Isolado',
+      phone: '5511999997702',
+      role: 'subbot'
+    });
+
+    models.saveSubBotCatalogProducts(subChip.id, [
+      {
+        name: 'Produto Exclusivo Filial Business',
+        description: 'Apenas nesta filial',
+        price: 88.00,
+        price_brl: 88.00
+      }
+    ]);
+
+    const mockSubSock = {
+      user: { id: `${subChip.phone}:1@s.whatsapp.net` },
+      instanceId: subChip.id,
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'SUB_SENT_1' } };
+      }
+    };
+
+    const mockMainSock = {
+      user: { id: '5511988887777:1@s.whatsapp.net' },
+      instanceId: 1,
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return { key: { id: 'MAIN_SENT_1' } };
+      }
+    };
+
+    try {
+      whatsappBot.sock = mockMainSock;
+      whatsappBot.sendMessage = async (jid, textOrObj, opts, customSock) => {
+        const payload = typeof textOrObj === 'string' ? { text: textOrObj } : textOrObj;
+        sent.push({ jid, payload, customSock });
+        return { key: { id: 'BOT_SENT' } };
+      };
+
+      // 1. Contexto Matriz: deve retornar catálogo geral da loja
+      const mainProds = whatsappBot.getProductsForContext(mockMainSock);
+      assert(mainProds.length > 0);
+      assert(!mainProds.some(p => p.name === 'Produto Exclusivo Filial Business'));
+
+      // 2. Contexto Sub-Bot Business: deve retornar SOMENTE os produtos do sub-bot
+      const subProds = whatsappBot.getProductsForContext(mockSubSock);
+      assert.strictEqual(subProds.length, 1);
+      assert.strictEqual(subProds[0].name, 'Produto Exclusivo Filial Business');
+
+      // 3. Teste MENU no Sub-Bot Business
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511966665555@s.whatsapp.net', fromMe: false },
+        pushName: 'Cliente SubBot',
+        message: { conversation: 'menu' }
+      }, mockSubSock);
+
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('WhatsApp Business')));
+      assert(sent.some(s => s.payload.text && s.payload.text.includes('Produto Exclusivo Filial Business')));
+
+      // 4. Teste Compra direta '1' ou 'P1' no Sub-Bot Business
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511966665555@s.whatsapp.net', fromMe: false },
+        pushName: 'Cliente SubBot',
+        message: { conversation: 'P1' }
+      }, mockSubSock);
+
+      assert(sent.some(s => s.payload.caption && s.payload.caption.includes('Produto Exclusivo Filial Business')));
+
+      const lastOrder = models.getAllOrders(1)[0];
+      assert.strictEqual(lastOrder.product_name, 'Produto Exclusivo Filial Business');
+      assert.strictEqual(lastOrder.seller_id, subChip.id);
+
+      // 5. Teste !loja no Sub-Bot Business
+      sent.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511966665555@s.whatsapp.net', fromMe: false },
+        pushName: 'Cliente SubBot',
+        message: { conversation: '!loja' }
+      }, mockSubSock);
+
+      assert(sent.some(s => (s.payload.text || '').includes(`subbot=${subChip.id}`)));
+      assert(sent.some(s => (s.payload.text || '').includes('CATÁLOGO WHATSAPP BUSINESS')));
+    } finally {
+      whatsappBot.sock = originalSock;
+      whatsappBot.sendMessage = originalSend;
+    }
+  });
+
+  await runAsyncTest('API Web Store: Filtro de vitrine e checkout atribuído por Sub-Bot (/api/store/products?subbot=X)', async () => {
+    const subChip = models.createArmyInstance({
+      name: 'Sub-Bot Vitrine Web Test',
+      phone: '5511999997703',
+      role: 'subbot'
+    });
+
+    models.saveSubBotCatalogProducts(subChip.id, [
+      {
+        name: 'Peça Turbina Business Web',
+        description: 'Disponível online e WhatsApp',
+        price: 320.00,
+        price_brl: 320.00
+      }
+    ]);
+
+    // 1. GET /api/store/products sem parâmetro: vitrine global
+    const globalRes = await fetchApi('/api/store/products');
+    assert.strictEqual(globalRes.status, 200);
+    assert(globalRes.data.products.length > 0);
+    assert(!globalRes.data.products.some(p => p.name === 'Peça Turbina Business Web'));
+
+    // 2. GET /api/store/products?subbot=X: vitrine exclusiva do Sub-Bot
+    const subRes = await fetchApi(`/api/store/products?subbot=${subChip.id}`);
+    assert.strictEqual(subRes.status, 200);
+    assert.strictEqual(subRes.data.products.length, 1);
+    assert.strictEqual(subRes.data.products[0].name, 'Peça Turbina Business Web');
+
+    // 3. POST /api/store/checkout atribuído ao subbot
+    const checkoutRes = await fetchApi('/api/store/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [{ id: subRes.data.products[0].id, quantity: 1 }],
+        customer: { name: 'Cliente Loja Web SubBot', phone: '5511977778888' },
+        gateway: 'pix',
+        subbot: subChip.id
+      })
+    });
+
+    assert.strictEqual(checkoutRes.status, 200);
+    assert.strictEqual(checkoutRes.data.success, true);
+    assert(checkoutRes.data.whatsappUrl.includes(subChip.phone));
+
+    const createdOrder = models.getOrderByTradeNo(checkoutRes.data.tradeNo);
+    assert.strictEqual(createdOrder.seller_id, subChip.id);
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

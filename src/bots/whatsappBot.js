@@ -2374,7 +2374,7 @@ class WhatsAppBotService {
 
     // Comandos de menu
     if (['oi', 'ola', 'olá', 'menu', 'inicio', 'início', 'comprar', 'produtos', 'planos'].some(cmd => lower === cmd) || lower.startsWith('!menu')) {
-      return this.sendMenu(from, senderName);
+      return this.sendMenu(from, senderName, activeSock);
     }
 
     if (lower === 'ajuda' || lower === 'suporte' || lower.startsWith('!ajuda')) {
@@ -2389,18 +2389,18 @@ class WhatsAppBotService {
     const pixMatch = lower.match(/^(?:p|pix\s*)(\d+)$/);
     if (pixMatch) {
       const idx = parseInt(pixMatch[1], 10);
-      const products = models.getProducts(true);
+      const products = this.getProductsForContext(activeSock);
       if (idx > 0 && idx <= products.length) {
-        return this.processPixPurchase(from, senderName, products[idx - 1]);
+        return this.processPixPurchase(from, senderName, products[idx - 1], activeSock);
       }
     }
 
     const bpayMatch = lower.match(/^(?:c|cripto\s*|crypto\s*|usdt\s*)(\d+)$/);
     if (bpayMatch) {
       const idx = parseInt(bpayMatch[1], 10);
-      const products = models.getProducts(true);
+      const products = this.getProductsForContext(activeSock);
       if (idx > 0 && idx <= products.length) {
-        return this.processBinancePurchase(from, senderName, products[idx - 1]);
+        return this.processBinancePurchase(from, senderName, products[idx - 1], activeSock);
       }
     }
 
@@ -2408,7 +2408,7 @@ class WhatsAppBotService {
     const wantMatch = lower.match(/^(?:quero\s*(?:o\s*)?|comprar\s*(?:o\s*)?|item\s*)?(\d+)$/);
     if (wantMatch) {
       const num = parseInt(wantMatch[1], 10);
-      const products = models.getProducts(true);
+      const products = this.getProductsForContext(activeSock);
       if (!isNaN(num) && num > 0 && num <= products.length) {
         const product = products[num - 1];
         
@@ -2417,19 +2417,19 @@ class WhatsAppBotService {
 
         // Se ambos os gateways estão ativos, pergunta a forma de pagamento
         if (isPix && isBinance) {
-          const brl = (product.price_brl || product.price).toFixed(2);
-          const usdt = (product.price_usdt || (product.price / 5.5)).toFixed(2);
+          const brl = Number(product.price_brl || product.price || 0).toFixed(2);
+          const usdt = Number(product.price_usdt || ((product.price || 10) / 5.5)).toFixed(2);
 
           const choiceMsg = `📦 *${product.name}*\n\n` +
             `Como você prefere pagar?\n\n` +
             `🟢 Digite *P${num}* para pagar via *PIX* (R$ ${brl})\n` +
             `🟡 Digite *C${num}* para pagar via *Cripto / USDT* (${usdt} USDT)\n\n` +
             `_Exemplo: responda *P${num}* para receber o código Copia e Cola instantâneo._`;
-          return this.sendMessage(from, choiceMsg);
+          return this.sendMessage(from, choiceMsg, {}, activeSock);
         } else if (isPix) {
-          return this.processPixPurchase(from, senderName, product);
+          return this.processPixPurchase(from, senderName, product, activeSock);
         } else {
-          return this.processBinancePurchase(from, senderName, product);
+          return this.processBinancePurchase(from, senderName, product, activeSock);
         }
       }
     }
@@ -2456,13 +2456,13 @@ class WhatsAppBotService {
           return this.sendMessage(from, nlp.replyText);
         }
         if (nlp.directAction === 'TRIGGER_PIX' && nlp.entities?.matchedProduct) {
-          return this.processPixPurchase(from, senderName, nlp.entities.matchedProduct);
+          return this.processPixPurchase(from, senderName, nlp.entities.matchedProduct, activeSock);
         }
         if (nlp.directAction === 'TRIGGER_BINANCE' && nlp.entities?.matchedProduct) {
-          return this.processBinancePurchase(from, senderName, nlp.entities.matchedProduct);
+          return this.processBinancePurchase(from, senderName, nlp.entities.matchedProduct, activeSock);
         }
         if (nlp.directAction === 'SHOW_MENU') {
-          return this.sendMenu(from, senderName);
+          return this.sendMenu(from, senderName, activeSock);
         }
         if (nlp.directAction === 'TRIGGER_UPSELL') {
           const lastOrder = models.getAllOrders(10).find(o => o.platform === 'whatsapp' && o.platform_user_id === from && o.status === 'PAID');
@@ -2477,7 +2477,7 @@ class WhatsAppBotService {
                   ...upsellProd,
                   price_brl: discountedBrl,
                   is_upsell: 1
-                });
+                }, activeSock);
               }
             }
           }
@@ -2491,7 +2491,7 @@ class WhatsAppBotService {
           });
         }
         if (nlp.replyText) {
-          return this.sendMessage(from, nlp.replyText);
+          return this.sendMessage(from, nlp.replyText, {}, activeSock);
         }
       }
     } catch (nlpErr) {
@@ -2502,24 +2502,64 @@ class WhatsAppBotService {
     const fallbackText = `Olá, *${senderName}*! 👋\n\n` +
       `Para ver nossos produtos e assinaturas com pagamento automático via *PIX* ou *Cripto (USDT)*, envie *MENU*.\n\n` +
       `Se precisar de suporte, envie *AJUDA*.`;
-    await this.sendMessage(from, fallbackText);
+    await this.sendMessage(from, fallbackText, {}, activeSock);
   }
 
-  async sendMenu(to, senderName) {
-    const products = models.getProducts(true);
+  // Retorna os produtos ativos para o contexto do atendimento:
+  // Se for um Sub-Bot com conta WhatsApp Business (ou catálogo próprio), opera ESTRITAMENTE com os produtos do seu catálogo!
+  // Se for a Matriz Principal (ou subbot sem catálogo próprio), opera com o catálogo geral da loja.
+  getProductsForContext(sock = null) {
+    const activeSock = sock || this.currentDispatchSock || this.sock;
+    const isSubBot = !!activeSock && activeSock !== this.sock;
+    const instanceId = activeSock?.instanceId || (isSubBot ? 2 : 1);
 
-    if (products.length === 0) {
-      return this.sendMessage(to, 'Nenhum produto cadastrado no momento. Tente novamente mais tarde.');
+    if (isSubBot) {
+      const isBusiness = models.isSubBotBusiness(instanceId);
+      const subBotProds = models.getSubBotProducts(instanceId, activeSock?.user?.id);
+
+      // Quando uma conta WhatsApp Business estiver logada como subbot, ela opera SOMENTE com seus próprios produtos!
+      if (isBusiness || subBotProds.length > 0) {
+        return subBotProds;
+      }
     }
 
-    let menu = `👋 Olá, *${senderName}*!\n` +
-      `Bem-vindo à nossa loja automatizada com pagamentos via *PIX* e *Binance Pay* (USDT).\n\n` +
-      `📌 *PRODUTOS & ASSINATURAS:*\n\n`;
+    // Matriz Principal ou Sub-Bot comum sem catálogo próprio
+    return models.getProducts(true);
+  }
+
+  async sendMenu(to, senderName, activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
+    const isSubBot = !!sock && sock !== this.sock;
+    const instanceId = sock?.instanceId || (isSubBot ? 2 : 1);
+    const isBusiness = isSubBot && models.isSubBotBusiness(instanceId);
+    const products = this.getProductsForContext(sock);
+
+    if (products.length === 0) {
+      if (isBusiness) {
+        return this.sendMessage(to,
+          `ℹ️ *ATENDIMENTO OFICIAL WHATSAPP BUSINESS*\n\n` +
+          `Este canal de atendimento opera exclusivamente com o catálogo próprio desta conta do WhatsApp Business.\n` +
+          `Nenhum produto está disponível no momento. Para comprar ou tirar dúvidas, envie *AJUDA* para suporte humano!`,
+          {}, sock
+        );
+      }
+      return this.sendMessage(to, 'Nenhum produto cadastrado no momento. Tente novamente mais tarde.', {}, sock);
+    }
+
+    let menu = `👋 Olá, *${senderName}*!\n`;
+    if (isBusiness) {
+      menu += `Bem-vindo ao nosso atendimento oficial via *WhatsApp Business*.\n` +
+              `Confira nosso catálogo exclusivo abaixo:\n\n` +
+              `📌 *CATÁLOGO DE PRODUTOS:*\n\n`;
+    } else {
+      menu += `Bem-vindo à nossa loja automatizada com pagamentos via *PIX* e *Binance Pay* (USDT).\n\n` +
+              `📌 *PRODUTOS & ASSINATURAS:*\n\n`;
+    }
 
     products.forEach((p, idx) => {
       const typeTag = p.type === 'vip_subscription' ? `⭐ [VIP ${p.duration_days} dias]` : '📦 [Digital]';
-      const brl = (p.price_brl || p.price).toFixed(2);
-      const usdt = (p.price_usdt || (p.price / 5.5)).toFixed(2);
+      const brl = Number(p.price_brl || p.price || 0).toFixed(2);
+      const usdt = Number(p.price_usdt || ((p.price || 10) / 5.5)).toFixed(2);
 
       menu += `*${idx + 1}* - ${p.name} ${typeTag}\n` +
         `    💰 *R$ ${brl}* ou *${usdt} USDT*\n` +
@@ -2533,19 +2573,23 @@ class WhatsAppBotService {
       `• Para pagar com *Cripto*: envie *C1*, *C2*, etc.\n\n` +
       `🐾 *Comandos Especiais & Lazer:* Envie *!comandos* para criar figurinhas (!s), baixar mídias (!play, !tiktok, !ig), IA (!ia, !imagine) e mini-jogos (!dado, !roleta).`;
 
-    await this.sendMessage(to, menu);
+    await this.sendMessage(to, menu, {}, sock);
   }
 
   // 1. Processa Compra via PIX
-  async processPixPurchase(to, senderName, product) {
+  async processPixPurchase(to, senderName, product, activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
+    const isSubBot = !!sock && sock !== this.sock;
+    const instanceId = sock?.instanceId;
+
     if (product.type === 'license_key') {
       const available = models.getAvailableKeyCount(product.id);
       if (available <= 0) {
-        return this.sendMessage(to, `⚠️ Desculpe, o item *${product.name}* está esgotado no momento.`);
+        return this.sendMessage(to, `⚠️ Desculpe, o item *${product.name}* está esgotado no momento.`, {}, sock);
       }
     }
 
-    await this.sendMessage(to, `⏳ Gerando seu código *PIX* para *${product.name}*...`);
+    await this.sendMessage(to, `⏳ Gerando seu código *PIX* para *${product.name}*...`, {}, sock);
 
     const tradeNo = `ORD_WPIX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     let amount = product.price_brl || product.price;
@@ -2570,15 +2614,17 @@ class WhatsAppBotService {
     });
 
     if (!pixRes.success) {
-      return this.sendMessage(to, `❌ Não foi possível gerar o PIX:\n${pixRes.errorMessage}`);
+      return this.sendMessage(to, `❌ Não foi possível gerar o PIX:\n${pixRes.errorMessage}`, {}, sock);
     }
 
     const { pixCode, qrBuffer, checkoutUrl, paymentId } = pixRes.data;
 
     // Afiliado e Vendedor
     const refInfo = this.userReferrals.get(to) || {};
-    let sellerId = null;
-    if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+    let sellerId = product.seller_id || null;
+    if (isSubBot && instanceId) {
+      sellerId = instanceId;
+    } else if (!sellerId && models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
       const nextSeller = models.getNextRoundRobinSeller(product.id);
       if (nextSeller) sellerId = nextSeller.id;
     }
@@ -2623,28 +2669,32 @@ class WhatsAppBotService {
       await this.sendMessage(to, {
         image: qrBuffer,
         caption: caption
-      });
+      }, {}, sock);
 
       // Envia uma mensagem contendo apenas o Copia e Cola para facilitar cópia com 1 clique no celular
-      await this.sendMessage(to, `👇 *PIX COPIA E COLA (Toque para copiar):*`);
-      await this.sendMessage(to, `${pixCode}`);
+      await this.sendMessage(to, `👇 *PIX COPIA E COLA (Toque para copiar):*`, {}, sock);
+      await this.sendMessage(to, `${pixCode}`, {}, sock);
 
     } catch (err) {
       console.error('[WhatsApp ❌ Erro ao enviar PIX]:', err.message);
-      await this.sendMessage(to, `Pix gerado! Código Copia e Cola:\n\n${pixCode}`);
+      await this.sendMessage(to, `Pix gerado! Código Copia e Cola:\n\n${pixCode}`, {}, sock);
     }
   }
 
   // 2. Processa Compra via Binance Pay
-  async processBinancePurchase(to, senderName, product) {
+  async processBinancePurchase(to, senderName, product, activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
+    const isSubBot = !!sock && sock !== this.sock;
+    const instanceId = sock?.instanceId;
+
     if (product.type === 'license_key') {
       const available = models.getAvailableKeyCount(product.id);
       if (available <= 0) {
-        return this.sendMessage(to, `⚠️ Desculpe, o item *${product.name}* está esgotado no momento.`);
+        return this.sendMessage(to, `⚠️ Desculpe, o item *${product.name}* está esgotado no momento.`, {}, sock);
       }
     }
 
-    await this.sendMessage(to, `⏳ Gerando sua fatura na *Binance Pay* para *${product.name}*...`);
+    await this.sendMessage(to, `⏳ Gerando sua fatura na *Binance Pay* para *${product.name}*...`, {}, sock);
 
     const tradeNo = `ORD_WBNB_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     let amount = Number(product.price_usdt || (product.price / 5.5)).toFixed(2);
@@ -2671,14 +2721,16 @@ class WhatsAppBotService {
     });
 
     if (!binanceRes.success) {
-      return this.sendMessage(to, `❌ Não foi possível gerar a cobrança na Binance Pay:\n${binanceRes.errorMessage}`);
+      return this.sendMessage(to, `❌ Não foi possível gerar a cobrança na Binance Pay:\n${binanceRes.errorMessage}`, {}, sock);
     }
 
     const payData = binanceRes.data;
 
     const refInfo = this.userReferrals.get(to) || {};
-    let sellerId = null;
-    if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+    let sellerId = product.seller_id || null;
+    if (isSubBot && instanceId) {
+      sellerId = instanceId;
+    } else if (!sellerId && models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
       const nextSeller = models.getNextRoundRobinSeller(product.id);
       if (nextSeller) sellerId = nextSeller.id;
     }
@@ -2725,18 +2777,19 @@ class WhatsAppBotService {
       await this.sendMessage(to, {
         image: qrBuffer,
         caption: caption
-      });
+      }, {}, sock);
 
     } catch (err) {
       console.error('[WhatsApp ❌ Erro ao enviar imagem Binance]:', err.message);
-      await this.sendMessage(to, `Pedido criado! Link para pagamento: ${payData.checkoutUrl}`);
+      await this.sendMessage(to, `Pedido criado! Link para pagamento: ${payData.checkoutUrl}`, {}, sock);
     }
   }
 
-  async sendOrderStatus(to) {
+  async sendOrderStatus(to, activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
     const orders = models.getAllOrders(20).filter(o => o.platform === 'whatsapp' && o.platform_user_id === to);
     if (orders.length === 0) {
-      return this.sendMessage(to, 'Você ainda não possui nenhum pedido registrado por este WhatsApp.');
+      return this.sendMessage(to, 'Você ainda não possui nenhum pedido registrado por este WhatsApp.', {}, sock);
     }
 
     let text = '📦 *SEUS ÚLTIMOS PEDIDOS:*\n\n';
@@ -2748,17 +2801,18 @@ class WhatsAppBotService {
         `  Valor: ${valorStr} | Status: ${statusText}\n\n`;
     });
 
-    await this.sendMessage(to, text);
+    await this.sendMessage(to, text, {}, sock);
   }
 
-  async sendHelp(to) {
+  async sendHelp(to, activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
     const help = `ℹ️ *AJUDA & FORMAS DE PAGAMENTO*\n\n` +
       `• *PIX:* Você recebe o QR Code e o código Copia e Cola na hora no chat.\n` +
       `• *Criptomoedas (Binance Pay):* Pagamento rápido em USDT pelo app oficial da Binance.\n` +
       `• *Entrega Instantânea:* Nossos servidores monitoram confirmações de bancos e blockchains a cada poucos segundos.\n` +
       `• *Assinaturas VIP:* Link exclusivo gerado para acesso ao canal VIP com controle automático de validade.\n\n` +
       `💡 _Para ver o catálogo completo de comandos, envie *!help* ou *!bot*_`;
-    await this.sendMessage(to, help);
+    await this.sendMessage(to, help, {}, sock);
   }
 
   async sendMessage(jid, text, options = {}, customSock = null) {

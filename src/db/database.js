@@ -673,7 +673,11 @@ function initDatabase() {
     'ALTER TABLE products ADD COLUMN stock_qty INTEGER DEFAULT 999;',
     'ALTER TABLE meteoric_stages ADD COLUMN scheduled_at DATETIME;',
     'ALTER TABLE meteoric_stages ADD COLUMN auto_execute INTEGER DEFAULT 0;',
-    'ALTER TABLE meteoric_stages ADD COLUMN media_url TEXT;'
+    'ALTER TABLE meteoric_stages ADD COLUMN media_url TEXT;',
+    'ALTER TABLE whatsapp_army_instances ADD COLUMN is_business INTEGER DEFAULT 0;',
+    'ALTER TABLE whatsapp_army_instances ADD COLUMN business_catalog_synced INTEGER DEFAULT 0;',
+    'ALTER TABLE whatsapp_army_instances ADD COLUMN catalog_products TEXT DEFAULT "[]";',
+    'ALTER TABLE products ADD COLUMN army_instance_id INTEGER DEFAULT NULL;'
   ];
 
   for (const m of migrations) {

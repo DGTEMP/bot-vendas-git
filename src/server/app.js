@@ -2506,9 +2506,30 @@ function createServer() {
 
   app.get('/api/store/products', (req, res) => {
     try {
-      const { category, search } = req.query;
-      const products = models.getStoreProducts(category, search);
-      const categories = ['Todos', ...models.getCategories()];
+      const { category, search, subbot } = req.query;
+      let products;
+      let categories = ['Todos'];
+
+      if (subbot) {
+        const subbotId = Number(subbot);
+        products = models.getSubBotProducts(subbotId);
+        if (category && category !== 'Todos') {
+          products = products.filter(p => p.category === category);
+        }
+        if (search && search.trim()) {
+          const s = search.toLowerCase();
+          products = products.filter(p =>
+            (p.name && p.name.toLowerCase().includes(s)) ||
+            (p.description && p.description.toLowerCase().includes(s)) ||
+            (p.category && p.category.toLowerCase().includes(s))
+          );
+        }
+        const cats = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
+        categories = ['Todos', ...cats];
+      } else {
+        products = models.getStoreProducts(category, search);
+        categories = ['Todos', ...models.getCategories()];
+      }
       res.json({ success: true, products, categories });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -2556,7 +2577,7 @@ function createServer() {
 
   app.post('/api/store/checkout', async (req, res) => {
     try {
-      const { items = [], customer = {}, gateway = 'pix', couponCode = null } = req.body;
+      const { items = [], customer = {}, gateway = 'pix', couponCode = null, subbot = null } = req.body;
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: 'O carrinho está vazio.' });
       }
@@ -2643,6 +2664,18 @@ function createServer() {
         qrContent = binRes.data?.qrContent || binRes.data?.qrcodeLink || binRes.qrContent;
       }
 
+      let sellerId = mainProd.seller_id || null;
+      let targetPhone = models.getSetting('BOT_PHONE', '') || models.getSetting('OWNER_PHONE', '5511988887777');
+      if (subbot) {
+        const subInstance = models.getArmyInstanceById(Number(subbot));
+        if (subInstance) {
+          sellerId = subInstance.id;
+          if (subInstance.phone) {
+            targetPhone = subInstance.phone;
+          }
+        }
+      }
+
       const order = models.createOrder({
         merchant_trade_no: tradeNo,
         product_id: mainProd.id,
@@ -2657,7 +2690,8 @@ function createServer() {
         qr_content: qrContent,
         checkout_url: checkoutUrl,
         coupon_code: couponCode,
-        discount_amount: discountBRL
+        discount_amount: discountBRL,
+        seller_id: sellerId
       });
 
       let itemsListText = verifiedItems.map(i => `• ${i.quantity}x *${i.name}* (R$ ${i.totalBRL.toFixed(2)})`).join('\n');
@@ -2675,7 +2709,7 @@ function createServer() {
         (pixCode ? `🔑 *PIX Copia e Cola:* \`${pixCode}\`\n\n` : '') +
         `_Aguardando confirmação do pagamento pelo sistema automático._`;
 
-      const botPhone = (models.getSetting('BOT_PHONE', '') || models.getSetting('OWNER_PHONE', '5511988887777')).replace(/\D/g, '');
+      const botPhone = String(targetPhone).replace(/\D/g, '');
       const waUrl = `https://wa.me/${botPhone}?text=${encodeURIComponent(waMessage)}`;
 
       res.json({

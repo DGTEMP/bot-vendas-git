@@ -154,6 +154,11 @@ class WhatsAppArmyService {
             await saveCreds();
           } catch (_) {}
           console.log(`[Exército WhatsApp 📱] Chip #${instanceId} (${instance.name}) conectado com sucesso (+ ${rawPhone || instance.phone})!`);
+
+          // Sincroniza catálogo próprio se for conta WhatsApp Business
+          this.syncSubBotBusinessCatalog(instanceId, sock).catch(err => {
+            console.warn(`[Exército WhatsApp ⚠️] Falha ao verificar WhatsApp Business no Chip #${instanceId}:`, err.message);
+          });
         }
 
         if (connection === 'close') {
@@ -227,6 +232,66 @@ class WhatsAppArmyService {
       this.startingInstances.delete(instanceId);
       models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
       throw err;
+    }
+  }
+
+  // Sincroniza o catálogo de produtos e perfil do WhatsApp Business quando um Sub-Bot se conecta
+  async syncSubBotBusinessCatalog(instanceId, sock) {
+    try {
+      const myJid = sock?.user?.id;
+      if (!myJid) return;
+      const cleanPhone = myJid.split(':')[0].replace(/\D/g, '');
+      let isBusiness = 0;
+      let catalogProducts = [];
+
+      // 1. Tenta consultar perfil comercial WhatsApp Business
+      try {
+        if (typeof sock.getBusinessProfile === 'function') {
+          const profile = await sock.getBusinessProfile(myJid);
+          if (profile && (profile.description || profile.category || profile.email || profile.websites)) {
+            isBusiness = 1;
+          }
+        }
+      } catch (_) {}
+
+      // 2. Tenta consultar o catálogo de produtos do WhatsApp Business
+      try {
+        if (typeof sock.getCatalog === 'function') {
+          const catalogRes = await sock.getCatalog({ jid: myJid, limit: 50 });
+          if (catalogRes && Array.isArray(catalogRes.products) && catalogRes.products.length > 0) {
+            isBusiness = 1;
+            catalogProducts = catalogRes.products.map((p, idx) => {
+              const rawPrice = Number(p.price || 0);
+              const brlPrice = rawPrice > 1000 ? (rawPrice / 1000) : (rawPrice || 10.0);
+              return {
+                id: p.id || `BIZ_${instanceId}_${idx + 1}`,
+                name: p.name || `Produto ${idx + 1}`,
+                description: p.description || '',
+                price: brlPrice,
+                price_brl: brlPrice,
+                price_usdt: Number((brlPrice / 5.5).toFixed(2)),
+                currency: p.currency || 'BRL',
+                type: 'digital',
+                category: 'WhatsApp Business',
+                image_url: p.imageUrl || p.image?.url || '',
+                retailer_id: p.retailerId || ''
+              };
+            });
+          }
+        }
+      } catch (_) {}
+
+      if (isBusiness) {
+        if (catalogProducts.length > 0) {
+          models.saveSubBotCatalogProducts(instanceId, catalogProducts);
+          console.log(`[Exército WhatsApp 🛍️] Sub-Bot #${instanceId} (${cleanPhone}) é WhatsApp Business com ${catalogProducts.length} produto(s) no seu catálogo exclusivo!`);
+        } else {
+          models.updateArmyInstance(instanceId, { is_business: 1 });
+          console.log(`[Exército WhatsApp 🏢] Sub-Bot #${instanceId} (${cleanPhone}) identificado como conta WhatsApp Business.`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[Exército WhatsApp ⚠️] Erro ao sincronizar catálogo do Sub-Bot #${instanceId}:`, err.message);
     }
   }
 

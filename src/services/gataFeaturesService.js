@@ -3574,22 +3574,36 @@ sys.stdout.buffer.write(out.getvalue())
    */
   async handleLoja(sock, from) {
     try {
-      const products = models.getStoreProducts().slice(0, 5);
+      const isSubBot = !!sock && sock.instanceId;
+      const instanceId = sock?.instanceId;
+      const isBusiness = isSubBot && models.isSubBotBusiness(instanceId);
+      const subBotProds = isSubBot ? models.getSubBotProducts(instanceId, sock?.user?.id) : [];
+
+      let products;
       const host = 'http://localhost:3000';
-      const storeUrl = `${host}/loja`;
+      let storeUrl = `${host}/loja`;
+
+      if (isBusiness || subBotProds.length > 0) {
+        products = subBotProds.slice(0, 5);
+        storeUrl = `${host}/loja?subbot=${instanceId}`;
+      } else {
+        products = models.getStoreProducts().slice(0, 5);
+      }
 
       let prodListText = '';
       if (products.length > 0) {
-        prodListText = `📦 *DESTAQUES DA VITRINE:*\n` + products.map((p, idx) => {
-          const brl = Number(p.price_brl || p.price).toFixed(2);
-          const usdt = Number(p.price_usdt || (p.price / 5.5)).toFixed(2);
+        prodListText = `📦 *${isBusiness ? 'CATÁLOGO EXCLUSIVO' : 'DESTAQUES DA VITRINE'}:*\n` + products.map((p, idx) => {
+          const brl = Number(p.price_brl || p.price || 0).toFixed(2);
+          const usdt = Number(p.price_usdt || ((p.price || 10) / 5.5)).toFixed(2);
           return `• *${p.name}* — R$ ${brl} (${usdt} USDT)`;
         }).join('\n') + `\n\n`;
       }
 
       const out =
-        `🛒 *VITRINE DIGITAL & CATÁLOGO OFICIAL* 🛒\n\n` +
-        `Navegue pelo nosso catálogo completo com carrinho de compras, cálculo de cupons e checkout instantâneo Pix e Cripto!\n\n` +
+        `🛒 *${isBusiness ? 'CATÁLOGO WHATSAPP BUSINESS' : 'VITRINE DIGITAL & CATÁLOGO OFICIAL'}* 🛒\n\n` +
+        (isBusiness
+          ? `Este canal opera exclusivamente com os produtos e preços do catálogo próprio desta conta WhatsApp Business.\n\n`
+          : `Navegue pelo nosso catálogo completo com carrinho de compras, cálculo de cupons e checkout instantâneo Pix e Cripto!\n\n`) +
         prodListText +
         `🌐 *Acesse a Loja Online:* ${storeUrl}\n\n` +
         `💡 _Adicione produtos ao carrinho e finalize pelo WhatsApp ou pague diretamente via PIX com entrega imediata!_`;
