@@ -1553,14 +1553,17 @@
         <section id="tab-meteoric" class="tab-pane">
           <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px;">
             <div>
-              <h2><i class="fa-solid fa-meteor" style="color: #f97316;"></i> Lançamento Meteórico &amp; Multi-Grupos com Sub-Bots</h2>
+              <h2><i class="fa-solid fa-meteor" style="color: #f97316;"></i> Cockpit do Lançamento Meteórico (Zero Celular)</h2>
               <p class="section-desc">
-                Criação automática de grupos sequenciais por limite de participantes, link único inteligente de auto-transbordamento e aquecimento orquestrado via Exército de Sub-Bots.
+                Conduza, aqueça e controle todas as etapas e grupos VIP do lançamento diretamente do navegador, sem tocar nos celulares ou abrir o WhatsApp manualmente.
               </p>
             </div>
-            <div style="display: flex; gap: 10px; align-items: center;">
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
               <span id="meteoricActiveBadge" class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981; padding: 6px 14px; font-weight: 700;">
                 <i class="fa-solid fa-circle-check"></i> Monitoramento Ativo
+              </span>
+              <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #38bdf8; padding: 6px 14px; font-weight: 700;">
+                <i class="fa-solid fa-satellite-dish"></i> Live Stream 6s
               </span>
               <button class="btn btn-secondary" onclick="loadMeteoricData()">
                 <i class="fa-solid fa-rotate"></i> Atualizar
@@ -1603,6 +1606,110 @@
             </div>
           </div>
 
+          <!-- CENTRAL DE AÇÕES GLOBAIS RÁPIDAS (ZERO CELULAR) -->
+          <div class="card mb-4" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%); border: 1px solid rgba(249, 115, 22, 0.35); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <div class="card-body" style="padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+              <div>
+                <h4 style="margin: 0 0 4px 0; color: #fff; display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-gamepad" style="color: #f97316;"></i> Central de Controle Rápido dos Grupos
+                </h4>
+                <span style="font-size: 13px; color: var(--text-muted);">Comande todos os grupos do lançamento em lote com 1 clique:</span>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-sm btn-secondary" onclick="setAllMeteoricGroupsMode('open')" style="color: #10b981; border-color: rgba(16, 185, 129, 0.4); font-weight: 600;" title="Permite que todos os participantes conversem nos grupos">
+                  <i class="fa-solid fa-lock-open"></i> 🔓 Abrir Todos os Grupos
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="setAllMeteoricGroupsMode('closed')" style="color: #f59e0b; border-color: rgba(245, 158, 11, 0.4); font-weight: 600;" title="Silencia todos os grupos para modo anúncio (apenas Admins e Sub-Bots falam)">
+                  <i class="fa-solid fa-lock"></i> 🔒 Fechar Todos (Modo Anúncio)
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="syncAllMeteoricGroups()" style="color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); font-weight: 600;" title="Lê a contagem exata e atualizada de membros de cada grupo via Baileys">
+                  <i class="fa-solid fa-arrows-rotate"></i> 🔄 Sincronizar Participantes
+                </button>
+                <button class="btn btn-sm btn-primary" onclick="triggerCreateMeteoricGroup()" style="background: #f97316; border-color: #f97316; font-weight: 700;" title="Força a criação do próximo grupo com link de convite">
+                  <i class="fa-solid fa-plus"></i> ➕ Novo Grupo VIP
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ROADMAP VISUAL DAS 5 ETAPAS DO METEÓRICO (STEPPER INTERATIVO) -->
+          <div class="card mb-4" style="border-top: 3px solid #f97316;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3 style="margin: 0;"><i class="fa-solid fa-stairs" style="color: #f97316;"></i> Guia &amp; Roadmap das 5 Etapas do Lançamento</h3>
+                <p class="section-desc" style="margin: 2px 0 0 0;">Acompanhe o fluxo e dispare qualquer etapa instantaneamente em todos os grupos com 1 clique.</p>
+              </div>
+            </div>
+            <div class="card-body" style="padding: 16px;">
+              <div id="meteoricStagesStepper" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px;">
+                <!-- Etapa 1 -->
+                <div class="meteoric-step-card" id="stepCard1" onclick="selectMeteoricStageView(1)" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; cursor: pointer; transition: all 0.2s;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-weight: 800; font-size: 13px; color: #f97316;">ETAPA 1</span>
+                    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 10px;">🔒 Fechado</span>
+                  </div>
+                  <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #fff;">Boas-Vindas &amp; Antecipação</h4>
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">Acolhe os novos leads, alinha expectativas e prepara para a data da oferta.</p>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); triggerDirectStageWarmup(1)" style="width: 100%; font-size: 11px; font-weight: 600;">
+                    <i class="fa-solid fa-play"></i> Disparar Etapa 1
+                  </button>
+                </div>
+
+                <!-- Etapa 2 -->
+                <div class="meteoric-step-card" id="stepCard2" onclick="selectMeteoricStageView(2)" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; cursor: pointer; transition: all 0.2s;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-weight: 800; font-size: 13px; color: #f97316;">ETAPA 2</span>
+                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 10px;">🔓 Aberto</span>
+                  </div>
+                  <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #fff;">Dúvidas &amp; Objeções</h4>
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">Abre o grupo para membros falarem e sub-bots tiram dúvidas e aquecem.</p>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); triggerDirectStageWarmup(2)" style="width: 100%; font-size: 11px; font-weight: 600;">
+                    <i class="fa-solid fa-play"></i> Disparar Etapa 2
+                  </button>
+                </div>
+
+                <!-- Etapa 3 -->
+                <div class="meteoric-step-card" id="stepCard3" onclick="selectMeteoricStageView(3)" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; cursor: pointer; transition: all 0.2s;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-weight: 800; font-size: 13px; color: #f97316;">ETAPA 3 🔥</span>
+                    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 10px;">🔒 Fechado</span>
+                  </div>
+                  <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #fff;">Oferta &amp; Carrinho</h4>
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">Libera o link de compra com desconto e sub-bots geram prova social massiva.</p>
+                  <button type="button" class="btn btn-sm btn-primary" onclick="event.stopPropagation(); triggerDirectStageWarmup(3)" style="width: 100%; font-size: 11px; font-weight: 700; background: #f97316; border-color: #f97316;">
+                    <i class="fa-solid fa-fire"></i> Disparar Oferta 🔥
+                  </button>
+                </div>
+
+                <!-- Etapa 4 -->
+                <div class="meteoric-step-card" id="stepCard4" onclick="selectMeteoricStageView(4)" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; cursor: pointer; transition: all 0.2s;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-weight: 800; font-size: 13px; color: #f97316;">ETAPA 4 ⏳</span>
+                    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 10px;">🔒 Fechado</span>
+                  </div>
+                  <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #fff;">Escassez &amp; Últimas Vagas</h4>
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">Alerta de encerramento iminente de vagas para converter os indecisos.</p>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); triggerDirectStageWarmup(4)" style="width: 100%; font-size: 11px; font-weight: 600;">
+                    <i class="fa-solid fa-play"></i> Disparar Etapa 4
+                  </button>
+                </div>
+
+                <!-- Etapa 5 -->
+                <div class="meteoric-step-card" id="stepCard5" onclick="selectMeteoricStageView(5)" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; cursor: pointer; transition: all 0.2s;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-weight: 800; font-size: 13px; color: #f97316;">ETAPA 5 🏁</span>
+                    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 10px;">🔒 Fechado</span>
+                  </div>
+                  <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #fff;">Encerramento &amp; Fim</h4>
+                  <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">Agradecimento oficial, encerramento do carrinho e direcionamento.</p>
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); triggerDirectStageWarmup(5)" style="width: 100%; font-size: 11px; font-weight: 600;">
+                    <i class="fa-solid fa-play"></i> Disparar Etapa 5
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- LINK ÚNICO INTELIGENTE DE TRÁFEGO (AUTO-REDIRECT) -->
           <div class="card mb-4" style="border: 2px solid #f97316; background: linear-gradient(135deg, rgba(249, 115, 22, 0.05) 0%, rgba(24, 29, 38, 1) 100%);">
             <div class="card-body" style="padding: 22px;">
@@ -1626,6 +1733,77 @@
                   </small>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- CENTRAL DE DISPARO RÁPIDO WEB (MENSAGENS SEM CELULAR) -->
+          <div class="card mb-4" style="border-left: 4px solid #38bdf8;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3 style="margin: 0;"><i class="fa-solid fa-paper-plane" style="color: #38bdf8;"></i> Central de Disparo Web para Grupos (Sem Celular)</h3>
+                <p class="section-desc" style="margin: 2px 0 0 0;">Envie comunicados oficiais como Matriz ou injete provas sociais simuladas usando qualquer Sub-Bot.</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <form id="formMeteoricWebMessage" onsubmit="sendMeteoricWebMessage(event)">
+                <div class="form-row mb-3" style="display: flex; gap: 15px; flex-wrap: wrap;">
+                  <div class="form-group flex-1" style="min-width: 240px;">
+                    <label><i class="fa-solid fa-bullseye"></i> Enviar Para:</label>
+                    <select id="meteoricMsgTargetGroup" class="form-control">
+                      <option value="all">📢 Todos os Grupos do Lançamento</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1" style="min-width: 240px;">
+                    <label><i class="fa-solid fa-user-ninja"></i> Remetente da Mensagem:</label>
+                    <select id="meteoricMsgSenderType" class="form-control" onchange="toggleMeteoricSenderSelection()">
+                      <option value="matriz">👑 WhatsApp Matriz (Administrador Oficial)</option>
+                      <option value="subbot">🤖 Sub-Bot Aleatório (Prova Social / Lead)</option>
+                      <option value="specific_subbot">📱 Escolher Chip Específico do Exército...</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1" id="meteoricMsgSpecificSubbotGroup" style="display: none; min-width: 240px;">
+                    <label><i class="fa-solid fa-sim-card"></i> Chip do Exército:</label>
+                    <select id="meteoricMsgSpecificInstanceId" class="form-control">
+                      <option value="">Carregando chips...</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group mb-2">
+                  <label style="display: flex; justify-content: space-between;">
+                    <span><i class="fa-solid fa-message"></i> Texto da Mensagem:</span>
+                    <small style="color: var(--text-muted);">Suporta Spintax <code>{Opção 1|Opção 2}</code> e <code>{link}</code></small>
+                  </label>
+                  <textarea id="meteoricMsgTextInput" class="form-control" rows="3" placeholder="Digite a mensagem para enviar aos grupos..." required></textarea>
+                </div>
+
+                <!-- Modelos Rápidos de 1 Clique -->
+                <div style="margin-bottom: 16px;">
+                  <span style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Modelos Rápidos (Clique para preencher):
+                  </span>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="fillMeteoricTemplate('social_proof')">
+                      🔥 Prova Social ("Acabei de garantir o meu!")
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="fillMeteoricTemplate('doubt_pix')">
+                      ❓ Dúvida ("O pagamento via Pix aprova na hora?")
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="fillMeteoricTemplate('urgency')">
+                      ⏳ Escassez ("Últimas vagas restantes!")
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="fillMeteoricTemplate('link_offer')">
+                      💳 Link da Oferta ("Link de checkout liberado!")
+                    </button>
+                  </div>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end;">
+                  <button type="submit" id="btnSendMeteoricMsg" class="btn btn-primary" style="background: #38bdf8; border-color: #38bdf8; color: #0f172a; font-weight: 700;">
+                    <i class="fa-solid fa-paper-plane"></i> Enviar Mensagem Agora para os Grupos
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
 
@@ -1710,8 +1888,8 @@
           <div class="card mb-4" style="border-top: 3px solid #f97316;">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
               <div>
-                <h3><i class="fa-solid fa-fire" style="color: #f97316;"></i> Diretrizes &amp; Orquestração das Etapas de Aquecimento</h3>
-                <p class="section-desc">Defina o roteiro de cada etapa. Ao disparar uma etapa, o admin posta o anúncio e os sub-bots executam as conversas agendadas com delays humanos.</p>
+                <h3 style="margin: 0;"><i class="fa-solid fa-fire" style="color: #f97316;"></i> Diretrizes &amp; Orquestração das Etapas de Aquecimento</h3>
+                <p class="section-desc" style="margin: 2px 0 0 0;">Defina o roteiro de cada etapa. Ao disparar uma etapa, o admin posta o anúncio e os sub-bots executam as conversas agendadas com delays humanos.</p>
               </div>
               <div class="btn-group" id="meteoricStageTabs">
                 <button class="btn btn-sm btn-primary" onclick="selectMeteoricStageView(1)">Etapa 1: Boas-Vindas</button>
@@ -1762,15 +1940,20 @@
           </div>
 
           <!-- TABELA DE GRUPOS CRIADOS -->
-          <div class="card">
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="card mb-4">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
               <div>
-                <h3><i class="fa-solid fa-list-check" style="color: #f97316;"></i> Grupos do Lançamento Meteórico</h3>
-                <p class="section-desc">Acompanhe a lotação em tempo real e o status de cada grupo.</p>
+                <h3 style="margin: 0;"><i class="fa-solid fa-list-check" style="color: #f97316;"></i> Grupos do Lançamento Meteórico</h3>
+                <p class="section-desc" style="margin: 2px 0 0 0;">Acompanhe a lotação em tempo real e controle cada grupo individualmente sem tocar nos celulares.</p>
               </div>
-              <button class="btn btn-sm btn-secondary" onclick="loadMeteoricGroupsList()">
-                <i class="fa-solid fa-rotate"></i> Atualizar Lista
-              </button>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-sm btn-secondary" onclick="syncAllMeteoricGroups()">
+                  <i class="fa-solid fa-arrows-rotate"></i> Sincronizar Membros
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="loadMeteoricGroupsList()">
+                  <i class="fa-solid fa-rotate"></i> Atualizar Lista
+                </button>
+              </div>
             </div>
             <div class="card-body">
               <div class="table-responsive">
@@ -1782,13 +1965,39 @@
                       <th style="width: 220px;">Lotação / Capacidade</th>
                       <th style="width: 140px;">Status</th>
                       <th>Link de Convite</th>
-                      <th style="width: 150px; text-align: center;">Ações</th>
+                      <th style="width: 210px; text-align: center;">Ações</th>
                     </tr>
                   </thead>
                   <tbody id="tableMeteoricGroupsBody">
                     <tr><td colspan="6" class="text-center" style="padding: 24px; color: var(--text-muted);">Carregando grupos do lançamento...</td></tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- FEED DE ATIVIDADES AO VIVO DO LANÇAMENTO (LIVE ACTIVITY STREAM) -->
+          <div class="card mb-4" style="border-top: 3px solid #10b981;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-satellite-dish" style="color: #10b981;"></i> Feed de Atividades ao Vivo (Tempo Real)
+                  <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 11px;">● Atualização Contínua</span>
+                </h3>
+                <p class="section-desc" style="margin: 2px 0 0 0;">Entrada de leads, novos grupos automáticos, falas de sub-bots e comunicados postados.</p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-sm btn-secondary" onclick="loadMeteoricActivityLogs()" title="Atualizar feed agora">
+                  <i class="fa-solid fa-rotate"></i> Atualizar
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="clearMeteoricActivityLogs()" title="Limpar histórico de atividades" style="color: #ef4444;">
+                  <i class="fa-solid fa-trash-can"></i> Limpar Feed
+                </button>
+              </div>
+            </div>
+            <div class="card-body" style="padding: 12px;">
+              <div id="meteoricActivityFeed" style="max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 6px;">
+                <div style="text-align: center; color: var(--text-muted); padding: 20px;">Carregando feed de atividades ao vivo...</div>
               </div>
             </div>
           </div>

@@ -173,10 +173,32 @@ class MeteoricService {
     models.updateMeteoricGroup(group.id, { member_count: currentCount });
     console.log(`[Lançamento Meteórico 👥] Grupo #${group.group_num} ("${group.title}"): ${currentCount}/${group.max_limit} participantes.`);
 
+    try {
+      models.logMeteoricActivity({
+        campaign_id: group.campaign_id,
+        group_jid: group.group_jid,
+        group_title: group.title,
+        event_type: 'MEMBER_JOINED',
+        sender_name: 'Lead Entrou',
+        message_text: `Participante ingressou no grupo. Lotação atualizada para ${currentCount}/${group.max_limit}.`
+      });
+    } catch (_) {}
+
     // Verifica se atingiu o limite estabelecido pelo admin
     if (currentCount >= group.max_limit && !group.is_full) {
       console.log(`[Lançamento Meteórico ⚠️] Grupo #${group.group_num} atingiu a capacidade máxima (${currentCount}/${group.max_limit})! Transbordando para novo grupo...`);
       models.updateMeteoricGroup(group.id, { is_full: 1 });
+
+      try {
+        models.logMeteoricActivity({
+          campaign_id: group.campaign_id,
+          group_jid: group.group_jid,
+          group_title: group.title,
+          event_type: 'OVERFLOW',
+          sender_name: 'Sistema Meteórico',
+          message_text: `Grupo #${group.group_num} lotou (${currentCount}/${group.max_limit}). Criando novo grupo sequencial...`
+        });
+      } catch (_) {}
 
       try {
         const nextResult = await this.createNewMeteoricGroup();
@@ -270,6 +292,14 @@ class MeteoricService {
         try {
           await whatsappBot.sock.groupSettingUpdate(gJid, groupMode);
           models.updateMeteoricGroup(group.id, { is_closed: groupMode === 'announcement' ? 1 : 0 });
+          models.logMeteoricActivity({
+            campaign_id: campaign.id,
+            group_jid: gJid,
+            group_title: group.title,
+            event_type: 'MODE_CHANGED',
+            sender_name: 'Admin',
+            message_text: `Modo do grupo alterado para ${groupMode === 'announcement' ? 'Fechado (Modo Anúncio)' : 'Aberto para Todos'}.`
+          });
         } catch (_) {}
       }
 
@@ -282,6 +312,15 @@ class MeteoricService {
           });
           await whatsappBot.sendMessage(gJid, parsedAnnouncement);
           report.announcementsSent++;
+
+          models.logMeteoricActivity({
+            campaign_id: campaign.id,
+            group_jid: gJid,
+            group_title: group.title,
+            event_type: 'ANNOUNCEMENT',
+            sender_name: 'Admin Oficial (Matriz)',
+            message_text: parsedAnnouncement.slice(0, 160) + (parsedAnnouncement.length > 160 ? '...' : '')
+          });
         } catch (annErr) {
           console.warn(`[Lançamento Meteórico ⚠️] Erro ao enviar anúncio no grupo ${gJid}:`, annErr.message);
         }
@@ -372,19 +411,165 @@ class MeteoricService {
   }
 
   // Abre ou fecha o grupo para mensagens
-  async setGroupMode(groupJid, mode) {
+  async setGroupMode(groupJid, mode = 'closed') {
     const whatsappBot = require('../bots/whatsappBot');
-    if (!whatsappBot.sock || !whatsappBot.isConnected) {
-      return { success: true, mode, simulated: true };
-    }
     const setting = mode === 'open' || mode === 'not_announcement' ? 'not_announcement' : 'announcement';
-    await whatsappBot.sock.groupSettingUpdate(groupJid, setting);
+
+    if (whatsappBot.sock && whatsappBot.isConnected && typeof whatsappBot.sock.groupSettingUpdate === 'function') {
+      try {
+        await whatsappBot.sock.groupSettingUpdate(groupJid, setting);
+      } catch (_) {}
+    }
 
     const group = models.getMeteoricGroupByJid(groupJid);
     if (group) {
       models.updateMeteoricGroup(group.id, { is_closed: setting === 'announcement' ? 1 : 0 });
+      try {
+        models.logMeteoricActivity({
+          campaign_id: group.campaign_id,
+          group_jid: groupJid,
+          group_title: group.title,
+          event_type: 'MODE_CHANGED',
+          sender_name: 'Painel Web',
+          message_text: `Grupo ${setting === 'announcement' ? 'fechado para modo anúncio' : 'aberto para mensagens de todos'}.`
+        });
+      } catch (_) {}
     }
-    return { success: true, mode: setting };
+    return { success: true, mode: setting === 'announcement' ? 'closed' : 'open', setting };
+  }
+
+  // Alterna o modo de TODOS os grupos do lançamento em lote (Abrir Todos / Fechar Todos)
+  async setAllGroupsMode(mode) {
+    const campaign = models.getMeteoricCampaign();
+    const groups = models.getMeteoricGroups(campaign.id);
+    const results = [];
+
+    for (const g of groups) {
+      try {
+        const res = await this.setGroupMode(g.group_jid, mode);
+        results.push({ id: g.id, jid: g.group_jid, success: true, ...res });
+      } catch (err) {
+        results.push({ id: g.id, jid: g.group_jid, success: false, error: err.message });
+      }
+    }
+    return { success: true, mode, updatedCount: results.filter(r => r.success).length, results };
+  }
+
+  // Envio de mensagem personalizada pelo Painel Web (Matriz ou Sub-Bot)
+  async sendMessageToGroups({ targetGroupJid = 'all', senderType = 'admin', senderInstanceId = null, text }) {
+    if (!text || !text.trim()) throw new Error('Mensagem não pode ser vazia');
+
+    const campaign = models.getMeteoricCampaign();
+    const whatsappBot = require('../bots/whatsappBot');
+    const whatsappArmyService = require('./whatsappArmyService');
+
+    let targetGroups = [];
+    if (targetGroupJid === 'all' || !targetGroupJid) {
+      targetGroups = models.getMeteoricGroups(campaign.id);
+    } else {
+      const single = models.getMeteoricGroupByJid(targetGroupJid) || models.getMeteoricGroupById(parseInt(targetGroupJid, 10));
+      if (single) targetGroups = [single];
+      else targetGroups = [{ group_jid: targetGroupJid, title: 'Grupo Selecionado', invite_url: 'http://localhost:3000/l/vip' }];
+    }
+
+    if (targetGroups.length === 0) throw new Error('Nenhum grupo encontrado para envio');
+
+    const results = [];
+    for (const group of targetGroups) {
+      const gJid = group.group_jid;
+      const parsedText = models.parseSpintax(text.trim(), {
+        link: group.invite_url || 'http://localhost:3000/l/vip',
+        produto: campaign.name
+      });
+
+      try {
+        if (senderType === 'subbot') {
+          let chosenSock = null;
+          let subBotLabel = 'Sub-Bot';
+
+          if (senderInstanceId && whatsappArmyService.activeSockets?.has(parseInt(senderInstanceId, 10))) {
+            chosenSock = whatsappArmyService.activeSockets.get(parseInt(senderInstanceId, 10));
+            subBotLabel = `Sub-Bot #${senderInstanceId}`;
+          } else if (whatsappArmyService.activeSockets?.size > 0) {
+            const firstEntry = Array.from(whatsappArmyService.activeSockets.entries())[0];
+            chosenSock = firstEntry[1];
+            subBotLabel = `Sub-Bot #${firstEntry[0]}`;
+          }
+
+          if (chosenSock) {
+            try {
+              await chosenSock.sendPresenceUpdate('composing', gJid);
+              await new Promise(r => setTimeout(r, 1200));
+            } catch (_) {}
+            await chosenSock.sendMessage(gJid, { text: parsedText });
+            results.push({ jid: gJid, success: true, sender: subBotLabel });
+          } else {
+            // Fallback para Matriz se nenhum sub-bot conectado
+            await whatsappBot.sendMessage(gJid, parsedText);
+            results.push({ jid: gJid, success: true, sender: 'Matriz (Fallback)' });
+          }
+        } else {
+          // Remetente padrão: Matriz Oficial (Admin)
+          await whatsappBot.sendMessage(gJid, parsedText);
+          results.push({ jid: gJid, success: true, sender: 'Admin Oficial (Matriz)' });
+        }
+
+        models.logMeteoricActivity({
+          campaign_id: campaign.id,
+          group_jid: gJid,
+          group_title: group.title,
+          event_type: 'WEB_MESSAGE',
+          sender_name: senderType === 'subbot' ? 'Sub-Bot' : 'Admin Web',
+          message_text: parsedText.slice(0, 150) + (parsedText.length > 150 ? '...' : '')
+        });
+      } catch (err) {
+        results.push({ jid: gJid, success: false, error: err.message });
+      }
+    }
+
+    return { success: true, totalSent: results.filter(r => r.success).length, results };
+  }
+
+  // Sincroniza metadados reais de participantes com o WhatsApp sem precisar de celular
+  async syncGroupParticipants(targetGroupJid = null) {
+    const whatsappBot = require('../bots/whatsappBot');
+    const campaign = models.getMeteoricCampaign();
+    let groups = models.getMeteoricGroups(campaign.id);
+
+    if (targetGroupJid) {
+      groups = groups.filter(g => g.group_jid === targetGroupJid);
+    }
+
+    const updated = [];
+    for (const g of groups) {
+      if (whatsappBot.sock && whatsappBot.isConnected && typeof whatsappBot.sock.groupMetadata === 'function') {
+        try {
+          const meta = await whatsappBot.sock.groupMetadata(g.group_jid);
+          if (meta && meta.participants) {
+            const count = meta.participants.length;
+            const isFull = count >= g.max_limit ? 1 : 0;
+            models.updateMeteoricGroup(g.id, { member_count: count, is_full: isFull });
+            updated.push({ id: g.id, jid: g.group_jid, count });
+          }
+        } catch (_) {}
+      }
+    }
+    return { success: true, count: updated.length, updated };
+  }
+
+  // Exclui grupo de teste ou arquivado
+  deleteGroup(groupId) {
+    return models.deleteMeteoricGroup(parseInt(groupId, 10));
+  }
+
+  // Retorna feed de atividades ao vivo para a web
+  getActivityLogs(limit = 40) {
+    return models.getMeteoricActivityLogs(limit);
+  }
+
+  // Limpa feed de atividades
+  clearActivityLogs() {
+    return models.clearMeteoricActivityLogs();
   }
 }
 

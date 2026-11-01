@@ -1554,6 +1554,78 @@ function createServer() {
     }
   });
 
+  // Bulk abrir / fechar todos os grupos do lançamento com 1 clique no painel
+  app.post('/api/meteoric/groups/mode-all', async (req, res) => {
+    try {
+      const { mode } = req.body || {};
+      const result = await meteoricService.setAllGroupsMode(mode || 'closed');
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Sincronizar contagem de membros em tempo real via Baileys sem mexer no celular
+  app.post('/api/meteoric/groups/sync', async (req, res) => {
+    try {
+      const { groupJid } = req.body || {};
+      const result = await meteoricService.syncGroupParticipants(groupJid);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Excluir ou arquivar grupo de teste do lançamento
+  app.delete('/api/meteoric/groups/:id', (req, res) => {
+    try {
+      const success = meteoricService.deleteGroup(req.params.id);
+      res.json({ success: !!success });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Enviar mensagem / comunicado web direta para grupos (como Matriz ou Sub-bot)
+  app.post('/api/meteoric/message', async (req, res) => {
+    try {
+      const { targetGroupJid, senderType, senderInstanceId, text } = req.body || {};
+      if (!text || !text.trim()) {
+        return res.status(400).json({ error: 'Texto da mensagem não pode ser vazio' });
+      }
+      const result = await meteoricService.sendMessageToGroups({
+        targetGroupJid,
+        senderType,
+        senderInstanceId,
+        text
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Feed ao vivo de atividades e logs do lançamento meteórico
+  app.get('/api/meteoric/activity-logs', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit, 10) || 50;
+      const logs = meteoricService.getActivityLogs(limit);
+      res.json(logs);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Limpar histórico de logs do feed
+  app.delete('/api/meteoric/activity-logs', (req, res) => {
+    try {
+      meteoricService.clearActivityLogs();
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ==========================================
   // 11. REDES SOCIAIS (INSTAGRAM DIRECT & FACEBOOK MESSENGER)
   // ==========================================

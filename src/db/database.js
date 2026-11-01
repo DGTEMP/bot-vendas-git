@@ -542,6 +542,17 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS meteoric_activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id INTEGER DEFAULT 1,
+      group_jid TEXT,
+      group_title TEXT,
+      event_type TEXT NOT NULL, -- 'STAGE_TRIGGERED', 'MEMBER_JOINED', 'OVERFLOW', 'MODE_CHANGED', 'ANNOUNCEMENT', 'SUBBOT_TALK', 'CUSTOM_MESSAGE'
+      sender_name TEXT,
+      message_text TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS viral_tracked_profiles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       platform TEXT NOT NULL, -- 'instagram', 'facebook'

@@ -3165,6 +3165,93 @@ async function main() {
     assert(stageMsg.includes('ETAPA #2 DO METEÓRICO EXECUTADA'));
   });
 
+  await runAsyncTest('Meteórico: Cockpit Web & Gestão Total Sem Celular (/api/meteoric/message, mode-all, sync, activity-logs)', async () => {
+    const localBaseUrl = `http://localhost:${testPort}`;
+
+    // 1. Bulk alternar modo de todos os grupos (open / closed)
+    const modeOpenRes = await fetch(`${localBaseUrl}/api/meteoric/groups/mode-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'open' })
+    });
+    assert.strictEqual(modeOpenRes.status, 200);
+    const modeOpenData = await modeOpenRes.json();
+    assert.strictEqual(modeOpenData.success, true);
+    assert.strictEqual(modeOpenData.mode, 'open');
+
+    const modeClosedRes = await fetch(`${localBaseUrl}/api/meteoric/groups/mode-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'closed' })
+    });
+    assert.strictEqual(modeClosedRes.status, 200);
+    const modeClosedData = await modeClosedRes.json();
+    assert.strictEqual(modeClosedData.success, true);
+    assert.strictEqual(modeClosedData.mode, 'closed');
+
+    // 2. Disparo de mensagem Web direta como Matriz com Spintax
+    const msgRes = await fetch(`${localBaseUrl}/api/meteoric/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        senderType: 'matriz',
+        text: '{Atenção|Aviso VIP}: Vagas quase esgotadas no {link}!'
+      })
+    });
+    assert.strictEqual(msgRes.status, 200);
+    const msgData = await msgRes.json();
+    assert.strictEqual(msgData.success, true);
+    assert(msgData.totalSent >= 1);
+
+    // 3. Disparo de mensagem Web como Sub-Bot simulado
+    const subbotMsgRes = await fetch(`${localBaseUrl}/api/meteoric/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        senderType: 'subbot',
+        text: '{Gente|Pessoal}, o curso tem certificado?'
+      })
+    });
+    assert.strictEqual(subbotMsgRes.status, 200);
+    const subbotData = await subbotMsgRes.json();
+    assert.strictEqual(subbotData.success, true);
+
+    // 4. Sincronização de contagem real de membros com WhatsApp
+    const syncRes = await fetch(`${localBaseUrl}/api/meteoric/groups/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    assert.strictEqual(syncRes.status, 200);
+    const syncData = await syncRes.json();
+    assert.strictEqual(syncData.success, true);
+
+    // 5. Feed de atividades ao vivo
+    const logsRes = await fetch(`${localBaseUrl}/api/meteoric/activity-logs?limit=50`);
+    assert.strictEqual(logsRes.status, 200);
+    const logs = await logsRes.json();
+    assert(Array.isArray(logs));
+    assert(logs.length >= 1, 'Deve conter registros de atividades no feed');
+    const hasWebMsg = logs.some(l => l.event_type === 'WEB_MESSAGE' || l.event_type === 'MODE_CHANGED');
+    assert(hasWebMsg, 'Feed deve conter eventos de mensagens web ou alterações de modo');
+
+    // 6. Exclusão de grupo arquivado
+    const meteoricService = require('./src/services/meteoricService');
+    const tempGroup = await meteoricService.createNewMeteoricGroup({ title: 'Grupo Deletável Teste' });
+    const delRes = await fetch(`${localBaseUrl}/api/meteoric/groups/${tempGroup.group.id}`, { method: 'DELETE' });
+    assert.strictEqual(delRes.status, 200);
+    const delData = await delRes.json();
+    assert.strictEqual(delData.success, true);
+
+    // 7. Limpeza do feed de logs
+    const clearRes = await fetch(`${localBaseUrl}/api/meteoric/activity-logs`, { method: 'DELETE' });
+    assert.strictEqual(clearRes.status, 200);
+    const clearData = await clearRes.json();
+    assert.strictEqual(clearData.success, true);
+    const logsAfter = await (await fetch(`${localBaseUrl}/api/meteoric/activity-logs`)).json();
+    assert.strictEqual(logsAfter.length, 0);
+  });
+
   // ----------------------------------------------------------------
   // 16. TESTES DO RADAR VIRAL & CRIADOR DE POSTS (@ INSTA & FACEBOOK)
   // ----------------------------------------------------------------

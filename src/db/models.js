@@ -2663,6 +2663,26 @@ const models = {
     db.prepare('UPDATE meteoric_campaigns SET total_leads_reached = total_leads_reached + 1 WHERE id = ?').run(campaignId);
   },
 
+  deleteMeteoricGroup(id) {
+    return db.prepare('DELETE FROM meteoric_groups WHERE id = ?').run(id);
+  },
+
+  logMeteoricActivity({ campaign_id = 1, group_jid = null, group_title = null, event_type, sender_name = null, message_text = null }) {
+    const stmt = db.prepare(`
+      INSERT INTO meteoric_activity_logs (campaign_id, group_jid, group_title, event_type, sender_name, message_text)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    return stmt.run(campaign_id, group_jid, group_title, event_type, sender_name, message_text);
+  },
+
+  getMeteoricActivityLogs(limit = 40) {
+    return db.prepare('SELECT * FROM meteoric_activity_logs ORDER BY id DESC LIMIT ?').all(limit);
+  },
+
+  clearMeteoricActivityLogs() {
+    return db.prepare('DELETE FROM meteoric_activity_logs').run();
+  },
+
   // ==========================================
   // 17. RADAR VIRAL & CRIADOR DE POSTS
   // ==========================================
