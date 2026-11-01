@@ -623,6 +623,149 @@ class MeteoricService {
   clearActivityLogs() {
     return models.clearMeteoricActivityLogs();
   }
+
+  // Gera, pré-visualiza ou executa simulação interativa de conversas entre sub-bots
+  async generateOrSimulateDialogue({ targetGroupJid = null, theme = 'social_proof', customScripts = null, delaySeconds = 4, dryRun = false } = {}) {
+    const presets = {
+      social_proof: [
+        { speaker: 'Sub-Bot 1 (Comprador)', text: '{Caraca galera|Gente}, acabei de fazer minha inscrição! O link abriu certinho aqui 🔥', delay: 2 },
+        { speaker: 'Sub-Bot 2 (Interessado)', text: 'Chegou o acesso no seu e-mail na hora? Pagou por Pix ou Cartão?', delay: Math.max(3, delaySeconds) },
+        { speaker: 'Sub-Bot 1 (Comprador)', text: 'Paguei no Pix com desconto e já tô dentro da área de membros! Muito top', delay: Math.max(3, delaySeconds * 1.5) },
+        { speaker: 'Sub-Bot 3 (Garantia)', text: 'Show! Eu tava em dúvida mas com essa condição não dá pra deixar passar, gerando meu Pix agora', delay: Math.max(3, delaySeconds * 2.2) }
+      ],
+      objection_breaking: [
+        { speaker: 'Sub-Bot 1 (Dúvida)', text: 'Uma dúvida: se eu não me adaptar ou não tiver tempo de ver as aulas essa semana, tem garantia?', delay: 2 },
+        { speaker: 'Sub-Bot 2 (Suporte/Membro)', text: 'Tem garantia incondicional de 7 dias sim! Você entra, testa e se não curtir devolvem 100% sem burocracia.', delay: Math.max(3, delaySeconds) },
+        { speaker: 'Sub-Bot 1 (Dúvida)', text: 'Ah top demais, sem risco nenhum então! Vou garantir a minha vaga agora', delay: Math.max(3, delaySeconds * 1.5) }
+      ],
+      payment_doubt: [
+        { speaker: 'Sub-Bot 1 (Dúvida Pix)', text: 'Pessoal, o Pix aprova imediato? Ou é melhor passar no cartão?', delay: 2 },
+        { speaker: 'Sub-Bot 2 (Experiente)', text: 'Pix aprova na mesma hora e tem o maior desconto! No cartão divide em até 12x.', delay: Math.max(3, delaySeconds) },
+        { speaker: 'Sub-Bot 1 (Dúvida Pix)', text: 'Fechou, acabei de pagar pelo Pix! Aprovou instantâneo aqui!', delay: Math.max(3, delaySeconds * 1.6) }
+      ],
+      urgency: [
+        { speaker: 'Sub-Bot 1 (Alerta)', text: 'Ainda restam vagas com os bônus VIP ou o lote já vai virar?', delay: 2 },
+        { speaker: 'Sub-Bot 2 (Membro)', text: 'Vi aqui no checkout que as últimas vagas desse lote estão acabando rápido!', delay: Math.max(3, delaySeconds) },
+        { speaker: 'Sub-Bot 3 (Decidido)', text: 'Corram que nas turmas anteriores acabou antes do prazo programado!', delay: Math.max(3, delaySeconds * 1.5) }
+      ]
+    };
+
+    let scripts = [];
+    if (customScripts && Array.isArray(customScripts) && customScripts.length > 0) {
+      scripts = customScripts;
+    } else {
+      scripts = presets[theme] || presets.social_proof;
+    }
+
+    const campaign = models.getMeteoricCampaign();
+    const formattedTimeline = scripts.map((s, i) => {
+      const parsedText = models.parseSpintax(s.text || s.message || '', {
+        link: `http://localhost:3000/l/vip`,
+        produto: campaign?.name || 'Oferta VIP'
+      });
+      return {
+        step: i + 1,
+        speaker: s.speaker || `Sub-Bot ${i + 1}`,
+        delaySeconds: s.delay || (i * delaySeconds + 2),
+        text: parsedText
+      };
+    });
+
+    if (dryRun) {
+      return {
+        success: true,
+        dryRun: true,
+        theme,
+        targetGroupJid: targetGroupJid || 'preview_screen',
+        dialogueCount: formattedTimeline.length,
+        timeline: formattedTimeline
+      };
+    }
+
+    // Executa em grupo real
+    const armyService = require('./whatsappArmyService');
+    const allArmy = armyService.getAllAccounts();
+    const availableSubBots = allArmy.filter(a => a.id !== 1 && (a.status === 'CONNECTED' || a.isConnected));
+
+    let targetJid = targetGroupJid;
+    if (!targetJid || targetJid === 'all') {
+      const activeGrp = models.getActiveMeteoricGroup();
+      if (activeGrp) targetJid = activeGrp.group_jid;
+    }
+
+    if (targetJid && targetJid !== 'preview_only') {
+      const scriptItems = formattedTimeline.map(item => ({
+        speaker: 'subbot_any',
+        delay: item.delaySeconds,
+        text: item.text
+      }));
+
+      this.scheduleSubBotDialogue(targetJid, scriptItems, availableSubBots, {
+        link: `http://localhost:3000/l/vip`,
+        produto: campaign?.name || 'Oferta VIP'
+      });
+
+      models.logMeteoricActivity({
+        campaign_id: campaign ? campaign.id : 1,
+        group_jid: targetJid,
+        event_type: 'SUBBOT_SIMULATION',
+        sender_name: 'Sub-Bots (Simulador)',
+        message_text: `Simulação de diálogo (${theme}) disparada com ${scriptItems.length} falas`
+      });
+    }
+
+    return {
+      success: true,
+      dryRun: false,
+      theme,
+      targetGroupJid: targetJid,
+      dialogueCount: formattedTimeline.length,
+      timeline: formattedTimeline
+    };
+  }
+
+  // Obtém leads / participantes de um grupo para exportação CSV ou remarketing
+  async getGroupLeads(groupJid) {
+    const whatsappBot = require('../bots/whatsappBot');
+    let leads = [];
+
+    if (whatsappBot.sock && whatsappBot.isConnected && typeof whatsappBot.sock.groupMetadata === 'function') {
+      try {
+        const meta = await whatsappBot.sock.groupMetadata(groupJid);
+        if (meta && meta.participants) {
+          leads = meta.participants.map(p => ({
+            id: p.id,
+            phone: p.id ? p.id.split('@')[0].split(':')[0] : '',
+            admin: p.admin || 'membro',
+            groupJid,
+            groupName: meta.subject || 'Grupo VIP'
+          }));
+        }
+      } catch (err) {
+        console.warn(`[Meteórico ⚠️] Erro ao obter leads do grupo ${groupJid}:`, err.message);
+      }
+    }
+
+    if (leads.length === 0) {
+      const logs = models.getMeteoricActivityLogs(200);
+      const groupLogs = logs.filter(l => l.group_jid === groupJid && l.lead_phone);
+      const seenPhones = new Set();
+      groupLogs.forEach(l => {
+        if (!seenPhones.has(l.lead_phone)) {
+          seenPhones.add(l.lead_phone);
+          leads.push({
+            id: `${l.lead_phone}@s.whatsapp.net`,
+            phone: l.lead_phone,
+            admin: 'membro',
+            groupJid,
+            groupName: 'Grupo Meteórico'
+          });
+        }
+      });
+    }
+
+    return leads;
+  }
 }
 
 module.exports = new MeteoricService();

@@ -1628,6 +1628,139 @@ function createServer() {
   });
 
   // ==========================================
+  // 10.1 WHATSAPP GROUPS MANAGEMENT & LEADS EXPORT (ZERO CELULAR)
+  // ==========================================
+  app.get('/api/whatsapp/groups', async (req, res) => {
+    try {
+      const refresh = req.query.refresh === 'true';
+      const groups = await whatsappBot.fetchAllGroups(refresh);
+      res.json(groups);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/whatsapp/groups/:id/mode', async (req, res) => {
+    try {
+      const groupId = req.params.id;
+      const mode = req.body?.mode || (req.body?.announce ? 'closed' : 'open');
+      const isAnnounce = mode === 'closed' || mode === 'announcement';
+      const result = await whatsappBot.setGroupAnnouncement(groupId, isAnnounce);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Exportar Leads de um Grupo WhatsApp específico em CSV
+  app.get('/api/whatsapp/groups/:id/export-leads.csv', async (req, res) => {
+    try {
+      const groupId = req.params.id;
+      let participants = await whatsappBot.getGroupParticipants(groupId);
+      if (participants.length === 0) {
+        participants = await meteoricService.getGroupLeads(groupId);
+      }
+
+      const header = ['Telefone', 'WhatsApp_JID', 'Papel_No_Grupo', 'Data_Exportacao'].map(escapeCsv).join(';');
+      const nowStr = new Date().toISOString();
+      const lines = participants.map(p => [
+        p.phone || (p.id ? p.id.split('@')[0] : ''),
+        p.id || '',
+        p.admin || 'membro',
+        nowStr
+      ].map(escapeCsv).join(';'));
+
+      const csvContent = '\uFEFF' + [header, ...lines].join('\r\n');
+      const safeGid = groupId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="leads_${safeGid}.csv"`);
+      res.send(csvContent);
+    } catch (err) {
+      res.status(500).send(`Erro ao gerar CSV: ${err.message}`);
+    }
+  });
+
+  // Exportar Leads de um Grupo Meteórico específico em CSV
+  app.get('/api/meteoric/groups/:id/export-leads.csv', async (req, res) => {
+    try {
+      const group = models.getMeteoricGroupById(req.params.id);
+      if (!group) return res.status(404).send('Grupo não encontrado');
+
+      const leads = await meteoricService.getGroupLeads(group.group_jid);
+      const header = ['Telefone', 'WhatsApp_JID', 'Papel_No_Grupo', 'Grupo_ID', 'Grupo_Nome', 'Data_Exportacao'].map(escapeCsv).join(';');
+      const nowStr = new Date().toISOString();
+      const lines = leads.map(l => [
+        l.phone || (l.id ? l.id.split('@')[0] : ''),
+        l.id || '',
+        l.admin || 'membro',
+        group.id,
+        group.title,
+        nowStr
+      ].map(escapeCsv).join(';'));
+
+      const csvContent = '\uFEFF' + [header, ...lines].join('\r\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="leads_meteoric_grupo_${group.group_num}.csv"`);
+      res.send(csvContent);
+    } catch (err) {
+      res.status(500).send(`Erro ao gerar CSV: ${err.message}`);
+    }
+  });
+
+  // Exportar Todos os Leads de Todos os Grupos do Lançamento Meteórico
+  app.get('/api/meteoric/export-all-leads.csv', async (req, res) => {
+    try {
+      const campaign = models.getMeteoricCampaign();
+      const groups = models.getMeteoricGroups(campaign.id);
+      const allLeadsMap = new Map();
+
+      for (const g of groups) {
+        const leads = await meteoricService.getGroupLeads(g.group_jid);
+        for (const lead of leads) {
+          const ph = lead.phone || (lead.id ? lead.id.split('@')[0] : '');
+          if (ph && !allLeadsMap.has(ph)) {
+            allLeadsMap.set(ph, {
+              phone: ph,
+              jid: lead.id,
+              admin: lead.admin,
+              groupNum: g.group_num,
+              groupTitle: g.title
+            });
+          }
+        }
+      }
+
+      const header = ['Telefone', 'WhatsApp_JID', 'Papel_No_Grupo', 'Grupo_Origem', 'Campanha', 'Data_Exportacao'].map(escapeCsv).join(';');
+      const nowStr = new Date().toISOString();
+      const lines = Array.from(allLeadsMap.values()).map(l => [
+        l.phone,
+        l.jid,
+        l.admin,
+        `#${l.groupNum} - ${l.groupTitle}`,
+        campaign.name,
+        nowStr
+      ].map(escapeCsv).join(';'));
+
+      const csvContent = '\uFEFF' + [header, ...lines].join('\r\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="todos_leads_meteoric_${Date.now()}.csv"`);
+      res.send(csvContent);
+    } catch (err) {
+      res.status(500).send(`Erro ao gerar CSV consolidado: ${err.message}`);
+    }
+  });
+
+  // Simulador e Injetor de Conversas de Sub-Bots (Visualização Web & Execução Live)
+  app.post('/api/meteoric/simulate-dialogue', async (req, res) => {
+    try {
+      const result = await meteoricService.generateOrSimulateDialogue(req.body || {});
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // 11. REDES SOCIAIS (INSTAGRAM DIRECT & FACEBOOK MESSENGER)
   // ==========================================
   app.get('/api/social/accounts', (req, res) => {

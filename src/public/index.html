@@ -1973,7 +1973,10 @@
                 <h3 style="margin: 0;"><i class="fa-solid fa-list-check" style="color: #f97316;"></i> Grupos do Lançamento Meteórico</h3>
                 <p class="section-desc" style="margin: 2px 0 0 0;">Acompanhe a lotação em tempo real e controle cada grupo individualmente sem tocar nos celulares.</p>
               </div>
-              <div style="display: flex; gap: 8px;">
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-sm btn-primary" onclick="exportAllMeteoricLeadsCsv()" style="background: #10b981; border-color: #10b981; font-weight: 700;">
+                  <i class="fa-solid fa-file-csv"></i> Exportar Todos Leads (CSV)
+                </button>
                 <button class="btn btn-sm btn-secondary" onclick="syncAllMeteoricGroups()">
                   <i class="fa-solid fa-arrows-rotate"></i> Sincronizar Membros
                 </button>
@@ -1992,13 +1995,85 @@
                       <th style="width: 220px;">Lotação / Capacidade</th>
                       <th style="width: 140px;">Status</th>
                       <th>Link de Convite</th>
-                      <th style="width: 210px; text-align: center;">Ações</th>
+                      <th style="width: 230px; text-align: center;">Ações</th>
                     </tr>
                   </thead>
                   <tbody id="tableMeteoricGroupsBody">
                     <tr><td colspan="6" class="text-center" style="padding: 24px; color: var(--text-muted);">Carregando grupos do lançamento...</td></tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- SIMULADOR & INJETOR DE CONVERSAS DOS SUB-BOTS (VISUAL WEB) -->
+          <div class="card mb-4" style="border-top: 3px solid #8b5cf6;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-comments" style="color: #8b5cf6;"></i>
+                  Simulador &amp; Injetor de Conversas dos Sub-Bots
+                  <span class="badge" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa; font-size: 11px;">🎭 Interativo Web</span>
+                </h3>
+                <p class="section-desc" style="margin: 2px 0 0 0;">
+                  Escolha um cenário de aquecimento ou quebra de objeções, visualize o diálogo dos sub-bots na tela em tempo real e dispare no WhatsApp dos grupos com intervalos humanos.
+                </p>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <div class="form-row mb-3" style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <div class="form-group flex-1" style="min-width: 230px;">
+                  <label><i class="fa-solid fa-bullseye"></i> Grupo Alvo:</label>
+                  <select id="simTargetGroup" class="form-control">
+                    <option value="preview_only">👁️ Apenas Visualizar na Tela (Preview)</option>
+                    <option value="all">📢 Todos os Grupos do Lançamento</option>
+                  </select>
+                </div>
+                <div class="form-group flex-1" style="min-width: 250px;">
+                  <label><i class="fa-solid fa-masks-theater"></i> Roteiro / Tema do Aquecimento:</label>
+                  <select id="simThemeSelect" class="form-control" onchange="onSimulatorThemeChange()">
+                    <option value="social_proof">🔥 Prova Social &amp; Inscrição Garantida</option>
+                    <option value="objection_breaking">❓ Quebra de Objeções &amp; Garantia de 7 Dias</option>
+                    <option value="payment_doubt">💳 Dúvidas de Pagamento Pix vs Cartão</option>
+                    <option value="urgency">⏳ Escassez &amp; Últimas Vagas do Lote</option>
+                    <option value="custom">✍️ Roteiro Personalizado (Editar Falas)</option>
+                  </select>
+                </div>
+                <div class="form-group" style="width: 150px;">
+                  <label><i class="fa-solid fa-stopwatch"></i> Delay Médio:</label>
+                  <select id="simDelaySeconds" class="form-control">
+                    <option value="2">2 seg (Rápido)</option>
+                    <option value="4" selected>4 seg (Natural)</option>
+                    <option value="7">7 seg (Humano)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div id="simCustomScriptBox" class="form-group mb-3" style="display: none;">
+                <label>Falas Customizadas (JSON):</label>
+                <textarea id="simCustomScriptInput" class="form-control" rows="4" style="font-family: monospace; font-size: 12px;" placeholder='[{"speaker":"Sub-Bot 1","delay":2,"text":"Caraca, já garanti o meu!"},{"speaker":"Sub-Bot 2","delay":4,"text":"Chegou na hora?"}]'></textarea>
+              </div>
+
+              <!-- BOTÕES DE DISPARO DO SIMULADOR -->
+              <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary" onclick="runDialogueSimulation(true)" style="border-color: #8b5cf6; color: #a78bfa; font-weight: 700;">
+                  <i class="fa-solid fa-play"></i> 👁️ Simular no Cockpit (Pré-Visualização)
+                </button>
+                <button type="button" class="btn btn-primary" onclick="runDialogueSimulation(false)" style="background: #8b5cf6; border-color: #8b5cf6; font-weight: 700;">
+                  <i class="fa-solid fa-paper-plane"></i> 🚀 Disparar Conversa Real nos Grupos
+                </button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="clearDialoguePreview()" style="margin-left: auto;">
+                  <i class="fa-solid fa-eraser"></i> Limpar Visualizador
+                </button>
+              </div>
+
+              <!-- VISUALIZADOR ESTILO CHAT WHATSAPP -->
+              <div id="simChatWindow" style="background: #0b141a; border: 1px solid var(--border-color); border-radius: 10px; padding: 20px; max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+                <div id="simChatPlaceholder" style="text-align: center; color: var(--text-muted); font-size: 13px; padding: 30px;">
+                  <i class="fa-solid fa-mobile-screen fa-2x mb-2" style="color: #8b5cf6; display: block;"></i>
+                  Selecione um tema acima e clique em <b>"Simular no Cockpit"</b> para ver os sub-bots interagindo em tempo real!
+                </div>
               </div>
             </div>
           </div>
@@ -2729,6 +2804,52 @@
                     </thead>
                     <tbody id="commandsTableBody">
                       <!-- Renderizado Dinamicamente -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- CENTRAL DE GERENCIAMENTO DE GRUPOS WHATSAPP (ZERO CELULAR) -->
+            <div class="card mt-4" style="border-top: 3px solid #3b82f6;">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <h3 style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-users-gear" style="color: #3b82f6;"></i>
+                    Gestão Central de Grupos WhatsApp &amp; Extração de Leads
+                  </h3>
+                  <p class="section-desc" style="margin-bottom: 0;">
+                    Visualize todos os grupos em que o WhatsApp Matriz participa, altere o modo (aberto/anúncio), configure proteções de moderação e baixe listas de participantes (CSV) para remarketing sem precisar mexer no celular.
+                  </p>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                  <button class="btn btn-sm btn-secondary" onclick="loadWhatsappGroupsList(true)">
+                    <i class="fa-solid fa-rotate"></i> Atualizar Grupos
+                  </button>
+                  <button class="btn btn-sm btn-primary" onclick="exportAllMeteoricLeadsCsv()" style="background: #10b981; border-color: #10b981; font-weight: 700;">
+                    <i class="fa-solid fa-file-csv"></i> Exportar Leads Meteórico (CSV)
+                  </button>
+                </div>
+              </div>
+
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table" id="tableWhatsappGroups">
+                    <thead>
+                      <tr>
+                        <th>Nome do Grupo</th>
+                        <th style="width: 140px;">Membros</th>
+                        <th style="width: 150px;">Modo do Chat</th>
+                        <th style="width: 140px;">Status Bot</th>
+                        <th style="width: 260px; text-align: center;">Ações Rápidas</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tableWhatsappGroupsBody">
+                      <tr>
+                        <td colspan="5" class="text-center" style="padding: 24px; color: var(--text-muted);">
+                          Carregando grupos do WhatsApp...
+                        </td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -3868,6 +3989,13 @@
       </div>
       <form id="formGroupSettings" onsubmit="saveGroupSettings(event)">
         <div class="modal-body">
+          <div class="form-group mb-3">
+            <label><i class="fa-solid fa-list-check" style="color: #3b82f6;"></i> Selecionar Grupo Disponível:</label>
+            <select id="groupSettingsSelect" class="form-control" onchange="onGroupSelectPickerChange(this.value)">
+              <option value="">-- Escolha um grupo na lista ou digite o ID abaixo --</option>
+            </select>
+          </div>
+
           <div class="form-row">
             <div class="form-group flex-1">
               <label>Plataforma *</label>
@@ -3877,7 +4005,7 @@
               </select>
             </div>
             <div class="form-group flex-1">
-              <label>ID do Grupo *</label>
+              <label>ID / JID do Grupo *</label>
               <input type="text" id="groupSettingsId" class="form-control" required placeholder="ex: 120363028123456789@g.us ou -100123456789" onchange="fetchGroupSettings()">
             </div>
           </div>

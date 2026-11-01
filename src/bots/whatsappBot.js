@@ -2715,6 +2715,90 @@ class WhatsAppBotService {
       phone: this.sock?.user?.id ? this.sock.user.id.split(':')[0] : null
     };
   }
+
+  // Lista todos os grupos onde o WhatsApp Matriz está participando (Zero Celular)
+  async fetchAllGroups(forceRefresh = false) {
+    if (!forceRefresh && this.cachedGroups && (Date.now() - (this.lastGroupsFetch || 0) < 30000)) {
+      return this.cachedGroups;
+    }
+
+    if (this.sock && this.isConnected && typeof this.sock.groupFetchAllParticipating === 'function') {
+      try {
+        const groupsMap = await this.sock.groupFetchAllParticipating();
+        const myJid = this.sock.user?.id ? (this.sock.user.id.split(':')[0] + '@s.whatsapp.net') : null;
+        const groupsList = Object.values(groupsMap || {}).map(g => {
+          const myParticipant = g.participants?.find(p => p.id?.split(':')[0] === myJid?.split('@')[0] || p.id === myJid);
+          const isBotAdmin = myParticipant ? (myParticipant.admin === 'admin' || myParticipant.admin === 'superadmin') : false;
+          return {
+            id: g.id,
+            subject: g.subject || 'Sem título',
+            participantsCount: g.participants?.length || g.size || 0,
+            isAnnounce: !!g.announce,
+            isBotAdmin,
+            desc: g.desc || '',
+            owner: g.owner || g.subjectOwner || '',
+            creation: g.creation || null,
+            participants: (g.participants || []).map(p => ({
+              id: p.id,
+              phone: p.id ? p.id.split('@')[0].split(':')[0] : '',
+              admin: p.admin || null
+            }))
+          };
+        });
+
+        this.cachedGroups = groupsList;
+        this.lastGroupsFetch = Date.now();
+        return groupsList;
+      } catch (err) {
+        console.warn('[WhatsApp Bot ⚠️] Falha ao buscar grupos com Baileys:', err.message);
+      }
+    }
+
+    // Fallback gracioso com grupos meteóricos
+    const meteoric = models.getMeteoricGroups() || [];
+    const synthesized = meteoric.map(mg => ({
+      id: mg.group_jid,
+      subject: mg.title || `Grupo VIP #${mg.group_num}`,
+      participantsCount: mg.member_count || 0,
+      isAnnounce: !!mg.is_closed,
+      isBotAdmin: true,
+      desc: 'Grupo de Lançamento Meteórico',
+      owner: '',
+      creation: null,
+      participants: []
+    }));
+
+    return synthesized;
+  }
+
+  // Altera permissão do grupo (aberto a todos vs modo anúncio)
+  async setGroupAnnouncement(groupId, isAnnounce) {
+    const mode = isAnnounce ? 'announcement' : 'not_announcement';
+    if (this.sock && this.isConnected && typeof this.sock.groupSettingUpdate === 'function') {
+      await this.sock.groupSettingUpdate(groupId, mode);
+      return { success: true, mode };
+    }
+    return { success: true, mode, simulated: true };
+  }
+
+  // Obtém lista de participantes do grupo
+  async getGroupParticipants(groupId) {
+    if (this.sock && this.isConnected && typeof this.sock.groupMetadata === 'function') {
+      try {
+        const meta = await this.sock.groupMetadata(groupId);
+        if (meta && meta.participants) {
+          return meta.participants.map(p => ({
+            id: p.id,
+            phone: p.id ? p.id.split('@')[0].split(':')[0] : '',
+            admin: p.admin || null
+          }));
+        }
+      } catch (err) {
+        console.warn(`[WhatsApp Bot ⚠️] Falha ao obter participantes de ${groupId}:`, err.message);
+      }
+    }
+    return [];
+  }
 }
 
 module.exports = new WhatsAppBotService();

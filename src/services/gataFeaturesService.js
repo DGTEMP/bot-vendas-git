@@ -1009,15 +1009,15 @@ class GataFeaturesService {
           `_Aguarde enquanto preparamos o vídeo (vídeos longos são enviados sem limite de 50MB)..._`
       });
 
-      // 1. Tenta baixar via yt-dlp local (com suporte a vídeos de até 200MB)
+      // 1. Tenta baixar via yt-dlp local (com suporte a vídeos de até 500MB)
       let videoBuffer = null;
       try {
         const { spawn } = require('child_process');
         videoBuffer = await new Promise((resolve, reject) => {
           const proc = spawn('python', [
             '-m', 'yt_dlp',
-            '-f', 'best[ext=mp4][filesize<200M]/bestvideo[height<=720]+bestaudio/best[height<=720]/b',
-            '--max-filesize', '200M',
+            '-f', 'best[ext=mp4][filesize<500M]/bestvideo[height<=720]+bestaudio/best[height<=720]/b',
+            '--max-filesize', '500M',
             '-o', '-',
             video.url
           ]);
@@ -1053,12 +1053,14 @@ class GataFeaturesService {
           `👤 *Canal:* ${video.author?.name || 'YouTube'}\n` +
           `🔗 *Link:* ${video.url}`;
 
-        if (videoBuffer.length > 60 * 1024 * 1024) {
-          // Arquivos acima de 60MB enviados como documento para contornar limite nativo do player do WhatsApp
+        const sizeInMb = (videoBuffer.length / (1024 * 1024)).toFixed(1);
+
+        if (videoBuffer.length > 45 * 1024 * 1024) {
+          // Arquivos a partir de 45MB enviados como documento para contornar limite nativo de 50MB do WhatsApp
           await sock.sendMessage(from, {
             document: videoBuffer,
             fileName: `${(video.title || 'video').replace(/[^\w\s-]/gi, '').slice(0, 50)}.mp4`,
-            caption,
+            caption: `${caption}\n\n📁 *Vídeo Completo em Alta Definição (${sizeInMb} MB)*\n_Enviado como Documento MP4 para contornar o limite de 50MB do WhatsApp!_`,
             mimetype: 'video/mp4'
           });
         } else {

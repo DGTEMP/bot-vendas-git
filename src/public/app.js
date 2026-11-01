@@ -54,6 +54,7 @@ function switchTab(tabName) {
     loadChatControls();
     refreshSystemPing();
     renderCommandsTable();
+    loadWhatsappGroupsList();
   } else {
     stopQrPolling();
   }
@@ -3834,10 +3835,62 @@ async function clearGroupLogs() {
   }
 }
 
-function openGroupSettingsModal() {
+let allDiscoveredGroups = [];
+
+async function populateGroupSettingsDropdown() {
+  const sel = document.getElementById('groupSettingsSelect');
+  if (!sel) return;
+
+  try {
+    if (allDiscoveredGroups.length === 0) {
+      const res = await fetch('/api/whatsapp/groups');
+      if (res.ok) {
+        allDiscoveredGroups = await res.json();
+      }
+    }
+  } catch (_) {}
+
+  let html = '<option value="">-- Escolha um grupo na lista ou digite o ID abaixo --</option>';
+  if (allDiscoveredGroups && allDiscoveredGroups.length > 0) {
+    html += '<optgroup label="Grupos do WhatsApp Conectados">';
+    allDiscoveredGroups.forEach(g => {
+      html += `<option value="${g.id}">${g.subject} (${g.participantsCount || 0} membros)</option>`;
+    });
+    html += '</optgroup>';
+  }
+
+  if (currentMeteoricGroups && currentMeteoricGroups.length > 0) {
+    html += '<optgroup label="Grupos do Lançamento Meteórico">';
+    currentMeteoricGroups.forEach(g => {
+      html += `<option value="${g.group_jid}">#${g.group_num} - ${g.title} (${g.member_count || 0} membros)</option>`;
+    });
+    html += '</optgroup>';
+  }
+
+  sel.innerHTML = html;
+}
+
+function onGroupSelectPickerChange(val) {
+  if (!val) return;
+  const inp = document.getElementById('groupSettingsId');
+  if (inp) {
+    inp.value = val;
+    fetchGroupSettings();
+  }
+}
+
+function openGroupSettingsModal(prefilledGroupId = null) {
   const m = document.getElementById('modalGroupSettings');
   if (m) {
     m.classList.add('active');
+    populateGroupSettingsDropdown();
+    if (prefilledGroupId) {
+      const inp = document.getElementById('groupSettingsId');
+      if (inp) inp.value = prefilledGroupId;
+      const sel = document.getElementById('groupSettingsSelect');
+      if (sel) sel.value = prefilledGroupId;
+      fetchGroupSettings();
+    }
   }
 }
 
@@ -5405,7 +5458,7 @@ async function loadMeteoricGroupsList() {
     const groups = await res.json();
     currentMeteoricGroups = groups;
 
-    // Atualiza seletor de grupos no mensageiro web
+    // Atualiza seletor de grupos no mensageiro web e no simulador
     if (targetSel) {
       const currentVal = targetSel.value;
       let optionsHtml = '<option value="all">📢 Todos os Grupos do Lançamento</option>';
@@ -5416,6 +5469,17 @@ async function loadMeteoricGroupsList() {
       if (currentVal && groups.some(g => g.group_jid === currentVal)) {
         targetSel.value = currentVal;
       }
+    }
+
+    const simTargetSel = document.getElementById('simTargetGroup');
+    if (simTargetSel) {
+      const currentSimVal = simTargetSel.value;
+      let simHtml = '<option value="preview_only">👁️ Apenas Visualizar na Tela (Preview)</option><option value="all">📢 Todos os Grupos do Lançamento</option>';
+      if (groups && groups.length > 0) {
+        simHtml += groups.map(g => `<option value="${g.group_jid}">#${g.group_num} - ${g.title} (${g.member_count} membros)</option>`).join('');
+      }
+      simTargetSel.innerHTML = simHtml;
+      if (currentSimVal) simTargetSel.value = currentSimVal;
     }
 
     if (!groups || groups.length === 0) {
@@ -5470,6 +5534,9 @@ async function loadMeteoricGroupsList() {
               </button>
               <button class="btn btn-sm btn-primary" onclick="triggerWarmupForGroup('${g.group_jid}')" title="Disparar conversa de sub-bots neste grupo" style="background:#f97316; border-color:#f97316;">
                 <i class="fa-solid fa-fire"></i>
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="exportMeteoricGroupLeadsCsv(${g.id}, '${g.title}')" title="Exportar Leads deste Grupo (CSV)" style="color:#10b981;">
+                <i class="fa-solid fa-file-csv"></i>
               </button>
               <button class="btn btn-sm btn-secondary" onclick="syncMeteoricGroup('${g.group_jid}')" title="Sincronizar participantes reais">
                 <i class="fa-solid fa-arrows-rotate"></i>
@@ -6277,4 +6344,243 @@ function copyViralContent(text) {
   navigator.clipboard.writeText(text).then(() => {
     alert('📋 Copy completa copiada para a área de transferência!');
   });
+}
+
+// ==========================================
+// 17. GESTÃO CENTRAL DE GRUPOS WHATSAPP & EXTRAÇÃO DE LEADS (ZERO CELULAR)
+// ==========================================
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function loadWhatsappGroupsList(forceRefresh = false) {
+  const tbody = document.getElementById('tableWhatsappGroupsBody');
+  if (!tbody) return;
+
+  try {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Buscando grupos do WhatsApp...</td></tr>`;
+    const res = await fetch(`/api/whatsapp/groups?refresh=${forceRefresh ? 'true' : 'false'}`);
+    if (!res.ok) throw new Error('Falha ao carregar grupos');
+    const groups = await res.json();
+    allDiscoveredGroups = groups || [];
+    populateGroupSettingsDropdown();
+
+    if (!groups || groups.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 24px; color: var(--text-muted);">Nenhum grupo encontrado. Conecte o WhatsApp Matriz para listar os grupos reais.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = groups.map(g => {
+      const isAnnounce = !!g.isAnnounce;
+      const isAdmin = !!g.isBotAdmin;
+
+      const modeBadge = isAnnounce
+        ? `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);"><i class="fa-solid fa-lock"></i> 🔒 Anúncio</span>`
+        : `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);"><i class="fa-solid fa-lock-open"></i> 🔓 Aberto</span>`;
+
+      const adminBadge = isAdmin
+        ? `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3);"><i class="fa-solid fa-crown"></i> Admin</span>`
+        : `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8;"><i class="fa-solid fa-user"></i> Membro</span>`;
+
+      return `
+        <tr>
+          <td>
+            <b style="color: #fff; font-size: 14px;">${escapeHtml(g.subject || 'Grupo sem nome')}</b>
+            <div style="font-family: monospace; font-size: 11px; color: var(--text-muted); margin-top: 2px;">${g.id}</div>
+          </td>
+          <td>
+            <span style="font-weight: 700; color: #38bdf8;">${g.participantsCount || 0}</span> membros
+          </td>
+          <td>${modeBadge}</td>
+          <td>${adminBadge}</td>
+          <td style="text-align: center;">
+            <div style="display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;">
+              <button class="btn btn-sm btn-secondary" onclick="openGroupSettingsModal('${g.id}')" title="Configurar Anti-Link, Boas-Vindas e Segurança" style="color: #3b82f6;">
+                <i class="fa-solid fa-sliders"></i> Configurar
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="toggleWhatsappGroupMode('${g.id}', ${isAnnounce})" title="${isAnnounce ? 'Abrir grupo para todos falarem' : 'Fechar grupo (apenas admins falam)'}">
+                <i class="fa-solid ${isAnnounce ? 'fa-lock-open' : 'fa-lock'}" style="color: ${isAnnounce ? '#10b981' : '#f59e0b'};"></i> ${isAnnounce ? 'Abrir' : 'Fechar'}
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="exportGroupLeadsCsv('${g.id}', '${encodeURIComponent(g.subject || 'grupo')}')" title="Baixar lista de contatos em CSV para Remarketing" style="color: #10b981;">
+                <i class="fa-solid fa-file-csv"></i> Leads
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao listar grupos WhatsApp:', err);
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 24px; color: #ef4444;">Erro ao carregar grupos: ${err.message}</td></tr>`;
+  }
+}
+
+async function toggleWhatsappGroupMode(groupId, isCurrentlyAnnounce) {
+  const newMode = isCurrentlyAnnounce ? 'open' : 'closed';
+  try {
+    const res = await fetch(`/api/whatsapp/groups/${encodeURIComponent(groupId)}/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: newMode })
+    });
+    if (res.ok) {
+      await loadWhatsappGroupsList(false);
+    } else {
+      const err = await res.json();
+      alert('Aviso: ' + (err.error || 'Não foi possível alterar modo'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  }
+}
+
+function exportGroupLeadsCsv(groupJid, title = '') {
+  window.location.href = `/api/whatsapp/groups/${encodeURIComponent(groupJid)}/export-leads.csv`;
+}
+
+function exportMeteoricGroupLeadsCsv(groupId, title = '') {
+  window.location.href = `/api/meteoric/groups/${groupId}/export-leads.csv`;
+}
+
+function exportAllMeteoricLeadsCsv() {
+  window.location.href = `/api/meteoric/export-all-leads.csv`;
+}
+
+// ==========================================
+// 18. SIMULADOR & INJETOR DE CONVERSAS DE SUB-BOTS (VISUAL WEB)
+// ==========================================
+let activeSimulationTimeouts = [];
+
+function onSimulatorThemeChange() {
+  const theme = document.getElementById('simThemeSelect')?.value;
+  const box = document.getElementById('simCustomScriptBox');
+  if (box) {
+    box.style.display = theme === 'custom' ? 'block' : 'none';
+  }
+}
+
+function clearDialoguePreview() {
+  activeSimulationTimeouts.forEach(t => clearTimeout(t));
+  activeSimulationTimeouts = [];
+  const chatWin = document.getElementById('simChatWindow');
+  if (chatWin) {
+    chatWin.innerHTML = `
+      <div id="simChatPlaceholder" style="text-align: center; color: var(--text-muted); font-size: 13px; padding: 30px;">
+        <i class="fa-solid fa-mobile-screen fa-2x mb-2" style="color: #8b5cf6; display: block;"></i>
+        Selecione um tema acima e clique em <b>"Simular no Cockpit"</b> para ver os sub-bots interagindo em tempo real!
+      </div>
+    `;
+  }
+}
+
+async function runDialogueSimulation(dryRun = true) {
+  const targetGroupJid = document.getElementById('simTargetGroup')?.value || 'preview_only';
+  const theme = document.getElementById('simThemeSelect')?.value || 'social_proof';
+  const delaySeconds = parseInt(document.getElementById('simDelaySeconds')?.value, 10) || 4;
+
+  let customScripts = null;
+  if (theme === 'custom') {
+    const rawCustom = document.getElementById('simCustomScriptInput')?.value?.trim();
+    if (rawCustom) {
+      try {
+        customScripts = JSON.parse(rawCustom);
+      } catch (e) {
+        alert('JSON de falas customizadas inválido! Verifique o formato.');
+        return;
+      }
+    }
+  }
+
+  if (!dryRun) {
+    const isTargetSpecific = targetGroupJid && targetGroupJid !== 'preview_only' && targetGroupJid !== 'all';
+    const msgConfirm = isTargetSpecific 
+      ? `Deseja realmente disparar este diálogo de aquecimento no grupo selecionado?`
+      : `Deseja realmente disparar este diálogo de aquecimento em TODOS os grupos do lançamento?`;
+    if (!confirm(msgConfirm)) return;
+  }
+
+  try {
+    const res = await fetch('/api/meteoric/simulate-dialogue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetGroupJid,
+        theme,
+        customScripts,
+        delaySeconds,
+        dryRun
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Falha ao processar simulação');
+    }
+
+    const data = await res.json();
+    const timeline = data.timeline || [];
+
+    if (!dryRun) {
+      alert(`🚀 Aquecimento iniciado! ${timeline.length} falas estão sendo orquestradas e enviadas pelos Sub-Bots.`);
+      loadMeteoricActivityLogs();
+      return;
+    }
+
+    // Renderiza a simulação visual animada no chat simulator
+    clearDialoguePreview();
+    const chatWin = document.getElementById('simChatWindow');
+    if (!chatWin) return;
+    chatWin.innerHTML = `
+      <div style="background: rgba(139, 92, 246, 0.1); border-left: 3px solid #8b5cf6; padding: 8px 12px; border-radius: 4px; font-size: 12px; color: #a78bfa; margin-bottom: 10px;">
+        <i class="fa-solid fa-play"></i> <b>Simulação em Tempo Real Iniciada:</b> ${timeline.length} falas programadas (${theme})
+      </div>
+    `;
+
+    const avatarColors = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
+
+    timeline.forEach((item, idx) => {
+      const waitMs = (item.delaySeconds || (idx * delaySeconds + 1)) * 1000;
+      const tid = setTimeout(() => {
+        const color = avatarColors[idx % avatarColors.length];
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+        const bubble = document.createElement('div');
+        bubble.style.cssText = `
+          display: flex;
+          gap: 10px;
+          align-items: flex-start;
+          animation: fadeIn 0.3s ease;
+          max-width: 82%;
+          margin-bottom: 8px;
+        `;
+
+        bubble.innerHTML = `
+          <div style="width: 34px; height: 34px; border-radius: 50%; background: ${color}20; color: ${color}; border: 1px solid ${color}60; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex-shrink: 0;">
+            ${(item.speaker || 'SB').slice(0, 2).toUpperCase()}
+          </div>
+          <div style="background: #202c33; border: 1px solid rgba(255,255,255,0.08); border-radius: 0 10px 10px 10px; padding: 8px 12px; position: relative;">
+            <div style="display: flex; justify-content: space-between; gap: 15px; margin-bottom: 3px;">
+              <b style="font-size: 12px; color: ${color};">${escapeHtml(item.speaker)}</b>
+              <span style="font-size: 10px; color: var(--text-muted);">${timeStr}</span>
+            </div>
+            <div style="font-size: 13px; color: #e9edef; line-height: 1.4;">${escapeHtml(item.text)}</div>
+          </div>
+        `;
+
+        chatWin.appendChild(bubble);
+        chatWin.scrollTop = chatWin.scrollHeight;
+      }, waitMs);
+
+      activeSimulationTimeouts.push(tid);
+    });
+  } catch (err) {
+    alert('Erro no simulador: ' + err.message);
+  }
 }
