@@ -16,6 +16,17 @@ async function bootstrap() {
   const app = createServer();
   const server = http.createServer(app);
 
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ [Porta ${config.port} Ocupada] Já existe outro processo rodando na porta ${config.port}.`);
+      console.error(`👉 Para encerrar o processo anterior no PowerShell:\n   Get-Process -Id (Get-NetTCPConnection -LocalPort ${config.port} -ErrorAction SilentlyContinue).OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force\n`);
+      process.exit(1);
+    } else {
+      console.error('❌ Erro no servidor HTTP:', err.message);
+      process.exit(1);
+    }
+  });
+
   server.listen(config.port, () => {
     console.log(`🌐 [Painel Web & API] Rodando em: http://localhost:${config.port}`);
     console.log(`🔔 [Webhook Binance] Endpoint: http://localhost:${config.port}/api/binance/webhook`);
