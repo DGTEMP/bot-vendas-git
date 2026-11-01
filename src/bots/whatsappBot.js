@@ -41,6 +41,7 @@ class WhatsAppBotService {
     this.userFloodTracking = new Map(); // Anti-flood tracking por chat e participante
     this.currentPairingCode = null;
     this.currentDispatchSock = null;
+    this.processedMessageIds = new Map(); // Cache anti-duplicação de mensagens por ID
   }
 
   async stop() {
@@ -88,7 +89,7 @@ class WhatsAppBotService {
         },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.macOS('Desktop'),
+        browser: Browsers.windows('Chrome'),
         getMessage: async (key) => ({ conversation: 'PayBot' }),
         syncFullHistory: false,
         markOnlineOnConnect: false,
@@ -397,6 +398,40 @@ class WhatsAppBotService {
     const senderPhone = safeExtractPhone(participantJid);
     const isFromMe = !!msg.key?.fromMe;
     const senderName = msg.pushName || 'Cliente';
+
+    // Prioridade da Matriz e Deduplicação entre Bot Principal e Sub-Bots
+    const isSubBot = !!customSock && customSock !== this.sock;
+    const msgId = msg.key?.id;
+
+    if (isGroup && isSubBot) {
+      // Se a Matriz Principal estiver online, ela tem prioridade total no grupo.
+      // O Sub-bot NÃO responde para evitar duplicação, a menos que seja mencionado expressamente.
+      const isMatrizOnline = this.isConnected && !!this.sock?.user?.id;
+      if (isMatrizOnline) {
+        const subBotPhone = customSock.user?.id ? customSock.user.id.split(':')[0] : '';
+        const isSubBotMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.some(
+          j => subBotPhone && j.includes(subBotPhone)
+        );
+        if (!isSubBotMentioned) {
+          return;
+        }
+      }
+    }
+
+    // Cache anti-duplicação global de mensagens por ID único do WhatsApp
+    if (msgId) {
+      if (!this.processedMessageIds) this.processedMessageIds = new Map();
+      const now = Date.now();
+      if (this.processedMessageIds.size > 1000) {
+        for (const [id, ts] of this.processedMessageIds.entries()) {
+          if (now - ts > 180000) this.processedMessageIds.delete(id);
+        }
+      }
+      if (this.processedMessageIds.has(msgId)) {
+        return;
+      }
+      this.processedMessageIds.set(msgId, now);
+    }
 
     // Rastreia atividade de participantes do grupo (para detector de membros fantasmas)
     if (isGroup && senderPhone) {
@@ -1429,9 +1464,9 @@ class WhatsAppBotService {
 
     // 0.3 FILTRO EM GRUPOS: O BOT NÃO INTERFERE EM CONVERSAS ALEATÓRIAS
     if (isGroup) {
-      const myNumber = this.sock?.user?.id ? this.sock.user.id.split(':')[0] : '';
+      const myNumber = (activeSock.user?.id || this.sock?.user?.id || '').split(':')[0];
       const isMentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.some(j => myNumber && j.includes(myNumber));
-      const isCommand = text.startsWith('!') || text.startsWith('/');
+      const isCommand = text.startsWith('!') || text.startsWith('/') || lower === 'bot' || lower === 'help';
       const startsWithBot = lower.startsWith('bot,') || lower.startsWith('bot ');
 
       if (!isCommand && !isMentioned && !startsWithBot) {
@@ -1439,12 +1474,15 @@ class WhatsAppBotService {
       }
     }
 
-    // Auto-resposta do Exército de WhatsApp se for lead de campanha de divulgação
-    try {
-      const whatsappArmyService = require('../services/whatsappArmyService');
-      const handled = await whatsappArmyService.handleIncomingLeadMessage(from, text, 1);
-      if (handled) return;
-    } catch (_) {}
+    // Auto-resposta do Exército de WhatsApp se for lead de campanha de divulgação (apenas privado)
+    if (!isGroup) {
+      try {
+        const whatsappArmyService = require('../services/whatsappArmyService');
+        const instId = isSubBot ? (customSock.instanceId || 2) : 1;
+        const handled = await whatsappArmyService.handleIncomingLeadMessage(from, text, instId);
+        if (handled) return;
+      } catch (_) {}
+    }
 
     // 0. Detecta indicação de afiliado via link ou mensagem (ex: ref_TOPVIP ou cupom TOPVIP)
     const refMatch = text.match(/(?:ref_|afiliado[:\s]+)([a-zA-Z0-9_-]+)/i);
@@ -1684,10 +1722,11 @@ class WhatsAppBotService {
       return gataFeatures.handleBroadcastGroups(activeSock, from, text);
     }
 
-    // 15. Menu Geral de Comandos Gata Nina + Loja: !comandos / !menu2 / !gatanina
-    if (/^(?:!|\/)(?:comandos|menu2|gatanina|ajudatudo)$/i.test(lower)) {
+    // 15. Menu Geral de Comandos Gata Nina + Loja: !help / !bot / !comandos / !menu2 / !gatanina / !ajudatudo
+    if (/^(?:!|\/)?(?:help|bot|comandos|menu2|gatanina|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
       let gataMenu = `🐾 *CATÁLOGO DE COMANDOS GATA NINA + PAYBOT* 🐾\n\n` +
+        `💡 _Acesse este menu a qualquer momento enviando *!help* ou *!bot*_\n\n` +
         `🎨 *Figurinhas & Mídia:*\n` +
         `• *!s* ou *!sticker* — Cria figurinha de foto ou vídeo\n` +
         `• *!attp <texto>* — Cria figurinha animada com seu texto\n` +
@@ -2127,7 +2166,8 @@ class WhatsAppBotService {
       `• *PIX:* Você recebe o QR Code e o código Copia e Cola na hora no chat.\n` +
       `• *Criptomoedas (Binance Pay):* Pagamento rápido em USDT pelo app oficial da Binance.\n` +
       `• *Entrega Instantânea:* Nossos servidores monitoram confirmações de bancos e blockchains a cada poucos segundos.\n` +
-      `• *Assinaturas VIP:* Link exclusivo gerado para acesso ao canal VIP com controle automático de validade.`;
+      `• *Assinaturas VIP:* Link exclusivo gerado para acesso ao canal VIP com controle automático de validade.\n\n` +
+      `💡 _Para ver o catálogo completo de comandos, envie *!help* ou *!bot*_`;
     await this.sendMessage(to, help);
   }
 
@@ -2139,7 +2179,14 @@ class WhatsAppBotService {
     }
 
     try {
-      await sock.sendPresenceUpdate('composing', jid);
+      if (typeof sock.sendPresenceUpdate === 'function') {
+        await sock.sendPresenceUpdate('composing', jid);
+        if (process.env.NODE_ENV !== 'test') {
+          const delay = Math.min(1200, Math.max(400, (typeof text === 'string' ? text.length * 15 : 600)));
+          await new Promise(resolve => setTimeout(resolve, delay));
+          await sock.sendPresenceUpdate('paused', jid);
+        }
+      }
     } catch (_) {}
 
     try {

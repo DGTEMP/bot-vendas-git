@@ -2793,6 +2793,116 @@ async function main() {
     assert.strictEqual(getOwnerData.owner_phone, '5511987654321');
   });
 
+  await runAsyncTest('Gata Nina: Catálogo de Comandos via !help e !bot', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    
+    // 1. Testa acionamento via !help
+    let replyHelp = null;
+    const mockSockHelp = {
+      user: { id: '5511999990000:1@s.whatsapp.net' },
+      sendMessage: async (jid, p) => { replyHelp = p; return true; }
+    };
+    await whatsappBot.handleIncomingMessage({
+      key: { id: 'MSG_HELP_TEST_1', remoteJid: '5511977770001@s.whatsapp.net', fromMe: false, participant: '5511977770001@s.whatsapp.net' },
+      message: { conversation: '!help' }
+    }, mockSockHelp);
+
+    assert(replyHelp !== null, 'Deve responder ao comando !help');
+    assert(replyHelp.text.includes('CATÁLOGO DE COMANDOS GATA NINA'), 'Deve retornar o catálogo em !help');
+    assert(replyHelp.text.includes('!s'), 'Deve listar comando de figurinha !s');
+    assert(replyHelp.text.includes('!play'), 'Deve listar comando de música !play');
+
+    // 2. Testa acionamento via !bot
+    let replyBot = null;
+    const mockSockBot = {
+      user: { id: '5511999990000:1@s.whatsapp.net' },
+      sendMessage: async (jid, p) => { replyBot = p; return true; }
+    };
+    await whatsappBot.handleIncomingMessage({
+      key: { id: 'MSG_BOT_TEST_2', remoteJid: '5511977770001@s.whatsapp.net', fromMe: false, participant: '5511977770001@s.whatsapp.net' },
+      message: { conversation: '!bot' }
+    }, mockSockBot);
+
+    assert(replyBot !== null, 'Deve responder ao comando !bot');
+    assert(replyBot.text.includes('CATÁLOGO DE COMANDOS GATA NINA'), 'Deve retornar o catálogo em !bot');
+  });
+
+  await runAsyncTest('Anti-Duplicação e Prioridade da Matriz em Grupos Compartilhados com Sub-Bots', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+
+    const groupJid = '120363987654321000@g.us';
+    const sharedMsgId = 'MSG_SHARED_GROUP_123';
+
+    let matrizReplies = [];
+    let subBotReplies = [];
+
+    // Socket simulado da Matriz Principal
+    const mockMatrizSock = {
+      user: { id: '5511999990001:1@s.whatsapp.net' },
+      sendMessage: async (jid, p) => { matrizReplies.push(p); return true; },
+      groupMetadata: async () => ({ id: groupJid, participants: [] })
+    };
+
+    // Socket simulado do Sub-Bot (Chip #2)
+    const mockSubSock = {
+      instanceId: 2,
+      user: { id: '5511999990002:1@s.whatsapp.net' },
+      sendMessage: async (jid, p) => { subBotReplies.push(p); return true; },
+      groupMetadata: async () => ({ id: groupJid, participants: [] })
+    };
+
+    // Configura Matriz como conectada
+    const prevSock = whatsappBot.sock;
+    const prevConnected = whatsappBot.isConnected;
+    whatsappBot.sock = mockMatrizSock;
+    whatsappBot.isConnected = true;
+
+    // 1. Ambos os sockets recebem a mesma mensagem de grupo no mesmo instante
+    const groupIncomingMsg = {
+      key: { id: sharedMsgId, remoteJid: groupJid, fromMe: false, participant: '5511955554444@s.whatsapp.net' },
+      message: { conversation: '!help' }
+    };
+
+    // Sub-bot recebe o evento primeiro
+    await whatsappBot.handleIncomingMessage(groupIncomingMsg, mockSubSock);
+    // Matriz recebe o evento
+    await whatsappBot.handleIncomingMessage(groupIncomingMsg, mockMatrizSock);
+
+    // Valida que o Sub-bot NÃO respondeu no grupo (Matriz online tem prioridade)
+    assert.strictEqual(subBotReplies.length, 0, 'Sub-bot não deve responder quando a Matriz está no grupo');
+    // Valida que a Matriz respondeu normalmente
+    assert.strictEqual(matrizReplies.length, 1, 'Matriz principal deve responder no grupo');
+    assert(matrizReplies[0].text.includes('CATÁLOGO DE COMANDOS GATA NINA'));
+
+    // 2. Se a mesma mensagem for reenviada, deduplicação global descarta
+    await whatsappBot.handleIncomingMessage(groupIncomingMsg, mockMatrizSock);
+    assert.strictEqual(matrizReplies.length, 1, 'Não deve reenviar resposta para msgId já processado');
+
+    // Restaura estado original
+    whatsappBot.sock = prevSock;
+    whatsappBot.isConnected = prevConnected;
+  });
+
+  await runAsyncTest('Anti-Ban e Assinaturas Realistas de Dispositivos para o Exército de WhatsApp', async () => {
+    const whatsappArmyService = require('./src/services/whatsappArmyService');
+
+    // Valida se cada instância possui assinatura de dispositivo e browser única e realista
+    const profile1 = whatsappArmyService.getRealisticBrowserProfile(1);
+    const profile2 = whatsappArmyService.getRealisticBrowserProfile(2);
+    const profile3 = whatsappArmyService.getRealisticBrowserProfile(3);
+    const profile4 = whatsappArmyService.getRealisticBrowserProfile(4);
+
+    assert(Array.isArray(profile1), 'Profile 1 deve ser um array');
+    assert(Array.isArray(profile2), 'Profile 2 deve ser um array');
+    assert(Array.isArray(profile3), 'Profile 3 deve ser um array');
+    assert(Array.isArray(profile4), 'Profile 4 deve ser um array');
+
+    // Instâncias têm signatures desktop autênticas
+    assert(profile1[0].includes('Windows') || profile1[0].includes('Mac'));
+    assert(profile2[1].includes('Chrome') || profile2[1].includes('Safari') || profile2[1].includes('Edge'));
+    assert(profile3[1].includes('Safari') || profile3[1].includes('Chrome'));
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

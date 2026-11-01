@@ -34,6 +34,20 @@ class WhatsAppArmyService {
   // ==========================================
   // 1. GERENCIAMENTO DE INSTÂNCIAS / CHIPS
   // ==========================================
+  // Retorna uma assinatura de navegador e dispositivo altamente realista e rotativa (Anti-Ban)
+  getRealisticBrowserProfile(instanceId = 1) {
+    const profiles = [
+      Browsers.windows('Chrome'),             // [ 'Windows', 'Chrome', '10.0.22631' ]
+      ['Windows', 'Chrome', '124.0.6367.207'], // Google Chrome no Windows 11
+      ['macOS', 'Safari', '17.4.1'],          // Apple Safari no macOS
+      ['Windows', 'Edge', '124.0.2478.80'],   // Microsoft Edge no Windows 11
+      ['macOS', 'Chrome', '124.0.6367.201'],  // Google Chrome no macOS
+      Browsers.ubuntu('Chrome'),              // [ 'Ubuntu', 'Chrome', '22.04.4' ]
+      ['Windows', 'Firefox', '125.0.3']       // Mozilla Firefox no Windows
+    ];
+    return profiles[(Math.max(1, Number(instanceId) || 1) - 1) % profiles.length];
+  }
+
   async startInstance(instanceId) {
     const instance = models.getArmyInstanceById(instanceId);
     if (!instance) throw new Error('Instância do exército não encontrada');
@@ -82,7 +96,7 @@ class WhatsAppArmyService {
         if (v && v.version) version = v.version;
       } catch (_) {}
 
-      // Configuração baseada na arquitetura multi-device do GataBot-MD
+      // Configuração baseada na arquitetura multi-device do GataBot-MD com perfil realista
       const sock = makeWASocket({
         version,
         auth: {
@@ -91,13 +105,14 @@ class WhatsAppArmyService {
         },
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.macOS('Desktop'),
+        browser: this.getRealisticBrowserProfile(instanceId),
         getMessage: async (key) => ({ conversation: 'PayBot' }),
         syncFullHistory: false,
         markOnlineOnConnect: false,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 55000
       });
+      sock.instanceId = instanceId;
 
       sock.ev.on('creds.update', async () => {
         try {
@@ -153,7 +168,7 @@ class WhatsAppArmyService {
         }
       });
 
-      // Escuta mensagens: Roteia tanto para o cérebro principal do WhatsAppBot quanto para o funil
+      // Escuta mensagens: Roteia para o cérebro principal do WhatsAppBot com o socket deste chip
       sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const whatsappBot = require('../bots/whatsappBot');
@@ -165,19 +180,11 @@ class WhatsAppArmyService {
             if (!rawTxt.startsWith('!') && !rawTxt.startsWith('/')) continue;
           }
 
-          // Executa fluxo comercial / catálogo / nlp / comandos de grupos com o socket deste chip
+          // Executa fluxo comercial / catálogo / nlp / comandos com o socket deste chip (evitando duplicação)
           try {
             await whatsappBot.handleIncomingMessage(msg, sock);
           } catch (botErr) {
             console.error(`[Exército WhatsApp ⚠️] Erro no bot handler do Chip #${instanceId}:`, botErr.message);
-          }
-
-          // Registra e avança no funil se for lead privado
-          if (!msg.key.fromMe && !msg.key.remoteJid.endsWith('@g.us')) {
-            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
-            if (text) {
-              await this.handleIncomingLeadMessage(msg.key.remoteJid, text, instanceId);
-            }
           }
         }
       });
@@ -403,9 +410,13 @@ class WhatsAppArmyService {
       const whatsappBot = require('../bots/whatsappBot');
       if (whatsappBot.sock && whatsappBot.isConnected) {
         try {
-          await whatsappBot.sock.presenceSubscribe(jid);
-          await whatsappBot.sock.sendPresenceUpdate('composing', jid);
-          await new Promise(r => setTimeout(r, 1200));
+          if (typeof whatsappBot.sock.presenceSubscribe === 'function') {
+            await whatsappBot.sock.presenceSubscribe(jid);
+            await whatsappBot.sock.sendPresenceUpdate('composing', jid);
+          }
+          if (process.env.NODE_ENV !== 'test') {
+            await new Promise(r => setTimeout(r, 1200));
+          }
           await whatsappBot.sendMessage(jid, text);
           models.incrementInstanceSentCount(instanceId);
           return true;
@@ -419,9 +430,13 @@ class WhatsAppArmyService {
     const sock = this.activeSockets.get(instanceId);
     if (sock) {
       try {
-        await sock.presenceSubscribe(jid);
-        await sock.sendPresenceUpdate('composing', jid);
-        await new Promise(r => setTimeout(r, 1200));
+        if (typeof sock.presenceSubscribe === 'function') {
+          await sock.presenceSubscribe(jid);
+          await sock.sendPresenceUpdate('composing', jid);
+        }
+        if (process.env.NODE_ENV !== 'test') {
+          await new Promise(r => setTimeout(r, 1200));
+        }
         await sock.sendMessage(jid, { text });
         models.incrementInstanceSentCount(instanceId);
         return true;
@@ -585,6 +600,7 @@ class WhatsAppArmyService {
   // 4. MOTOR CONVERSACIONAL DO FUNIL DE AQUECIMENTO
   // ==========================================
   async handleIncomingLeadMessage(fromJid, text, instanceId = 1) {
+    if (!fromJid || fromJid.endsWith('@g.us')) return false;
     const rawPhone = fromJid.replace(/[^0-9]/g, '');
     const lower = text.trim().toLowerCase();
 
