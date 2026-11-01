@@ -1394,48 +1394,77 @@ class GataFeaturesService {
   // MULTI-DISPOSITIVOS & JADIBOT / SERBOT (GATABOT-MD)
   // ==========================================
 
-  // Comando !serbot / !jadibot / !subbot / !code
+  // Comando !serbot / !jadibot / !subbot / !code / !conectar
   async handleSerBot(sock, from, text, senderPhone, isGroup) {
     const whatsappArmyService = require('./whatsappArmyService');
+    const models = require('../db/models');
     const rawArgs = text.replace(/^(?:!|\/)(?:serbot|jadibot|subbot|conectar|code)\s*/i, '').trim();
     let phoneArg = rawArgs.replace(/\D/g, '');
 
-    // Se não passou número e está no privado, pode usar o número de quem chamou
-    if (!phoneArg && !isGroup && senderPhone && senderPhone.length >= 10) {
+    // Se não passou número expressamente, usa o telefone de quem chamou o comando (mesmo se estiver em grupo!)
+    if ((!phoneArg || phoneArg.length < 8) && senderPhone && senderPhone.length >= 8) {
       phoneArg = senderPhone;
     }
 
     if (!phoneArg || phoneArg.length < 10) {
       const infoMsg = `🐱 *GATABOT / SUB-BOT MULTI-DISPOSITIVOS* 🐱\n\n` +
-        `Você pode conectar múltiplos números de WhatsApp para vender e responder juntos com o bot!\n\n` +
-        `📱 *Como Conectar com Código de 8 Dígitos:*\n` +
-        `Envie o comando com seu número (com DDD):\n` +
-        `👉 *!serbot 5511999998888* ou *!code 5511999998888*\n\n` +
+        `Você pode conectar seu número de WhatsApp para se tornar um Sub-Bot comercial e responder comandos junto com o bot!\n\n` +
+        `📱 *Como Conectar seu Número com Código de 8 Dígitos:*\n` +
+        `Envie o comando informando seu número com DDD:\n` +
+        `👉 *!serbot 5511999998888* ou *!code 5511999998888*\n` +
+        `*(Ou envie apenas !serbot no privado do bot para usar o seu número atual)*\n\n` +
         `🌐 *Pelo Painel Web:*\n` +
         `Acesse http://localhost:3000 > *Conexões* e clique em *+ Adicionar Outra Conta WhatsApp* para escanear QR Code ou gerar código na tela!\n\n` +
         `💡 Digite *!bots* para ver todas as contas conectadas agora.`;
       return sock.sendMessage(from, { text: infoMsg });
     }
 
+    // Se informou número brasileiro com 10 ou 11 dígitos sem o 55, adiciona o DDI 55
     if (phoneArg.length === 10 || phoneArg.length === 11) {
       phoneArg = '55' + phoneArg;
     }
 
-    await sock.sendMessage(from, { text: `⏳ Gerando código de conexão seguro para o número *+${phoneArg}*... Aguarde alguns segundos.` });
+    // Verifica se já existe uma instância cadastrada para este número
+    const instances = models.getArmyInstances();
+    const existingInst = instances.find(i => !i.is_main && i.phone && (i.phone === phoneArg || i.phone.endsWith(phoneArg.slice(-8)) || phoneArg.endsWith(i.phone.slice(-8))));
+
+    if (existingInst && (existingInst.status === 'CONNECTED' || existingInst.connected)) {
+      return sock.sendMessage(from, {
+        text: `✅ *O WhatsApp +${phoneArg} já está conectado e operando como Sub-Bot #${existingInst.id} (${existingInst.name})!*\n\n` +
+          `• Digite *!bots* para ver status de todas as contas.\n` +
+          `• Para desconectar quando desejar, envie *!stopbot*.`
+      });
+    }
+
+    await sock.sendMessage(from, { text: `⏳ Gerando código de conexão seguro de Sub-Bot para o número *+${phoneArg}*... Aguarde alguns instantes.` });
 
     try {
-      // 1. Cria ou reutiliza instância secundária
-      const newInst = await whatsappArmyService.createAndConnectInstance({
-        name: `Sub-Bot +${phoneArg}`,
-        phone: phoneArg,
-        daily_limit: 100
-      });
+      let targetInstanceId = null;
 
-      // Aguarda o socket iniciar
-      await new Promise(r => setTimeout(r, 2000));
+      if (existingInst) {
+        targetInstanceId = existingInst.id;
+        // Reinicia a instância existente para receber novo pareamento
+        await whatsappArmyService.stopInstance(targetInstanceId);
+      } else {
+        // Verifica se pertence a algum Vendedor ou Afiliado registrado para dar nome amigável
+        let customName = `Sub-Bot +${phoneArg}`;
+        try {
+          const seller = models.getSellerByPhone(phoneArg);
+          const affiliate = models.getAffiliateByPhone(phoneArg);
+          if (seller) customName = `Sub-Bot Vendedor - ${seller.name}`;
+          else if (affiliate) customName = `Sub-Bot Afiliado - ${affiliate.name}`;
+        } catch (_) {}
 
-      // 2. Solicita código de pareamento
-      const pairingRes = await whatsappArmyService.requestPairingCode(newInst.id, phoneArg);
+        const newInst = await whatsappArmyService.createAndConnectInstance({
+          name: customName,
+          phone: phoneArg,
+          daily_limit: 100
+        });
+        targetInstanceId = newInst.id;
+      }
+
+      // Solicita código de pareamento via Baileys com tentativas automáticas
+      const pairingRes = await whatsappArmyService.requestPairingCode(targetInstanceId, phoneArg);
       const code = pairingRes.pairingCode;
 
       const successMsg = `🐱 *GATABOT / SUB-BOT MULTI-CONEXÃO* 🐱\n\n` +
@@ -1444,13 +1473,31 @@ class GataFeaturesService {
         `👉 *${code}* 👈\n\n` +
         `📋 *PASSO A PASSO NO SEU WHATSAPP:*\n` +
         `1. Abra o WhatsApp do celular que quer conectar.\n` +
-        `2. Toque nos três pontinhos ⋮ ou *Configurações* > *Aparelhos Conectados*.\n` +
-        `3. Toque em *Conectar um Aparelho*.\n` +
-        `4. Toque em *Conectar com número de telefone* (embaixo da tela).\n` +
+        `2. Toque nos três pontinhos ⋮ (ou *Configurações* no iPhone) > *Aparelhos Conectados*.\n` +
+        `3. Toque no botão *Conectar um Aparelho*.\n` +
+        `4. Toque em *Conectar com número de telefone* (no rodapé da tela).\n` +
         `5. Digite o código de 8 dígitos: *${code}*\n\n` +
-        `⏱️ O código expira em 2 minutos. Assim que conectar, este WhatsApp responderá automaticamente a todos os comandos e catálogo!`;
+        `⏱️ O código expira em 2 minutos. Assim que conectar, seu WhatsApp responderá automaticamente a todos os comandos e ao catálogo de vendas!`;
 
-      return sock.sendMessage(from, { text: successMsg });
+      if (isGroup) {
+        const mentionJid = `${senderPhone}@s.whatsapp.net`;
+        const groupMsg = `🐱 Olá @${senderPhone}!\n\n` +
+          `🔑 *Seu código de 8 dígitos para se tornar Sub-Bot é:* \n` +
+          `👉 *${code}* 👈\n\n` +
+          `📱 *No seu WhatsApp:* Configurações > Aparelhos Conectados > Conectar um Aparelho > Conectar com número de telefone.\n\n` +
+          `_Enviamos também as instruções no seu chat privado para facilitar copiar o código!_`;
+
+        await sock.sendMessage(from, { text: groupMsg, mentions: [mentionJid] });
+
+        // Tenta enviar também no privado para facilidade de uso
+        try {
+          await sock.sendMessage(mentionJid, { text: successMsg });
+        } catch (_) {}
+
+        return;
+      } else {
+        return sock.sendMessage(from, { text: successMsg });
+      }
     } catch (err) {
       return sock.sendMessage(from, {
         text: `❌ Não foi possível gerar o código de conexão para +${phoneArg}: ${err.message}\n\nTente novamente ou conecte pelo Painel Web em http://localhost:3000 > Conexões.`

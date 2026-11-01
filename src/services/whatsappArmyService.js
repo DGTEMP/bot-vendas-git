@@ -310,24 +310,38 @@ class WhatsAppArmyService {
       throw new Error('Este chip já está registrado e pareado.');
     }
 
-    try {
-      await new Promise(r => setTimeout(r, 1200));
-      const code = await sock.requestPairingCode(cleanPhone);
+    let code = null;
+    let lastErr = null;
+
+    // Tenta obter o código de pareamento com até 6 tentativas, aguardando a conexão Baileys estar pronta
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      try {
+        await new Promise(r => setTimeout(r, attempt === 1 ? 1500 : 2000));
+        code = await sock.requestPairingCode(cleanPhone);
+        if (code) break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (code) {
       const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
       const prev = this.instanceQrs.get(instanceId) || {};
       this.instanceQrs.set(instanceId, { ...prev, pairingCode: formattedCode });
+      models.updateArmyInstance(instanceId, { status: 'WAITING_PAIRING' });
       return { success: true, pairingCode: formattedCode };
-    } catch (err) {
-      if (process.env.NODE_ENV === 'test' || !sock) {
-        const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
-        const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
-        const simCode = `${p1}-${p2}`;
-        const prev = this.instanceQrs.get(instanceId) || {};
-        this.instanceQrs.set(instanceId, { ...prev, pairingCode: simCode });
-        return { success: true, pairingCode: simCode, simulated: true };
-      }
-      throw new Error('Falha ao gerar código de pareamento: ' + err.message);
     }
+
+    if (process.env.NODE_ENV === 'test' || !sock) {
+      const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const simCode = `${p1}-${p2}`;
+      const prev = this.instanceQrs.get(instanceId) || {};
+      this.instanceQrs.set(instanceId, { ...prev, pairingCode: simCode });
+      return { success: true, pairingCode: simCode, simulated: true };
+    }
+
+    throw new Error('Falha ao gerar código de pareamento: ' + (lastErr?.message || 'Timeout ao contatar os servidores do WhatsApp. Tente novamente em alguns segundos.'));
   }
 
   getInstanceQr(instanceId) {

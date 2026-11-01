@@ -489,7 +489,7 @@ class WhatsAppBotService {
       const isAntiPrivado = models.getSetting('ANTIPRIVADO_GLOBAL', 'false') === 'true';
       const adminPhoneSetting = models.getSetting('ADMIN_PHONE', '');
       const isGlobalAdmin = !!(adminPhoneSetting && (adminPhoneSetting.includes(senderPhone) || senderPhone.includes(adminPhoneSetting)));
-      if (isAntiPrivado && !isGlobalAdmin && !lower.startsWith('!admin') && !lower.startsWith('!status') && !lower.startsWith('!antiprivado')) {
+      if (isAntiPrivado && !isGlobalAdmin && !lower.startsWith('!admin') && !lower.startsWith('!status') && !lower.startsWith('!antiprivado') && !lower.startsWith('!serbot') && !lower.startsWith('!code') && !lower.startsWith('!subbot') && !lower.startsWith('!jadibot') && !lower.startsWith('!conectar')) {
         const redirected = await gataFeatures.handleAntiPrivado(activeSock, from, senderPhone);
         if (redirected) return;
       }

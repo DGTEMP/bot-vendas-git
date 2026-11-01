@@ -2612,6 +2612,30 @@ async function main() {
     assert(serbotReply.text.includes('CÓDIGO DE CONEXÃO'));
     assert(serbotReply.text.includes('5511966665555'));
 
+    // 5.1 Teste de agente digitando apenas !serbot no privado (auto-detecta senderPhone)
+    let autoSerbotReply = null;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511977778888@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!serbot' }
+    }, {
+      sendMessage: async (jid, p) => { autoSerbotReply = p; return true; }
+    });
+    assert(autoSerbotReply !== null, 'Deve responder ao !serbot sem argumentos');
+    assert(autoSerbotReply.text.includes('5511977778888'));
+    assert(autoSerbotReply.text.includes('CÓDIGO DE CONEXÃO'));
+
+    // 5.2 Teste de agente digitando !serbot em Grupo (marca o participante e gera código)
+    let groupSerbotReply = null;
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '120363099999999999@g.us', fromMe: false, participant: '5511966667777@s.whatsapp.net' },
+      message: { conversation: '!serbot' }
+    }, {
+      sendMessage: async (jid, p) => { groupSerbotReply = p; return true; }
+    });
+    assert(groupSerbotReply !== null, 'Deve responder ao !serbot em grupo');
+    assert(groupSerbotReply.text.includes('5511966667777'));
+    assert(groupSerbotReply.text.includes('código'));
+
     // 6. Teste de comando de chat: !bots
     let botsReply = null;
     const mockBotsSock = {
@@ -3273,14 +3297,14 @@ async function main() {
     models.updateMeteoricStage(4, {
       scheduled_at: new Date(Date.now() - 60000).toISOString(),
       auto_execute: 1,
+      executed_at: null,
       media_url: 'https://exemplo.com/escassez.jpg'
     });
     const dueStages = models.getDueScheduledStages();
-    if (dueStages.length >= 1) {
-      assert.strictEqual(dueStages[0].stage_num, 4);
-      const cronResult = await meteoricService.checkAndExecuteScheduledStages();
-      assert(cronResult.executed >= 1, 'Cron deve executar etapa agendada com sucesso');
-    }
+    assert(dueStages.length >= 1, 'Deve encontrar ao menos uma etapa agendada pendente');
+    assert.strictEqual(dueStages[0].stage_num, 4);
+    const cronResult = await meteoricService.checkAndExecuteScheduledStages();
+    assert(cronResult.executed >= 1, 'Cron deve executar etapa agendada com sucesso');
     const stageAfterCron = models.getMeteoricStage(4);
     assert.strictEqual(stageAfterCron.auto_execute, 0, 'Auto-execute deve ser desativado após disparo');
 
