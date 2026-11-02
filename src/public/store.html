@@ -407,6 +407,99 @@
     let appliedCoupon = null;
     let selectedMethod = 'pix';
 
+    // Identificador persistente da sessão do cliente na loja
+    const sessionId = (function() {
+      let id = localStorage.getItem('store_session_id');
+      if (!id) {
+        id = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+        localStorage.setItem('store_session_id', id);
+      }
+      return id;
+    })();
+
+    // Persistência do carrinho e cupons no localStorage
+    function saveCartState() {
+      try {
+        localStorage.setItem('store_cart', JSON.stringify(cart));
+        if (appliedCoupon) {
+          localStorage.setItem('store_coupon', JSON.stringify(appliedCoupon));
+        } else {
+          localStorage.removeItem('store_coupon');
+        }
+      } catch (_) {}
+    }
+
+    function loadCartState() {
+      try {
+        const saved = localStorage.getItem('store_cart');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            cart = parsed;
+          }
+        }
+        const savedCoupon = localStorage.getItem('store_coupon');
+        if (savedCoupon) {
+          appliedCoupon = JSON.parse(savedCoupon);
+        }
+
+        const savedName = localStorage.getItem('cust_name');
+        if (savedName && document.getElementById('custName')) {
+          document.getElementById('custName').value = savedName;
+        }
+        const savedPhone = localStorage.getItem('cust_phone');
+        if (savedPhone && document.getElementById('custPhone')) {
+          document.getElementById('custPhone').value = savedPhone;
+        }
+        const savedAddress = localStorage.getItem('cust_address');
+        if (savedAddress && document.getElementById('custAddress')) {
+          document.getElementById('custAddress').value = savedAddress;
+        }
+        const savedNotes = localStorage.getItem('cust_notes');
+        if (savedNotes && document.getElementById('custNotes')) {
+          document.getElementById('custNotes').value = savedNotes;
+        }
+      } catch (_) {}
+    }
+
+    function saveCustomerInputs() {
+      try {
+        const name = document.getElementById('custName')?.value || '';
+        const phone = document.getElementById('custPhone')?.value || '';
+        const address = document.getElementById('custAddress')?.value || '';
+        const notes = document.getElementById('custNotes')?.value || '';
+        if (name) localStorage.setItem('cust_name', name);
+        if (phone) localStorage.setItem('cust_phone', phone);
+        if (address) localStorage.setItem('cust_address', address);
+        if (notes) localStorage.setItem('cust_notes', notes);
+      } catch (_) {}
+    }
+
+    // Telemetria da vitrine web integrada ao CRM Cognitivo e WhatsApp
+    async function sendTelemetry(eventType, extra = {}) {
+      try {
+        const custName = document.getElementById('custName')?.value || localStorage.getItem('cust_name') || '';
+        const custPhone = document.getElementById('custPhone')?.value || localStorage.getItem('cust_phone') || '';
+        const total = cart.reduce((acc, i) => acc + (i.price_brl * i.quantity), 0);
+
+        await fetch('/api/store/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            phone: custPhone,
+            customer_name: custName,
+            event_type: eventType,
+            product_id: extra.productId || null,
+            product_name: extra.productName || null,
+            cart_payload: JSON.stringify(cart),
+            cart_total: total,
+            metadata: JSON.stringify(extra)
+          })
+        });
+      } catch (_) {}
+    }
+
     async function loadCatalog() {
       try {
         const query = window.location.search || '';
@@ -416,6 +509,9 @@
           allProducts = data.products;
           renderCategoryPills(data.categories || ['Todos']);
           renderProducts();
+          loadCartState();
+          updateCartUI();
+          sendTelemetry('PAGE_VIEW');
         }
       } catch (err) {
         document.getElementById('productsGrid').innerHTML = `
@@ -505,6 +601,8 @@
       const brl = Number(prod.price_brl || prod.price).toFixed(2);
       const usdt = Number(prod.price_usdt || (prod.price / 5.5)).toFixed(2);
 
+      sendTelemetry('PRODUCT_VIEW', { productId: prod.id, productName: prod.name });
+
       const content = document.getElementById('detailContent');
       content.innerHTML = `
         <div style="display: flex; gap: 16px; margin-bottom: 16px; align-items: center;">
@@ -570,13 +668,18 @@
         });
       }
 
+      saveCartState();
       updateCartUI();
+      sendTelemetry('ADD_TO_CART', { productId: prod.id, productName: prod.name });
       showToast(`✅ "${prod.name}" adicionado ao carrinho!`);
     }
 
     function removeFromCart(prodId) {
+      const removed = cart.find(i => i.id === prodId);
       cart = cart.filter(i => i.id !== prodId);
+      saveCartState();
       updateCartUI();
+      sendTelemetry('REMOVE_FROM_CART', { productId: prodId, productName: removed?.name });
     }
 
     function changeQty(prodId, delta) {
@@ -586,6 +689,7 @@
       if (item.quantity <= 0) {
         removeFromCart(prodId);
       } else {
+        saveCartState();
         updateCartUI();
       }
     }
@@ -659,6 +763,7 @@
         const data = await res.json();
         if (data.success && data.valid) {
           appliedCoupon = data;
+          saveCartState();
           updateCartUI();
           showToast(`🎉 Cupom "${code}" aplicado com sucesso!`);
         } else {
@@ -680,6 +785,7 @@
         return;
       }
       toggleCart();
+      sendTelemetry('CHECKOUT_OPEN');
       document.getElementById('checkoutResultArea').style.display = 'none';
       document.getElementById('btnConfirmPay').style.display = 'flex';
       document.getElementById('checkoutModal').classList.add('open');
@@ -707,6 +813,9 @@
         return;
       }
 
+      saveCustomerInputs();
+      sendTelemetry('CHECKOUT_SUBMIT');
+
       const btn = document.getElementById('btnConfirmPay');
       btn.disabled = true;
       btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processando Pedido...';
@@ -720,9 +829,10 @@
           body: JSON.stringify({
             items: cart,
             customer: { name, phone, address, notes },
-            gateway: selectedMethod === 'whatsapp' ? 'pix' : selectedMethod,
+            gateway: selectedMethod === 'whatsapp' ? 'whatsapp' : selectedMethod,
             couponCode: appliedCoupon ? appliedCoupon.code : null,
-            subbot: subbot || null
+            subbot: subbot || null,
+            session_id: sessionId
           })
         });
 
@@ -739,11 +849,14 @@
               <i class="fa-brands fa-whatsapp" style="font-size: 44px; color: #25d366; margin-bottom: 10px;"></i>
               <h4 style="font-size: 16px; font-weight: 800; color: #fff;">Pedido #${data.tradeNo} Gerado!</h4>
               <p style="font-size: 13px; color: var(--text-muted); margin: 8px 0 16px;">
-                Clique no botão abaixo para enviar o resumo completo do pedido direto no WhatsApp do nosso atendente:
+                Clique no botão abaixo para enviar o resumo completo do pedido direto no WhatsApp do nosso consultor técnico:
               </p>
-              <a href="${data.whatsappUrl}" target="_blank" class="btn-checkout" style="background: #25d366; text-decoration: none;">
-                <i class="fa-brands fa-whatsapp"></i> Abrir WhatsApp Agora
+              <a href="${data.whatsappUrl}" target="_blank" class="btn-checkout" style="background: #25d366; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <i class="fa-brands fa-whatsapp" style="font-size: 18px;"></i> Abrir WhatsApp Agora
               </a>
+              <button class="btn-detail" onclick="navigator.clipboard.writeText('${data.whatsappUrl}'); showToast('📋 Link do WhatsApp copiado!');" style="width: 100%; margin-top: 10px;">
+                <i class="fa-solid fa-copy"></i> Copiar Link do Atendente
+              </button>
             </div>
           `;
         } else if (selectedMethod === 'pix') {
@@ -771,16 +884,18 @@
               <i class="fa-solid fa-coins" style="font-size: 40px; color: #f59e0b; margin-bottom: 8px;"></i>
               <h4 style="font-size: 16px; font-weight: 800; color: #fff;">Pagamento Cripto #${data.tradeNo}</h4>
               <p style="font-size: 13px; color: var(--text-muted); margin: 6px 0 14px;">Total: <strong>${data.finalUSDT.toFixed(2)} USDT</strong></p>
-              <a href="${data.checkoutUrl || '#'}" target="_blank" class="btn-checkout" style="background: #f59e0b; text-decoration: none;">
+              <a href="${data.checkoutUrl || '#'}" target="_blank" class="btn-checkout" style="background: #f59e0b; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px;">
                 <i class="fa-solid fa-up-right-from-square"></i> Pagar via Binance Pay
               </a>
             </div>
           `;
         }
 
-        // Limpa o carrinho
+        // Limpa o carrinho e remove persistência após pedido gerado
         cart = [];
         appliedCoupon = null;
+        localStorage.removeItem('store_cart');
+        localStorage.removeItem('store_coupon');
         updateCartUI();
       } catch (err) {
         showToast(`❌ ${err.message}`);
@@ -802,6 +917,45 @@
       t.style.display = 'block';
       setTimeout(() => { t.style.display = 'none'; }, 3000);
     }
+
+    // Monitora eventos nos campos do formulário para persistência e telemetria
+    document.addEventListener('DOMContentLoaded', () => {
+      ['custName', 'custPhone', 'custAddress', 'custNotes'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', saveCustomerInputs);
+        }
+      });
+
+      const phoneEl = document.getElementById('custPhone');
+      if (phoneEl) {
+        phoneEl.addEventListener('blur', () => {
+          if (phoneEl.value.replace(/\D/g, '').length >= 8) {
+            sendTelemetry('PHONE_INPUT');
+          }
+        });
+      }
+    });
+
+    // Detecta abandono de carrinho
+    window.addEventListener('beforeunload', () => {
+      if (cart.length > 0) {
+        const custPhone = document.getElementById('custPhone')?.value || localStorage.getItem('cust_phone') || '';
+        const custName = document.getElementById('custName')?.value || localStorage.getItem('cust_name') || '';
+        const total = cart.reduce((acc, i) => acc + (i.price_brl * i.quantity), 0);
+        const payload = JSON.stringify({
+          session_id: sessionId,
+          phone: custPhone,
+          customer_name: custName,
+          event_type: 'ABANDONED',
+          cart_payload: JSON.stringify(cart),
+          cart_total: total
+        });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/store/track', new Blob([payload], { type: 'application/json' }));
+        }
+      }
+    });
 
     loadCatalog();
   </script>

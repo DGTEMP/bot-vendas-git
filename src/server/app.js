@@ -2580,6 +2580,89 @@ function createServer() {
     }
   });
 
+  // Telemetria da Vitrine Web
+  app.post('/api/store/track', async (req, res) => {
+    try {
+      const webStoreTrackerService = require('../services/webStoreTrackerService');
+      const result = await webStoreTrackerService.trackEvent(req.body);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/store/telemetry', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit, 10) || 50;
+      const phone = req.query.phone || null;
+      const events = models.getStoreTelemetry(limit, phone);
+      res.json({ success: true, events });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/store/cart-sessions', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit, 10) || 50;
+      const status = req.query.status || null;
+      const sessions = models.listCartSessions(limit, status);
+      res.json({ success: true, sessions });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/store/cart-sessions/abandoned', (req, res) => {
+    try {
+      const minutes = parseInt(req.query.minutes, 10) || 30;
+      const sessions = models.getAbandonedCartSessions(minutes);
+      res.json({ success: true, sessions });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Endpoints do Motor de Social Listening (Grupos & Afiliados)
+  app.get('/api/social-listening/rules', (req, res) => {
+    try {
+      const activeOnly = req.query.activeOnly === 'true';
+      const rules = models.listSocialListeningRules(activeOnly);
+      res.json({ success: true, rules });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/social-listening/rules', (req, res) => {
+    try {
+      const rule = models.saveSocialListeningRule(req.body);
+      res.json({ success: true, rule });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/social-listening/rules/:id', (req, res) => {
+    try {
+      const deleted = models.deleteSocialListeningRule(req.params.id);
+      res.json({ success: deleted });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/social-listening/toggle', (req, res) => {
+    try {
+      const current = models.getSetting('SOCIAL_LISTENING_ENABLED', 'true') === 'true';
+      const nextVal = req.body.enabled !== undefined ? Boolean(req.body.enabled) : !current;
+      models.setSetting('SOCIAL_LISTENING_ENABLED', String(nextVal));
+      res.json({ success: true, enabled: nextVal });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post('/api/store/checkout', async (req, res) => {
     try {
       const { items = [], customer = {}, gateway = 'pix', couponCode = null, subbot = null } = req.body;
@@ -2669,8 +2752,9 @@ function createServer() {
         qrContent = binRes.data?.qrContent || binRes.data?.qrcodeLink || binRes.qrContent;
       }
 
+      const webStoreTrackerService = require('../services/webStoreTrackerService');
       let sellerId = mainProd.seller_id || null;
-      let targetPhone = models.getSetting('BOT_PHONE', '') || models.getSetting('OWNER_PHONE', '5511988887777');
+      let targetPhone = webStoreTrackerService.getBotContactPhone(subbot);
       if (subbot) {
         const subInstance = models.getArmyInstanceById(Number(subbot));
         if (subInstance) {
@@ -2698,6 +2782,33 @@ function createServer() {
         discount_amount: discountBRL,
         seller_id: sellerId
       });
+
+      // Atualiza / Registra sessão do carrinho como pedido realizado
+      if (req.body.session_id) {
+        try {
+          models.saveCartSession({
+            session_id: req.body.session_id,
+            phone: customerPhone,
+            customer_name: customerName,
+            cart_items: JSON.stringify(verifiedItems),
+            cart_total: finalBRL,
+            status: 'ORDER_PLACED'
+          });
+        } catch (_) {}
+      }
+
+      // Dispara confirmação automática via WhatsApp para o cliente e alerta para o dono
+      try {
+        webStoreTrackerService.notifyOrderPlaced({
+          tradeNo,
+          customerName,
+          customerPhone,
+          items: verifiedItems,
+          finalBRL,
+          gateway,
+          pixCode
+        }).catch(() => {});
+      } catch (_) {}
 
       let itemsListText = verifiedItems.map(i => `• ${i.quantity}x *${i.name}* (R$ ${i.totalBRL.toFixed(2)})`).join('\n');
       let waMessage = 
@@ -4634,6 +4745,89 @@ function createStoreServer() {
   });
 
   // Checkout da Loja Pública
+  // Telemetria da Vitrine Web
+  app.post('/api/store/track', async (req, res) => {
+    try {
+      const webStoreTrackerService = require('../services/webStoreTrackerService');
+      const result = await webStoreTrackerService.trackEvent(req.body);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/store/telemetry', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit, 10) || 50;
+      const phone = req.query.phone || null;
+      const events = models.getStoreTelemetry(limit, phone);
+      res.json({ success: true, events });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/store/cart-sessions', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit, 10) || 50;
+      const status = req.query.status || null;
+      const sessions = models.listCartSessions(limit, status);
+      res.json({ success: true, sessions });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/store/cart-sessions/abandoned', (req, res) => {
+    try {
+      const minutes = parseInt(req.query.minutes, 10) || 30;
+      const sessions = models.getAbandonedCartSessions(minutes);
+      res.json({ success: true, sessions });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Endpoints do Motor de Social Listening (Grupos & Afiliados)
+  app.get('/api/social-listening/rules', (req, res) => {
+    try {
+      const activeOnly = req.query.activeOnly === 'true';
+      const rules = models.listSocialListeningRules(activeOnly);
+      res.json({ success: true, rules });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/social-listening/rules', (req, res) => {
+    try {
+      const rule = models.saveSocialListeningRule(req.body);
+      res.json({ success: true, rule });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/social-listening/rules/:id', (req, res) => {
+    try {
+      const deleted = models.deleteSocialListeningRule(req.params.id);
+      res.json({ success: deleted });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/social-listening/toggle', (req, res) => {
+    try {
+      const current = models.getSetting('SOCIAL_LISTENING_ENABLED', 'true') === 'true';
+      const nextVal = req.body.enabled !== undefined ? Boolean(req.body.enabled) : !current;
+      models.setSetting('SOCIAL_LISTENING_ENABLED', String(nextVal));
+      res.json({ success: true, enabled: nextVal });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post('/api/store/checkout', async (req, res) => {
     try {
       const { items = [], customer = {}, gateway = 'pix', couponCode = null, subbot = null } = req.body;
@@ -4723,8 +4917,9 @@ function createStoreServer() {
         qrContent = binRes.data?.qrContent || binRes.data?.qrcodeLink || binRes.qrContent;
       }
 
+      const webStoreTrackerService = require('../services/webStoreTrackerService');
       let sellerId = mainProd.seller_id || null;
-      let targetPhone = models.getSetting('BOT_PHONE', '') || models.getSetting('OWNER_PHONE', '5511988887777');
+      let targetPhone = webStoreTrackerService.getBotContactPhone(subbot);
       if (subbot) {
         const subInstance = models.getArmyInstanceById(Number(subbot));
         if (subInstance) {
@@ -4752,6 +4947,33 @@ function createStoreServer() {
         discount_amount: discountBRL,
         seller_id: sellerId
       });
+
+      // Atualiza / Registra sessão do carrinho como pedido realizado
+      if (req.body.session_id) {
+        try {
+          models.saveCartSession({
+            session_id: req.body.session_id,
+            phone: customerPhone,
+            customer_name: customerName,
+            cart_items: JSON.stringify(verifiedItems),
+            cart_total: finalBRL,
+            status: 'ORDER_PLACED'
+          });
+        } catch (_) {}
+      }
+
+      // Dispara confirmação automática via WhatsApp para o cliente e alerta para o dono
+      try {
+        webStoreTrackerService.notifyOrderPlaced({
+          tradeNo,
+          customerName,
+          customerPhone,
+          items: verifiedItems,
+          finalBRL,
+          gateway,
+          pixCode
+        }).catch(() => {});
+      } catch (_) {}
 
       let itemsListText = verifiedItems.map(i => `• ${i.quantity}x *${i.name}* (R$ ${i.totalBRL.toFixed(2)})`).join('\n');
       let waMessage = 

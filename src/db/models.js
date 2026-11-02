@@ -3716,6 +3716,11 @@ const models = {
     return profile;
   },
 
+  saveLeadCognitiveProfile(data = {}) {
+    const phone = data.phone || data.lead_phone;
+    return models.upsertLeadCognitiveProfile(phone, data);
+  },
+
   upsertLeadCognitiveProfile(phone, data = {}) {
     if (!phone) return null;
     const cleanPhone = String(phone).replace(/\D/g, '');
@@ -5005,6 +5010,174 @@ const models = {
       total_campaigns: totalCampaigns,
       total_sent: Number(totalSent)
     };
+  },
+
+  // ==========================================
+  // 42. SOCIAL LISTENING & ENTROSAMENTO ORGÂNICO (AFILIADOS)
+  // ==========================================
+  listSocialListeningRules(activeOnly = false) {
+    const sql = activeOnly
+      ? 'SELECT * FROM social_listening_rules WHERE active = 1 ORDER BY id DESC'
+      : 'SELECT * FROM social_listening_rules ORDER BY id DESC';
+    const rows = db.prepare(sql).all();
+    return rows.map(r => ({
+      ...r,
+      triggered_count: r.total_triggers || 0,
+      templates: (typeof r.templates === 'string' && r.templates.startsWith('[')) ? JSON.parse(r.templates) : [r.templates]
+    }));
+  },
+
+  getSocialListeningRule(id) {
+    if (!id) return null;
+    const r = db.prepare('SELECT * FROM social_listening_rules WHERE id = ?').get(Number(id));
+    if (!r) return null;
+    return {
+      ...r,
+      triggered_count: r.total_triggers || 0,
+      templates: (typeof r.templates === 'string' && r.templates.startsWith('[')) ? JSON.parse(r.templates) : [r.templates]
+    };
+  },
+
+  saveSocialListeningRule(data = {}) {
+    const { id, keywords, product_name, affiliate_url, templates, cooldown_minutes, active } = data;
+    if (!keywords || !affiliate_url) {
+      throw new Error('keywords e affiliate_url são obrigatórios para regra de escuta');
+    }
+    const strTemplates = Array.isArray(templates) ? JSON.stringify(templates) : (typeof templates === 'string' ? templates : '[]');
+    if (id) {
+      db.prepare(`
+        UPDATE social_listening_rules
+        SET keywords = ?, product_name = ?, affiliate_url = ?, templates = ?, cooldown_minutes = ?, active = ?
+        WHERE id = ?
+      `).run(keywords, product_name || 'Produto Recomendado', affiliate_url, strTemplates, cooldown_minutes || 15, active !== undefined ? (active ? 1 : 0) : 1, Number(id));
+      return models.getSocialListeningRule(Number(id));
+    }
+    const res = db.prepare(`
+      INSERT INTO social_listening_rules (keywords, product_name, affiliate_url, templates, cooldown_minutes, active)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(keywords, product_name || 'Produto Recomendado', affiliate_url, strTemplates, cooldown_minutes || 15, active !== undefined ? (active ? 1 : 0) : 1);
+    return models.getSocialListeningRule(Number(res.lastInsertRowid));
+  },
+
+  deleteSocialListeningRule(id) {
+    if (!id) return false;
+    db.prepare('DELETE FROM social_listening_rules WHERE id = ?').run(Number(id));
+    return true;
+  },
+
+  recordSocialListeningTrigger(id) {
+    if (!id) return false;
+    db.prepare(`
+      UPDATE social_listening_rules
+      SET total_triggers = total_triggers + 1, last_triggered_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(Number(id));
+    return true;
+  },
+
+  // ==========================================
+  // 43. TELEMETRIA DA LOJA WEB & RASTREAMENTO DO CARRINHO COM WHATSAPP
+  // ==========================================
+  logStoreTelemetry(data = {}) {
+    const { session_id, phone, customer_name, event_type, product_id, product_name, cart_payload, cart_total, metadata } = data;
+    if (!session_id || !event_type) return false;
+    const cleanPhone = phone ? String(phone).replace(/\D/g, '') : null;
+    const strCart = typeof cart_payload === 'string' ? cart_payload : JSON.stringify(cart_payload || []);
+    const strMeta = typeof metadata === 'string' ? metadata : JSON.stringify(metadata || {});
+    db.prepare(`
+      INSERT INTO web_store_telemetry (session_id, phone, customer_name, event_type, product_id, product_name, cart_payload, cart_total, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(session_id, cleanPhone, customer_name || null, event_type, product_id ? Number(product_id) : null, product_name || null, strCart, Number(cart_total || 0), strMeta);
+    return true;
+  },
+
+  getCartSession(sessionId) {
+    if (!sessionId) return null;
+    const row = db.prepare('SELECT * FROM web_cart_sessions WHERE session_id = ?').get(String(sessionId));
+    if (!row) return null;
+    return {
+      ...row,
+      cart_items: (typeof row.cart_items === 'string' && row.cart_items.startsWith('[')) ? JSON.parse(row.cart_items) : []
+    };
+  },
+
+  saveCartSession(data = {}) {
+    const { session_id, phone, customer_name, cart_items, cart_total, status } = data;
+    if (!session_id) return null;
+    const cleanPhone = phone ? String(phone).replace(/\D/g, '') : null;
+    const strItems = Array.isArray(cart_items) ? JSON.stringify(cart_items) : (typeof cart_items === 'string' ? cart_items : '[]');
+    const existing = models.getCartSession(session_id);
+    if (existing) {
+      db.prepare(`
+        UPDATE web_cart_sessions
+        SET phone = COALESCE(?, phone),
+            customer_name = COALESCE(?, customer_name),
+            cart_items = ?,
+            cart_total = ?,
+            status = COALESCE(?, status),
+            last_activity_at = CURRENT_TIMESTAMP
+        WHERE session_id = ?
+      `).run(cleanPhone, customer_name || null, strItems, Number(cart_total || 0), status || null, session_id);
+      return models.getCartSession(session_id);
+    }
+    db.prepare(`
+      INSERT INTO web_cart_sessions (session_id, phone, customer_name, cart_items, cart_total, status)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(session_id, cleanPhone, customer_name || null, strItems, Number(cart_total || 0), status || 'BROWSING');
+    return models.getCartSession(session_id);
+  },
+
+  updateCartSession(sessionId, patch = {}) {
+    if (!sessionId) return null;
+    const fields = ['last_activity_at = CURRENT_TIMESTAMP'];
+    const values = [];
+    if (patch.phone !== undefined) {
+      fields.push('phone = ?');
+      values.push(patch.phone ? String(patch.phone).replace(/\D/g, '') : null);
+    }
+    if (patch.customer_name !== undefined) { fields.push('customer_name = ?'); values.push(patch.customer_name); }
+    if (patch.cart_items !== undefined) {
+      fields.push('cart_items = ?');
+      values.push(Array.isArray(patch.cart_items) ? JSON.stringify(patch.cart_items) : patch.cart_items);
+    }
+    if (patch.cart_total !== undefined) { fields.push('cart_total = ?'); values.push(Number(patch.cart_total)); }
+    if (patch.status !== undefined) { fields.push('status = ?'); values.push(patch.status); }
+    if (patch.abandoned_recovery_sent !== undefined) { fields.push('abandoned_recovery_sent = ?'); values.push(patch.abandoned_recovery_sent ? 1 : 0); }
+    values.push(sessionId);
+    db.prepare(`UPDATE web_cart_sessions SET ${fields.join(', ')} WHERE session_id = ?`).run(...values);
+    return models.getCartSession(sessionId);
+  },
+
+  listCartSessions(limit = 50) {
+    const rows = db.prepare('SELECT * FROM web_cart_sessions ORDER BY last_activity_at DESC LIMIT ?').all(Number(limit));
+    return rows.map(r => ({
+      ...r,
+      cart_items: (typeof r.cart_items === 'string' && r.cart_items.startsWith('[')) ? JSON.parse(r.cart_items) : []
+    }));
+  },
+
+  getAbandonedCartSessions(idleMinutes = 15) {
+    return db.prepare(`
+      SELECT * FROM web_cart_sessions
+      WHERE status IN ('IN_CART', 'CHECKOUT_OPEN')
+        AND phone IS NOT NULL
+        AND length(phone) >= 8
+        AND cart_total > 0
+        AND abandoned_recovery_sent = 0
+        AND datetime(last_activity_at, '+' || ? || ' minutes') <= datetime('now')
+      ORDER BY last_activity_at DESC
+    `).all(Number(idleMinutes)).map(r => ({
+      ...r,
+      cart_items: (typeof r.cart_items === 'string' && r.cart_items.startsWith('[')) ? JSON.parse(r.cart_items) : []
+    }));
+  },
+
+  getStoreTelemetry(limit = 100, phone = null) {
+    if (phone) {
+      const clean = String(phone).replace(/\D/g, '');
+      return db.prepare('SELECT * FROM web_store_telemetry WHERE phone = ? ORDER BY id DESC LIMIT ?').all(clean, Number(limit));
+    }
+    return db.prepare('SELECT * FROM web_store_telemetry ORDER BY id DESC LIMIT ?').all(Number(limit));
   }
 
 };

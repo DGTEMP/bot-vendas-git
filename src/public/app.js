@@ -92,6 +92,12 @@ function switchTab(tabName) {
   if (tabName === 'cognitive') loadCognitiveOverview();
   if (tabName === 'rentals') loadRentalsOverview();
   if (tabName === 'notices') loadNotices();
+  if (tabName === 'zapvoice') loadZapVoiceOverview();
+  if (tabName === 'social-listening') {
+    loadSocialListening();
+    loadStoreTelemetry();
+    loadCartSessions();
+  }
 }
 
 // 2. CARREGAMENTO GERAL
@@ -9336,9 +9342,6 @@ function convertCalculationToProposal() {
   });
 }
 
-
-`
-
 // ==========================================
 // CENTRAL ZAPVOICE 2025 & RECURSOS AVANÇADOS NAZUNA / SPY BOT
 // ==========================================
@@ -9350,4 +9353,262 @@ async function loadZapVoiceOverview() {
       fetch('/api/zapvoice/messages').then(r => r.json()).catch(() => ({ messages: [] })),
       fetch('/api/zapvoice/funnels').then(r => r.json()).catch(() => ({ funnels: [] })),
       fetch('/api/features/verificado-global').then(r => r.json()).catch(() => ({ config: {} }))
-    ])
+    ]);
+
+    const stats = resStats.stats || {};
+    if (document.getElementById('zvStatMessages')) document.getElementById('zvStatMessages').innerText = stats.totalMessages || 0;
+    if (document.getElementById('zvStatAudios')) document.getElementById('zvStatAudios').innerText = stats.totalAudios || 0;
+    if (document.getElementById('zvStatFunnels')) document.getElementById('zvStatFunnels').innerText = stats.totalFunnels || 0;
+    if (document.getElementById('zvStatCampaigns')) document.getElementById('zvStatCampaigns').innerText = stats.totalCampaigns || 0;
+
+    const verif = resVerif.config || {};
+    const badgeEl = document.getElementById('verificadoGlobalBadgeStatus');
+    if (badgeEl) {
+      badgeEl.innerText = verif.enabled ? 'Ativado' : 'Desativado';
+      badgeEl.className = 'badge ' + (verif.enabled ? 'badge-success' : 'badge-secondary');
+    }
+  } catch (err) {
+    console.error('Erro ao carregar ZapVoice overview:', err);
+  }
+}
+
+// ==========================================
+// CENTRAL SOCIAL LISTENING (STEALTH EM GRUPOS) & TELEMETRIA DA VITRINE WEB
+// ==========================================
+
+let currentSocialRules = [];
+
+async function loadSocialListening() {
+  try {
+    const res = await fetch('/api/social-listening/rules');
+    const data = await res.json();
+    currentSocialRules = data.rules || [];
+
+    const table = document.getElementById('socialListeningRulesTable');
+    if (!table) return;
+
+    if (currentSocialRules.length === 0) {
+      table.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-ear-listen" style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;"></i><br>Nenhuma regra de escuta cadastrada ainda. Clique em "Nova Regra de Escuta".</td></tr>';
+    } else {
+      table.innerHTML = currentSocialRules.map(r => {
+        const templates = Array.isArray(r.templates) ? r.templates : (typeof r.templates === 'string' ? JSON.parse(r.templates || '[]') : []);
+        const kwBadges = (r.keywords || '').split(',').map(k => '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; margin-right: 4px; font-size: 11px;">' + k.trim() + '</span>').join('');
+        return '<tr>' +
+          '<td><strong>' + (r.product_name || 'Sem nome') + '</strong></td>' +
+          '<td>' + (kwBadges || '-') + '</td>' +
+          '<td><a href="' + r.affiliate_url + '" target="_blank" style="color: #38bdf8; text-decoration: underline; font-size: 12px;"><i class="fa-solid fa-arrow-up-right-from-square"></i> ' + (r.affiliate_url ? r.affiliate_url.slice(0, 30) + '...' : '-') + '</a></td>' +
+          '<td><small style="color: var(--text-muted);">' + templates.length + ' template(s)</small></td>' +
+          '<td><span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-weight: 700;">' + (r.triggered_count || 0) + ' envios</span></td>' +
+          '<td>' + (r.active ? '<span class="badge badge-success">🟢 Ativo</span>' : '<span class="badge badge-secondary">⚪ Pausado</span>') + '</td>' +
+          '<td>' +
+            '<button class="btn btn-xs btn-outline" onclick="editSocialRule(' + r.id + ')" title="Editar" style="margin-right: 4px;"><i class="fa-solid fa-pen"></i></button>' +
+            '<button class="btn btn-xs btn-danger" onclick="deleteSocialRule(' + r.id + ')" title="Excluir"><i class="fa-solid fa-trash"></i></button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    const statRules = document.getElementById('slStatRules');
+    if (statRules) statRules.innerText = currentSocialRules.length;
+
+    const totalTriggers = currentSocialRules.reduce((acc, r) => acc + (r.triggered_count || 0), 0);
+    const statTriggers = document.getElementById('slStatTriggers');
+    if (statTriggers) statTriggers.innerText = totalTriggers;
+
+  } catch (err) {
+    console.error('Erro ao carregar social listening:', err);
+  }
+}
+
+async function toggleSocialListeningGlobal() {
+  try {
+    const res = await fetch('/api/social-listening/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    const data = await res.json();
+    if (data.success) {
+      const statusEl = document.getElementById('socialListeningGlobalStatus');
+      if (statusEl) statusEl.innerText = data.enabled ? 'Ativado' : 'Pausado';
+      showBotToast('Social Listening', data.enabled ? '🟢 Motor de escuta em grupos ativado!' : '🔴 Motor de escuta pausado.', 'info');
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao alterar status global do Social Listening.', 'error');
+  }
+}
+
+function openNewSocialRuleModal() {
+  document.getElementById('slRuleId').value = '';
+  document.getElementById('slProductName').value = '';
+  document.getElementById('slKeywords').value = '';
+  document.getElementById('slAffiliateUrl').value = '';
+  document.getElementById('slTemplates').value = 'Menina, comprei a minha por esse link aqui na promoção e chegou super rápido: {link} recomendo demais!\nSe você estiver procurando, dá uma olhada nesse link que tá com frete grátis: {link}';
+  document.getElementById('slActive').checked = true;
+  document.getElementById('modalSocialRuleTitle').innerHTML = '<i class="fa-solid fa-ear-listen" style="color: #f59e0b;"></i> Nova Regra de Escuta em Grupos';
+  document.getElementById('modalSocialRule').style.display = 'flex';
+}
+
+function closeSocialRuleModal() {
+  document.getElementById('modalSocialRule').style.display = 'none';
+}
+
+function editSocialRule(id) {
+  const rule = currentSocialRules.find(r => r.id === id);
+  if (!rule) return;
+  document.getElementById('slRuleId').value = rule.id;
+  document.getElementById('slProductName').value = rule.product_name || '';
+  document.getElementById('slKeywords').value = rule.keywords || '';
+  document.getElementById('slAffiliateUrl').value = rule.affiliate_url || '';
+  const templates = Array.isArray(rule.templates) ? rule.templates : (typeof rule.templates === 'string' ? JSON.parse(rule.templates || '[]') : []);
+  document.getElementById('slTemplates').value = templates.join('\n');
+  document.getElementById('slActive').checked = !!rule.active;
+  document.getElementById('modalSocialRuleTitle').innerHTML = '<i class="fa-solid fa-pen" style="color: #f59e0b;"></i> Editar Regra de Escuta #' + id;
+  document.getElementById('modalSocialRule').style.display = 'flex';
+}
+
+async function saveSocialRule(e) {
+  if (e) e.preventDefault();
+  const id = document.getElementById('slRuleId').value ? parseInt(document.getElementById('slRuleId').value, 10) : null;
+  const productName = document.getElementById('slProductName').value.trim();
+  const keywords = document.getElementById('slKeywords').value.trim();
+  const affiliateUrl = document.getElementById('slAffiliateUrl').value.trim();
+  const templates = document.getElementById('slTemplates').value.split('\n').map(t => t.trim()).filter(Boolean);
+  const active = document.getElementById('slActive').checked;
+
+  if (!productName || !keywords || !affiliateUrl) {
+    showBotToast('Atenção', 'Preencha todos os campos obrigatórios.', 'warning');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/social-listening/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        product_name: productName,
+        keywords,
+        affiliate_url: affiliateUrl,
+        templates,
+        active
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeSocialRuleModal();
+      loadSocialListening();
+      showBotToast('Sucesso', 'Regra de escuta salva com sucesso!', 'success');
+    } else {
+      showBotToast('Erro', data.error || 'Falha ao salvar regra.', 'error');
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao conectar com o servidor.', 'error');
+  }
+}
+
+async function deleteSocialRule(id) {
+  if (!confirm('Deseja realmente excluir esta regra de escuta?')) return;
+  try {
+    const res = await fetch('/api/social-listening/rules/' + id, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      loadSocialListening();
+      showBotToast('Sucesso', 'Regra excluída com sucesso.', 'success');
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao excluir regra.', 'error');
+  }
+}
+
+async function loadStoreTelemetry() {
+  try {
+    const res = await fetch('/api/store/telemetry?limit=40');
+    const data = await res.json();
+    const events = data.events || [];
+    const table = document.getElementById('storeTelemetryTable');
+    if (!table) return;
+
+    if (events.length === 0) {
+      table.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--text-muted);">Nenhum clique ou evento recente registrado na vitrine.</td></tr>';
+      return;
+    }
+
+    const eventBadge = (type) => {
+      if (type === 'PAGE_VIEW') return '<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">Visualizou Loja</span>';
+      if (type === 'PRODUCT_VIEW') return '<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">Ver Detalhes</span>';
+      if (type === 'ADD_TO_CART') return '<span class="badge badge-success">Adicionou Carrinho</span>';
+      if (type === 'REMOVE_FROM_CART') return '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">Removeu Item</span>';
+      if (type === 'CHECKOUT_OPEN') return '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">Abriu Checkout</span>';
+      if (type === 'CHECKOUT_SUBMIT' || type === 'ORDER_PLACED') return '<span class="badge badge-success">🎉 Pedido Criado</span>';
+      if (type === 'PHONE_INPUT') return '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">Digitou Whats</span>';
+      if (type === 'ABANDONED') return '<span class="badge badge-danger">Abandono</span>';
+      return '<span class="badge badge-secondary">' + type + '</span>';
+    };
+
+    table.innerHTML = events.slice(0, 30).map(e => {
+      const timeStr = e.created_at ? new Date(e.created_at).toLocaleTimeString('pt-BR') : '-';
+      const custStr = e.phone ? ('+' + e.phone + (e.customer_name ? ' (' + e.customer_name + ')' : '')) : (e.session_id ? e.session_id.slice(0, 10) + '...' : 'Visitante');
+      const prodStr = e.product_name ? ('📦 ' + e.product_name) : (e.cart_total ? 'R$ ' + Number(e.cart_total).toFixed(2) : '-');
+      return '<tr>' +
+        '<td><small style="color: var(--text-muted);">' + timeStr + '</small></td>' +
+        '<td>' + eventBadge(e.event_type) + '</td>' +
+        '<td><small style="color: #fff; font-weight: 600;">' + custStr + '</small></td>' +
+        '<td><small style="color: #94a3b8;">' + prodStr + '</small></td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar telemetria:', err);
+  }
+}
+
+async function loadCartSessions() {
+  try {
+    const [resAll, resAban] = await Promise.all([
+      fetch('/api/store/cart-sessions?limit=30').then(r => r.json()).catch(() => ({ sessions: [] })),
+      fetch('/api/store/cart-sessions/abandoned?minutes=10').then(r => r.json()).catch(() => ({ sessions: [] }))
+    ]);
+
+    const sessions = resAll.sessions || [];
+    const abandoned = resAban.sessions || [];
+
+    const statSessions = document.getElementById('slStatSessions');
+    if (statSessions) statSessions.innerText = sessions.length;
+
+    const statAbandoned = document.getElementById('slStatAbandoned');
+    if (statAbandoned) statAbandoned.innerText = abandoned.length;
+
+    const table = document.getElementById('storeCartSessionsTable');
+    if (!table) return;
+
+    if (sessions.length === 0) {
+      table.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">Nenhum carrinho ativo no momento.</td></tr>';
+      return;
+    }
+
+    table.innerHTML = sessions.slice(0, 25).map(s => {
+      const isAban = s.status === 'ABANDONED';
+      const isDone = s.status === 'ORDER_PLACED';
+      const statusBadge = isDone
+        ? '<span class="badge badge-success">Concluído</span>'
+        : (isAban ? '<span class="badge badge-danger">Abandonado</span>' : '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">No Carrinho</span>');
+
+      const recoveryBtn = s.phone
+        ? '<button class="btn btn-xs btn-outline" style="color: #25d366; border-color: #25d366;" onclick="recoverAbandonedCart(\'' + s.phone + '\', \'' + (s.customer_name || 'Cliente') + '\', ' + Number(s.cart_total || 0).toFixed(2) + ')" title="Recuperar via WhatsApp"><i class="fa-brands fa-whatsapp"></i> Recuperar</button>'
+        : '<small style="color: var(--text-muted);">Sem Whats</small>';
+
+      return '<tr>' +
+        '<td><strong>' + (s.customer_name || 'Visitante') + '</strong><br><small style="color: var(--text-muted); font-size: 10px;">' + (s.session_id ? s.session_id.slice(0, 12) + '...' : '-') + '</small></td>' +
+        '<td>' + (s.phone ? '+' + s.phone : '<span style="color: var(--text-muted); font-size: 11px;">Não preencheu</span>') + '</td>' +
+        '<td><strong style="color: #fff;">R$ ' + Number(s.cart_total || 0).toFixed(2) + '</strong></td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td>' + recoveryBtn + '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar sessões de carrinho:', err);
+  }
+}
+
+function recoverAbandonedCart(phone, name, total) {
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  const msg = 'Olá, ' + name + '! Vi que você separou alguns itens na nossa loja (Total: R$ ' + total + '), mas ainda não concluiu seu pedido. Posso te ajudar com alguma dúvida ou liberar um cupom especial de 10% de desconto para fechar agora?';
+  const url = 'https://wa.me/' + cleanPhone + '?text=' + encodeURIComponent(msg);
+  window.open(url, '_blank');
+}

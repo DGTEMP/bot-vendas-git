@@ -71,7 +71,10 @@
         <a href="#" class="nav-item" data-tab="zapvoice" style="color: #ec4899; font-weight: 700;">
           <i class="fa-solid fa-microphone-lines" style="color: #ec4899;"></i> ZapVoice 2025 &amp; Funis
         </a>
-<a href="#" class="nav-item" data-tab="cognitive" style="color: #a855f7; font-weight: 700;">
+        <a href="#" class="nav-item" data-tab="social-listening" style="color: #f59e0b; font-weight: 700;">
+          <i class="fa-solid fa-ear-listen" style="color: #f59e0b;"></i> Social Listening &amp; Vitrine
+        </a>
+        <a href="#" class="nav-item" data-tab="cognitive" style="color: #a855f7; font-weight: 700;">
           <i class="fa-solid fa-brain-circuit" style="color: #a855f7;"></i> CRM Cognitivo &amp; Hexis
         </a>
         <a href="#" class="nav-item" data-tab="nlp">
@@ -4310,6 +4313,148 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
           </div>
         </section>
 
+        <!-- TAB SOCIAL LISTENING & VITRINE WEB TELEMETRIA -->
+        <section id="tab-social-listening" class="tab-pane">
+          <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+            <div>
+              <h2 style="display: flex; align-items: center; gap: 10px; margin: 0; color: #fff;">
+                <i class="fa-solid fa-ear-listen" style="color: #f59e0b;"></i>
+                Social Listening nos Grupos &amp; Telemetria da Vitrine
+                <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-size: 11px; font-weight: 700; border: 1px solid rgba(245, 158, 11, 0.4);">Entrosamento Stealth + Afiliados</span>
+              </h2>
+              <p class="section-desc" style="margin-top: 6px; margin-bottom: 0;">
+                O bot escuta palavras-chave configuráveis em grupos do WhatsApp (ex: chapinha, bot, automação) e dispara recomendações orgânicas com links de afiliados como se fosse um comprador real. Acompanha em tempo real os carrinhos e cliques na vitrine web.
+              </p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <button class="btn btn-sm btn-outline" id="btnToggleSocialListening" onclick="toggleSocialListeningGlobal()">
+                <i class="fa-solid fa-power-off"></i> Status: <span id="socialListeningGlobalStatus">Ativado</span>
+              </button>
+              <button class="btn btn-sm btn-primary" onclick="openNewSocialRuleModal()" style="background: #f59e0b; border-color: #f59e0b;">
+                <i class="fa-solid fa-plus"></i> Nova Regra de Escuta
+              </button>
+            </div>
+          </div>
+
+          <!-- Métricas Rápidas -->
+          <div class="stats-grid" style="margin-bottom: 20px;">
+            <div class="stat-card" style="border-top: 3px solid #f59e0b;">
+              <div class="stat-icon gold"><i class="fa-solid fa-bullseye"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Regras de Escuta</span>
+                <h3 id="slStatRules">0</h3>
+                <small style="color: #fbbf24;">Gatilhos monitorados</small>
+              </div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid #10b981;">
+              <div class="stat-icon green"><i class="fa-solid fa-comments"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Recomendações Enviadas</span>
+                <h3 id="slStatTriggers">0</h3>
+                <small style="color: #4ade80;">Disparos orgânicos em grupos</small>
+              </div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid #38bdf8;">
+              <div class="stat-icon blue"><i class="fa-solid fa-cart-shopping"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Sessões na Vitrine</span>
+                <h3 id="slStatSessions">0</h3>
+                <small style="color: #38bdf8;">Carrinhos ativos na loja web</small>
+              </div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid #ef4444;">
+              <div class="stat-icon red"><i class="fa-solid fa-cart-arrow-down"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Carrinhos Abandonados</span>
+                <h3 id="slStatAbandoned">0</h3>
+                <small style="color: #f87171;">Prontos para recuperação</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Regras de Social Listening -->
+          <div class="card" style="margin-bottom: 24px; border-top: 3px solid #f59e0b;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h3><i class="fa-solid fa-headphones" style="color: #f59e0b;"></i> Regras de Escuta e Recomendações Stealth</h3>
+              <button class="btn btn-sm btn-outline" onclick="loadSocialListening()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Produto / Campanha</th>
+                      <th>Palavras-Chave (Gatilhos)</th>
+                      <th>Link de Afiliado / Destino</th>
+                      <th>Templates de Mensagem</th>
+                      <th>Disparos</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="socialListeningRulesTable">
+                    <tr><td colspan="7" style="text-align:center; padding: 20px;">Carregando regras...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sessões de Carrinho & Telemetria da Vitrine Web -->
+          <div class="grid grid-2" style="gap: 20px;">
+            <div class="card" style="border-top: 3px solid #38bdf8;">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h3><i class="fa-solid fa-cart-flatbed" style="color: #38bdf8;"></i> Sessões de Carrinho na Loja Web</h3>
+                <button class="btn btn-sm btn-outline" onclick="loadCartSessions()"><i class="fa-solid fa-rotate"></i></button>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Cliente / Sessão</th>
+                        <th>WhatsApp</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody id="storeCartSessionsTable">
+                      <tr><td colspan="5" style="text-align:center; padding: 20px;">Nenhuma sessão ativa encontrada.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="border-top: 3px solid #10b981;">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h3><i class="fa-solid fa-radar" style="color: #10b981;"></i> Live Feed de Telemetria (Ações do Cliente)</h3>
+                <button class="btn btn-sm btn-outline" onclick="loadStoreTelemetry()"><i class="fa-solid fa-rotate"></i></button>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Horário</th>
+                        <th>Evento</th>
+                        <th>WhatsApp / Cliente</th>
+                        <th>Produto / Detalhe</th>
+                      </tr>
+                    </thead>
+                    <tbody id="storeTelemetryTable">
+                      <tr><td colspan="4" style="text-align:center; padding: 20px;">Aguardando eventos da vitrine...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+
+
         <!-- TAB 19: CENTRAL DE INTELIGENCIA CONSULTIVA & CRM COGNITIVO (HEXIS) -->
         <section id="tab-cognitive" class="tab-pane">
           <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
@@ -6480,6 +6625,50 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+
+  <!-- Modal Nova Regra Social Listening -->
+  <div id="modalSocialRule" class="modal" style="display: none;">
+    <div class="modal-dialog" style="max-width: 550px;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modalSocialRuleTitle"><i class="fa-solid fa-ear-listen" style="color: #f59e0b;"></i> Nova Regra de Escuta em Grupos</h3>
+          <button class="close-btn" onclick="closeSocialRuleModal()">&times;</button>
+        </div>
+        <form id="formSocialRule" onsubmit="saveSocialRule(event)">
+          <div class="modal-body">
+            <input type="hidden" id="slRuleId">
+            <div class="form-group mb-3">
+              <label>Nome do Produto / Campanha:</label>
+              <input type="text" id="slProductName" class="form-control" placeholder="Ex: Chapinha Titanium Original" required>
+            </div>
+            <div class="form-group mb-3">
+              <label>Palavras-Chave (separadas por vírgula):</label>
+              <input type="text" id="slKeywords" class="form-control" placeholder="Ex: chapinha, prancha, alisar, cabelo" required>
+              <small class="text-muted" style="color: var(--text-muted); font-size: 11px;">Quando um membro enviar uma mensagem com qualquer uma destas palavras, o bot enviará a recomendação orgânica.</small>
+            </div>
+            <div class="form-group mb-3">
+              <label>Link de Afiliado ou Loja Virtual:</label>
+              <input type="url" id="slAffiliateUrl" class="form-control" placeholder="https://shopee.com.br/afiliado/..." required>
+            </div>
+            <div class="form-group mb-3">
+              <label>Templates de Recomendação (um por linha - use {link}):</label>
+              <textarea id="slTemplates" class="form-control" rows="4" placeholder="Menina, comprei a minha por esse link aqui na promoção: {link} recomendo demais!&#10;Se for comprar, pega por aqui que tá com frete grátis: {link}"></textarea>
+            </div>
+            <div class="form-group mb-3">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="slActive" checked style="width: auto;"> Ativar regra imediatamente
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="closeSocialRuleModal()">Cancelar</button>
+            <button type="submit" class="btn btn-primary" style="background: #f59e0b; border-color: #f59e0b;">Salvar Regra</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 

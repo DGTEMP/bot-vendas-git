@@ -933,6 +933,48 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 42. Tabelas de Social Listening (Escuta de Palavras-Chave e Entrosamento Orgânico com Afiliados)
+    CREATE TABLE IF NOT EXISTS social_listening_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      keywords TEXT NOT NULL, -- palavras-chave separadas por vírgula (ex: chapinha, prancha, alisador)
+      product_name TEXT NOT NULL,
+      affiliate_url TEXT NOT NULL,
+      templates TEXT NOT NULL, -- JSON array de frases naturais de recomendação
+      cooldown_minutes INTEGER DEFAULT 15,
+      active INTEGER DEFAULT 1,
+      total_triggers INTEGER DEFAULT 0,
+      last_triggered_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 43. Tabelas de Telemetria de Loja Web & Rastreamento de Carrinho com WhatsApp
+    CREATE TABLE IF NOT EXISTS web_store_telemetry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      phone TEXT,
+      customer_name TEXT,
+      event_type TEXT NOT NULL, -- PAGE_VIEW, PRODUCT_VIEW, ADD_TO_CART, REMOVE_FROM_CART, CHECKOUT_OPEN, CHECKOUT_SUBMIT, ABANDONED
+      product_id INTEGER,
+      product_name TEXT,
+      cart_payload TEXT,
+      cart_total REAL DEFAULT 0,
+      metadata TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS web_cart_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT UNIQUE NOT NULL,
+      phone TEXT,
+      customer_name TEXT,
+      cart_items TEXT,
+      cart_total REAL DEFAULT 0,
+      status TEXT DEFAULT 'BROWSING', -- BROWSING, IN_CART, CHECKOUT_OPEN, ORDER_PLACED, ABANDONED
+      abandoned_recovery_sent INTEGER DEFAULT 0,
+      last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
 
   // Migrações seguras
@@ -1035,7 +1077,12 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_zv_aud_shortcut ON zapvoice_audios(shortcut);',
     'CREATE INDEX IF NOT EXISTS idx_zv_fun_act ON zapvoice_funnels(active);',
     'CREATE INDEX IF NOT EXISTS idx_zv_steps_fun ON zapvoice_funnel_steps(funnel_id, step_order);',
-    'CREATE INDEX IF NOT EXISTS idx_zv_camp_st ON zapvoice_campaigns(status);'
+    'CREATE INDEX IF NOT EXISTS idx_zv_camp_st ON zapvoice_campaigns(status);',
+    'CREATE INDEX IF NOT EXISTS idx_sl_rules_act ON social_listening_rules(active);',
+    'CREATE INDEX IF NOT EXISTS idx_telemetry_sess ON web_store_telemetry(session_id);',
+    'CREATE INDEX IF NOT EXISTS idx_telemetry_ph ON web_store_telemetry(phone);',
+    'CREATE INDEX IF NOT EXISTS idx_cart_sess_id ON web_cart_sessions(session_id);',
+    'CREATE INDEX IF NOT EXISTS idx_cart_sess_ph ON web_cart_sessions(phone);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
@@ -1051,6 +1098,12 @@ function initDatabase() {
     ['GLOBAL_AFFILIATE_RATE', '20.0'],
     ['ROUND_ROBIN_SELLERS', 'true'],
     ['NOTIFY_ADMIN_ON_SALE', 'true'],
+    ['OWNER_PHONE', '554884702848'],
+    ['OWNER_WHATSAPP', '554884702848'],
+    ['ADMIN_PHONE', '554884702848'],
+    ['ADMIN_NOTIFY_WHATSAPP_PHONE', '554884702848'],
+    ['SOCIAL_LISTENING_ENABLED', 'true'],
+    ['SOCIAL_LISTENING_COOLDOWN_MIN', '15'],
     ['ADMIN_NOTIFY_TELEGRAM_ID', ''],
     ['ADMIN_NOTIFY_WHATSAPP_PHONE', ''],
     ['BOT_NAME', 'PayBot Vendas'],
@@ -1825,6 +1878,49 @@ function initDatabase() {
     }
   } catch (_) {}
 
+  // Semeia regras padrão de Social Listening se tabela estiver vazia
+  try {
+    const slCount = db.prepare('SELECT COUNT(*) as count FROM social_listening_rules').get().count;
+    if (slCount === 0) {
+      const insSl = db.prepare(`
+        INSERT INTO social_listening_rules (keywords, product_name, affiliate_url, templates, cooldown_minutes, active)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `);
+      insSl.run(
+        'chapinha, prancha de cabelo, prancha, alisador, escova secadora, secador',
+        'Chapinha Titanium Profissional Íons Negativos',
+        'https://amzn.to/chapinha-titanium-pro',
+        JSON.stringify([
+          'Menina, comprei a minha por esse link aqui na promoção e chegou super rápido: {link} esquenta muito bem e não resseca o cabelo!',
+          'Essa prancha é maravilhosa! Peguei com desconto direto no site oficial por aqui: {link} vale cada centavo.',
+          'Uso essa no meu salão todos os dias, a temperatura é excelente: {link} recomendo demais!'
+        ]),
+        15
+      );
+      insSl.run(
+        'bot de vendas, bot whatsapp, automacao whatsapp, sistema de vendas, zap bot, bot automatico',
+        'PayBot Vendas Automáticas & Gestão de Grupos',
+        'https://paybot.store/catalogo?ref=grupo_social',
+        JSON.stringify([
+          'Cara, uso o bot do pessoal daqui faz meses: {link} roda 24h sem cair com Pix automático e proteção de grupos, valeu cada centavo!',
+          'Recomendo muito a solução que eles têm aqui: {link} aumentou minhas conversões direto no WhatsApp sem precisar ficar no celular o dia todo.',
+          'Para quem tava com dúvida de bot que não toma ban, dá uma olhada na plataforma oficial deles: {link} recomendo!'
+        ]),
+        20
+      );
+      insSl.run(
+        'software sob medida, app personalizado, desenvolver app, criar site, sistema web, automacao ia',
+        'Desenvolvimento de Software Sob Medida & Painéis Web',
+        'https://paybot.store/catalogo?ref=social_dev',
+        JSON.stringify([
+          'Contratei a equipe deles para montar um painel pra mim e entregaram antes do prazo: {link} recomendo demais falar com eles!',
+          'Se você precisa de app ou site profissional, fecha com eles por aqui: {link} o suporte pós-entrega é de primeira.'
+        ]),
+        25
+      );
+    }
+  } catch (_) {}
+
   // Semeia mensagens rápidas e funis ZapVoice padrão se tabela estiver vazia
   try {
     const zvMsgCount = db.prepare('SELECT COUNT(*) as count FROM zapvoice_quick_messages').get().count;
@@ -1862,6 +1958,49 @@ function initDatabase() {
       insStep.run(funnelId2, 1, 'text', '{saudacao}, {nome}! Desenvolvemos softwares, apps mobile (Android/iOS) e painéis em tempo real sob medida.', 2, 0);
       insStep.run(funnelId2, 2, 'audio_ptt', 'Tudo bem? Nós estruturamos o projeto em sprints ágeis com entrega do primeiro protótipo funcional em até 15 dias úteis, com código-fonte auditado e garantia técnica.', 5, 1);
       insStep.run(funnelId2, 3, 'text', 'Podemos agendar uma call rápida de 15 minutos pelo Google Meet para alinhar seus requisitos e gerar o orçamento exato? Envie *!call* para escolher seu melhor horário!', 3, 0);
+    }
+  } catch (_) {}
+
+  // Semeia regras padrão de Social Listening se tabela estiver vazia
+  try {
+    const slCount = db.prepare('SELECT COUNT(*) as count FROM social_listening_rules').get().count;
+    if (slCount === 0) {
+      const insSl = db.prepare(`
+        INSERT INTO social_listening_rules (keywords, product_name, affiliate_url, templates, cooldown_minutes, active)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `);
+      insSl.run(
+        'chapinha, prancha de cabelo, prancha, alisador, escova secadora, secador',
+        'Chapinha Titanium Profissional Íons Negativos',
+        'https://amzn.to/chapinha-titanium-pro',
+        JSON.stringify([
+          'Menina, comprei a minha por esse link aqui na promoção e chegou super rápido: {link} esquenta muito bem e não resseca o cabelo!',
+          'Essa prancha é maravilhosa! Peguei com desconto direto no site oficial por aqui: {link} vale cada centavo.',
+          'Uso essa no meu salão todos os dias, a temperatura é excelente: {link} recomendo demais!'
+        ]),
+        15
+      );
+      insSl.run(
+        'bot de vendas, bot whatsapp, automacao whatsapp, sistema de vendas, zap bot, bot automatico',
+        'PayBot Vendas Automáticas & Gestão de Grupos',
+        'https://paybot.store/catalogo?ref=grupo_social',
+        JSON.stringify([
+          'Cara, uso o bot do pessoal daqui faz meses: {link} roda 24h sem cair com Pix automático e proteção de grupos, valeu cada centavo!',
+          'Recomendo muito a solução que eles têm aqui: {link} aumentou minhas conversões direto no WhatsApp sem precisar ficar no celular o dia todo.',
+          'Para quem tava com dúvida de bot que não toma ban, dá uma olhada na plataforma oficial deles: {link} recomendo!'
+        ]),
+        20
+      );
+      insSl.run(
+        'software sob medida, app personalizado, desenvolver app, criar site, sistema web, automacao ia',
+        'Desenvolvimento de Software Sob Medida & Painéis Web',
+        'https://paybot.store/catalogo?ref=social_dev',
+        JSON.stringify([
+          'Contratei a equipe deles para montar um painel pra mim e entregaram antes do prazo: {link} recomendo demais falar com eles!',
+          'Se você precisa de app ou site profissional, fecha com eles por aqui: {link} o suporte pós-entrega é de primeira.'
+        ]),
+        25
+      );
     }
   } catch (_) {}
 
