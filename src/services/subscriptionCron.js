@@ -22,6 +22,7 @@ class SubscriptionCronService {
         console.error('[Cron ❌ Erro ao checar pedidos pendentes]:', err.message);
       });
     }, 15000);
+    this.pollInterval.unref?.();
 
     // 2. Recuperação automática de carrinhos/pedidos abandonados a cada 60 segundos
     this.abandonedInterval = setInterval(() => {
@@ -29,6 +30,7 @@ class SubscriptionCronService {
         console.error('[Cron ❌ Erro ao recuperar carrinhos]:', err.message);
       });
     }, 60000);
+    this.abandonedInterval.unref?.();
 
     // 3. Verificação de assinaturas (vencimentos e renovações) a cada 5 minutos
     this.subCheckInterval = setInterval(() => {
@@ -36,6 +38,7 @@ class SubscriptionCronService {
         console.error('[Cron ❌ Erro ao checar assinaturas]:', err.message);
       });
     }, 5 * 60 * 1000);
+    this.subCheckInterval.unref?.();
 
     // 4. Verificação de etapas agendadas do Lançamento Meteórico a cada 30 segundos
     this.meteoricCheckInterval = setInterval(() => {
@@ -43,6 +46,7 @@ class SubscriptionCronService {
         console.error('[Cron ❌ Erro ao checar etapas meteóricas]:', err.message);
       });
     }, 30000);
+    this.meteoricCheckInterval.unref?.();
 
     // Executa uma checagem imediata
     setTimeout(() => {

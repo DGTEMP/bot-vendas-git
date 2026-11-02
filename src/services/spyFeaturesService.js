@@ -94,7 +94,33 @@ class SpyFeaturesService {
         if (now - ts > 120000) this.afkAlertThrottles.delete(k);
       }
 
-      // 4. Invoca coletor de lixo se habilitado
+      // 4. Limpa arquivos temporários órfãos de mídia no os.tmpdir() (> 10 min)
+      try {
+        const tmpDir = os.tmpdir();
+        const files = fs.readdirSync(tmpDir);
+        for (const file of files) {
+          if (file.startsWith('ytdl_') || file.startsWith('ytvideo_') || file.startsWith('sticker_')) {
+            const filePath = path.join(tmpDir, file);
+            try {
+              const stat = fs.statSync(filePath);
+              if (now - stat.mtimeMs > 600000) {
+                fs.unlinkSync(filePath);
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+
+      // 5. Mantém bounded o mapa de atividade de participantes de grupos
+      if (this.groupMessageActivity.size > 100) {
+        let trimmed = 0;
+        for (const k of this.groupMessageActivity.keys()) {
+          this.groupMessageActivity.delete(k);
+          if (++trimmed >= 30) break;
+        }
+      }
+
+      // 6. Invoca coletor de lixo V8 se habilitado
       if (typeof global.gc === 'function') {
         global.gc();
       }

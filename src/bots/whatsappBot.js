@@ -345,7 +345,7 @@ class WhatsAppBotService {
     });
   }
 
-  async getGroupAdminStatus(from, participantJid, isFromMe) {
+  async getGroupAdminStatus(from, participantJid, isFromMe, forceFresh = false) {
     if (!from || !from.endsWith('@g.us')) {
       return { isGroup: false, isRequesterAdmin: true, isBotAdmin: false };
     }
@@ -357,7 +357,18 @@ class WhatsAppBotService {
       if (!sock || !sock.groupMetadata) {
         return { isGroup: true, isRequesterAdmin: isGlobalAdmin, isBotAdmin: isGlobalAdmin, error: 'Socket não pronto' };
       }
-      const metadata = await sock.groupMetadata(from);
+
+      // Cache de Metadados do Grupo em Memória (TTL 60s) para evitar sobrecarga de consultas ao WhatsApp
+      if (!this.groupMetadataCache) this.groupMetadataCache = new Map();
+      const now = Date.now();
+      let metadata;
+      const cached = this.groupMetadataCache.get(from);
+      if (!forceFresh && cached && now < cached.expiresAt && cached.sockRef === sock.groupMetadata) {
+        metadata = cached.metadata;
+      } else {
+        metadata = await sock.groupMetadata(from);
+        this.groupMetadataCache.set(from, { metadata, expiresAt: now + 60000, sockRef: sock.groupMetadata });
+      }
 
       // Identifica o bot no grupo
       const myJid = sock.user?.id || this.sock?.user?.id || '';
@@ -382,6 +393,10 @@ class WhatsAppBotService {
   }
 
   async checkIsAdmin(from, participantJid, isFromMe) {
+    if (!from || !from.endsWith('@g.us')) return true;
+    if (isFromMe) return true;
+    const senderPhone = safeExtractPhone(participantJid);
+    if (this.isOwner(senderPhone, isFromMe)) return true;
     const status = await this.getGroupAdminStatus(from, participantJid, isFromMe);
     return !status.isGroup ? true : status.isRequesterAdmin;
   }
@@ -3439,6 +3454,11 @@ class WhatsAppBotService {
           if (track?.lastMsgTime && now - track.lastMsgTime > 120000) {
             this.userFloodTracking.delete(key);
           }
+        }
+      }
+      if (this.groupMetadataCache) {
+        for (const [gid, item] of this.groupMetadataCache.entries()) {
+          if (now > item.expiresAt) this.groupMetadataCache.delete(gid);
         }
       }
     } catch (_) {}

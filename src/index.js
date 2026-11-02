@@ -73,10 +73,12 @@ async function bootstrap() {
     try {
       if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
       if (typeof whatsappBot.cleanupMemory === 'function') whatsappBot.cleanupMemory();
+      if (typeof whatsappArmyService.cleanupMemory === 'function') whatsappArmyService.cleanupMemory();
       if (typeof spyFeatures.cleanupMemory === 'function') spyFeatures.cleanupMemory();
       if (typeof global.gc === 'function') global.gc();
     } catch (_) {}
-  }, 300000); // Executa a cada 5 minutos
+  }, 180000); // Executa a cada 3 minutos para manter RAM mínima e latência ~1-5ms
+  memoryCleanupInterval.unref?.();
 
   // Graceful shutdown
   const shutdown = async () => {

@@ -17,14 +17,34 @@ db.exec('PRAGMA foreign_keys = ON;');
 db.exec('PRAGMA busy_timeout = 5000;');
 db.exec('PRAGMA synchronous = NORMAL;');
 
-// Otimizações de Memória e Latência para SQLite
-db.exec('PRAGMA cache_size = -2000;'); // Limita cache a 2MB de RAM (em vez dos ~16MB padrões)
-db.exec('PRAGMA temp_store = FILE;'); // Tabelas temporárias em arquivo para poupar heap V8
-db.exec('PRAGMA mmap_size = 0;'); // Desativa memory-mapping excessivo
-db.exec('PRAGMA wal_autocheckpoint = 100;'); // Checkpoints menores para evitar crescimento do arquivo WAL
+// Otimizações de Memória e Latência para SQLite (< 1ms por consulta)
+db.exec('PRAGMA cache_size = -4000;'); // Cache otimizado de 4MB de RAM
+db.exec('PRAGMA temp_store = MEMORY;'); // Tabelas e ordenações temporárias em RAM para evitar I/O de disco
+db.exec('PRAGMA mmap_size = 0;'); // Desativa memory-mapping excessivo no Windows
+db.exec('PRAGMA wal_autocheckpoint = 250;'); // Checkpoints automáticos balanceados
+
+// Cache de Statements Preparados para eliminar recompilação de SQL no V8
+const origPrepare = db.prepare.bind(db);
+const stmtCache = new Map();
+
+db.prepare = function(sql) {
+  let stmt = stmtCache.get(sql);
+  if (!stmt) {
+    stmt = origPrepare(sql);
+    if (stmtCache.size < 400) {
+      stmtCache.set(sql, stmt);
+    }
+  }
+  return stmt;
+};
+
+db.clearStatementCache = function() {
+  stmtCache.clear();
+};
 
 db.optimizeDatabaseMemory = function() {
   try {
+    if (stmtCache.size > 250) stmtCache.clear();
     db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
     db.exec('PRAGMA optimize;');
   } catch (_) {}
@@ -703,6 +723,36 @@ function initDatabase() {
     try {
       db.exec(m);
     } catch (e) {}
+  }
+
+  // Índices de alta performance para acelerar consultas críticas (latência <1ms)
+  const performanceIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);',
+    'CREATE INDEX IF NOT EXISTS idx_orders_trade_no ON orders(trade_no);',
+    'CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);',
+    'CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);',
+    'CREATE INDEX IF NOT EXISTS idx_inv_keys_prod_st ON inventory_keys(product_id, status);',
+    'CREATE INDEX IF NOT EXISTS idx_army_inst_st ON whatsapp_army_instances(status, is_main);',
+    'CREATE INDEX IF NOT EXISTS idx_army_inst_phone ON whatsapp_army_instances(phone);',
+    'CREATE INDEX IF NOT EXISTS idx_del_tasks_status ON subbot_delegated_tasks(status, scheduled_at);',
+    'CREATE INDEX IF NOT EXISTS idx_del_tasks_code ON subbot_delegated_tasks(task_code);',
+    'CREATE INDEX IF NOT EXISTS idx_del_tasks_inst ON subbot_delegated_tasks(instance_id);',
+    'CREATE INDEX IF NOT EXISTS idx_camp_leads_phone ON campaign_leads(phone);',
+    'CREATE INDEX IF NOT EXISTS idx_camp_leads_st ON campaign_leads(status);',
+    'CREATE INDEX IF NOT EXISTS idx_camp_leads_inst ON campaign_leads(army_instance_id);',
+    'CREATE INDEX IF NOT EXISTS idx_funnel_conv_phone ON lead_funnel_conversations(lead_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_products_active ON products(active, army_instance_id);',
+    'CREATE INDEX IF NOT EXISTS idx_aff_links_code ON affiliate_links(code);',
+    'CREATE INDEX IF NOT EXISTS idx_notices_active ON system_notices(status, created_at);',
+    'CREATE INDEX IF NOT EXISTS idx_viral_posts_score ON viral_captured_posts(viral_score);',
+    'CREATE INDEX IF NOT EXISTS idx_meteoric_grp_jid ON meteoric_groups(group_jid);',
+    'CREATE INDEX IF NOT EXISTS idx_meteoric_grp_camp ON meteoric_groups(campaign_id, active);',
+    'CREATE INDEX IF NOT EXISTS idx_subs_status ON subscriptions(status);',
+    'CREATE INDEX IF NOT EXISTS idx_sellers_active ON sellers(active);',
+    'CREATE INDEX IF NOT EXISTS idx_affiliates_active ON affiliates(active);'
+  ];
+  for (const idxSql of performanceIndexes) {
+    try { db.exec(idxSql); } catch (_) {}
   }
 
   // Configurações padrão

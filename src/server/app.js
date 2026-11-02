@@ -19,9 +19,12 @@ function createServer() {
   const app = express();
 
   app.use(cors());
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
-  app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.static(path.join(__dirname, '..', 'public'), {
+    maxAge: 3600000, // Cache de 1h para assets estáticos para reduzir I/O de disco
+    etag: true
+  }));
 
   // ==========================================
   // REDIRECIONAMENTO INTELIGENTE DO LANÇAMENTO METEÓRICO

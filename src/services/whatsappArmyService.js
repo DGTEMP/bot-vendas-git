@@ -1184,6 +1184,19 @@ class WhatsAppArmyService {
   async initArmyCluster() {
     return this.initAllInstances();
   }
+
+  cleanupMemory() {
+    try {
+      const now = Date.now();
+      if (this.activeRelays) {
+        for (const [phone, relay] of this.activeRelays.entries()) {
+          if (now - (relay.createdAt || 0) > 43200000) {
+            this.activeRelays.delete(phone);
+          }
+        }
+      }
+    } catch (_) {}
+  }
 }
 
 module.exports = new WhatsAppArmyService();

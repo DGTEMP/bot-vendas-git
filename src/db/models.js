@@ -1,5 +1,23 @@
 const db = require('./database');
 
+// ==========================================
+// Cache Write-Through em Memória RAM para Configurações (Acesso ~0ms)
+// ==========================================
+const _settingsMemoryCache = new Map();
+let _settingsLoaded = false;
+
+function _ensureSettingsCache() {
+  if (!_settingsLoaded) {
+    try {
+      const rows = db.prepare('SELECT key, value FROM settings').all();
+      for (const r of rows) {
+        _settingsMemoryCache.set(r.key, r.value);
+      }
+      _settingsLoaded = true;
+    } catch (_) {}
+  }
+}
+
 const models = {
   // ==========================================
   // 1. PRODUTOS & CATEGORIAS
@@ -730,24 +748,34 @@ const models = {
   },
 
   // ==========================================
-  // 8. CONFIGURAÇÕES DINÂMICAS (SETTINGS)
+  // 8. CONFIGURAÇÕES DINÂMICAS (SETTINGS) - OTIMIZADO COM WRITE-THROUGH RAM CACHE
   // ==========================================
   getSetting(key, defaultValue = null) {
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-    return row ? row.value : defaultValue;
+    _ensureSettingsCache();
+    if (_settingsMemoryCache.has(key)) {
+      return _settingsMemoryCache.get(key);
+    }
+    return defaultValue;
   },
 
   setSetting(key, value) {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
+    const valStr = String(value);
+    _settingsMemoryCache.set(key, valStr);
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, valStr);
   },
 
   getAllSettings() {
-    const rows = db.prepare('SELECT key, value FROM settings').all();
+    _ensureSettingsCache();
     const map = {};
-    for (const r of rows) {
-      map[r.key] = r.value;
+    for (const [k, v] of _settingsMemoryCache.entries()) {
+      map[k] = v;
     }
     return map;
+  },
+
+  clearSettingsCache() {
+    _settingsMemoryCache.clear();
+    _settingsLoaded = false;
   },
 
   // ==========================================
