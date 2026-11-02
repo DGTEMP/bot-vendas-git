@@ -533,7 +533,112 @@
             </div>
 
             <div class="botdeck-topbar-actions">
+              <span id="telemetryLiveBadge" class="live-badge" onclick="toggleTelemetryLiveMode()" title="Clique para pausar ou alternar velocidade do tempo real">
+                <span class="live-dot"></span> <span id="telemetryLiveText">LIVE (5s)</span>
+              </span>
               <button class="btn btn-outline btn-sm" onclick="loadBotDeck()"><i class="fa-solid fa-arrows-rotate"></i> Atualizar Status</button>
+            </div>
+          </div>
+
+          <!-- Central de Telemetria & Monitor em Tempo Real de Bots & Sub-Bots -->
+          <div class="live-telemetry-container card" id="botdeckLiveTelemetryBox">
+            <div class="telemetry-header">
+              <div class="telemetry-title-group">
+                <h3><i class="fa-solid fa-gauge-high text-info"></i> Monitor em Tempo Real dos Bots &amp; Sub-Bots</h3>
+                <p>Supervisão ao vivo de funções ativas, consumo de cota anti-ban (%), saúde e projeções de alcance e vendas de cada nó.</p>
+              </div>
+              <div class="telemetry-controls">
+                <button class="btn btn-outline btn-sm" onclick="toggleTelemetryViewMode()" id="telemetryToggleViewBtn" title="Alternar entre visualização em Cards ou Tabela">
+                  <i class="fa-solid fa-table-list"></i> <span id="telemetryViewModeText">Ver Tabela</span>
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="resetAllSubbotsQuota(this)" title="Zera o contador diário de mensagens para novo ciclo">
+                  <i class="fa-solid fa-clock-rotate-left"></i> Resetar Cotas
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="loadBotDeckTelemetry(true)">
+                  <i class="fa-solid fa-rotate"></i> Sincronizar
+                </button>
+              </div>
+            </div>
+
+            <!-- Cluster Projections Banner -->
+            <div class="cluster-projections-grid">
+              <div class="cluster-kpi-card">
+                <div class="cluster-kpi-header">
+                  <span class="cluster-kpi-title">Cota Global do Cluster</span>
+                  <i class="fa-solid fa-battery-half cluster-kpi-icon text-info"></i>
+                </div>
+                <div class="cluster-kpi-val" id="clusterKpiQuotaVal">0 / 0</div>
+                <div class="cluster-kpi-sub" id="clusterKpiQuotaPct">0% da capacidade segura</div>
+                <div class="progress-container-sm">
+                  <div class="progress-bar-fill" id="clusterKpiQuotaBar" style="width: 0%; background: #38bdf8;"></div>
+                </div>
+              </div>
+
+              <div class="cluster-kpi-card">
+                <div class="cluster-kpi-header">
+                  <span class="cluster-kpi-title">Projeção de Alcance Hoje</span>
+                  <i class="fa-solid fa-chart-line cluster-kpi-icon text-warning"></i>
+                </div>
+                <div class="cluster-kpi-val text-warning" id="clusterKpiReachVal">0 contatos</div>
+                <div class="cluster-kpi-sub" id="clusterKpiReachPace">Ritmo: 0 msgs/hora</div>
+                <div class="progress-container-sm">
+                  <div class="progress-bar-fill" id="clusterKpiReachBar" style="width: 0%; background: #f59e0b;"></div>
+                </div>
+              </div>
+
+              <div class="cluster-kpi-card">
+                <div class="cluster-kpi-header">
+                  <span class="cluster-kpi-title">Projeção de Vendas Tech</span>
+                  <i class="fa-solid fa-sack-dollar cluster-kpi-icon text-success"></i>
+                </div>
+                <div class="cluster-kpi-val text-success" id="clusterKpiSalesVal">R$ 0,00</div>
+                <div class="cluster-kpi-sub" id="clusterKpiSalesCount">~0 conversões estimadas</div>
+                <div class="progress-container-sm">
+                  <div class="progress-bar-fill" id="clusterKpiSalesBar" style="width: 0%; background: #10b981;"></div>
+                </div>
+              </div>
+
+              <div class="cluster-kpi-card">
+                <div class="cluster-kpi-header">
+                  <span class="cluster-kpi-title">Segurança Anti-Ban &amp; Saúde</span>
+                  <i class="fa-solid fa-shield-halved cluster-kpi-icon text-purple"></i>
+                </div>
+                <div class="cluster-kpi-val" id="clusterKpiSafetyVal">100%</div>
+                <div class="cluster-kpi-sub" id="clusterKpiSafetyStatus">Operando no nível SEGURO</div>
+                <div class="progress-container-sm">
+                  <div class="progress-bar-fill" id="clusterKpiSafetyBar" style="width: 100%; background: #10b981;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Grade de Cards Vivos dos Bots e Sub-Bots -->
+            <div id="botdeckLiveBotsGrid" class="telemetry-bots-grid">
+              <div class="p-4 text-center text-muted" style="grid-column: 1 / -1;">
+                <i class="fa-solid fa-circle-notch fa-spin"></i> Carregando telemetria em tempo real dos bots...
+              </div>
+            </div>
+
+            <!-- Tabela Alternativa dos Bots e Sub-Bots -->
+            <div id="botdeckLiveBotsTableContainer" class="telemetry-table-container">
+              <table class="telemetry-table">
+                <thead>
+                  <tr>
+                    <th>Bot / Sub-Bot</th>
+                    <th>Telefone</th>
+                    <th>Status</th>
+                    <th>Função Designada</th>
+                    <th>Cota Hoje (%)</th>
+                    <th>Saúde Uptime</th>
+                    <th>Anti-Ban (%)</th>
+                    <th>Projeção Alcance</th>
+                    <th>Projeção Vendas</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="botdeckLiveBotsTableBody">
+                  <tr><td colspan="10" class="text-center p-3 text-muted">Carregando...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
 

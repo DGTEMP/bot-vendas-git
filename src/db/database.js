@@ -752,6 +752,9 @@ function initDatabase() {
     'ALTER TABLE whatsapp_army_instances ADD COLUMN is_business INTEGER DEFAULT 0;',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN business_catalog_synced INTEGER DEFAULT 0;',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN catalog_products TEXT DEFAULT "[]";',
+    'ALTER TABLE whatsapp_army_instances ADD COLUMN role TEXT DEFAULT "LEAD_OUTREACH";',
+    'ALTER TABLE whatsapp_army_instances ADD COLUMN health_score REAL DEFAULT 98.5;',
+    'ALTER TABLE whatsapp_army_instances ADD COLUMN delivery_success_rate REAL DEFAULT 99.0;',
     'ALTER TABLE products ADD COLUMN army_instance_id INTEGER DEFAULT NULL;'
   ];
 

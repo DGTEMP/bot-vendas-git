@@ -3047,6 +3047,7 @@ function createServer() {
       } catch (_) {}
       const recentTasks = models.getDelegatedTasks(30);
       const metrics = models.getMetrics();
+      const telemetry = models.getBotsLiveTelemetry();
       res.json({
         success: true,
         main: {
@@ -3055,12 +3056,34 @@ function createServer() {
           name: 'Matriz Principal'
         },
         instances,
+        telemetry,
         groups: groups.map(g => ({ id: g.id, subject: g.subject, size: g.size })),
         recentTasks,
         metrics,
         moderationStats: models.getModerationStats(),
         recentReports: models.getModerationReports({ limit: 15 })
       });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/botdeck/telemetry', (req, res) => {
+    try {
+      const telemetry = models.getBotsLiveTelemetry();
+      res.json({ success: true, telemetry, data: telemetry });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/botdeck/subbots/:id/role', (req, res) => {
+    try {
+      const id = req.params.id;
+      const { role } = req.body;
+      if (!role) return res.status(400).json({ error: 'Parâmetro role é obrigatório' });
+      models.setArmyInstanceRole(id, role);
+      res.json({ success: true, message: `Função do Sub-Bot #${id} atualizada para ${role}` });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -3256,7 +3279,7 @@ function createServer() {
           const { instanceId } = payload;
           const start = Date.now();
           let statusText = 'Online';
-          if (!instanceId || instanceId === 'main') {
+          if (!instanceId || instanceId === 'main' || instanceId === 'matriz') {
             statusText = whatsappBot.isConnected ? 'Conectado (Matriz)' : 'Desconectado';
           } else {
             const inst = models.getArmyInstanceById(Number(instanceId));
@@ -3626,6 +3649,26 @@ function createServer() {
           const tunnelService = require('../services/tunnelService');
           const tRes = await tunnelService.startCloudflaredTunnel(3000, true);
           resultMsg = `Túnel remoto reiniciado com sucesso! URL: ${tRes.url || 'Ativo'}`;
+          break;
+        }
+
+        case 'SUBBOT_SET_ROLE': {
+          const { instanceId, role } = payload;
+          if (!instanceId || !role) throw new Error('instanceId e role são obrigatórios');
+          models.setArmyInstanceRole(instanceId, role);
+          resultMsg = `Função do Sub-Bot #${instanceId} definida para: ${role}`;
+          break;
+        }
+
+        case 'SUBBOT_RESET_QUOTA': {
+          const { instanceId } = payload;
+          if (instanceId && instanceId !== 'all') {
+            models.resetArmyInstancesQuota(instanceId);
+            resultMsg = `Cota diária do Sub-Bot #${instanceId} resetada com sucesso para 0 envios.`;
+          } else {
+            models.resetArmyInstancesQuota();
+            resultMsg = `Cota diária de TODOS os Sub-Bots foi resetada com sucesso para 0 envios.`;
+          }
           break;
         }
 

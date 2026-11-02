@@ -53,6 +53,9 @@ function switchTab(tabName) {
 
   if (tabName === 'botdeck') {
     loadBotDeck();
+    startBotDeckTelemetryPolling();
+  } else {
+    stopBotDeckTelemetryPolling();
   }
   if (tabName === 'connections') {
     startQrPolling();
@@ -7535,6 +7538,9 @@ loadBotDeck = async function() {
       `;
     }).join('');
   }
+  if (typeof loadBotDeckTelemetry === 'function') {
+    loadBotDeckTelemetry(false);
+  }
 };
 
 
@@ -7754,6 +7760,503 @@ async function dismissModReport(reportId) {
     if (!data.success) throw new Error(data.error);
     showBotToast('Sucesso', 'Denúncia dispensada!', 'info');
     loadModerationReports();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+
+// ==========================================
+// MONITOR EM TEMPO REAL: BOTS & SUB-BOTS (TELEMETRIA, FUNÇÕES & PROJEÇÕES)
+// ==========================================
+let botDeckTelemetryTimer = null;
+let botDeckTelemetryIntervalMs = 5000;
+let botDeckTelemetryViewMode = 'grid'; // 'grid' | 'table'
+let botDeckTelemetryData = null;
+let isTelemetryFetching = false;
+
+function startBotDeckTelemetryPolling() {
+  if (botDeckTelemetryTimer) clearInterval(botDeckTelemetryTimer);
+  loadBotDeckTelemetry(false);
+  if (botDeckTelemetryIntervalMs > 0) {
+    botDeckTelemetryTimer = setInterval(() => {
+      loadBotDeckTelemetry(false);
+    }, botDeckTelemetryIntervalMs);
+  }
+}
+
+function stopBotDeckTelemetryPolling() {
+  if (botDeckTelemetryTimer) {
+    clearInterval(botDeckTelemetryTimer);
+    botDeckTelemetryTimer = null;
+  }
+}
+
+function toggleTelemetryLiveMode() {
+  const badgeEl = document.getElementById('telemetryLiveBadge');
+  const textEl = document.getElementById('telemetryLiveText');
+
+  // Ciclo: 5s -> 10s -> 30s -> Pausado (0) -> 5s
+  if (botDeckTelemetryIntervalMs === 5000) {
+    botDeckTelemetryIntervalMs = 10000;
+    if (textEl) textEl.innerText = 'LIVE (10s)';
+    if (badgeEl) badgeEl.classList.remove('paused');
+    showBotToast('Modo Tempo Real', 'Atualização ao vivo a cada 10 segundos.', 'info');
+  } else if (botDeckTelemetryIntervalMs === 10000) {
+    botDeckTelemetryIntervalMs = 30000;
+    if (textEl) textEl.innerText = 'LIVE (30s)';
+    if (badgeEl) badgeEl.classList.remove('paused');
+    showBotToast('Modo Tempo Real', 'Atualização ao vivo a cada 30 segundos.', 'info');
+  } else if (botDeckTelemetryIntervalMs === 30000) {
+    botDeckTelemetryIntervalMs = 0;
+    if (textEl) textEl.innerText = 'PAUSADO';
+    if (badgeEl) badgeEl.classList.add('paused');
+    showBotToast('Modo Tempo Real', 'Atualização automática pausada.', 'warning');
+  } else {
+    botDeckTelemetryIntervalMs = 5000;
+    if (textEl) textEl.innerText = 'LIVE (5s)';
+    if (badgeEl) badgeEl.classList.remove('paused');
+    showBotToast('Modo Tempo Real', 'Atualização ao vivo a cada 5 segundos ativada!', 'success');
+  }
+
+  startBotDeckTelemetryPolling();
+}
+
+function toggleTelemetryViewMode() {
+  const gridEl = document.getElementById('botdeckLiveBotsGrid');
+  const tableContainerEl = document.getElementById('botdeckLiveBotsTableContainer');
+  const btnTextEl = document.getElementById('telemetryViewModeText');
+
+  if (botDeckTelemetryViewMode === 'grid') {
+    botDeckTelemetryViewMode = 'table';
+    if (gridEl) gridEl.style.display = 'none';
+    if (tableContainerEl) tableContainerEl.classList.add('active');
+    if (btnTextEl) btnTextEl.innerText = 'Ver Cards';
+  } else {
+    botDeckTelemetryViewMode = 'grid';
+    if (gridEl) gridEl.style.display = 'grid';
+    if (tableContainerEl) tableContainerEl.classList.remove('active');
+    if (btnTextEl) btnTextEl.innerText = 'Ver Tabela';
+  }
+}
+
+async function loadBotDeckTelemetry(showToast = false) {
+  if (isTelemetryFetching) return;
+  isTelemetryFetching = true;
+  try {
+    const res = await fetch('/api/botdeck/telemetry');
+    const data = await res.json();
+    const telemetry = data.telemetry || data.data;
+    if (!data.success || !telemetry) return;
+
+    botDeckTelemetryData = telemetry;
+    renderClusterProjections(telemetry.cluster);
+    renderTelemetryBotsGrid(telemetry);
+    renderTelemetryBotsTable(telemetry);
+
+    if (showToast) {
+      showBotToast('Telemetria Sincronizada', 'Métricas de todos os bots e sub-bots atualizadas em tempo real!', 'success');
+    }
+  } catch (err) {
+    console.warn('[Telemetry] Erro ao sincronizar telemetria:', err.message);
+  } finally {
+    isTelemetryFetching = false;
+  }
+}
+
+function renderClusterProjections(cluster) {
+  if (!cluster) return;
+
+  const quotaVal = document.getElementById('clusterKpiQuotaVal');
+  const quotaPct = document.getElementById('clusterKpiQuotaPct');
+  const quotaBar = document.getElementById('clusterKpiQuotaBar');
+  if (quotaVal) quotaVal.innerText = `${cluster.daily_sent} / ${cluster.total_capacity}`;
+  if (quotaPct) quotaPct.innerText = `${cluster.quota_percentage}% da capacidade segura consumida`;
+  if (quotaBar) {
+    const pct = Math.min(cluster.quota_percentage, 100);
+    quotaBar.style.width = `${pct}%`;
+    quotaBar.style.background = pct >= 90 ? '#ef4444' : (pct >= 70 ? '#f59e0b' : '#38bdf8');
+  }
+
+  const reachVal = document.getElementById('clusterKpiReachVal');
+  const reachPace = document.getElementById('clusterKpiReachPace');
+  const reachBar = document.getElementById('clusterKpiReachBar');
+  if (reachVal) reachVal.innerText = `~${(cluster.projected_reach || 0).toLocaleString('pt-BR')} contatos`;
+  if (reachPace) reachPace.innerText = `${cluster.connected_bots} nós ativos | ${cluster.daily_sent} msgs disparadas`;
+  if (reachBar) {
+    const reachPct = cluster.total_capacity > 0 ? Math.min(Math.round(((cluster.projected_reach || 0) / cluster.total_capacity) * 100), 100) : 0;
+    reachBar.style.width = `${reachPct}%`;
+  }
+
+  const salesVal = document.getElementById('clusterKpiSalesVal');
+  const salesCount = document.getElementById('clusterKpiSalesCount');
+  const salesBar = document.getElementById('clusterKpiSalesBar');
+  if (salesVal) salesVal.innerText = `R$ ${(cluster.projected_revenue_brl || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (salesCount) salesCount.innerText = `~${cluster.projected_sales || 0} conversões de soluções tech`;
+  if (salesBar) {
+    const salesProgress = Math.min((cluster.projected_sales || 0) * 10, 100);
+    salesBar.style.width = `${salesProgress}%`;
+  }
+
+  const safetyVal = document.getElementById('clusterKpiSafetyVal');
+  const safetyStatus = document.getElementById('clusterKpiSafetyStatus');
+  const safetyBar = document.getElementById('clusterKpiSafetyBar');
+  if (safetyVal) safetyVal.innerText = `${cluster.safety_score}%`;
+  if (safetyStatus) {
+    if (cluster.safety_score >= 85) {
+      safetyStatus.innerHTML = '<span class="text-success"><i class="fa-solid fa-circle-check"></i> Operando no nível SEGURO</span>';
+    } else if (cluster.safety_score >= 60) {
+      safetyStatus.innerHTML = '<span class="text-warning"><i class="fa-solid fa-triangle-exclamation"></i> Alerta de aquecimento</span>';
+    } else {
+      safetyStatus.innerHTML = '<span class="text-danger"><i class="fa-solid fa-fire"></i> Risco de ban elevado</span>';
+    }
+  }
+  if (safetyBar) {
+    safetyBar.style.width = `${cluster.safety_score}%`;
+    safetyBar.style.background = cluster.safety_score >= 85 ? '#10b981' : (cluster.safety_score >= 60 ? '#f59e0b' : '#ef4444');
+  }
+}
+
+function renderTelemetryBotsGrid(telemetry) {
+  const container = document.getElementById('botdeckLiveBotsGrid');
+  if (!container || !telemetry || !telemetry.bots) return;
+
+  // Se o usuário estiver atualmente interagindo com um dropdown dentro da grade, preserva o foco
+  if (document.activeElement && document.activeElement.closest('#botdeckLiveBotsGrid') && document.activeElement.tagName === 'SELECT') {
+    return;
+  }
+
+  const roles = telemetry.roles_catalog || telemetry.available_roles || {};
+
+  container.innerHTML = telemetry.bots.map(bot => {
+    const isMatriz = bot.id === 'matriz';
+    const isOnline = bot.status === 'CONNECTED';
+    const isPaused = bot.status === 'PAUSED';
+    const isQr = bot.status === 'QRCODE';
+
+    let ringClass = 'offline';
+    let statusBadge = '<span class="badge badge-danger">Offline</span>';
+    if (isOnline) {
+      ringClass = 'online';
+      statusBadge = '<span class="badge badge-success">Online</span>';
+    } else if (isPaused) {
+      ringClass = 'paused';
+      statusBadge = '<span class="badge badge-warning">Pausado</span>';
+    } else if (isQr) {
+      ringClass = 'warmup';
+      statusBadge = '<span class="badge badge-info">Aguardando QR</span>';
+    }
+
+    const quotaPct = bot.quota_percentage || 0;
+    const quotaColor = quotaPct >= 90 ? '#ef4444' : (quotaPct >= 70 ? '#f59e0b' : '#38bdf8');
+    const safetyColor = bot.anti_ban_safety_score >= 85 ? '#10b981' : (bot.anti_ban_safety_score >= 60 ? '#f59e0b' : '#ef4444');
+
+    const roleMeta = bot.role_meta || {
+      label: bot.role || 'Geral',
+      desc: 'Operação padrão de atendimento',
+      color: '#38bdf8',
+      icon: 'fa-solid fa-robot'
+    };
+
+    let roleOptionsHtml = '';
+    Object.keys(roles).forEach(rk => {
+      const r = roles[rk];
+      const sel = rk === bot.role ? 'selected' : '';
+      roleOptionsHtml += `<option value="${rk}" ${sel}>${r.label}</option>`;
+    });
+
+    const cardExtraClass = isMatriz ? 'main-bot-card' : (bot.role === 'BUSINESS_CATALOG' ? 'business-card' : '');
+
+    return `
+      <div class="telemetry-bot-card ${cardExtraClass}" id="telemetry-card-${bot.id}">
+        <div class="telemetry-bot-top">
+          <div class="telemetry-bot-avatar">
+            <span class="telemetry-bot-status-ring ${ringClass}"></span>
+            <i class="fa-solid ${isMatriz ? 'fa-crown text-warning' : 'fa-robot text-info'}"></i>
+          </div>
+          <div class="telemetry-bot-info">
+            <div class="telemetry-bot-name">
+              ${escapeHtml(bot.name)}
+              ${isMatriz ? '<span class="badge badge-primary badge-mini">MATRIZ</span>' : `<span class="badge badge-info badge-mini">SUB-BOT #${bot.id}</span>`}
+            </div>
+            <div class="telemetry-bot-phone">
+              <i class="fa-solid fa-phone text-xs"></i> ${bot.phone ? '+' + bot.phone : 'Sem número'} • ${statusBadge}
+            </div>
+          </div>
+        </div>
+
+        <div class="telemetry-role-box">
+          <div class="telemetry-role-header">
+            <span class="telemetry-role-label">Função Operacional:</span>
+            <span class="badge badge-mini" style="background:${roleMeta.color}22; color:${roleMeta.color}; border: 1px solid ${roleMeta.color}55;">
+              <i class="${roleMeta.icon}"></i> ${roleMeta.label}
+            </span>
+          </div>
+          <select class="role-select-inline" onchange="changeBotRole('${bot.id}', this.value)" ${isMatriz ? 'disabled title="A Matriz Principal opera fixamente como Orquestradora Geral"' : ''}>
+            ${roleOptionsHtml}
+          </select>
+          <div class="telemetry-role-desc">${roleMeta.desc}</div>
+        </div>
+
+        <div class="telemetry-metrics-grid">
+          <div class="telemetry-metric-item">
+            <div class="metric-item-label">
+              <span>Cota Diária</span>
+              <span style="color:${quotaColor};">${quotaPct}%</span>
+            </div>
+            <div class="metric-item-val">${bot.messages_sent_today} <span class="text-xs text-muted">/ ${bot.daily_limit}</span></div>
+            <div class="progress-container-sm" style="margin-top:6px;">
+              <div class="progress-bar-fill" style="width:${Math.min(quotaPct, 100)}%; background:${quotaColor};"></div>
+            </div>
+          </div>
+
+          <div class="telemetry-metric-item">
+            <div class="metric-item-label">
+              <span>Saúde Uptime</span>
+              <i class="fa-solid fa-heart-pulse text-success text-xs"></i>
+            </div>
+            <div class="metric-item-val text-success">${bot.health_score}%</div>
+            <div class="progress-container-sm" style="margin-top:6px;">
+              <div class="progress-bar-fill" style="width:${bot.health_score}%; background:#10b981;"></div>
+            </div>
+          </div>
+
+          <div class="telemetry-metric-item">
+            <div class="metric-item-label">
+              <span>Entrega OK</span>
+              <i class="fa-solid fa-check-double text-info text-xs"></i>
+            </div>
+            <div class="metric-item-val text-info">${bot.delivery_success_rate}%</div>
+            <div class="progress-container-sm" style="margin-top:6px;">
+              <div class="progress-bar-fill" style="width:${bot.delivery_success_rate}%; background:#38bdf8;"></div>
+            </div>
+          </div>
+
+          <div class="telemetry-metric-item">
+            <div class="metric-item-label">
+              <span>Anti-Ban</span>
+              <i class="fa-solid fa-shield-halved text-purple text-xs"></i>
+            </div>
+            <div class="metric-item-val" style="color:${safetyColor};">${bot.anti_ban_safety_score}%</div>
+            <div class="progress-container-sm" style="margin-top:6px;">
+              <div class="progress-bar-fill" style="width:${bot.anti_ban_safety_score}%; background:${safetyColor};"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="telemetry-projections-box">
+          <div class="proj-row">
+            <span class="proj-label"><i class="fa-solid fa-bullseye text-warning"></i> Alcance Projetado (hoje):</span>
+            <span class="proj-val">~${(bot.projected_daily_reach || 0).toLocaleString('pt-BR')} contatos</span>
+          </div>
+          <div class="proj-row">
+            <span class="proj-label"><i class="fa-solid fa-hand-holding-dollar text-success"></i> Vendas Tech Projetadas:</span>
+            <span class="proj-val sales">R$ ${(bot.projected_revenue_brl || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0 })} (~${bot.projected_sales || 0} pedidos)</span>
+          </div>
+          <div class="proj-row">
+            <span class="proj-label"><i class="fa-solid fa-gauge-simple-high text-info"></i> Velocidade &amp; Cota:</span>
+            <span class="proj-val" style="color:#cbd5e1; font-weight:600;">${bot.pace_per_hour} msgs/h • ${bot.time_to_exhaustion}</span>
+          </div>
+        </div>
+
+        <div class="telemetry-task-bar" title="Tarefa ativa no cluster">
+          <i class="fa-solid fa-list-check text-info"></i>
+          <span>${escapeHtml(bot.current_task)}</span>
+        </div>
+
+        <div class="telemetry-bot-actions">
+          <button class="btn btn-xs btn-outline" onclick="pingChip('${bot.id}')" title="Testar latência e conectividade">
+            <i class="fa-solid fa-bolt"></i> Ping
+          </button>
+          ${!isMatriz ? `
+            <button class="btn btn-xs btn-outline ${isPaused ? 'text-success' : 'text-warning'}" onclick="toggleBotPause('${bot.id}', '${bot.status}')" title="${isPaused ? 'Retomar operações' : 'Pausar este sub-bot'}">
+              <i class="fa-solid ${isPaused ? 'fa-play' : 'fa-pause'}"></i> ${isPaused ? 'Retomar' : 'Pausar'}
+            </button>
+            <button class="btn btn-xs btn-outline text-info" onclick="resetSingleBotQuota('${bot.id}')" title="Zerar mensagens enviadas hoje para novo ciclo">
+              <i class="fa-solid fa-clock-rotate-left"></i> Zerar
+            </button>
+          ` : `
+            <button class="btn btn-xs btn-outline text-info" onclick="loadBotDeck()" title="Sincronizar Matriz">
+              <i class="fa-solid fa-arrows-rotate"></i> Sync
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTelemetryBotsTable(telemetry) {
+  const tbody = document.getElementById('botdeckLiveBotsTableBody');
+  if (!tbody || !telemetry || !telemetry.bots) return;
+
+  if (document.activeElement && document.activeElement.closest('#botdeckLiveBotsTableContainer') && document.activeElement.tagName === 'SELECT') {
+    return;
+  }
+
+  const roles = telemetry.roles_catalog || telemetry.available_roles || {};
+
+  tbody.innerHTML = telemetry.bots.map(bot => {
+    const isMatriz = bot.id === 'matriz';
+    const isOnline = bot.status === 'CONNECTED';
+    const isPaused = bot.status === 'PAUSED';
+    const isQr = bot.status === 'QRCODE';
+
+    let ringClass = 'offline';
+    let statusBadge = '<span class="badge badge-danger">Offline</span>';
+    if (isOnline) {
+      ringClass = 'online';
+      statusBadge = '<span class="badge badge-success">Online</span>';
+    } else if (isPaused) {
+      ringClass = 'paused';
+      statusBadge = '<span class="badge badge-warning">Pausado</span>';
+    } else if (isQr) {
+      ringClass = 'warmup';
+      statusBadge = '<span class="badge badge-info">Aguardando QR</span>';
+    }
+
+    const quotaPct = bot.quota_percentage || 0;
+    const quotaColor = quotaPct >= 90 ? '#ef4444' : (quotaPct >= 70 ? '#f59e0b' : '#38bdf8');
+    const safetyColor = bot.anti_ban_safety_score >= 85 ? '#10b981' : (bot.anti_ban_safety_score >= 60 ? '#f59e0b' : '#ef4444');
+
+    let roleOptionsHtml = '';
+    Object.keys(roles).forEach(rk => {
+      const r = roles[rk];
+      const sel = rk === bot.role ? 'selected' : '';
+      roleOptionsHtml += `<option value="${rk}" ${sel}>${r.label}</option>`;
+    });
+
+    return `
+      <tr>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="telemetry-bot-status-ring ${ringClass}" style="position:static; display:inline-block;"></span>
+            <div>
+              <strong>${escapeHtml(bot.name)}</strong>
+              <div>${isMatriz ? '<span class="badge badge-primary badge-mini">MATRIZ</span>' : `<span class="badge badge-info badge-mini">SUB-BOT #${bot.id}</span>`}</div>
+            </div>
+          </div>
+        </td>
+        <td><code>${bot.phone ? '+' + bot.phone : 'Sem número'}</code></td>
+        <td>${statusBadge}</td>
+        <td>
+          <select class="role-select-inline" style="font-size:11px; padding:4px 6px;" onchange="changeBotRole('${bot.id}', this.value)" ${isMatriz ? 'disabled' : ''}>
+            ${roleOptionsHtml}
+          </select>
+        </td>
+        <td>
+          <div style="min-width:110px;">
+            <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700;">
+              <span>${bot.messages_sent_today}/${bot.daily_limit}</span>
+              <span style="color:${quotaColor};">${quotaPct}%</span>
+            </div>
+            <div class="progress-container-sm" style="margin-top:2px;">
+              <div class="progress-bar-fill" style="width:${Math.min(quotaPct, 100)}%; background:${quotaColor};"></div>
+            </div>
+          </div>
+        </td>
+        <td><span style="color:#10b981; font-weight:700;">${bot.health_score}%</span></td>
+        <td><span style="color:${safetyColor}; font-weight:700;">${bot.anti_ban_safety_score}%</span></td>
+        <td>
+          <div><strong>~${(bot.projected_daily_reach || 0).toLocaleString('pt-BR')}</strong> contatos</div>
+          <div class="text-xs text-muted">${bot.pace_per_hour} msgs/h</div>
+        </td>
+        <td>
+          <div style="color:#10b981; font-weight:700;">R$ ${(bot.projected_revenue_brl || 0).toLocaleString('pt-BR', {minimumFractionDigits: 0})}</div>
+          <div class="text-xs text-muted">~${bot.projected_sales || 0} vendas</div>
+        </td>
+        <td>
+          <div class="d-inline-flex gap-1">
+            <button class="btn btn-xs btn-outline" onclick="pingChip('${bot.id}')" title="Testar conectividade"><i class="fa-solid fa-bolt"></i></button>
+            ${!isMatriz ? `
+              <button class="btn btn-xs btn-outline ${isPaused ? 'text-success' : 'text-warning'}" onclick="toggleBotPause('${bot.id}', '${bot.status}')" title="${isPaused ? 'Retomar' : 'Pausar'}"><i class="fa-solid ${isPaused ? 'fa-play' : 'fa-pause'}"></i></button>
+              <button class="btn btn-xs btn-outline text-info" onclick="resetSingleBotQuota('${bot.id}')" title="Zerar Cota"><i class="fa-solid fa-clock-rotate-left"></i></button>
+            ` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function changeBotRole(instanceId, newRole) {
+  if (instanceId === 'matriz') {
+    showBotToast('Aviso', 'A Matriz Principal opera fixamente como Orquestradora Geral.', 'info');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/botdeck/subbots/${instanceId}/role`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: newRole })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Erro ao alterar função');
+    showBotToast('Função Atualizada', data.message || `Sub-bot #${instanceId} reconfigurado!`, 'success');
+    loadBotDeckTelemetry(false);
+  } catch (err) {
+    showBotToast('Erro na Função', err.message, 'error');
+  }
+}
+
+async function resetAllSubbotsQuota(btnEl) {
+  if (!confirm('Deseja resetar o contador diário de mensagens de TODOS os bots e sub-bots?')) return;
+  let oldText = '';
+  if (btnEl) {
+    oldText = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Resetando...';
+    btnEl.disabled = true;
+  }
+  try {
+    const res = await fetch('/api/botdeck/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'SUBBOT_RESET_QUOTA', payload: {} })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao resetar cotas');
+    showBotToast('Cotas Reiniciadas', data.message || 'Cotas diárias zeradas com sucesso!', 'success');
+    loadBotDeckTelemetry(false);
+  } catch (err) {
+    showBotToast('Erro ao Resetar Cotas', err.message, 'error');
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = oldText;
+      btnEl.disabled = false;
+    }
+  }
+}
+
+async function resetSingleBotQuota(instanceId) {
+  if (!confirm(`Zerar o contador diário de mensagens do bot #${instanceId}?`)) return;
+  try {
+    const res = await fetch('/api/botdeck/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'SUBBOT_RESET_QUOTA', payload: { instanceId } })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao resetar cota');
+    showBotToast('Cota Reiniciada', `Cota do bot #${instanceId} zerada para novo ciclo!`, 'success');
+    loadBotDeckTelemetry(false);
+  } catch (err) {
+    showBotToast('Erro ao Resetar Cota', err.message, 'error');
+  }
+}
+
+async function toggleBotPause(instanceId, currentStatus) {
+  const isPaused = currentStatus === 'PAUSED';
+  const action = isPaused ? 'SUBBOT_RESUME' : 'SUBBOT_PAUSE';
+  try {
+    const res = await fetch('/api/botdeck/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: { instanceId } })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao alterar status');
+    showBotToast('Status Atualizado', data.message || `Bot #${instanceId} ${isPaused ? 'retomado' : 'pausado'}!`, 'info');
+    loadBotDeckTelemetry(false);
   } catch (err) {
     showBotToast('Erro', err.message, 'error');
   }

@@ -1179,14 +1179,31 @@ const models = {
     const is_business = data.is_business !== undefined ? (data.is_business ? 1 : 0) : (existing.is_business || 0);
     const business_catalog_synced = data.business_catalog_synced !== undefined ? (data.business_catalog_synced ? 1 : 0) : (existing.business_catalog_synced || 0);
     const catalog_products = data.catalog_products !== undefined ? (typeof data.catalog_products === 'string' ? data.catalog_products : JSON.stringify(data.catalog_products)) : (existing.catalog_products || '[]');
+    const role = data.role !== undefined ? data.role : (existing.role || (existing.is_main ? 'MATRIZ_ORCHESTRATOR' : (existing.is_business ? 'BUSINESS_CATALOG' : 'LEAD_OUTREACH')));
+    const health_score = data.health_score !== undefined ? Number(data.health_score) : (existing.health_score || 98.5);
+    const delivery_success_rate = data.delivery_success_rate !== undefined ? Number(data.delivery_success_rate) : (existing.delivery_success_rate || 99.0);
 
     db.prepare(`
       UPDATE whatsapp_army_instances
-      SET name = ?, phone = ?, status = ?, daily_limit = ?, messages_sent_today = ?, warmup_mode = ?, active = ?, is_business = ?, business_catalog_synced = ?, catalog_products = ?
+      SET name = ?, phone = ?, status = ?, daily_limit = ?, messages_sent_today = ?, warmup_mode = ?, active = ?, is_business = ?, business_catalog_synced = ?, catalog_products = ?, role = ?, health_score = ?, delivery_success_rate = ?
       WHERE id = ?
-    `).run(name, phone || null, status, daily_limit, messages_sent_today, warmup_mode, active, is_business, business_catalog_synced, catalog_products, id);
+    `).run(name, phone || null, status, daily_limit, messages_sent_today, warmup_mode, active, is_business, business_catalog_synced, catalog_products, role, health_score, delivery_success_rate, id);
 
     return models.getArmyInstanceById(id);
+  },
+
+  setArmyInstanceRole(id, role) {
+    db.prepare('UPDATE whatsapp_army_instances SET role = ? WHERE id = ?').run(role, id);
+    return models.getArmyInstanceById(id);
+  },
+
+  resetArmyInstancesQuota(id = null) {
+    if (id && id !== 'all' && id !== 'matriz') {
+      db.prepare('UPDATE whatsapp_army_instances SET messages_sent_today = 0 WHERE id = ?').run(Number(id));
+      return models.getArmyInstanceById(id);
+    }
+    db.prepare('UPDATE whatsapp_army_instances SET messages_sent_today = 0').run();
+    return true;
   },
 
   // Verifica se uma instância de Sub-Bot é uma conta WhatsApp Business
@@ -3506,6 +3523,180 @@ const models = {
       ) WHERE phone IS NOT NULL AND length(phone) >= 8
       LIMIT ?
     `).all(Number(limit) || 100);
+  },
+
+  getBotsLiveTelemetry() {
+    const BOT_ROLES = {
+      'MATRIZ_ORCHESTRATOR': {
+        code: 'MATRIZ_ORCHESTRATOR',
+        label: 'Atendimento Matriz & Venda Consultiva',
+        badge: 'badge-primary',
+        icon: 'fa-solid fa-crown',
+        color: '#f59e0b',
+        description: 'Qualificação B2B de softwares, apps, IA, SEO e fechamento Pix'
+      },
+      'LEAD_OUTREACH': {
+        code: 'LEAD_OUTREACH',
+        label: 'Disparo & Nutrição de Leads',
+        badge: 'badge-info',
+        icon: 'fa-solid fa-bullhorn',
+        color: '#38bdf8',
+        description: 'Prospecção fria e morna com Spintax anti-ban e apresentação de catálogo'
+      },
+      'METEORIC_WARMUP': {
+        code: 'METEORIC_WARMUP',
+        label: 'Aquecimento Meteórico de Grupos',
+        badge: 'badge-danger',
+        icon: 'fa-solid fa-meteor',
+        color: '#ef4444',
+        description: 'Simulação de prova social e hype nos grupos de lançamentos e ofertas'
+      },
+      'BUSINESS_CATALOG': {
+        code: 'BUSINESS_CATALOG',
+        label: 'Vitrine WhatsApp Business',
+        badge: 'badge-success',
+        icon: 'fa-solid fa-store',
+        color: '#10b981',
+        description: 'Catálogo de produtos tech, checkout direto e conversão automática'
+      },
+      'MODERATION_GUARD': {
+        code: 'MODERATION_GUARD',
+        label: 'Moderação Heurística & Anti-Golpe',
+        badge: 'badge-purple',
+        icon: 'fa-solid fa-shield-halved',
+        color: '#8b5cf6',
+        description: 'Escuta passiva de grupos, normalizador unicode, crowd-reporting e anti-flood'
+      },
+      'CART_RECOVERY': {
+        code: 'CART_RECOVERY',
+        label: 'Recuperação de Carrinho Abandonado',
+        badge: 'badge-warning',
+        icon: 'fa-solid fa-cart-shopping',
+        color: '#ec4899',
+        description: 'Contato com pedidos pendentes, cupons de desconto e urgência de estoque'
+      },
+      'VOICE_SYNTH_PTT': {
+        code: 'VOICE_SYNTH_PTT',
+        label: 'Disparador de Voz Sintética PTT',
+        badge: 'badge-secondary',
+        icon: 'fa-solid fa-microphone-lines',
+        color: '#06b6d4',
+        description: 'Notas de voz sintéticas humanizadas para alta taxa de abertura e confiança'
+      }
+    };
+
+    const instances = models.getArmyInstances();
+    const now = new Date();
+    const hoursElapsed = Math.max(1, now.getHours() + (now.getMinutes() / 60));
+    const hoursRemaining = Math.max(1, 24 - hoursElapsed);
+    const avgTicketBrl = 497;
+    const estConversionRate = 0.038;
+
+    let clusterDailySent = 0;
+    let clusterTotalCapacity = 0;
+    let clusterProjectedReach = 0;
+    let clusterProjectedSales = 0;
+    let clusterProjectedRevenueBrl = 0;
+    let clusterConnectedCount = 0;
+
+    const bots = instances.map(inst => {
+      const isMain = !!inst.is_main;
+      const isBusiness = !!inst.is_business;
+      const roleCode = (inst.role && inst.role !== 'LEAD_OUTREACH')
+        ? inst.role
+        : (isMain ? 'MATRIZ_ORCHESTRATOR' : (isBusiness ? 'BUSINESS_CATALOG' : (inst.role || 'LEAD_OUTREACH')));
+      const roleMeta = BOT_ROLES[roleCode] || BOT_ROLES['LEAD_OUTREACH'];
+
+      const dailyLimit = Number(inst.daily_limit || 50);
+      const sentToday = Number(inst.messages_sent_today || 0);
+      const quotaPercentage = dailyLimit > 0 ? Math.min(100, Math.round((sentToday / dailyLimit) * 100)) : 0;
+
+      const isConnected = inst.status === 'CONNECTED';
+      if (isConnected) clusterConnectedCount++;
+      const isPaused = inst.status === 'PAUSED';
+      const isWarmup = Boolean(inst.warmup_mode);
+
+      const healthScore = isConnected ? 99.4 : (isPaused ? 65.0 : (isWarmup ? 85.0 : 15.0));
+      const deliverySuccessRate = Number(inst.delivery_success_rate || 98.8);
+
+      const usageRatio = dailyLimit > 0 ? (sentToday / dailyLimit) : 0;
+      const antiBanSafetyScore = Math.max(25, Math.min(100, Math.round((1 - (usageRatio * 0.55)) * 100)));
+      const safetyTier = antiBanSafetyScore >= 80 ? 'SAFE' : (antiBanSafetyScore >= 60 ? 'MODERATE' : 'WARNING');
+
+      // Projeções
+      const pacePerHour = sentToday > 0 ? (sentToday / hoursElapsed) : (isWarmup ? 2 : 1);
+      const remainingQuota = Math.max(0, dailyLimit - sentToday);
+      const projectedAdditional = Math.min(remainingQuota, Math.round(pacePerHour * hoursRemaining));
+      const projectedDailyReach = sentToday + projectedAdditional;
+      const projectedSales = Math.max(0, Math.round(projectedDailyReach * estConversionRate));
+      const projectedRevenueBrl = projectedSales * avgTicketBrl;
+
+      clusterDailySent += sentToday;
+      clusterTotalCapacity += dailyLimit;
+      clusterProjectedReach += projectedDailyReach;
+      clusterProjectedSales += projectedSales;
+      clusterProjectedRevenueBrl += projectedRevenueBrl;
+
+      // Tarefa atual / mais recente
+      let currentTaskDesc = 'Em prontidão para atendimento e missões';
+      try {
+        const latestTask = db.prepare('SELECT title, status, task_type FROM subbot_delegated_tasks WHERE assigned_instance_id = ? ORDER BY id DESC LIMIT 1').get(inst.id);
+        if (latestTask) {
+          currentTaskDesc = `${latestTask.title} (${latestTask.status})`;
+        }
+      } catch (_) {}
+
+      return {
+        id: inst.id,
+        name: inst.name,
+        phone: inst.phone,
+        session_id: inst.session_id,
+        status: inst.status,
+        is_main: isMain,
+        is_business: isBusiness,
+        warmup_mode: isWarmup,
+        active: Boolean(inst.active),
+        role: roleCode,
+        role_meta: roleMeta,
+        daily_limit: dailyLimit,
+        messages_sent_today: sentToday,
+        quota_percentage: quotaPercentage,
+        health_score: healthScore,
+        delivery_success_rate: deliverySuccessRate,
+        anti_ban_safety_score: antiBanSafetyScore,
+        safety_tier: safetyTier,
+        projected_daily_reach: projectedDailyReach,
+        projected_sales: projectedSales,
+        projected_revenue_brl: projectedRevenueBrl,
+        pace_per_hour: Number(pacePerHour.toFixed(1)),
+        time_to_exhaustion: pacePerHour > 0.2 ? `~${(remainingQuota / pacePerHour).toFixed(1)}h` : 'Disponível',
+        current_task: currentTaskDesc
+      };
+    });
+
+    const clusterQuotaPercentage = clusterTotalCapacity > 0 ? Math.min(100, Math.round((clusterDailySent / clusterTotalCapacity) * 100)) : 0;
+    const clusterHealthAvg = bots.length > 0 ? Number((bots.reduce((a, b) => a + b.health_score, 0) / bots.length).toFixed(1)) : 100.0;
+    const clusterSafetyScore = bots.length > 0 ? Math.round(bots.reduce((a, b) => a + b.anti_ban_safety_score, 0) / bots.length) : 95;
+
+    return {
+      timestamp: new Date().toISOString(),
+      available_roles: BOT_ROLES,
+      roles_catalog: BOT_ROLES,
+      cluster: {
+        total_bots: bots.length,
+        connected_bots: clusterConnectedCount,
+        daily_sent: clusterDailySent,
+        total_capacity: clusterTotalCapacity,
+        quota_percentage: clusterQuotaPercentage,
+        projected_reach: clusterProjectedReach,
+        projected_sales: clusterProjectedSales,
+        projected_revenue_brl: clusterProjectedRevenueBrl,
+        health_score: clusterHealthAvg,
+        safety_score: clusterSafetyScore,
+        safety_tier: clusterSafetyScore >= 80 ? 'SAFE' : (clusterSafetyScore >= 60 ? 'MODERATE' : 'WARNING')
+      },
+      bots
+    };
   }
 };
 
