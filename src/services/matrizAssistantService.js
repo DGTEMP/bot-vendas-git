@@ -710,7 +710,7 @@ class MatrizAssistantService {
       `  🟢 Sub-Bots Online/Conectados: *${summary.connectedCount}*\n` +
       `  🟡 Aguardando QR Code: *${summary.waitingQrCount}*\n` +
       `  🔴 Desconectados/Pausados: *${summary.disconnectedCount}*\n` +
-      `  📤 Total Enviado Hoje: *${summary.totalMessagesSentToday} mensagens*\n\n` +
+      `  📤 Total Enviado Hoje: *${summary.totalSentToday || summary.totalMessagesSentToday || 0} mensagens*\n\n` +
       `📋 *Missões & Tarefas Delegadas:*\n` +
       `  • Concluídas: *${tasksSummary.COMPLETED}* | Em Andamento: *${tasksSummary.IN_PROGRESS}* | Pendentes: *${tasksSummary.PENDING}*\n\n` +
       `🎖️ *Status Individual dos Chips:*\n`;
@@ -855,7 +855,7 @@ class MatrizAssistantService {
         `Dados atuais da operação:\n` +
         `- Total de Sub-Bots: ${summary.totalInstances}\n` +
         `- Sub-Bots Conectados: ${summary.connectedCount}\n` +
-        `- Disparos hoje: ${summary.totalMessagesSentToday}\n` +
+        `- Disparos hoje: ${summary.totalSentToday || summary.totalMessagesSentToday || 0}\n` +
         `- Tarefas concluídas: ${tasksSummary.COMPLETED}\n\n` +
         `Quando o dono falar sobre estratégia, recomende ações práticas e dê o comando exato que ele pode mandar para você executar.\n` +
         `Responda em português brasileiro de forma polida, executiva e concisa.`;
@@ -900,7 +900,7 @@ class MatrizAssistantService {
       `Às suas ordens, Comandante *${senderName}*! Sou o centro de controle dos seus sub-bots.\n\n` +
       `📊 *Situação Atual do Exército:*\n` +
       `  • *${summary.connectedCount}/${summary.totalInstances}* sub-bots prontos para ação imediata\n` +
-      `  • *${summary.totalMessagesSentToday}* mensagens entregues hoje\n` +
+      `  • *${summary.totalSentToday || summary.totalMessagesSentToday || 0}* mensagens entregues hoje\n` +
       `  • *${tasksSummary.COMPLETED}* missões concluídas com sucesso\n\n` +
       `🎯 *O que deseja que eu delegue aos sub-bots agora?*\n\n` +
       `1️⃣ *Áudio PTT (Voz):* \`Subbot 2 mande áudio para 5511... dizendo Olá\`\n` +
