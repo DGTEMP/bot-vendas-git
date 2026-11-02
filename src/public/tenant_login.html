@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal do Cliente SaaS • Painel do Tenant</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #111827;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #3b82f6;
+      --accent: #10b981;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background-image: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.12) 0%, transparent 60%);
+    }
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 36px 32px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .brand-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .brand-icon {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      border-radius: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #fff;
+      margin-bottom: 14px;
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.35);
+    }
+    .brand-header h1 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    .brand-header p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+    .tab-pills {
+      display: flex;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 4px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      border: 1px solid var(--card-border);
+    }
+    .tab-pill {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-pill.active {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    }
+    .form-group {
+      margin-bottom: 18px;
+      text-align: left;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-group input {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus {
+      border-color: var(--primary);
+    }
+    .btn-login {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary) 0%, #2563eb 100%);
+      color: #fff;
+      border: none;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.2s;
+      margin-top: 24px;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+    }
+    .btn-login:hover { opacity: 0.95; }
+    .btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+    .alert-error {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 18px;
+      display: none;
+    }
+    .support-footer {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .support-footer a {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-card">
+    <div class="brand-header">
+      <div class="brand-icon"><i class="fa-solid fa-cube"></i></div>
+      <h1>Painel do Tenant</h1>
+      <p>Acesse o painel de controle exclusivo do seu negócio</p>
+    </div>
+
+    <div class="tab-pills">
+      <button class="tab-pill active" id="tabKeyBtn" onclick="switchLoginMode('key')">Chave de Licença</button>
+      <button class="tab-pill" id="tabPassBtn" onclick="switchLoginMode('pass')">WhatsApp / Senha</button>
+    </div>
+
+    <div id="errorAlert" class="alert-error"></div>
+
+    <form id="formLogin" onsubmit="handleLogin(event)">
+      <!-- Modo Chave de Licença -->
+      <div id="sectionKey">
+        <div class="form-group">
+          <label><i class="fa-solid fa-key" style="margin-right: 4px;"></i> Chave de Licença SaaS:</label>
+          <input type="text" id="licenseKey" placeholder="Ex: SAAS-PRO-89F2-4411-98B2" autocomplete="off" style="letter-spacing: 1px; font-weight: 700; text-transform: uppercase;">
+        </div>
+      </div>
+
+      <!-- Modo WhatsApp / Senha -->
+      <div id="sectionPass" style="display: none;">
+        <div class="form-group">
+          <label><i class="fa-brands fa-whatsapp" style="margin-right: 4px;"></i> WhatsApp ou Identificador:</label>
+          <input type="text" id="identifier" placeholder="Ex: 5511999998888 ou meu-negocio">
+        </div>
+        <div class="form-group">
+          <label><i class="fa-solid fa-lock" style="margin-right: 4px;"></i> Senha:</label>
+          <input type="password" id="password" placeholder="Sua senha de acesso">
+        </div>
+      </div>
+
+      <button type="submit" id="btnSubmit" class="btn-login">
+        <span>Acessar Meu Painel</span>
+        <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </form>
+
+    <div class="support-footer">
+      Dúvidas sobre sua licença ou suporte? <br>
+      <a href="https://wa.me/554884702848" target="_blank"><i class="fa-brands fa-whatsapp"></i> Fale com o Administrador da Plataforma</a>
+    </div>
+  </div>
+
+  <script>
+    let currentMode = 'key';
+
+    function switchLoginMode(mode) {
+      currentMode = mode;
+      document.getElementById('tabKeyBtn').classList.toggle('active', mode === 'key');
+      document.getElementById('tabPassBtn').classList.toggle('active', mode === 'pass');
+      document.getElementById('sectionKey').style.display = mode === 'key' ? 'block' : 'none';
+      document.getElementById('sectionPass').style.display = mode === 'pass' ? 'block' : 'none';
+      hideError();
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('errorAlert');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function hideError() {
+      document.getElementById('errorAlert').style.display = 'none';
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      hideError();
+
+      const btn = document.getElementById('btnSubmit');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Validando Licença...';
+
+      try {
+        let payload = {};
+        if (currentMode === 'key') {
+          const key = document.getElementById('licenseKey').value.trim();
+          if (!key) throw new Error('Digite a sua Chave de Licença.');
+          payload.license_key = key;
+        } else {
+          const id = document.getElementById('identifier').value.trim();
+          const pass = document.getElementById('password').value;
+          if (!id) throw new Error('Informe seu WhatsApp ou Identificador.');
+          payload.identifier = id;
+          payload.password = pass;
+        }
+
+        const res = await fetch('/api/tenant/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Falha ao autenticar.');
+        }
+
+        localStorage.setItem('tenant_token', data.token);
+        localStorage.setItem('tenant_info', JSON.stringify(data.tenant));
+
+        window.location.href = `/tenant/dashboard?token=${data.token}`;
+      } catch (err) {
+        showError(err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<span>Acessar Meu Painel</span> <i class="fa-solid fa-arrow-right"></i>';
+      }
+    }
+
+    // Auto-login se token na URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const qToken = urlParams.get('token');
+    if (qToken) {
+      localStorage.setItem('tenant_token', qToken);
+      window.location.href = `/tenant/dashboard?token=${qToken}`;
+    }
+  </script>
+</body>
+</html>

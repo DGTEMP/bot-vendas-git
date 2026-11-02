@@ -67,6 +67,7 @@ function switchTab(tabName) {
     stopQrPolling();
   }
 
+  if (tabName === 'saas') loadSaasTenants();
   if (tabName === 'companies') loadCompanies();
   if (tabName === 'sellers') loadSellers();
   if (tabName === 'affiliates') loadAffiliates();
@@ -125,7 +126,8 @@ async function loadAllData() {
     loadSupportTickets(),
     loadCustomTriggers(),
     loadMeteoricData(),
-    loadViralRadarAll()
+    loadViralRadarAll(),
+    loadSaasTenants()
   ]);
 }
 
@@ -10113,4 +10115,322 @@ async function saveEditedOrder(e) {
   } catch (err) {
     showToast('Erro de conexão: ' + err.message, 'error');
   }
+}
+
+// ==========================================
+// PLATAFORMA SAAS MULTI-TENANT & GESTÃO DE LICENÇAS
+// ==========================================
+let currentSaasTenants = [];
+
+async function loadSaasTenants() {
+  try {
+    const res = await fetch('/api/saas/tenants');
+    const data = await res.json();
+    if (!data.success) return;
+
+    currentSaasTenants = Array.isArray(data.tenants) ? data.tenants : [];
+
+    // Atualiza contadores do cockpit SaaS
+    const s = data.summary || {};
+    const elTotal = document.getElementById('saasMetricTotal');
+    const elActive = document.getElementById('saasMetricActive');
+    const elExpiring = document.getElementById('saasMetricExpiring');
+    const elExpired = document.getElementById('saasMetricExpired');
+    const elSuspended = document.getElementById('saasMetricSuspended');
+
+    if (elTotal) elTotal.textContent = s.total || 0;
+    if (elActive) elActive.textContent = s.active || 0;
+    if (elExpiring) elExpiring.textContent = s.expiring_soon || 0;
+    if (elExpired) elExpired.textContent = s.expired || 0;
+    if (elSuspended) elSuspended.textContent = s.suspended || 0;
+
+    filterSaasTenants();
+  } catch (err) {
+    console.error('Erro ao carregar tenants SaaS:', err);
+  }
+}
+
+function filterSaasTenants() {
+  const query = (document.getElementById('saasSearchFilter')?.value || '').toLowerCase().trim();
+  const statusFilter = document.getElementById('saasStatusFilter')?.value || 'all';
+  const planFilter = document.getElementById('saasPlanFilter')?.value || 'all';
+
+  let list = currentSaasTenants;
+
+  if (statusFilter !== 'all') {
+    list = list.filter(t => t.effective_status === statusFilter);
+  }
+  if (planFilter !== 'all') {
+    list = list.filter(t => (t.plan || '').toLowerCase() === planFilter.toLowerCase());
+  }
+  if (query) {
+    list = list.filter(t =>
+      (t.name && t.name.toLowerCase().includes(query)) ||
+      (t.slug && t.slug.toLowerCase().includes(query)) ||
+      (t.license_key && t.license_key.toLowerCase().includes(query)) ||
+      (t.owner_phone && t.owner_phone.includes(query)) ||
+      (t.owner_name && t.owner_name.toLowerCase().includes(query))
+    );
+  }
+
+  renderSaasTenants(list);
+}
+
+function renderSaasTenants(list) {
+  const tbody = document.getElementById('saasTenantsTbody');
+  if (!tbody) return;
+
+  if (!list || list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 30px; color: var(--text-muted);">Nenhum tenant encontrado. Clique em "+ Novo Tenant / Licença" para começar.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = list.map(t => {
+    let statusBadge = '';
+    if (t.effective_status === 'ACTIVE') {
+      statusBadge = '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700;">🟢 Ativo</span>';
+    } else if (t.effective_status === 'EXPIRED') {
+      statusBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; font-weight: 700;">🔴 Expirado</span>';
+    } else {
+      statusBadge = '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 700;">⏸️ Suspenso</span>';
+    }
+
+    let validityText = '';
+    if (t.is_lifetime) {
+      validityText = '<span style="color: #10b981; font-weight: 700;"><i class="fa-solid fa-infinity"></i> Vitalício</span>';
+    } else if (t.is_expired) {
+      validityText = `<span style="color: #ef4444; font-weight: 700;"><i class="fa-solid fa-circle-exclamation"></i> Venceu em ${formatDateOnly(t.expires_at)}</span>`;
+    } else if (t.days_left <= 7) {
+      validityText = `<span style="color: #f59e0b; font-weight: 700;">⚠️ ${t.days_left} dias restantes</span><br><small style="color: var(--text-muted); font-size: 11px;">Até ${formatDateOnly(t.expires_at)}</small>`;
+    } else {
+      validityText = `<span style="color: #38bdf8; font-weight: 600;">${t.days_left} dias restantes</span><br><small style="color: var(--text-muted); font-size: 11px;">Até ${formatDateOnly(t.expires_at)}</small>`;
+    }
+
+    const planBadge = `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; text-transform: uppercase; font-weight: 700;">${t.plan || 'PRO'}</span>`;
+
+    return `
+      <tr>
+        <td>
+          <strong style="color: #fff; font-size: 14px;">${escapeHtml(t.name)}</strong>
+          <br><small style="color: #94a3b8; font-family: monospace;">/${t.slug}</small>
+        </td>
+        <td>
+          ${escapeHtml(t.owner_name || 'Sem responsável')}
+          ${t.owner_phone ? `<br><a href="https://wa.me/${t.owner_phone}" target="_blank" style="color: #25d366; text-decoration: none; font-size: 12px; font-weight: 600;"><i class="fa-brands fa-whatsapp"></i> +${t.owner_phone}</a>` : ''}
+        </td>
+        <td>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <code style="background: #0f172a; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #38bdf8; font-size: 12px;">${t.license_key}</code>
+            <button class="btn btn-xs btn-outline" onclick="copyText('${t.license_key}', 'Chave de licença copiada!')" title="Copiar Chave"><i class="fa-solid fa-copy"></i></button>
+          </div>
+        </td>
+        <td>${planBadge}</td>
+        <td>${validityText}</td>
+        <td>
+          <small style="color: var(--text-muted);">Bots: <strong>${t.total_bots || 0}/${t.max_bots}</strong></small><br>
+          <small style="color: var(--text-muted);">Prods: <strong>${t.active_products || 0}/${t.max_products}</strong></small>
+        </td>
+        <td>${statusBadge}</td>
+        <td>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button class="btn btn-xs btn-primary" onclick="openRenewTenantModal(${t.id}, '${escapeJsString(t.name)}', '${t.expires_at || ''}')" title="Renovar Período de Licença" style="background: #10b981; border-color: #10b981;">
+              <i class="fa-solid fa-arrows-rotate"></i> Renovar
+            </button>
+            <button class="btn btn-xs btn-outline" onclick="impersonateTenant(${t.id})" title="Acessar Painel do Tenant como Administrador" style="color: #38bdf8; border-color: #38bdf8;">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> Acessar
+            </button>
+            <button class="btn btn-xs ${t.effective_status === 'SUSPENDED' ? 'btn-success' : 'btn-warning'}" onclick="togglePauseTenant(${t.id}, '${t.effective_status}')" title="${t.effective_status === 'SUSPENDED' ? 'Reativar Licença' : 'Suspender Licença'}">
+              <i class="fa-solid ${t.effective_status === 'SUSPENDED' ? 'fa-play' : 'fa-pause'}"></i>
+            </button>
+            <button class="btn btn-xs btn-outline" onclick="regenerateTenantKey(${t.id})" title="Gerar Nova Chave de Licença">
+              <i class="fa-solid fa-key"></i>
+            </button>
+            <button class="btn btn-xs btn-danger" onclick="deleteTenant(${t.id}, '${escapeJsString(t.name)}')" title="Excluir Tenant">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function autoGenerateSlug(name) {
+  const elSlug = document.getElementById('tenantNewSlug');
+  if (!elSlug) return;
+  const slug = (name || '').toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  elSlug.value = slug;
+}
+
+function openCreateTenantModal() {
+  document.getElementById('formCreateTenant').reset();
+  document.getElementById('modalCreateTenant').classList.add('active');
+}
+
+function closeCreateTenantModal() {
+  document.getElementById('modalCreateTenant').classList.remove('active');
+}
+
+async function submitCreateTenant(e) {
+  e.preventDefault();
+  const name = document.getElementById('tenantNewName').value.trim();
+  const slug = document.getElementById('tenantNewSlug').value.trim();
+  const ownerName = document.getElementById('tenantNewOwnerName').value.trim();
+  const ownerPhone = document.getElementById('tenantNewOwnerPhone').value.trim();
+  const plan = document.getElementById('tenantNewPlan').value;
+  const duration = document.getElementById('tenantNewDuration').value;
+  const maxBots = Number(document.getElementById('tenantNewMaxBots').value);
+  const maxProds = Number(document.getElementById('tenantNewMaxProds').value);
+  const password = document.getElementById('tenantNewPassword').value;
+  const notes = document.getElementById('tenantNewNotes').value.trim();
+
+  const isLifetime = duration === 'lifetime';
+  const durationDays = isLifetime ? 0 : Number(duration);
+
+  try {
+    const res = await fetch('/api/saas/tenants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        slug,
+        owner_name: ownerName,
+        owner_phone: ownerPhone,
+        plan,
+        is_lifetime: isLifetime ? 1 : 0,
+        duration_days: durationDays,
+        max_bots: maxBots,
+        max_products: maxProds,
+        password: password || null,
+        notes: notes || null
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Tenant "${name}" cadastrado com sucesso! Chave: ${data.tenant.license_key}`);
+      closeCreateTenantModal();
+      loadSaasTenants();
+    } else {
+      showToast(data.error || 'Erro ao criar tenant.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro de conexão: ' + err.message, 'error');
+  }
+}
+
+function openRenewTenantModal(id, name, exp) {
+  document.getElementById('renewTenantId').value = id;
+  document.getElementById('renewTenantName').textContent = name;
+  document.getElementById('formRenewTenant').reset();
+  document.getElementById('modalRenewTenant').classList.add('active');
+}
+
+function closeRenewTenantModal() {
+  document.getElementById('modalRenewTenant').classList.remove('active');
+}
+
+async function submitRenewTenant(e) {
+  e.preventDefault();
+  const id = document.getElementById('renewTenantId').value;
+  const days = Number(document.getElementById('renewDays').value);
+  const notes = document.getElementById('renewNotes').value.trim();
+
+  try {
+    const res = await fetch(`/api/saas/tenants/${id}/renew`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days, notes })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Licença renovada com sucesso por +${days} dias!`);
+      closeRenewTenantModal();
+      loadSaasTenants();
+    } else {
+      showToast(data.error || 'Erro ao renovar licença.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro de conexão: ' + err.message, 'error');
+  }
+}
+
+async function togglePauseTenant(id, currentStatus) {
+  const isSuspended = currentStatus === 'SUSPENDED';
+  const action = isSuspended ? 'resume' : 'pause';
+  const confirmMsg = isSuspended
+    ? 'Deseja reativar a licença deste tenant?'
+    : 'Deseja suspender temporariamente o acesso deste tenant?';
+
+  if (!confirm(confirmMsg)) return;
+
+  try {
+    const res = await fetch(`/api/saas/tenants/${id}/${action}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(isSuspended ? 'Licença reativada com sucesso!' : 'Licença suspensa com sucesso!');
+      loadSaasTenants();
+    } else {
+      showToast(data.error || 'Erro na operação.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function regenerateTenantKey(id) {
+  if (!confirm('Atenção: A chave de licença atual será invalidada imediatamente e uma nova será emitida. Deseja continuar?')) return;
+  try {
+    const res = await fetch(`/api/saas/tenants/${id}/regenerate-key`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Nova chave de licença gerada: ${data.license_key}`);
+      loadSaasTenants();
+    } else {
+      showToast(data.error || 'Erro ao regenerar chave.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function impersonateTenant(id) {
+  try {
+    const res = await fetch(`/api/saas/tenants/${id}/impersonate`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success && data.redirectUrl) {
+      window.open(data.redirectUrl, '_blank');
+    } else {
+      showToast(data.error || 'Erro ao abrir painel do tenant.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function deleteTenant(id, name) {
+  if (!confirm(`Tem certeza que deseja excluir o tenant "${name}"? Todas as sessões e configurações associadas serão removidas.`)) return;
+  try {
+    const res = await fetch(`/api/saas/tenants/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Tenant excluído com sucesso.');
+      loadSaasTenants();
+    } else {
+      showToast(data.error || 'Erro ao excluir tenant.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+function formatDateOnly(dt) {
+  if (!dt) return '-';
+  try {
+    const d = new Date(dt);
+    return d.toLocaleDateString('pt-BR');
+  } catch (_) { return dt; }
+}
+
+function escapeJsString(str) {
+  return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
 }

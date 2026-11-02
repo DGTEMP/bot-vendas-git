@@ -4808,6 +4808,336 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // PLATAFORMA SAAS MULTI-TENANT & GESTÃO DE LICENÇAS
+  // ==========================================
+
+  // --- Rotas HTML do Tenant ---
+  app.get(['/tenant', '/tenant/login'], (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'tenant_login.html'));
+  });
+
+  app.get('/tenant/dashboard', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'tenant_dashboard.html'));
+  });
+
+  // --- Rotas de Gestão SaaS pelo Super Admin (Dono / Master) ---
+  app.get('/api/saas/tenants', (req, res) => {
+    try {
+      const { search, status, plan, limit, offset } = req.query;
+      const tenants = models.listTenants({ search, status, plan, limit, offset });
+      
+      const allTenants = models.listTenants();
+      const activeCount = allTenants.filter(t => t.effective_status === 'ACTIVE').length;
+      const expiringCount = allTenants.filter(t => t.effective_status === 'ACTIVE' && t.days_left <= 7).length;
+      const expiredCount = allTenants.filter(t => t.effective_status === 'EXPIRED').length;
+      const suspendedCount = allTenants.filter(t => t.effective_status === 'SUSPENDED').length;
+
+      res.json({
+        success: true,
+        summary: {
+          total: allTenants.length,
+          active: activeCount,
+          expiring_soon: expiringCount,
+          expired: expiredCount,
+          suspended: suspendedCount
+        },
+        tenants
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/saas/tenants/:id', (req, res) => {
+    try {
+      const tenant = models.getTenantById(req.params.id);
+      if (!tenant) return res.status(404).json({ error: 'Tenant não encontrado' });
+      const metrics = models.getTenantMetrics(tenant.id);
+      const logs = models.getTenantLicenseLogs(tenant.id, 20);
+      res.json({ success: true, tenant, metrics, logs });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/saas/tenants', (req, res) => {
+    try {
+      const tenant = models.createTenant(req.body);
+      res.json({ success: true, tenant });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/saas/tenants/:id', (req, res) => {
+    try {
+      const tenant = models.updateTenant(req.params.id, req.body);
+      if (!tenant) return res.status(404).json({ error: 'Tenant não encontrado' });
+      res.json({ success: true, tenant });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/saas/tenants/:id/renew', (req, res) => {
+    try {
+      const days = Number(req.body.days || req.body.duration_days || 30);
+      const notes = req.body.notes || '';
+      const tenant = models.renewTenantLicense(req.params.id, days, notes);
+      res.json({ success: true, tenant });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/saas/tenants/:id/pause', (req, res) => {
+    try {
+      const reason = req.body.reason || '';
+      const tenant = models.pauseTenantLicense(req.params.id, reason);
+      res.json({ success: true, tenant });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/saas/tenants/:id/resume', (req, res) => {
+    try {
+      const tenant = models.resumeTenantLicense(req.params.id);
+      res.json({ success: true, tenant });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/saas/tenants/:id/regenerate-key', (req, res) => {
+    try {
+      const tenant = models.regenerateTenantLicenseKey(req.params.id);
+      res.json({ success: true, tenant, license_key: tenant.license_key });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/saas/tenants/:id/impersonate', (req, res) => {
+    try {
+      const tenant = models.getTenantById(req.params.id);
+      if (!tenant) return res.status(404).json({ error: 'Tenant não encontrado' });
+      const session = models.createTenantSession(tenant.id, 24);
+      res.json({ success: true, token: session.token, redirectUrl: `/tenant/dashboard?token=${session.token}` });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/saas/tenants/:id', (req, res) => {
+    try {
+      models.deleteTenant(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Rotas de Autenticação e Operação do Próprio Tenant ---
+  function getTenantFromRequest(req) {
+    const authHeader = req.headers['authorization'];
+    let token = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
+    } else if (req.query.token) {
+      token = req.query.token;
+    } else if (req.headers['x-tenant-token']) {
+      token = req.headers['x-tenant-token'];
+    }
+    if (!token) return null;
+    return models.validateTenantSession(token);
+  }
+
+  app.post('/api/tenant/auth/login', (req, res) => {
+    try {
+      const { license_key, identifier, password } = req.body;
+      let tenant = null;
+
+      if (license_key && license_key.trim()) {
+        tenant = models.getTenantByLicenseKey(license_key);
+        if (!tenant) return res.status(401).json({ error: 'Chave de licença inválida ou inexistente.' });
+      } else if (identifier && identifier.trim()) {
+        const cleanId = identifier.trim();
+        tenant = models.getTenantBySlug(cleanId) || models.getTenantByPhone(cleanId);
+        if (!tenant) {
+          const row = models.db ? models.db.prepare('SELECT id FROM saas_tenants WHERE owner_email = ?').get(cleanId) : null;
+          if (row) tenant = models.getTenantById(row.id);
+        }
+        if (!tenant) return res.status(401).json({ error: 'Tenant não encontrado.' });
+
+        if (tenant.password_hash) {
+          const crypto = require('crypto');
+          const hash = crypto.createHash('sha256').update(String(password || '').trim()).digest('hex');
+          if (hash !== tenant.password_hash) {
+            return res.status(401).json({ error: 'Senha incorreta.' });
+          }
+        }
+      } else {
+        return res.status(400).json({ error: 'Informe a Chave de Licença ou Identificador de Acesso.' });
+      }
+
+      if (tenant.effective_status === 'SUSPENDED') {
+        return res.status(403).json({ error: 'Esta licença está temporariamente suspensa pelo suporte técnico.' });
+      }
+
+      const session = models.createTenantSession(tenant.id, 72);
+      res.json({
+        success: true,
+        token: session.token,
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          plan: tenant.plan,
+          status: tenant.effective_status,
+          days_left: tenant.days_left,
+          is_expired: tenant.is_expired,
+          expires_at: tenant.expires_at,
+          modules_enabled: tenant.modules_enabled,
+          max_bots: tenant.max_bots,
+          max_products: tenant.max_products
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tenant/auth/me', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Sessão inválida ou expirada. Faça login novamente.' });
+      res.json({ success: true, tenant });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tenant/auth/logout', (req, res) => {
+    try {
+      const token = req.body.token || req.headers['x-tenant-token'] || (req.headers['authorization']?.slice(7));
+      if (token) models.destroyTenantSession(token);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tenant/dashboard', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+
+      const metrics = models.getTenantMetrics(tenant.id);
+      const recentOrders = models.getOrdersByTenant(tenant.id, 10);
+      const bots = models.getArmyInstancesByTenant(tenant.id);
+      const products = models.getProductsByTenant(tenant.id);
+
+      res.json({
+        success: true,
+        tenant,
+        metrics,
+        recentOrders,
+        bots,
+        products
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tenant/products', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+      const products = models.getProductsByTenant(tenant.id);
+      res.json({ success: true, products });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tenant/products', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+
+      const currentProducts = models.getProductsByTenant(tenant.id);
+      if (currentProducts.length >= tenant.max_products) {
+        return res.status(400).json({ error: `Limite do plano atingido: máximo de ${tenant.max_products} produtos cadastrados. Faça upgrade para aumentar.` });
+      }
+
+      const prodData = {
+        ...req.body,
+        tenant_id: tenant.id
+      };
+      const created = models.createProduct(prodData);
+      res.json({ success: true, product: created });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tenant/orders', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+      const limit = Number(req.query.limit || 50);
+      const orders = models.getOrdersByTenant(tenant.id, limit);
+      res.json({ success: true, orders });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tenant/bots', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+      const bots = models.getArmyInstancesByTenant(tenant.id);
+      res.json({ success: true, bots, max_bots: tenant.max_bots });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tenant/license', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+
+      const logs = models.getTenantLicenseLogs(tenant.id, 20);
+      const adminPhone = models.getSetting('OWNER_WHATSAPP', '554884702848');
+
+      res.json({
+        success: true,
+        license: {
+          license_key: tenant.license_key,
+          plan: tenant.plan,
+          status: tenant.effective_status,
+          is_lifetime: Boolean(tenant.is_lifetime),
+          starts_at: tenant.starts_at,
+          expires_at: tenant.expires_at,
+          days_left: tenant.days_left,
+          is_expired: tenant.is_expired,
+          max_bots: tenant.max_bots,
+          max_products: tenant.max_products,
+          modules_enabled: tenant.modules_enabled,
+          support_whatsapp: adminPhone
+        },
+        logs
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

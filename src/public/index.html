@@ -104,8 +104,11 @@
 
         <!-- HUB 5: GESTÃO & SISTEMA -->
         <div class="nav-section-header">
-          <span><i class="fa-solid fa-gear"></i> Administração</span>
+          <span><i class="fa-solid fa-gear"></i> Administração &amp; SaaS</span>
         </div>
+        <a href="#" class="nav-item" data-tab="saas">
+          <i class="fa-solid fa-cloud" style="color: #38bdf8;"></i> SaaS &amp; Licenças Tenants
+        </a>
         <a href="#" class="nav-item" data-tab="sellers">
           <i class="fa-solid fa-users-gear"></i> Times de Vendedores
         </a>
@@ -265,6 +268,7 @@
                   Distribuição de leads com roleta de vendedores, multi-tenant para empresas parceiras, webhooks e alertas de segurança.
                 </div>
                 <div class="ecosystem-hub-actions">
+                  <button class="btn btn-xs btn-primary" onclick="switchTab('saas')" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 600;"><i class="fa-solid fa-cloud"></i> SaaS &amp; Tenants</button>
                   <button class="btn btn-xs btn-secondary" onclick="switchTab('settings')"><i class="fa-solid fa-sliders"></i> Ajustes</button>
                   <button class="btn btn-xs btn-outline" onclick="switchTab('sellers')"><i class="fa-solid fa-users-gear"></i> Vendedores</button>
                   <button class="btn btn-xs btn-outline" onclick="switchTab('companies')"><i class="fa-solid fa-building"></i> Empresas</button>
@@ -2023,6 +2027,98 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
                   <span id="saveSettingsMsg" class="save-msg"></span>
                 </div>
               </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: SAAS & GESTÃO DE TENANTS E LICENÇAS -->
+        <section id="tab-saas" class="tab-pane">
+          <!-- Cockpit SaaS Metrics -->
+          <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 20px;">
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;"><i class="fa-solid fa-cloud"></i></div>
+              <div class="metric-info">
+                <span class="metric-label">Total de Tenants</span>
+                <span class="metric-value" id="saasMetricTotal">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;"><i class="fa-solid fa-shield-halved"></i></div>
+              <div class="metric-info">
+                <span class="metric-label">Licenças Ativas</span>
+                <span class="metric-value" id="saasMetricActive">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;"><i class="fa-solid fa-hourglass-half"></i></div>
+              <div class="metric-info">
+                <span class="metric-label">Vencendo (&le;7d)</span>
+                <span class="metric-value" id="saasMetricExpiring">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-ban"></i></div>
+              <div class="metric-info">
+                <span class="metric-label">Licenças Expiradas</span>
+                <span class="metric-value" id="saasMetricExpired">0</span>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-icon" style="background: rgba(147, 51, 234, 0.15); color: #a855f7;"><i class="fa-solid fa-lock"></i></div>
+              <div class="metric-info">
+                <span class="metric-label">Suspensas</span>
+                <span class="metric-value" id="saasMetricSuspended">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
+              <div>
+                <h3><i class="fa-solid fa-cloud-arrow-up blue"></i> Gestão de Tenants &amp; Licenças de Uso</h3>
+                <p class="section-desc" style="margin: 4px 0 0;">Controle o acesso, planos, períodos de validade e emita chaves de licença para os clientes da sua plataforma SaaS.</p>
+              </div>
+              <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="saasSearchFilter" placeholder="🔍 Buscar tenant, chave, WhatsApp..." 
+                       style="background: #0f172a; border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 12px; font-size: 12px; color: #fff; width: 220px;"
+                       oninput="filterSaasTenants()">
+                <select id="saasStatusFilter" onchange="filterSaasTenants()" style="background: #0f172a; border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #fff;">
+                  <option value="all">Status: Todos</option>
+                  <option value="ACTIVE">Ativos</option>
+                  <option value="EXPIRED">Expirados</option>
+                  <option value="SUSPENDED">Suspensos</option>
+                </select>
+                <select id="saasPlanFilter" onchange="filterSaasTenants()" style="background: #0f172a; border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #fff;">
+                  <option value="all">Planos: Todos</option>
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+                <button class="btn btn-primary" onclick="openCreateTenantModal()" style="background: #3b82f6; border-color: #3b82f6; font-weight: 700;">
+                  <i class="fa-solid fa-plus"></i> Novo Tenant / Licença
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table" id="tableSaasTenants">
+                  <thead>
+                    <tr>
+                      <th>Tenant / Empresa</th>
+                      <th>Responsável &amp; WhatsApp</th>
+                      <th>Chave de Licença</th>
+                      <th>Plano</th>
+                      <th>Vigência &amp; Período</th>
+                      <th>Bots / Prods</th>
+                      <th>Status</th>
+                      <th>Ações Rápidas</th>
+                    </tr>
+                  </thead>
+                  <tbody id="saasTenantsTbody">
+                    <tr><td colspan="8" class="text-center">Carregando tenants cadastrados...</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>
@@ -6959,6 +7055,131 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
           <button type="button" class="btn btn-secondary" onclick="closeEditOrderModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700;">
             <i class="fa-solid fa-floppy-disk"></i> Salvar Alterações
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: NOVO TENANT SAAS -->
+  <div id="modalCreateTenant" class="modal">
+    <div class="modal-content" style="max-width: 620px;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-cloud-arrow-up" style="color: #38bdf8;"></i> Cadastrar Novo Tenant / Licença</h3>
+        <button type="button" class="btn-close" onclick="closeCreateTenantModal()">&times;</button>
+      </div>
+      <form id="formCreateTenant" onsubmit="submitCreateTenant(event)">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Nome da Empresa / Tenant *</label>
+              <input type="text" id="tenantNewName" class="form-control" required placeholder="Ex: Tech Prime Store" oninput="autoGenerateSlug(this.value)">
+            </div>
+            <div class="form-group flex-1">
+              <label>Identificador / Slug Único *</label>
+              <input type="text" id="tenantNewSlug" class="form-control" required placeholder="tech-prime">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Nome do Responsável</label>
+              <input type="text" id="tenantNewOwnerName" class="form-control" placeholder="Ex: Marcos Santos">
+            </div>
+            <div class="form-group flex-1">
+              <label>WhatsApp do Responsável (com DDD) *</label>
+              <input type="text" id="tenantNewOwnerPhone" class="form-control" required placeholder="5511999998888">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Plano da Licença *</label>
+              <select id="tenantNewPlan" class="form-control">
+                <option value="starter">Starter (Básico)</option>
+                <option value="pro" selected>Pro (Recomendado)</option>
+                <option value="enterprise">Enterprise (Completo)</option>
+                <option value="custom">Personalizado</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label>Período / Duração da Licença *</label>
+              <select id="tenantNewDuration" class="form-control">
+                <option value="30" selected>30 Dias (Mensal)</option>
+                <option value="60">60 Dias (Bimestral)</option>
+                <option value="90">90 Dias (Trimestral)</option>
+                <option value="180">180 Dias (Semestral)</option>
+                <option value="365">365 Dias (Anual)</option>
+                <option value="lifetime">Vitalício (Sem Expiração)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Limite de Bots WhatsApp *</label>
+              <input type="number" id="tenantNewMaxBots" class="form-control" value="5" min="1" max="100">
+            </div>
+            <div class="form-group flex-1">
+              <label>Limite de Produtos *</label>
+              <input type="number" id="tenantNewMaxProds" class="form-control" value="50" min="1" max="1000">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Senha de Acesso ao Painel (Opcional, chave de licença é gerada automaticamente):</label>
+            <input type="password" id="tenantNewPassword" class="form-control" placeholder="Deixe em branco para login via Chave de Licença">
+          </div>
+
+          <div class="form-group">
+            <label>Observações / Dados do Contrato:</label>
+            <textarea id="tenantNewNotes" class="form-control" rows="2" placeholder="Observações internas sobre este cliente SaaS"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeCreateTenantModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700;">
+            <i class="fa-solid fa-key"></i> Emitir Licença &amp; Criar Tenant
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: RENOVAR LICENÇA SAAS -->
+  <div id="modalRenewTenant" class="modal">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-arrows-rotate" style="color: #10b981;"></i> Renovar / Estender Licença</h3>
+        <button type="button" class="btn-close" onclick="closeRenewTenantModal()">&times;</button>
+      </div>
+      <form id="formRenewTenant" onsubmit="submitRenewTenant(event)">
+        <input type="hidden" id="renewTenantId">
+        <div class="modal-body">
+          <p style="font-size: 13px; margin-bottom: 15px;">
+            Estendendo a licença da empresa: <strong id="renewTenantName" style="color: #38bdf8;"></strong>
+          </p>
+
+          <div class="form-group">
+            <label>Adicionar Período de Validade *</label>
+            <select id="renewDays" class="form-control">
+              <option value="30" selected>+30 Dias (1 Mês)</option>
+              <option value="60">+60 Dias (2 Meses)</option>
+              <option value="90">+90 Dias (Trimestre)</option>
+              <option value="180">+180 Dias (Semestre)</option>
+              <option value="365">+365 Dias (1 Ano)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Observação / Registro de Pagamento:</label>
+            <input type="text" id="renewNotes" class="form-control" placeholder="Ex: Pagamento mensalidade confirmado via Pix">
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeRenewTenantModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #10b981; border-color: #10b981; font-weight: 700;">
+            <i class="fa-solid fa-check"></i> Confirmar Renovação
           </button>
         </div>
       </form>

@@ -98,13 +98,13 @@ const models = {
     return rows.map(r => r.category);
   },
 
-  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral', affiliation_enabled = 1, custom_affiliate_rate = null, seller_ids = [] }) {
+  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral', affiliation_enabled = 1, custom_affiliate_rate = null, seller_ids = [], tenant_id = null }) {
     const brl = price_brl !== null ? Number(price_brl) : Number(price);
     const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
     
     const stmt = db.prepare(`
-      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category, affiliation_enabled, custom_affiliate_rate)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category, affiliation_enabled, custom_affiliate_rate, tenant_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const res = stmt.run(
       name, 
@@ -123,7 +123,8 @@ const models = {
       company_id ? Number(company_id) : null,
       category || 'Geral',
       affiliation_enabled ? 1 : 0,
-      custom_affiliate_rate !== null && custom_affiliate_rate !== undefined && custom_affiliate_rate !== '' ? Number(custom_affiliate_rate) : null
+      custom_affiliate_rate !== null && custom_affiliate_rate !== undefined && custom_affiliate_rate !== '' ? Number(custom_affiliate_rate) : null,
+      tenant_id ? Number(tenant_id) : null
     );
     const prodId = Number(res.lastInsertRowid);
     if (Array.isArray(seller_ids) && seller_ids.length > 0) {
@@ -153,10 +154,11 @@ const models = {
     const active = data.active !== undefined ? (data.active ? 1 : 0) : (existing.active ? 1 : 0);
     const affiliation_enabled = data.affiliation_enabled !== undefined ? (data.affiliation_enabled ? 1 : 0) : (existing.affiliation_enabled !== undefined ? existing.affiliation_enabled : 1);
     const custom_affiliate_rate = data.custom_affiliate_rate !== undefined ? (data.custom_affiliate_rate !== null && data.custom_affiliate_rate !== '' ? Number(data.custom_affiliate_rate) : null) : existing.custom_affiliate_rate;
+    const tenant_id = data.tenant_id !== undefined ? (data.tenant_id ? Number(data.tenant_id) : null) : existing.tenant_id;
 
     db.prepare(`
       UPDATE products 
-      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, company_id = ?, category = ?, active = ?, affiliation_enabled = ?, custom_affiliate_rate = ?
+      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, company_id = ?, category = ?, active = ?, affiliation_enabled = ?, custom_affiliate_rate = ?, tenant_id = ?
       WHERE id = ?
     `).run(
       name, 
@@ -176,7 +178,8 @@ const models = {
       category, 
       active, 
       affiliation_enabled, 
-      custom_affiliate_rate, 
+      custom_affiliate_rate,
+      tenant_id,
       id
     );
 
@@ -5264,6 +5267,431 @@ const models = {
       return db.prepare('SELECT * FROM web_store_telemetry WHERE phone = ? ORDER BY id DESC LIMIT ?').all(clean, Number(limit));
     }
     return db.prepare('SELECT * FROM web_store_telemetry ORDER BY id DESC LIMIT ?').all(Number(limit));
+  },
+
+  // ==========================================
+  // 44. PLATAFORMA SAAS MULTI-TENANT & GESTÃO DE LICENÇAS
+  // ==========================================
+
+  generateLicenseKey(prefix = 'SAAS') {
+    const crypto = require('crypto');
+    const segment = () => crypto.randomBytes(2).toString('hex').toUpperCase();
+    return `${prefix}-${segment()}-${segment()}-${segment()}`;
+  },
+
+  listTenants(filter = {}) {
+    let sql = `
+      SELECT t.*,
+        c.name as company_name,
+        (SELECT COUNT(*) FROM products WHERE tenant_id = t.id AND active = 1) as active_products,
+        (SELECT COUNT(*) FROM orders WHERE tenant_id = t.id) as total_orders,
+        (SELECT COALESCE(SUM(amount), 0) FROM orders WHERE tenant_id = t.id AND status = 'PAID') as total_revenue,
+        (SELECT COUNT(*) FROM whatsapp_army_instances WHERE tenant_id = t.id) as total_bots
+      FROM saas_tenants t
+      LEFT JOIN companies c ON t.company_id = c.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (filter.status && filter.status !== 'all') {
+      sql += ` AND t.status = ?`;
+      params.push(filter.status);
+    }
+    if (filter.plan && filter.plan !== 'all') {
+      sql += ` AND t.plan = ?`;
+      params.push(filter.plan);
+    }
+    if (filter.search && filter.search.trim()) {
+      const s = `%${filter.search.trim().toLowerCase()}%`;
+      sql += ` AND (LOWER(t.name) LIKE ? OR LOWER(t.slug) LIKE ? OR LOWER(t.license_key) LIKE ? OR t.owner_phone LIKE ?)`;
+      params.push(s, s, s, s);
+    }
+    sql += ` ORDER BY t.created_at DESC`;
+    if (filter.limit) {
+      sql += ` LIMIT ?`;
+      params.push(Number(filter.limit));
+      if (filter.offset) {
+        sql += ` OFFSET ?`;
+        params.push(Number(filter.offset));
+      }
+    }
+
+    const rows = db.prepare(sql).all(...params);
+    const now = Date.now();
+
+    return rows.map(t => {
+      let isExpired = false;
+      let daysLeft = 99999;
+      if (!t.is_lifetime && t.expires_at) {
+        const expTime = new Date(t.expires_at).getTime();
+        const diffMs = expTime - now;
+        daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        if (diffMs <= 0) {
+          isExpired = true;
+          daysLeft = 0;
+        }
+      }
+
+      let effectiveStatus = t.status;
+      if (t.status === 'ACTIVE' && isExpired) {
+        effectiveStatus = 'EXPIRED';
+      }
+
+      return {
+        ...t,
+        days_left: daysLeft,
+        is_expired: isExpired,
+        effective_status: effectiveStatus,
+        modules_enabled: typeof t.modules_enabled === 'string' ? JSON.parse(t.modules_enabled || '[]') : (t.modules_enabled || [])
+      };
+    });
+  },
+
+  getTenantById(id) {
+    if (!id) return null;
+    const t = db.prepare(`
+      SELECT t.*, c.name as company_name
+      FROM saas_tenants t
+      LEFT JOIN companies c ON t.company_id = c.id
+      WHERE t.id = ?
+    `).get(Number(id));
+    if (!t) return null;
+
+    let isExpired = false;
+    let daysLeft = 99999;
+    if (!t.is_lifetime && t.expires_at) {
+      const expTime = new Date(t.expires_at).getTime();
+      const diffMs = expTime - Date.now();
+      daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      if (diffMs <= 0) {
+        isExpired = true;
+        daysLeft = 0;
+      }
+    }
+    let effectiveStatus = t.status;
+    if (t.status === 'ACTIVE' && isExpired) effectiveStatus = 'EXPIRED';
+
+    return {
+      ...t,
+      days_left: daysLeft,
+      is_expired: isExpired,
+      effective_status: effectiveStatus,
+      modules_enabled: typeof t.modules_enabled === 'string' ? JSON.parse(t.modules_enabled || '[]') : (t.modules_enabled || [])
+    };
+  },
+
+  getTenantBySlug(slug) {
+    if (!slug) return null;
+    const row = db.prepare('SELECT id FROM saas_tenants WHERE slug = ?').get(String(slug).trim().toLowerCase());
+    return row ? models.getTenantById(row.id) : null;
+  },
+
+  getTenantByLicenseKey(key) {
+    if (!key) return null;
+    const cleanKey = String(key).trim().toUpperCase();
+    const row = db.prepare('SELECT id FROM saas_tenants WHERE license_key = ?').get(cleanKey);
+    return row ? models.getTenantById(row.id) : null;
+  },
+
+  getTenantByPhone(phone) {
+    if (!phone) return null;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const row = db.prepare('SELECT id FROM saas_tenants WHERE owner_phone = ?').get(cleanPhone);
+    return row ? models.getTenantById(row.id) : null;
+  },
+
+  createTenant(data = {}) {
+    const {
+      name,
+      slug,
+      owner_name = null,
+      owner_phone = null,
+      owner_email = null,
+      password = null,
+      plan = 'pro',
+      duration_days = 30,
+      is_lifetime = 0,
+      max_bots = 5,
+      max_products = 50,
+      max_sellers = 10,
+      modules_enabled = ['botdeck', 'orders', 'catalog', 'crm', 'zapvoice', 'affiliates'],
+      company_id = null,
+      custom_domain = null,
+      notes = null
+    } = data;
+
+    if (!name || !name.trim()) throw new Error('Nome do Tenant é obrigatório.');
+
+    let rawSlug = (slug || name).toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!rawSlug) rawSlug = 'tenant-' + Date.now();
+
+    let finalSlug = rawSlug;
+    let count = 1;
+    while (db.prepare('SELECT id FROM saas_tenants WHERE slug = ?').get(finalSlug)) {
+      finalSlug = `${rawSlug}-${count++}`;
+    }
+
+    const licenseKey = models.generateLicenseKey(`SAAS-${plan.toUpperCase()}`);
+    const cleanPhone = owner_phone ? String(owner_phone).replace(/\D/g, '') : null;
+
+    let expiresAt = null;
+    if (!is_lifetime) {
+      const days = Number(duration_days) || 30;
+      expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    }
+
+    let passwordHash = null;
+    if (password && password.trim()) {
+      const crypto = require('crypto');
+      passwordHash = crypto.createHash('sha256').update(password.trim()).digest('hex');
+    }
+
+    const strModules = Array.isArray(modules_enabled) ? JSON.stringify(modules_enabled) : String(modules_enabled);
+
+    const info = db.prepare(`
+      INSERT INTO saas_tenants (
+        slug, name, owner_name, owner_phone, owner_email, password_hash,
+        license_key, plan, status, is_lifetime, starts_at, expires_at,
+        max_bots, max_products, max_sellers, modules_enabled, company_id, custom_domain, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      finalSlug,
+      name.trim(),
+      owner_name || null,
+      cleanPhone,
+      owner_email || null,
+      passwordHash,
+      licenseKey,
+      plan,
+      'ACTIVE',
+      is_lifetime ? 1 : 0,
+      expiresAt,
+      Number(max_bots) || 5,
+      Number(max_products) || 50,
+      Number(max_sellers) || 10,
+      strModules,
+      company_id ? Number(company_id) : null,
+      custom_domain || null,
+      notes || null
+    );
+
+    const tenantId = info.lastInsertRowid;
+
+    db.prepare(`
+      INSERT INTO saas_license_logs (tenant_id, action, days_added, new_expires_at, performed_by, notes)
+      VALUES (?, 'CREATED', ?, ?, 'OWNER', ?)
+    `).run(tenantId, is_lifetime ? 0 : Number(duration_days || 30), expiresAt, `Licença inicial criada para ${name}`);
+
+    return models.getTenantById(tenantId);
+  },
+
+  updateTenant(id, patch = {}) {
+    const existing = models.getTenantById(id);
+    if (!existing) return null;
+
+    const fields = [];
+    const values = [];
+
+    if (patch.name !== undefined) { fields.push('name = ?'); values.push(patch.name.trim()); }
+    if (patch.owner_name !== undefined) { fields.push('owner_name = ?'); values.push(patch.owner_name); }
+    if (patch.owner_phone !== undefined) { fields.push('owner_phone = ?'); values.push(patch.owner_phone ? String(patch.owner_phone).replace(/\D/g, '') : null); }
+    if (patch.owner_email !== undefined) { fields.push('owner_email = ?'); values.push(patch.owner_email); }
+    if (patch.plan !== undefined) { fields.push('plan = ?'); values.push(patch.plan); }
+    if (patch.status !== undefined) { fields.push('status = ?'); values.push(patch.status); }
+    if (patch.is_lifetime !== undefined) { fields.push('is_lifetime = ?'); values.push(patch.is_lifetime ? 1 : 0); }
+    if (patch.expires_at !== undefined) { fields.push('expires_at = ?'); values.push(patch.expires_at); }
+    if (patch.max_bots !== undefined) { fields.push('max_bots = ?'); values.push(Number(patch.max_bots)); }
+    if (patch.max_products !== undefined) { fields.push('max_products = ?'); values.push(Number(patch.max_products)); }
+    if (patch.max_sellers !== undefined) { fields.push('max_sellers = ?'); values.push(Number(patch.max_sellers)); }
+    if (patch.modules_enabled !== undefined) {
+      fields.push('modules_enabled = ?');
+      values.push(Array.isArray(patch.modules_enabled) ? JSON.stringify(patch.modules_enabled) : String(patch.modules_enabled));
+    }
+    if (patch.password !== undefined && patch.password.trim()) {
+      const crypto = require('crypto');
+      fields.push('password_hash = ?');
+      values.push(crypto.createHash('sha256').update(patch.password.trim()).digest('hex'));
+    }
+    if (patch.notes !== undefined) { fields.push('notes = ?'); values.push(patch.notes); }
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+
+    if (fields.length > 0) {
+      values.push(Number(id));
+      db.prepare(`UPDATE saas_tenants SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    }
+
+    return models.getTenantById(id);
+  },
+
+  renewTenantLicense(id, durationDays = 30, notes = '') {
+    const tenant = models.getTenantById(id);
+    if (!tenant) throw new Error('Tenant não encontrado');
+
+    const days = Math.max(1, Number(durationDays) || 30);
+    const now = Date.now();
+    let baseTime = now;
+
+    if (tenant.expires_at && !tenant.is_expired) {
+      const currentExp = new Date(tenant.expires_at).getTime();
+      if (currentExp > now) {
+        baseTime = currentExp;
+      }
+    }
+
+    const newExpiresAt = new Date(baseTime + days * 24 * 60 * 60 * 1000).toISOString();
+
+    db.prepare(`
+      UPDATE saas_tenants
+      SET expires_at = ?,
+          status = 'ACTIVE',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(newExpiresAt, Number(id));
+
+    db.prepare(`
+      INSERT INTO saas_license_logs (tenant_id, action, days_added, previous_expires_at, new_expires_at, performed_by, notes)
+      VALUES (?, 'RENEWED', ?, ?, ?, 'OWNER', ?)
+    `).run(Number(id), days, tenant.expires_at, newExpiresAt, notes || `Renovação de licença (+${days} dias)`);
+
+    return models.getTenantById(id);
+  },
+
+  pauseTenantLicense(id, reason = '') {
+    const tenant = models.getTenantById(id);
+    if (!tenant) throw new Error('Tenant não encontrado');
+
+    db.prepare(`UPDATE saas_tenants SET status = 'SUSPENDED', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(Number(id));
+
+    db.prepare(`
+      INSERT INTO saas_license_logs (tenant_id, action, performed_by, notes)
+      VALUES (?, 'PAUSED', 'OWNER', ?)
+    `).run(Number(id), reason || 'Licença suspensa manualmente pelo administrador');
+
+    return models.getTenantById(id);
+  },
+
+  resumeTenantLicense(id) {
+    const tenant = models.getTenantById(id);
+    if (!tenant) throw new Error('Tenant não encontrado');
+
+    const newStatus = tenant.is_expired ? 'EXPIRED' : 'ACTIVE';
+    db.prepare(`UPDATE saas_tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(newStatus, Number(id));
+
+    db.prepare(`
+      INSERT INTO saas_license_logs (tenant_id, action, performed_by, notes)
+      VALUES (?, 'RESUMED', 'OWNER', 'Licença reativada')
+    `).run(Number(id));
+
+    return models.getTenantById(id);
+  },
+
+  regenerateTenantLicenseKey(id) {
+    const tenant = models.getTenantById(id);
+    if (!tenant) throw new Error('Tenant não encontrado');
+
+    const newKey = models.generateLicenseKey(`SAAS-${tenant.plan.toUpperCase()}`);
+    db.prepare(`UPDATE saas_tenants SET license_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(newKey, Number(id));
+
+    db.prepare(`
+      INSERT INTO saas_license_logs (tenant_id, action, performed_by, notes)
+      VALUES (?, 'KEY_REGENERATED', 'OWNER', ?)
+    `).run(Number(id), `Nova chave de licença emitida: ${newKey}`);
+
+    return models.getTenantById(id);
+  },
+
+  deleteTenant(id) {
+    const tenantId = Number(id);
+    db.prepare('DELETE FROM saas_tenant_sessions WHERE tenant_id = ?').run(tenantId);
+    db.prepare('DELETE FROM saas_license_logs WHERE tenant_id = ?').run(tenantId);
+    db.prepare('DELETE FROM saas_tenants WHERE id = ?').run(tenantId);
+    return true;
+  },
+
+  getTenantLicenseLogs(tenantId, limit = 50) {
+    return db.prepare('SELECT * FROM saas_license_logs WHERE tenant_id = ? ORDER BY id DESC LIMIT ?').all(Number(tenantId), Number(limit));
+  },
+
+  createTenantSession(tenantId, hours = 72) {
+    const crypto = require('crypto');
+    const token = 'tnt_sess_' + crypto.randomBytes(24).toString('hex');
+    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+    db.prepare(`
+      INSERT INTO saas_tenant_sessions (token, tenant_id, expires_at)
+      VALUES (?, ?, ?)
+    `).run(token, Number(tenantId), expiresAt);
+    return { token, expiresAt };
+  },
+
+  validateTenantSession(token) {
+    if (!token) return null;
+    const row = db.prepare(`
+      SELECT s.*, t.id as tenant_id, t.name, t.slug, t.plan, t.status, t.is_lifetime, t.expires_at, t.modules_enabled, t.owner_name, t.owner_phone
+      FROM saas_tenant_sessions s
+      JOIN saas_tenants t ON s.tenant_id = t.id
+      WHERE s.token = ? AND datetime(s.expires_at) > datetime('now')
+    `).get(String(token));
+    if (!row) return null;
+    return models.getTenantById(row.tenant_id);
+  },
+
+  destroyTenantSession(token) {
+    if (!token) return false;
+    db.prepare('DELETE FROM saas_tenant_sessions WHERE token = ?').run(String(token));
+    return true;
+  },
+
+  getTenantMetrics(tenantId) {
+    const tId = Number(tenantId);
+    const tenant = models.getTenantById(tId);
+    if (!tenant) return null;
+
+    const stats = db.prepare(`
+      SELECT
+        COUNT(*) as total_orders,
+        COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount ELSE 0 END), 0) as paid_volume,
+        COUNT(CASE WHEN status = 'PAID' THEN 1 END) as paid_orders,
+        COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_orders
+      FROM orders
+      WHERE tenant_id = ?
+    `).get(tId);
+
+    const prods = db.prepare('SELECT COUNT(*) as total FROM products WHERE tenant_id = ? AND active = 1').get(tId);
+    const bots = db.prepare('SELECT COUNT(*) as total FROM whatsapp_army_instances WHERE tenant_id = ?').get(tId);
+
+    return {
+      tenant_id: tId,
+      name: tenant.name,
+      plan: tenant.plan,
+      status: tenant.effective_status,
+      days_left: tenant.days_left,
+      is_expired: tenant.is_expired,
+      orders: {
+        total: stats.total_orders || 0,
+        paid: stats.paid_orders || 0,
+        pending: stats.pending_orders || 0,
+        revenue: stats.paid_volume || 0
+      },
+      catalog: {
+        active_products: prods.total || 0,
+        max_products: tenant.max_products
+      },
+      bots: {
+        total_bots: bots.total || 0,
+        max_bots: tenant.max_bots
+      }
+    };
+  },
+
+  getProductsByTenant(tenantId) {
+    return db.prepare('SELECT * FROM products WHERE tenant_id = ? ORDER BY id DESC').all(Number(tenantId));
+  },
+
+  getOrdersByTenant(tenantId, limit = 50) {
+    return db.prepare('SELECT * FROM orders WHERE tenant_id = ? ORDER BY id DESC LIMIT ?').all(Number(tenantId), Number(limit));
+  },
+
+  getArmyInstancesByTenant(tenantId) {
+    return db.prepare('SELECT * FROM whatsapp_army_instances WHERE tenant_id = ? ORDER BY id DESC').all(Number(tenantId));
   }
 
 };

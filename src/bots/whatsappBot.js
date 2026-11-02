@@ -737,6 +737,10 @@ class WhatsAppBotService {
         return this.sendOwnerExecutiveStatus(from, activeSock);
       }
 
+      if (/^(?:!|\/)?(?:saas|tenants|licencas|licenças|gestaosaas)\b/i.test(lower)) {
+        return this.sendOwnerSaasStatus(from, activeSock);
+      }
+
       if (/^(?:!|\/)?(?:dono|souodono|comandante|chefe|master|owner)$/i.test(lower)) {
         return this.sendOwnerExecutiveCockpit(from, senderName, activeSock);
       }
@@ -3741,6 +3745,44 @@ class WhatsAppBotService {
       `💬 _Você também pode falar comigo em linguagem natural: peça relatórios, mande os sub-bots enviarem mensagens ou tire dúvidas de vendas!_`;
 
     return this.sendMessage(to, cockpit, {}, sock);
+  }
+
+  async sendOwnerSaasStatus(to, activeSock = null) {
+    const sock = activeSock || this.currentDispatchSock || this.sock;
+    try {
+      const tenants = models.listTenants();
+      const activeCount = tenants.filter(t => t.effective_status === 'ACTIVE').length;
+      const expiredCount = tenants.filter(t => t.effective_status === 'EXPIRED').length;
+      const expiringSoon = tenants.filter(t => t.effective_status === 'ACTIVE' && t.days_left <= 7);
+
+      let txt = `🏢 *PLATAFORMA SAAS & LICENÇAS DE TENANTS* 🏢\n\n` +
+        `📊 *Visão Geral dos Clientes:*\n` +
+        `• *Total de Tenants:* ${tenants.length}\n` +
+        `• *Licenças Ativas:* 🟢 ${activeCount}\n` +
+        `• *Expiradas:* 🔴 ${expiredCount}\n` +
+        `• *Vencendo em até 7 dias:* ⚠️ ${expiringSoon.length}\n\n`;
+
+      if (tenants.length > 0) {
+        txt += `📋 *Tenants Cadastrados:*\n`;
+        tenants.slice(0, 8).forEach((t, idx) => {
+          const stBadge = t.effective_status === 'ACTIVE' ? '🟢' : (t.effective_status === 'EXPIRED' ? '🔴' : '⏸️');
+          const valTxt = t.is_lifetime ? 'Vitalício' : `${t.days_left}d rest.`;
+          txt += `*${idx + 1}. ${t.name}* (${String(t.plan).toUpperCase()}) ${stBadge}\n` +
+            `  • Chave: \`${t.license_key}\`\n` +
+            `  • Validade: ${valTxt} | WhatsApp: +${t.owner_phone || 'N/A'}\n` +
+            `  • Pedidos: ${t.total_orders || 0} | Bots: ${t.total_bots || 0}/${t.max_bots}\n\n`;
+        });
+      } else {
+        txt += `_Nenhum tenant cadastrado ainda. Crie novos tenants pelo painel web (!painel)._\n\n`;
+      }
+
+      txt += `💡 _Para emitir novas licenças, renovar períodos ou suspender tenants, acesse a aba SaaS no Painel Web (!painel)._`;
+
+      return this.sendMessage(to, txt, {}, sock);
+    } catch (err) {
+      console.error('[WhatsAppBot ⚠️ sendOwnerSaasStatus]:', err.message);
+      return this.sendMessage(to, `❌ Erro ao consultar dados SaaS: ${err.message}`, {}, sock);
+    }
   }
 
   async sendOrderStatus(to, activeSock = null) {

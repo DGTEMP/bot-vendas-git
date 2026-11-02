@@ -975,6 +975,53 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- ==========================================
+    -- 44. PLATAFORMA SAAS MULTI-TENANT & GESTÃO DE LICENÇAS
+    -- ==========================================
+    CREATE TABLE IF NOT EXISTS saas_tenants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      owner_name TEXT,
+      owner_phone TEXT,
+      owner_email TEXT,
+      password_hash TEXT,
+      license_key TEXT UNIQUE NOT NULL,
+      plan TEXT DEFAULT 'pro', -- starter, pro, enterprise, custom
+      status TEXT DEFAULT 'ACTIVE', -- ACTIVE, TRIAL, EXPIRED, SUSPENDED
+      is_lifetime INTEGER DEFAULT 0,
+      starts_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME,
+      max_bots INTEGER DEFAULT 5,
+      max_products INTEGER DEFAULT 50,
+      max_sellers INTEGER DEFAULT 10,
+      modules_enabled TEXT DEFAULT '["botdeck","orders","catalog","crm","zapvoice","affiliates"]',
+      company_id INTEGER,
+      custom_domain TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_license_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL,
+      action TEXT NOT NULL, -- CREATED, RENEWED, EXTENDED, PAUSED, RESUMED, PLAN_CHANGED, EXPIRED, BLOCKED
+      days_added INTEGER DEFAULT 0,
+      previous_expires_at DATETIME,
+      new_expires_at DATETIME,
+      performed_by TEXT DEFAULT 'OWNER',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_tenant_sessions (
+      token TEXT PRIMARY KEY,
+      tenant_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL
+    );
+
   `);
 
   // Migrações seguras
@@ -1022,7 +1069,12 @@ function initDatabase() {
     'ALTER TABLE group_protection_settings ADD COLUMN group_rules TEXT DEFAULT "";',
     'ALTER TABLE group_protection_settings ADD COLUMN blacklist_numbers TEXT DEFAULT "[]";',
     'ALTER TABLE zapvoice_quick_messages ADD COLUMN trigger_keywords TEXT DEFAULT "";',
-    'ALTER TABLE zapvoice_funnels ADD COLUMN description TEXT DEFAULT "";'
+    'ALTER TABLE zapvoice_funnels ADD COLUMN description TEXT DEFAULT "";',
+    'ALTER TABLE products ADD COLUMN tenant_id INTEGER;',
+    'ALTER TABLE orders ADD COLUMN tenant_id INTEGER;',
+    'ALTER TABLE whatsapp_army_instances ADD COLUMN tenant_id INTEGER;',
+    'ALTER TABLE settings ADD COLUMN tenant_id INTEGER;',
+    'ALTER TABLE companies ADD COLUMN tenant_id INTEGER;'
   ];
 
   for (const m of migrations) {
@@ -1082,7 +1134,16 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_telemetry_sess ON web_store_telemetry(session_id);',
     'CREATE INDEX IF NOT EXISTS idx_telemetry_ph ON web_store_telemetry(phone);',
     'CREATE INDEX IF NOT EXISTS idx_cart_sess_id ON web_cart_sessions(session_id);',
-    'CREATE INDEX IF NOT EXISTS idx_cart_sess_ph ON web_cart_sessions(phone);'
+    'CREATE INDEX IF NOT EXISTS idx_cart_sess_ph ON web_cart_sessions(phone);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_tenant_slug ON saas_tenants(slug);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_tenant_key ON saas_tenants(license_key);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_tenant_phone ON saas_tenants(owner_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_tenant_status ON saas_tenants(status);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_logs_tenant ON saas_license_logs(tenant_id);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_sess_token ON saas_tenant_sessions(token);',
+    'CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id);',
+    'CREATE INDEX IF NOT EXISTS idx_orders_tenant ON orders(tenant_id);',
+    'CREATE INDEX IF NOT EXISTS idx_army_tenant ON whatsapp_army_instances(tenant_id);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
