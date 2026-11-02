@@ -538,7 +538,20 @@
           </div>
 
           <!-- Quick Filter Tabs for Bot Deck -->
-          <div class="botdeck-filter-bar">
+          
+          <!-- Search & Preset Filter Toolbar -->
+          <div class="botdeck-search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="botdeckSearch" class="botdeck-search-input" placeholder="🔍 Pesquisar qualquer função do bot em tempo real (ex: 'ban', 'áudio', 'spintax', 'ia', 'meteoro', 'pix', 'warn', 'figurinha')..." oninput="searchBotDeck(this.value)">
+          </div>
+
+          <!-- Chip Health Bar -->
+          <div class="botdeck-chips-bar" id="botdeckChipsHealthBar">
+            <span style="font-size:12px; font-weight:700; color:var(--text-muted);"><i class="fa-solid fa-microchip text-info"></i> Chips Conectados:</span>
+            <div id="botdeckChipsList" class="d-flex gap-2 flex-wrap">Carregando chips...</div>
+          </div>
+
+<div class="botdeck-filter-bar">
             <button class="botdeck-tab-btn active" onclick="filterBotDeck('all', this)"><i class="fa-solid fa-layer-group"></i> Todas as Funções</button>
             <button class="botdeck-tab-btn" onclick="filterBotDeck('mensagens', this)"><i class="fa-solid fa-comment-dots"></i> Mensagens &amp; Voz</button>
             <button class="botdeck-tab-btn" onclick="filterBotDeck('grupos', this)"><i class="fa-solid fa-users"></i> Grupos &amp; Moderação</button>
@@ -568,12 +581,21 @@
                   </select>
                 </div>
                 <div class="form-group mb-2">
-                  <label class="form-label-sm">Destinatário (DDD + Número ou JID de Grupo):</label>
+                  <div class="d-flex justify-content-between align-items-center">
+      <label class="form-label-sm m-0">Destinatário (DDD + Número ou JID):</label>
+      <button type="button" class="btn-owner-fill" onclick="fillOwnerNumber('botdeck-msg-target')"><i class="fa-solid fa-crown"></i> Preencher Dono</button>
+    </div>
                   <input type="text" id="botdeck-msg-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888 ou 120363...@g.us">
                 </div>
                 <div class="form-group mb-3">
                   <label class="form-label-sm">Mensagem (Suporta Spintax {Olá|Oi}):</label>
-                  <textarea id="botdeck-msg-text" class="form-control form-control-sm" rows="3" placeholder="{Olá|Oi} {Cliente|Amigo}! Como podemos te ajudar hoje?"></textarea>
+                  <div class="botdeck-presets">
+      <span class="preset-chip" onclick="fillPreset('botdeck-msg-text', '{Olá|Oi} {nome|amigo}! Seja bem-vindo ao nosso suporte prioritário.')">👋 Boas-Vindas</span>
+      <span class="preset-chip" onclick="fillPreset('botdeck-msg-text', 'Seu pedido está reservado! Pague via Pix para liberação instantânea: {pix}')">💰 Chave Pix</span>
+      <span class="preset-chip" onclick="fillPreset('botdeck-msg-text', '🔥 CONDIÇÃO EXCLUSIVA: Liberamos 50% de desconto no seu acesso hoje!')">🔥 Oferta 50%</span>
+      <span class="preset-chip" onclick="fillPreset('botdeck-msg-text', 'Lembrete: restam apenas poucas vagas promocionais antes do encerramento.')">⏳ Escassez</span>
+    </div>
+    <textarea id="botdeck-msg-text" class="form-control form-control-sm" rows="3" placeholder="{Olá|Oi} {Cliente|Amigo}! Como podemos te ajudar hoje?"></textarea>
                 </div>
                 <button class="btn btn-primary w-100" onclick="botDeckAction('SEND_MESSAGE', this)">
                   <i class="fa-solid fa-rocket"></i> Enviar Mensagem
@@ -598,12 +620,20 @@
                   </select>
                 </div>
                 <div class="form-group mb-2">
-                  <label class="form-label-sm">Destinatário (Telefone):</label>
+                  <div class="d-flex justify-content-between align-items-center">
+      <label class="form-label-sm m-0">Destinatário (Telefone):</label>
+      <button type="button" class="btn-owner-fill" onclick="fillOwnerNumber('botdeck-voice-target')"><i class="fa-solid fa-crown"></i> Preencher Dono</button>
+    </div>
                   <input type="text" id="botdeck-voice-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
                 </div>
                 <div class="form-group mb-3">
                   <label class="form-label-sm">Texto para o Bot Falar em Áudio:</label>
-                  <textarea id="botdeck-voice-text" class="form-control form-control-sm" rows="3" placeholder="Olá! Passando para avisar que liberamos sua condição exclusiva com desconto hoje."></textarea>
+                  <div class="botdeck-presets">
+      <span class="preset-chip" onclick="fillPreset('botdeck-voice-text', 'Olá! Passando para te dar as boas-vindas e agradecer pelo seu contato. Qualquer dúvida estou por aqui!')">🎙️ Boas-Vindas</span>
+      <span class="preset-chip" onclick="fillPreset('botdeck-voice-text', 'Oi! Consegui liberar aquela condição especial com 50% de desconto para você agora no WhatsApp.')">🎙️ Oferta Especial</span>
+      <span class="preset-chip" onclick="fillPreset('botdeck-voice-text', 'Opa! Só confirmando que recebi sua mensagem e vou te mandar todos os detalhes em seguida.')">🎙️ Confirmação</span>
+    </div>
+    <textarea id="botdeck-voice-text" class="form-control form-control-sm" rows="3" placeholder="Olá! Passando para avisar que liberamos sua condição exclusiva com desconto hoje."></textarea>
                 </div>
                 <button class="btn btn-success w-100" onclick="botDeckAction('SEND_VOICE_PTT', this)">
                   <i class="fa-solid fa-microphone"></i> Enviar Áudio PTT
@@ -896,11 +926,20 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
               <div class="botdeck-card-body">
                 <div class="form-group mb-2">
                   <label class="form-label-sm">Destinatário (Telefone ou Grupo):</label>
-                  <input type="text" id="botdeck-ai-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+      <span></span>
+      <button type="button" class="btn-owner-fill" onclick="fillOwnerNumber('botdeck-ai-target')"><i class="fa-solid fa-crown"></i> Preencher Dono</button>
+    </div>
+    <input type="text" id="botdeck-ai-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
                 </div>
                 <div class="form-group mb-3">
                   <label class="form-label-sm">Pergunta ou Prompt para a IA:</label>
-                  <textarea id="botdeck-ai-prompt" class="form-control form-control-sm" rows="3" placeholder="Escreva uma copy persuasiva para vender nosso aplicativo sob medida com 20% de desconto."></textarea>
+                  <div class="botdeck-presets">
+      <span class="preset-chip" onclick="fillPreset('botdeck-ai-prompt', 'Crie uma copy persuasiva para vender nosso aplicativo sob medida com gatilhos mentais de urgência.')">✍️ Copy de Vendas</span>
+      <span class="preset-chip" onclick="fillPreset('botdeck-ai-prompt', 'Explique de forma simples e convincente por que ter um bot de WhatsApp aumenta o lucro da empresa.')">💡 Benefícios Bot</span>
+      <span class="preset-chip" onclick="fillPreset('botdeck-ai-prompt', 'Escreva uma resposta educada quebrando a objeção de que o serviço é caro.')">🛡️ Quebra de Objeção</span>
+    </div>
+    <textarea id="botdeck-ai-prompt" class="form-control form-control-sm" rows="3" placeholder="Escreva uma copy persuasiva para vender nosso aplicativo sob medida com 20% de desconto."></textarea>
                 </div>
                 <button class="btn btn-primary w-100" onclick="botDeckAction('AI_QUERY', this)">
                   <i class="fa-solid fa-wand-magic-sparkles"></i> Consultar IA &amp; Enviar
@@ -5382,5 +5421,6 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
     </div>
   </div>
 
+<div id="botdeck-toast-container"></div>
 </body>
 </html>

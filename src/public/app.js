@@ -7419,3 +7419,120 @@ async function botDeckNoticeAction(isUrgent, btnEl) {
     }
   }
 }
+
+
+// ==========================================
+// BOT DECK PRO: REATIVIDADE, PRESETS & TOAST
+// ==========================================
+
+function showBotToast(title, message, type = 'success') {
+  const container = document.getElementById('botdeck-toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `botdeck-toast ${type}`;
+  const icon = type === 'success' ? 'fa-circle-check' : (type === 'error' ? 'fa-triangle-exclamation' : 'fa-circle-info');
+
+  toast.innerHTML = `
+    <i class="fa-solid ${icon}"></i>
+    <div class="botdeck-toast-content">
+      <div class="botdeck-toast-title">${title}</div>
+      <div>${message}</div>
+    </div>
+  `;
+
+  container.appendChild(toast);
+
+  // Som suave via Web Audio API
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = type === 'success' ? 587.33 : (type === 'error' ? 220.00 : 440.00);
+    gain.gain.setValueAtTime(0.05, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+  } catch (_) {}
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(50px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+function searchBotDeck(term) {
+  const q = term.toLowerCase().trim();
+  const cards = document.querySelectorAll('.botdeck-card');
+  let matched = 0;
+
+  cards.forEach(card => {
+    const text = card.innerText.toLowerCase();
+    const isMatch = !q || text.includes(q);
+    card.style.display = isMatch ? 'flex' : 'none';
+    if (isMatch) matched++;
+  });
+}
+
+function fillOwnerNumber(targetId) {
+  const el = document.getElementById(targetId);
+  if (el) {
+    el.value = '554884702848';
+    showBotToast('Número Inserido', 'Telefone do Dono (554884702848) preenchido!', 'info');
+  }
+}
+
+function fillPreset(targetId, text) {
+  const el = document.getElementById(targetId);
+  if (el) {
+    el.value = text;
+    showBotToast('Modelo Aplicado', 'Texto de alta conversão carregado!', 'info');
+  }
+}
+
+async function pingChip(instId) {
+  try {
+    const res = await fetch('/api/botdeck/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'PING_CHIP', payload: { instanceId: instId } })
+    });
+    const data = await res.json();
+    showBotToast('Diagnóstico do Chip', data.message, 'success');
+  } catch (err) {
+    showBotToast('Erro no Diagnóstico', err.message, 'error');
+  }
+}
+
+async function botDeckSecurityToggle(feature, enabled, btnEl) {
+  const groupJid = document.getElementById('botdeck-sec-group')?.value;
+  if (!groupJid) {
+    showBotToast('Atenção', 'Selecione o grupo do WhatsApp primeiro.', 'warning');
+    return;
+  }
+  const payload = { groupJid, feature, enabled };
+  botDeckAction('GROUP_SET_SECURITY', btnEl, payload);
+}
+
+// Atualiza renderização dos chips de saúde no loadBotDeck
+const originalLoadBotDeck = loadBotDeck;
+loadBotDeck = async function() {
+  await originalLoadBotDeck();
+  const listEl = document.getElementById('botdeckChipsList');
+  if (listEl && botdeckData && botdeckData.instances) {
+    listEl.innerHTML = botdeckData.instances.map(inst => {
+      const isOnline = inst.status === 'CONNECTED';
+      const dotClass = isOnline ? 'online' : (inst.status === 'PAUSED' ? 'paused' : 'offline');
+      return `
+        <div class="chip-health-card" onclick="pingChip('${inst.id}')" style="cursor:pointer;" title="Clique para testar latência">
+          <span class="chip-health-dot ${dotClass}"></span>
+          <span>#${inst.id} ${inst.name.slice(0, 15)}</span>
+          <span class="text-muted text-xs">${inst.phone || 'S/N'}</span>
+        </div>
+      `;
+    }).join('');
+  }
+};

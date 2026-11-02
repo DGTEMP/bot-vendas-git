@@ -3153,6 +3153,46 @@ function createServer() {
           break;
         }
 
+        case 'SEND_STICKER': {
+          const { target, text, style = 'attp' } = payload;
+          if (!target || !text) throw new Error('Destinatário e texto da figurinha são obrigatórios.');
+          const finalTarget = target.includes('@') ? target : `${target.replace(/\D/g, '')}@s.whatsapp.net`;
+          if (style === 'brat') {
+            await spyFeatures.handleBrat(whatsappBot.sock, finalTarget, `!brat ${text}`);
+          } else {
+            await spyFeatures.handleAttp(whatsappBot.sock, finalTarget, `!attp ${text}`);
+          }
+          resultMsg = `Figurinha (${style.toUpperCase()}) criada e enviada com sucesso para ${target}!`;
+          break;
+        }
+
+        case 'GROUP_SET_SECURITY': {
+          const { groupJid, feature, enabled } = payload;
+          if (!groupJid || !feature) throw new Error('Grupo e funcionalidade são obrigatórios.');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          const val = enabled ? 'true' : 'false';
+          const key = `${feature.toUpperCase()}_${finalGroup}`;
+          models.setSetting(key, val);
+          resultMsg = `${feature.toUpperCase()} no grupo foi ${enabled ? 'ATIVADO ✅' : 'DESATIVADO ❌'}!`;
+          break;
+        }
+
+        case 'PING_CHIP': {
+          const { instanceId } = payload;
+          const start = Date.now();
+          let statusText = 'Online';
+          if (!instanceId || instanceId === 'main') {
+            statusText = whatsappBot.isConnected ? 'Conectado (Matriz)' : 'Desconectado';
+          } else {
+            const inst = models.getArmyInstanceById(Number(instanceId));
+            statusText = inst ? `${inst.name} [${inst.status}]` : 'Não encontrado';
+          }
+          const ms = Date.now() - start;
+          resultMsg = `Diagnóstico: ${statusText} • Latência interna: ${ms}ms`;
+          break;
+        }
+
+
         case 'GROUP_PROMOTE': {
           const { groupJid, userPhone } = payload;
           if (!groupJid || !userPhone) throw new Error('ID do Grupo e telefone são obrigatórios.');
