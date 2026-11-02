@@ -794,6 +794,25 @@ class WhatsAppBotService {
       }
     }
 
+    // 0.24 CROWD-REPORTING DE MEMBROS (!report, !spam, /report, /spam)
+    const isReportCmd = /^[!/](?:report|spam)\b/i.test(text.trim()) || /^(?:report|spam)$/i.test(text.trim());
+    if (isGroup && isReportCmd) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const moderatorService = require('../services/moderatorService');
+      return await moderatorService.handleCrowdReport(activeSock, msg, from, participantJid, isGroup, adminStatus.isRequesterAdmin, isOwnerUser);
+    }
+
+    // 0.245 MODERAÇÃO HEURÍSTICA INTELIGENTE PASSIVA (AI Engine com Normalizer e Dampeners)
+    if (isGroup && !isFromMe) {
+      try {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        const moderatorService = require('../services/moderatorService');
+        const intercepted = await moderatorService.checkIntelligentModeration(activeSock, from, msg, text, isGroup, adminStatus.isRequesterAdmin);
+        if (intercepted) return;
+      } catch (_) {}
+    }
+
     // 0.25 Interceptador Anti-Palavrão em Grupos (SpyBot Moderation)
     if (isGroup && !isFromMe) {
       try {
@@ -1815,6 +1834,42 @@ class WhatsAppBotService {
           return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem limpar a tela.');
         }
         return spyFeatures.handleLimpar(activeSock, from);
+      }
+
+      // 28. Moderação Inteligente Heurística: !moderacao on/off / !modomoderacao
+      if (/^(?:!|\/)(?:moderacao|moderação|automoderador)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem configurar a moderação inteligente.');
+        }
+        const match = lower.match(/^(?:!|\/)(?:moderacao|moderação|automoderador)\s+(on|off|ativar|desativar|status)$/i);
+        const action = match ? match[1].toLowerCase() : 'status';
+        if (action === 'on' || action === 'ativar') {
+          models.setSetting('MODERATION_AUTO_DELETE', 'true');
+          return this.sendMessage(from, '🛡️ *MODERAÇÃO INTELIGENTE ATIVADA!*\n\nMensagens com alto score de spam serão removidas e punidas automaticamente.');
+        } else if (action === 'off' || action === 'desativar') {
+          models.setSetting('MODERATION_AUTO_DELETE', 'false');
+          return this.sendMessage(from, '⚠️ *MODERAÇÃO INTELIGENTE DESATIVADA!*\n\nExclusão automática de spam pausada.');
+        } else {
+          const stats = models.getModerationStats();
+          return this.sendMessage(from, `🛡️ *STATUS DA MODERAÇÃO INTELIGENTE*\n\n• Auto-Exclusão: ${stats.auto_delete ? '🟢 Ativada' : '🔴 Desativada'}\n• Modo: *${stats.mode.toUpperCase()}*\n• Limiar de Bloqueio: ${(stats.block_threshold * 100).toFixed(0)}%\n• Denúncias Registradas: ${stats.total}\n\nPara alterar: *!moderacao on* ou *!moderacao off*`);
+        }
+      }
+
+      if (/^(?:!|\/)(?:modomoderacao|modomoderador)(?:\s.*)?$/i.test(lower)) {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        if (!adminStatus.isRequesterAdmin) {
+          return this.sendMessage(from, '⚠️ Apenas administradores do grupo podem alternar o modo de moderação.');
+        }
+        const match = lower.match(/^(?:!|\/)(?:modomoderacao|modomoderador)\s+(shadow|enforce|sombra|ativo)$/i);
+        if (match) {
+          const modeVal = (match[1].toLowerCase() === 'shadow' || match[1].toLowerCase() === 'sombra') ? 'shadow' : 'enforce';
+          models.setSetting('MODERATION_MODE', modeVal);
+          return this.sendMessage(from, `🛡️ *MODO DE MODERAÇÃO ALTERADO:*\n\nNovo modo: *${modeVal === 'enforce' ? 'ATIVO (ENFORCE - Exclui e Pune)' : 'SOMBRA (SHADOW - Apenas Audita e Registra)'}*`);
+        } else {
+          const currentMode = models.getSetting('MODERATION_MODE', 'enforce');
+          return this.sendMessage(from, `🛡️ *Modo Atual:* ${currentMode.toUpperCase()}\n\nUse *!modomoderacao enforce* (ativo) ou *!modomoderacao shadow* (sombra).`);
+        }
       }
     }
 

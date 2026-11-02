@@ -3341,6 +3341,156 @@ const models = {
     `).all();
   },
 
+
+  // ==========================================
+  // 32. MODERAÇÃO INTELIGENTE & CROWD-REPORTING
+  // ==========================================
+  recordModerationReport({
+    message_id = null,
+    group_jid,
+    group_name = null,
+    reported_author_jid = null,
+    reported_author_name = null,
+    reporter_jid,
+    reporter_name = null,
+    reported_text = '',
+    normalized_text = '',
+    spam_score = 0,
+    category = 'Geral',
+    evidence = '[]',
+    dampeners = '[]',
+    status = 'PENDING',
+    action_taken = 'QUEUED',
+    note = null
+  }) {
+    const stmt = db.prepare(`
+      INSERT INTO moderation_reports (
+        message_id, group_jid, group_name, reported_author_jid, reported_author_name,
+        reporter_jid, reporter_name, reported_text, normalized_text, spam_score,
+        category, evidence, dampeners, status, action_taken, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(
+      message_id,
+      group_jid,
+      group_name,
+      reported_author_jid,
+      reported_author_name,
+      reporter_jid,
+      reporter_name,
+      reported_text,
+      normalized_text,
+      Number(spam_score || 0),
+      category,
+      typeof evidence === 'string' ? evidence : JSON.stringify(evidence || []),
+      typeof dampeners === 'string' ? dampeners : JSON.stringify(dampeners || []),
+      status,
+      action_taken,
+      note
+    );
+    return models.getModerationReportById(Number(res.lastInsertRowid));
+  },
+
+  getModerationReportById(id) {
+    return db.prepare('SELECT * FROM moderation_reports WHERE id = ?').get(id);
+  },
+
+  getModerationReports({ limit = 50, status = null, group_jid = null } = {}) {
+    let sql = 'SELECT * FROM moderation_reports';
+    const params = [];
+    const where = [];
+
+    if (status) {
+      where.push('status = ?');
+      params.push(status);
+    }
+    if (group_jid) {
+      where.push('group_jid = ?');
+      params.push(group_jid);
+    }
+
+    if (where.length > 0) {
+      sql += ' WHERE ' + where.join(' AND ');
+    }
+    sql += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(Number(limit) || 50);
+
+    return db.prepare(sql).all(...params);
+  },
+
+  updateModerationReport(id, data = {}) {
+    const existing = models.getModerationReportById(id);
+    if (!existing) return null;
+
+    const status = data.status !== undefined ? data.status : existing.status;
+    const action_taken = data.action_taken !== undefined ? data.action_taken : existing.action_taken;
+    const note = data.note !== undefined ? data.note : existing.note;
+
+    db.prepare(`
+      UPDATE moderation_reports
+      SET status = ?, action_taken = ?, note = ?
+      WHERE id = ?
+    `).run(status, action_taken, note, id);
+
+    return models.getModerationReportById(id);
+  },
+
+  deleteModerationReport(id) {
+    const res = db.prepare('DELETE FROM moderation_reports WHERE id = ?').run(id);
+    return res.changes > 0;
+  },
+
+  clearOldModerationReports(days = 7) {
+    const res = db.prepare(`
+      DELETE FROM moderation_reports
+      WHERE datetime(created_at) < datetime('now', '-' || ? || ' days')
+    `).run(Number(days) || 7);
+    return res.changes;
+  },
+
+  getModerationStats() {
+    try {
+      const counts = db.prepare(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending,
+          SUM(CASE WHEN status = 'DELETED' OR action_taken = 'DELETED' THEN 1 ELSE 0 END) as deleted,
+          SUM(CASE WHEN status = 'DISMISSED' THEN 1 ELSE 0 END) as dismissed
+        FROM moderation_reports
+      `).get() || { total: 0, pending: 0, deleted: 0, dismissed: 0 };
+
+      return {
+        total: counts.total || 0,
+        pending: counts.pending || 0,
+        deleted: counts.deleted || 0,
+        dismissed: counts.dismissed || 0,
+        mode: models.getSetting('MODERATION_MODE', 'enforce'),
+        auto_delete: models.getSetting('MODERATION_AUTO_DELETE', 'true') === 'true',
+        block_threshold: parseFloat(models.getSetting('MODERATION_BLOCK_THRESHOLD', '0.80')) || 0.80
+      };
+    } catch (_) {
+      return { total: 0, pending: 0, deleted: 0, dismissed: 0, mode: 'enforce', auto_delete: true, block_threshold: 0.80 };
+    }
+  },
+
+  getModerationRules() {
+    try {
+      return db.prepare('SELECT * FROM moderation_rules ORDER BY weight DESC').all();
+    } catch (_) {
+      return [];
+    }
+  },
+
+  bumpRuleHits(ruleNames = []) {
+    if (!Array.isArray(ruleNames) || ruleNames.length === 0) return;
+    try {
+      const stmt = db.prepare('UPDATE moderation_rules SET hits = hits + 1 WHERE name = ?');
+      for (const name of ruleNames) {
+        stmt.run(name);
+      }
+    } catch (_) {}
+  },
+
   getPendingLeadsForBalancing(limit = 100) {
     return db.prepare(`
       SELECT DISTINCT phone, name FROM (

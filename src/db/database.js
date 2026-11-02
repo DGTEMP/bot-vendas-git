@@ -683,6 +683,42 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       completed_at DATETIME
     );
+    -- 32. Tabela de Denúncias e Relatórios de Moderação Inteligente (Crowd-Reporting & AI Engine)
+    CREATE TABLE IF NOT EXISTS moderation_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT,
+      group_jid TEXT NOT NULL,
+      group_name TEXT,
+      reported_author_jid TEXT,
+      reported_author_name TEXT,
+      reporter_jid TEXT NOT NULL,
+      reporter_name TEXT,
+      reported_text TEXT,
+      normalized_text TEXT,
+      spam_score REAL DEFAULT 0,
+      category TEXT,
+      evidence TEXT,
+      dampeners TEXT,
+      status TEXT DEFAULT 'PENDING',
+      action_taken TEXT DEFAULT 'QUEUED',
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 33. Tabela de Regras Heurísticas Customizadas de Moderação
+    CREATE TABLE IF NOT EXISTS moderation_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT UNIQUE NOT NULL,
+      category TEXT NOT NULL,
+      pattern TEXT NOT NULL,
+      flags TEXT DEFAULT 'i',
+      weight REAL DEFAULT 0.5,
+      enabled INTEGER DEFAULT 1,
+      hits INTEGER DEFAULT 0,
+      builtin INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
 
   // Migrações seguras
@@ -749,7 +785,10 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_meteoric_grp_camp ON meteoric_groups(campaign_id, active);',
     'CREATE INDEX IF NOT EXISTS idx_subs_status ON subscriptions(status);',
     'CREATE INDEX IF NOT EXISTS idx_sellers_active ON sellers(active);',
-    'CREATE INDEX IF NOT EXISTS idx_affiliates_active ON affiliates(active);'
+    'CREATE INDEX IF NOT EXISTS idx_affiliates_active ON affiliates(active);',
+    'CREATE INDEX IF NOT EXISTS idx_mod_reports_grp ON moderation_reports(group_jid, status);',
+    'CREATE INDEX IF NOT EXISTS idx_mod_reports_msg ON moderation_reports(message_id);',
+    'CREATE INDEX IF NOT EXISTS idx_mod_rules_cat ON moderation_rules(category, enabled);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
@@ -781,7 +820,11 @@ function initDatabase() {
     ['AFFILIATION_MIN_REVENUE_BRL', '50.0'],
     ['AFFILIATION_REQUIRE_PAYMENT_INFO', 'true'],
     ['AFFILIATION_AUTO_APPROVE', 'true'],
-    ['AFFILIATION_PRODUCT_RESTRICTED', 'false']
+    ['AFFILIATION_PRODUCT_RESTRICTED', 'false'],
+    ['MODERATION_MODE', 'enforce'],
+    ['MODERATION_BLOCK_THRESHOLD', '0.80'],
+    ['MODERATION_ESCALATE_THRESHOLD', '0.50'],
+    ['MODERATION_AUTO_DELETE', 'true']
   ];
 
   for (const [k, v] of defaultSettings) {

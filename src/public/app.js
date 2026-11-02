@@ -7536,3 +7536,225 @@ loadBotDeck = async function() {
     }).join('');
   }
 };
+
+
+// ==========================================
+// CONTROLADOR DE MODERAÇÃO HEURÍSTICA & DENÚNCIAS (BOT DECK)
+// ==========================================
+async function loadModerationReports() {
+  try {
+    const res = await fetch('/api/moderation/reports?limit=25');
+    const data = await res.json();
+    if (data.success && data.reports) {
+      renderModerationReports(data.reports);
+    }
+  } catch (err) {
+    console.warn('[Moderation] Erro ao carregar denúncias:', err.message);
+  }
+}
+
+function renderModerationReports(reports) {
+  const tbody = document.getElementById('botdeckModerationTableBody');
+  if (!tbody) return;
+
+  if (!reports || reports.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted p-3">Nenhuma denúncia recente registrada na fila.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = reports.map(r => {
+    const timeStr = r.created_at ? new Date(r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+    const authorPhone = (r.reported_author_jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+    const reporterPhone = (r.reporter_jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+    const scorePct = Math.round((r.spam_score || 0) * 100);
+    const scoreColor = scorePct >= 80 ? '#ef4444' : (scorePct >= 50 ? '#f59e0b' : '#10b981');
+
+    let statusBadge = '<span class="badge badge-warning">Pendente</span>';
+    if (r.status === 'DELETED') statusBadge = '<span class="badge badge-danger">Apagada</span>';
+    else if (r.status === 'UPHELD') statusBadge = '<span class="badge badge-success">Confirmada</span>';
+    else if (r.status === 'DISMISSED') statusBadge = '<span class="badge badge-paid">Dispensada</span>';
+
+    return `
+      <tr>
+        <td><strong>#${r.id}</strong></td>
+        <td>${timeStr}</td>
+        <td><span style="color:#ef4444; font-weight:600;">@${authorPhone || 'N/A'}</span></td>
+        <td><span style="color:#38bdf8;">@${reporterPhone || 'S/N'}</span></td>
+        <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${(r.reported_text || '').replace(/"/g, '&quot;')}">
+          "${r.reported_text || 'Sem texto'}"
+        </td>
+        <td>
+          <span style="font-weight:700; color:${scoreColor};">${scorePct}%</span>
+          <span class="text-muted text-xs">(${r.category || 'Geral'})</span>
+        </td>
+        <td>${statusBadge}</td>
+        <td style="text-align: right;">
+          <div class="d-inline-flex gap-1">
+            <button class="btn btn-xs btn-outline text-danger" title="Apagar Mensagem no WhatsApp" onclick="deleteModReportMsg(${r.id})">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+            <button class="btn btn-xs btn-outline text-warning" title="Banir Usuário do Grupo" onclick="banModReportUser(${r.id})">
+              <i class="fa-solid fa-user-slash"></i>
+            </button>
+            <button class="btn btn-xs btn-outline" title="Dispensar Denúncia" onclick="dismissModReport(${r.id})">
+              <i class="fa-solid fa-check"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function scanModText(btnEl) {
+  const inputEl = document.getElementById('botdeck-mod-scan-text');
+  const text = inputEl ? inputEl.value.trim() : '';
+  if (!text) {
+    showBotToast('Atenção', 'Digite uma mensagem para analisar as heurísticas.', 'warning');
+    return;
+  }
+
+  const origHtml = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
+
+  try {
+    const res = await fetch('/api/moderation/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao analisar');
+
+    const an = data.analysis;
+    const resBox = document.getElementById('botdeck-scan-result');
+    if (resBox) {
+      resBox.style.display = 'block';
+
+      const scorePct = Math.round((an.score || 0) * 100);
+      const isSpam = an.score >= 0.70;
+      const isSuspicious = an.score >= 0.45;
+
+      const badge = document.getElementById('scanResultBadge');
+      if (badge) {
+        badge.className = isSpam ? 'badge badge-danger' : (isSuspicious ? 'badge badge-warning' : 'badge badge-success');
+        badge.innerText = isSpam ? `ALTO RISCO (${scorePct}%)` : (isSuspicious ? `SUSPEITO (${scorePct}%)` : `LIMPO (${scorePct}%)`);
+      }
+
+      const normEl = document.getElementById('scanNormalizedText');
+      if (normEl) normEl.innerHTML = `<strong>Texto Normalizado:</strong> "${an.normalized.text}"`;
+
+      const meterEl = document.getElementById('scanScoreMeter');
+      if (meterEl) meterEl.innerText = `Spam Score: ${scorePct}%`;
+
+      const catEl = document.getElementById('scanCategory');
+      if (catEl) catEl.innerText = `Categoria Dominante: ${an.category || 'Nenhuma'}`;
+
+      const statsEl = document.getElementById('scanStats');
+      if (statsEl) {
+        const s = an.normalized.stats;
+        statsEl.innerText = `Invisíveis: ${s.invisibles} | Estilizados: ${Math.round(s.stylizedRatio * 100)}% | Emojis: ${s.emojiCount} | Links: ${s.linkCount}`;
+      }
+
+      const hitsEl = document.getElementById('scanRuleHits');
+      if (hitsEl) {
+        hitsEl.innerHTML = an.hits.length 
+          ? '<strong>Regras Ativadas:</strong> ' + an.hits.map(h => `<span class="badge badge-mini" style="background:#334155;">${h.name} (${h.evidence})</span>`).join(' ')
+          : '<span class="text-muted">Nenhuma regra heurística acionada.</span>';
+      }
+
+      const dampEl = document.getElementById('scanDampeners');
+      if (dampEl) {
+        dampEl.innerHTML = an.dampeners.length 
+          ? '<strong>Atenuadores (Dampeners) Ativos:</strong> ' + an.dampeners.map(d => `<span class="badge badge-mini" style="background:#065f46; color:#a7f3d0;">${d} (Usuário reportando/citando)</span>`).join(' ')
+          : '';
+      }
+    }
+
+    logToBotDeckConsole('Escaner Heurístico', `Texto analisado com sucesso! Score: ${Math.round(an.score * 100)}% | Categoria: ${an.category || 'Limpo'}`);
+    showBotToast('Escaneamento Concluído', `Score: ${Math.round(an.score * 100)}% | Categoria: ${an.category || 'Limpo'}`, an.score >= 0.7 ? 'warning' : 'success');
+  } catch (err) {
+    showBotToast('Erro no Escaneamento', err.message, 'error');
+  } finally {
+    if (btnEl) btnEl.innerHTML = origHtml;
+  }
+}
+
+async function toggleModMode(btnEl) {
+  const currentBadge = document.getElementById('badgeModMode');
+  const isEnforce = currentBadge && currentBadge.innerText.includes('ENFORCE');
+  const newMode = isEnforce ? 'shadow' : 'enforce';
+
+  await botDeckAction('MODERATION_SET_MODE', btnEl, { mode: newMode });
+  if (currentBadge) {
+    currentBadge.className = newMode === 'enforce' ? 'badge badge-success' : 'badge badge-warning';
+    currentBadge.innerText = newMode === 'enforce' ? 'ATIVO (ENFORCE)' : 'SOMBRA (SHADOW)';
+  }
+}
+
+async function toggleModAutoDelete(btnEl) {
+  const currentBadge = document.getElementById('badgeModAutoDel');
+  const isDel = currentBadge && currentBadge.innerText.includes('ON');
+  const newVal = !isDel;
+
+  await botDeckAction('MODERATION_TOGGLE_AUTODELETE', btnEl, { enabled: newVal });
+  if (currentBadge) {
+    currentBadge.className = newVal ? 'badge badge-paid' : 'badge badge-secondary';
+    currentBadge.innerText = newVal ? 'Auto-Delete ON' : 'Auto-Delete OFF';
+  }
+}
+
+async function clearModReports(btnEl) {
+  if (!confirm('Deseja limpar as denúncias antigas registradas na fila?')) return;
+  await botDeckAction('MODERATION_CLEAR_REPORTS', btnEl, { days: 0 });
+  loadModerationReports();
+}
+
+async function deleteModReportMsg(reportId) {
+  try {
+    const res = await fetch('/api/moderation/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reportId, action: 'delete' })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    showBotToast('Sucesso', 'Mensagem apagada para todos com sucesso!', 'success');
+    loadModerationReports();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+async function banModReportUser(reportId) {
+  if (!confirm('Deseja realmente expulsar o autor desta mensagem do grupo?')) return;
+  try {
+    const res = await fetch('/api/moderation/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reportId, action: 'ban' })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    showBotToast('Sucesso', 'Autor expulso do grupo com sucesso!', 'success');
+    loadModerationReports();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+async function dismissModReport(reportId) {
+  try {
+    const res = await fetch('/api/moderation/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reportId, action: 'dismiss' })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    showBotToast('Sucesso', 'Denúncia dispensada!', 'info');
+    loadModerationReports();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}

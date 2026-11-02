@@ -1257,6 +1257,97 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
               </div>
             </div>
 
+            <!-- CARD 24: Moderação Heurística & Modo Sombra/Ativo -->
+            <div class="card botdeck-card" data-category="groups" style="grid-column: span 2;">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-shield-halved"></i></div>
+                <div>
+                  <h4>Moderação Inteligente &amp; Simulador Heurístico</h4>
+                  <span>Proteção contra golpes, quebra de evasão unicode/leetspeak e crowd-reporting (!report / !spam)</span>
+                </div>
+                <div class="ml-auto d-flex gap-2">
+                  <span id="badgeModMode" class="badge badge-success">ATIVO (ENFORCE)</span>
+                  <span id="badgeModAutoDel" class="badge badge-paid">Auto-Delete ON</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="d-flex gap-2 mb-3">
+                  <button class="btn btn-outline flex-fill" onclick="toggleModMode(this)">
+                    <i class="fa-solid fa-toggle-on"></i> Alternar Modo (Sombra / Ativo)
+                  </button>
+                  <button class="btn btn-outline flex-fill" onclick="toggleModAutoDelete(this)">
+                    <i class="fa-solid fa-trash-can"></i> Alternar Exclusão Automática
+                  </button>
+                  <button class="btn btn-outline text-danger" onclick="clearModReports(this)">
+                    <i class="fa-solid fa-broom"></i> Limpar Fila Antiga
+                  </button>
+                </div>
+
+                <div class="form-group mb-2">
+                  <label class="text-xs text-muted">Testar Texto Suspeito (Simulador com Quebra de Evasão Unicode &amp; Leetspeak):</label>
+                  <div class="d-flex gap-2">
+                    <input type="text" id="botdeck-mod-scan-text" class="form-control" placeholder="Ex: ѕ.е.r.i.о.u.s buуеrz 0nly ou Lucro garantido multiplique seu pix...">
+                    <button class="btn btn-primary" onclick="scanModText(this)">
+                      <i class="fa-solid fa-magnifying-glass"></i> Escanear
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Resultado do Escaneamento Heurístico -->
+                <div id="botdeck-scan-result" style="display:none; background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155; margin-top: 10px;">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <strong style="color: #38bdf8;"><i class="fa-solid fa-microchip"></i> Diagnóstico Heurístico &amp; Normalização:</strong>
+                    <span id="scanResultBadge" class="badge badge-danger">SPAM DETECTADO</span>
+                  </div>
+                  <div class="text-xs text-muted mb-1" id="scanNormalizedText"></div>
+                  <div class="d-flex gap-3 text-xs mb-2">
+                    <span id="scanScoreMeter" style="font-weight: bold; color: #f59e0b;"></span>
+                    <span id="scanCategory" style="color: #a855f7;"></span>
+                    <span id="scanStats" class="text-muted"></span>
+                  </div>
+                  <div id="scanRuleHits" class="text-xs" style="color: #cbd5e1;"></div>
+                  <div id="scanDampeners" class="text-xs mt-1" style="color: #10b981;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD 25: Fila de Denúncias Recentes de Membros (!report / !spam) -->
+            <div class="card botdeck-card" data-category="groups" style="grid-column: span 2;">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;"><i class="fa-solid fa-flag"></i></div>
+                <div>
+                  <h4>Fila de Denúncias de Membros (Crowd-Report Review Queue)</h4>
+                  <span>Mensagens sinalizadas por membros citando com !report ou !spam</span>
+                </div>
+                <div class="ml-auto">
+                  <button class="btn btn-sm btn-outline" onclick="loadModerationReports()"><i class="fa-solid fa-arrows-rotate"></i> Atualizar Fila</button>
+                </div>
+              </div>
+              <div class="botdeck-card-body p-0">
+                <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+                  <table class="table mb-0" style="font-size: 13px;">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Horário</th>
+                        <th>Autor / Infrator</th>
+                        <th>Denunciante</th>
+                        <th>Texto da Mensagem</th>
+                        <th>Score &amp; Categoria</th>
+                        <th>Status</th>
+                        <th style="text-align: right;">Ações Imediatas</th>
+                      </tr>
+                    </thead>
+                    <tbody id="botdeckModerationTableBody">
+                      <tr>
+                        <td colspan="8" class="text-center text-muted p-3">Nenhuma denúncia recente registrada na fila.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
           </div>
 
           <!-- Console Terminal de Execução em Tempo Real -->

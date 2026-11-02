@@ -2964,6 +2964,79 @@ function createServer() {
   // ==========================================
   // BOT DECK: PAINEL DE CONTROLE INTEGRAL DE TODOS OS BOTS
   // ==========================================
+// ==========================================
+  // ROTAS DE MODERAÇÃO INTELIGENTE & CROWD-REPORTING
+  // ==========================================
+  app.get('/api/moderation/stats', (req, res) => {
+    try {
+      res.json({ success: true, ...models.getModerationStats() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/moderation/reports', (req, res) => {
+    try {
+      const { limit = 50, status, group_jid } = req.query;
+      const reports = models.getModerationReports({ limit: Number(limit), status, group_jid });
+      res.json({ success: true, reports });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/moderation/scan', (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text) return res.status(400).json({ error: 'Texto é obrigatório.' });
+      const moderatorService = require('../services/moderatorService');
+      const analysis = moderatorService.analyze(text);
+      res.json({ success: true, analysis });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/moderation/action', async (req, res) => {
+    try {
+      const { reportId, action } = req.body;
+      if (!reportId || !action) return res.status(400).json({ error: 'reportId e action são obrigatórios.' });
+      const rep = models.getModerationReportById(Number(reportId));
+      if (!rep) return res.status(404).json({ error: 'Denúncia não encontrada.' });
+
+      if (action === 'delete') {
+        if (rep.message_id && rep.group_jid && whatsappBot.sock && whatsappBot.isConnected) {
+          try {
+            await whatsappBot.sock.sendMessage(rep.group_jid, {
+              delete: {
+                remoteJid: rep.group_jid,
+                id: rep.message_id,
+                participant: rep.reported_author_jid || undefined
+              }
+            });
+          } catch (_) {}
+        }
+        models.updateModerationReport(rep.id, { status: 'DELETED', action_taken: 'DELETED', note: 'Excluído via API de Moderação' });
+        return res.json({ success: true, message: 'Mensagem apagada com sucesso!' });
+      } else if (action === 'dismiss') {
+        models.updateModerationReport(rep.id, { status: 'DISMISSED', note: 'Dispensado via API de Moderação' });
+        return res.json({ success: true, message: 'Denúncia dispensada!' });
+      } else if (action === 'ban') {
+        if (rep.reported_author_jid && rep.group_jid && whatsappBot.sock && whatsappBot.isConnected) {
+          try {
+            await whatsappBot.sock.groupParticipantsUpdate(rep.group_jid, [rep.reported_author_jid], 'remove');
+          } catch (_) {}
+        }
+        models.updateModerationReport(rep.id, { status: 'UPHELD', action_taken: 'BANNED', note: 'Usuário banido via API de Moderação' });
+        return res.json({ success: true, message: 'Usuário banido e denúncia encerrada!' });
+      }
+
+      res.status(400).json({ error: 'Ação inválida.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/botdeck/overview', async (req, res) => {
     try {
       const instances = models.getArmyInstances();
@@ -2984,7 +3057,9 @@ function createServer() {
         instances,
         groups: groups.map(g => ({ id: g.id, subject: g.subject, size: g.size })),
         recentTasks,
-        metrics
+        metrics,
+        moderationStats: models.getModerationStats(),
+        recentReports: models.getModerationReports({ limit: 15 })
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -3471,6 +3546,68 @@ function createServer() {
           const cleanPhone = String(phone).replace(/\D/g, '');
           models.unblockUser('whatsapp', cleanPhone);
           resultMsg = `Usuário +${cleanPhone} desbloqueado com sucesso!`;
+          break;
+        }
+
+        case 'MODERATION_SET_MODE': {
+          const { mode } = payload;
+          if (!mode) throw new Error('Modo (enforce ou shadow) é obrigatório.');
+          const targetMode = (mode.toLowerCase() === 'shadow' || mode.toLowerCase() === 'sombra') ? 'shadow' : 'enforce';
+          models.setSetting('MODERATION_MODE', targetMode);
+          resultMsg = `Modo de Moderação alterado para ${targetMode === 'enforce' ? 'ATIVO (ENFORCE - Exclusão e Punição Automática) 🛡️' : 'SOMBRA (SHADOW - Apenas Auditoria e Log) 🔍'}!`;
+          break;
+        }
+
+        case 'MODERATION_TOGGLE_AUTODELETE': {
+          const { enabled } = payload;
+          const val = enabled ? 'true' : 'false';
+          models.setSetting('MODERATION_AUTO_DELETE', val);
+          resultMsg = `Exclusão Automática de Spam ${enabled ? 'ATIVADA ✅' : 'DESATIVADA ❌'}!`;
+          break;
+        }
+
+        case 'MODERATION_SCAN_TEXT': {
+          const { text } = payload;
+          if (!text) throw new Error('Texto para escaneamento é obrigatório.');
+          const moderatorService = require('../services/moderatorService');
+          const analysis = moderatorService.analyze(text);
+          resultMsg = `Análise Concluída: Score ${(analysis.score * 100).toFixed(0)}% | Categoria: ${analysis.category || 'Limpo'} | Regras: ${analysis.hits.map(h => h.name).join(', ') || 'Nenhuma'}`;
+          break;
+        }
+
+        case 'MODERATION_DISMISS_REPORT': {
+          const { reportId } = payload;
+          if (!reportId) throw new Error('ID da denúncia é obrigatório.');
+          models.updateModerationReport(Number(reportId), { status: 'DISMISSED', note: 'Dispensado via Bot Deck' });
+          resultMsg = `Denúncia #${reportId} dispensada com sucesso!`;
+          break;
+        }
+
+        case 'MODERATION_DELETE_REPORTED_MSG': {
+          const { reportId } = payload;
+          if (!reportId) throw new Error('ID da denúncia é obrigatório.');
+          const rep = models.getModerationReportById(Number(reportId));
+          if (!rep) throw new Error(`Denúncia #${reportId} não encontrada.`);
+          if (rep.message_id && rep.group_jid && whatsappBot.sock && whatsappBot.isConnected) {
+            try {
+              await whatsappBot.sock.sendMessage(rep.group_jid, {
+                delete: {
+                  remoteJid: rep.group_jid,
+                  id: rep.message_id,
+                  participant: rep.reported_author_jid || undefined
+                }
+              });
+            } catch (_) {}
+          }
+          models.updateModerationReport(rep.id, { status: 'DELETED', action_taken: 'DELETED', note: 'Excluído manualmente via Bot Deck' });
+          resultMsg = `Mensagem denunciada (#${reportId}) apagada do grupo para todos com sucesso!`;
+          break;
+        }
+
+        case 'MODERATION_CLEAR_REPORTS': {
+          const { days } = payload;
+          const cleared = models.clearOldModerationReports(Number(days) || 0);
+          resultMsg = `Limpeza concluída: ${cleared} denúncias removidas da fila com sucesso!`;
           break;
         }
 
