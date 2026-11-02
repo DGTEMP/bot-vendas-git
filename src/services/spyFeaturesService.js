@@ -3759,23 +3759,97 @@ sys.stdout.buffer.write(out.getvalue())
   // 6. VITRINE E-COMMERCE & CHECKOUT (SPY TECH SOLUTIONS)
   // ==========================================
   /**
-   * Envia o link da vitrine online com produtos em destaque
+   * Envia o link da vitrine online com produtos em destaque atrelado à conta WhatsApp do cliente
+   * Inicia imediatamente o rastreamento no CRM Cognitivo e telemetria da loja
    */
-  async handleLoja(sock, from) {
+  async handleLoja(sock, from, senderPhone = null, senderName = null) {
     try {
       const isSubBot = !!sock && sock.instanceId;
       const instanceId = sock?.instanceId;
       const isBusiness = isSubBot && models.isSubBotBusiness(instanceId);
       const subBotProds = isSubBot ? models.getSubBotProducts(instanceId, sock?.user?.id) : [];
 
-      let products;
-      const tunnelService = require('./tunnelService');
-      const host = tunnelService.getStoreUrl() || 'http://localhost:3001';
-      let storeUrl = `${host}/loja`;
+      // Identifica o número e nome do cliente solicitante
+      let cleanPhone = senderPhone ? String(senderPhone).replace(/\D/g, '') : '';
+      if (!cleanPhone && from && !from.endsWith('@g.us')) {
+        cleanPhone = String(from).split('@')[0].replace(/\D/g, '');
+      }
 
+      let clientName = (senderName && typeof senderName === 'string' && senderName.trim()) ? senderName.trim() : '';
+      if (!clientName && cleanPhone) {
+        const prof = models.getLeadCognitiveProfile(cleanPhone);
+        if (prof && prof.name && prof.name !== 'Lead Loja Web') {
+          clientName = prof.name;
+        }
+      }
+      if (!clientName) clientName = 'Cliente';
+
+      const tunnelService = require('./tunnelService');
+      const host = (tunnelService.getStoreUrl() || 'http://localhost:3001').replace(/\/+$/, '');
+
+      // Constrói os parâmetros de URL atrelados ao cliente para tracking
+      const queryParams = [];
+      if (cleanPhone && cleanPhone.length >= 8) {
+        queryParams.push(`phone=${cleanPhone}`);
+        if (clientName && clientName !== 'Cliente') {
+          queryParams.push(`name=${encodeURIComponent(clientName)}`);
+        }
+      }
+      if (isBusiness || subBotProds.length > 0) {
+        queryParams.push(`subbot=${instanceId}`);
+      }
+
+      const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+      const storeUrl = `${host}/loja${queryString}`;
+
+      // Inicia imediatamente o trackeamento no CRM Cognitivo e telemetria da loja
+      if (cleanPhone && cleanPhone.length >= 8) {
+        try {
+          models.upsertLeadCognitiveProfile(cleanPhone, {
+            name: clientName,
+            niche: 'Vitrine Web & Catálogo Tech',
+            buying_stage: 'CONSIDERACAO',
+            readiness_score: 50
+          });
+
+          models.addLeadEpisodicMemory(
+            cleanPhone,
+            'STORE_LINK_REQUESTED',
+            `Solicitou acesso à vitrine digital via WhatsApp (!loja)`,
+            `O cliente ${clientName} pediu o catálogo online. Link gerado e entregue: ${storeUrl}`,
+            4
+          );
+
+          models.logStoreTelemetry({
+            session_id: `sess_lead_${cleanPhone}`,
+            phone: cleanPhone,
+            customer_name: clientName,
+            event_type: 'STORE_LINK_REQUESTED',
+            metadata: JSON.stringify({
+              command: '!loja',
+              from,
+              isGroup: Boolean(from && from.endsWith('@g.us')),
+              instanceId: instanceId || 'matriz',
+              storeUrl
+            })
+          });
+
+          models.saveCartSession({
+            session_id: `sess_lead_${cleanPhone}`,
+            phone: cleanPhone,
+            customer_name: clientName,
+            cart_items: '[]',
+            cart_total: 0,
+            status: 'LINK_SENT'
+          });
+        } catch (trkErr) {
+          console.error('[SpyFeatures ⚠️ Erro ao registrar tracking inicial de loja]:', trkErr.message);
+        }
+      }
+
+      let products;
       if (isBusiness || subBotProds.length > 0) {
         products = subBotProds.slice(0, 5);
-        storeUrl = `${host}/loja?subbot=${instanceId}`;
       } else {
         products = models.getStoreProducts().slice(0, 5);
       }
@@ -3789,16 +3863,18 @@ sys.stdout.buffer.write(out.getvalue())
         }).join('\n') + `\n\n`;
       }
 
-      const out =
-        `🛒 *${isBusiness ? 'CATÁLOGO WHATSAPP BUSINESS' : 'VITRINE DIGITAL & CATÁLOGO OFICIAL'}* 🛒\n\n` +
-        (isBusiness
-          ? `Este canal opera exclusivamente com os produtos e preços do catálogo próprio desta conta WhatsApp Business.\n\n`
-          : `Navegue pelo nosso catálogo completo com carrinho de compras, cálculo de cupons e checkout instantâneo Pix e Cripto!\n\n`) +
-        prodListText +
-        `🌐 *Acesse a Loja Online:* ${storeUrl}\n\n` +
-        `💡 _Adicione produtos ao carrinho e finalize pelo WhatsApp ou pague diretamente via PIX com entrega imediata!_`;
+      const greeting = clientName && clientName !== 'Cliente' ? `Olá, *${clientName}*!` : `Olá!`;
 
-      return sock.sendMessage(from, { text: out });
+      const out =
+        `🛒 *${isBusiness ? 'CATÁLOGO WHATSAPP BUSINESS' : 'SUA VITRINE DIGITAL & CATÁLOGO EXCLUSIVO'}* 🛒\n\n` +
+        `${greeting} Preparamos seu link de acesso exclusivo à nossa vitrine e catálogo tecnológico com checkout inteligente Pix e WhatsApp.\n\n` +
+        prodListText +
+        `🌐 *Acesse Sua Loja Online:* \n👉 ${storeUrl}\n\n` +
+        `✨ *Sincronizado com seu WhatsApp:* seus produtos visualizados, itens no carrinho e descontos serão acompanhados em tempo real por nossa equipe técnica!\n\n` +
+        `💡 _Adicione produtos ao carrinho e pague via PIX com entrega imediata ou finalize direto pelo WhatsApp._`;
+
+      const mentions = (from && from.endsWith('@g.us') && cleanPhone) ? [`${cleanPhone}@s.whatsapp.net`] : [];
+      return sock.sendMessage(from, { text: out, mentions });
     } catch (err) {
       console.error('[SpyFeatures ⚠️ handleLoja]:', err.message);
       return sock.sendMessage(from, { text: `❌ Erro ao abrir catálogo.` });

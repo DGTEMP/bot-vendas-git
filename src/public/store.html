@@ -260,6 +260,12 @@
     </div>
   </header>
 
+  <!-- WhatsApp Customer Auth Sync Banner -->
+  <div id="customerAuthBanner" style="display: none; background: linear-gradient(90deg, rgba(37,211,102,0.15) 0%, rgba(16,185,129,0.1) 100%); border-bottom: 1px solid rgba(37, 211, 102, 0.3); padding: 9px 20px; font-size: 13px; color: #25d366; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+    <i class="fa-brands fa-whatsapp" style="margin-right: 6px; font-size: 16px; vertical-align: middle;"></i>
+    <span id="customerAuthText" style="vertical-align: middle;">Sincronizado com WhatsApp</span>
+  </div>
+
   <!-- Hero Section -->
   <section class="hero">
     <div class="hero-badge">
@@ -407,6 +413,36 @@
     let appliedCoupon = null;
     let selectedMethod = 'pix';
 
+    // Helper para sanitização XSS
+    function escapeHtml(str) {
+      return String(str || '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[m]);
+    }
+
+    // Captura inicial dos parâmetros de URL vinculados ao WhatsApp do cliente
+    (function initCustomerTrackingFromUrl() {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const qPhone = urlParams.get('phone') || urlParams.get('wpp') || urlParams.get('tel') || urlParams.get('whatsapp');
+        const qName = urlParams.get('name') || urlParams.get('cliente') || urlParams.get('nome');
+        const qSubBot = urlParams.get('subbot') || urlParams.get('bot');
+
+        if (qPhone) {
+          const clean = String(qPhone).replace(/\D/g, '');
+          if (clean.length >= 8) {
+            localStorage.setItem('cust_phone', clean);
+          }
+        }
+        if (qName && qName.trim()) {
+          localStorage.setItem('cust_name', qName.trim());
+        }
+        if (qSubBot) {
+          localStorage.setItem('store_subbot', qSubBot);
+        }
+      } catch (_) {}
+    })();
+
     // Identificador persistente da sessão do cliente na loja
     const sessionId = (function() {
       let id = localStorage.getItem('store_session_id');
@@ -416,6 +452,25 @@
       }
       return id;
     })();
+
+    // Banner de identificação e sincronização com WhatsApp
+    function updateCustomerAuthBanner() {
+      const banner = document.getElementById('customerAuthBanner');
+      const bannerText = document.getElementById('customerAuthText');
+      if (!banner || !bannerText) return;
+
+      const phone = localStorage.getItem('cust_phone') || document.getElementById('custPhone')?.value || '';
+      const name = localStorage.getItem('cust_name') || document.getElementById('custName')?.value || '';
+
+      if (phone && phone.replace(/\D/g, '').length >= 8) {
+        banner.style.display = 'block';
+        const displayName = name ? escapeHtml(name) : 'Cliente';
+        const displayPhone = escapeHtml(phone.replace(/\D/g, ''));
+        bannerText.innerHTML = `👋 Olá, <strong>${displayName}</strong>! Sua sessão está vinculada ao WhatsApp <strong>+${displayPhone}</strong>. Carrinho e pedidos integrados em tempo real.`;
+      } else {
+        banner.style.display = 'none';
+      }
+    }
 
     // Persistência do carrinho e cupons no localStorage
     function saveCartState() {
@@ -459,6 +514,8 @@
         if (savedNotes && document.getElementById('custNotes')) {
           document.getElementById('custNotes').value = savedNotes;
         }
+
+        updateCustomerAuthBanner();
       } catch (_) {}
     }
 
@@ -472,6 +529,7 @@
         if (phone) localStorage.setItem('cust_phone', phone);
         if (address) localStorage.setItem('cust_address', address);
         if (notes) localStorage.setItem('cust_notes', notes);
+        updateCustomerAuthBanner();
       } catch (_) {}
     }
 
@@ -511,7 +569,7 @@
           renderProducts();
           loadCartState();
           updateCartUI();
-          sendTelemetry('PAGE_VIEW');
+          sendTelemetry('PAGE_VIEW', { source: window.location.search.includes('phone') ? 'whatsapp_link' : 'direct' });
         }
       } catch (err) {
         document.getElementById('productsGrid').innerHTML = `
@@ -844,6 +902,7 @@
         btn.style.display = 'none';
 
         if (selectedMethod === 'whatsapp') {
+          window._lastWaUrl = data.whatsappUrl;
           resultArea.innerHTML = `
             <div style="text-align: center;">
               <i class="fa-brands fa-whatsapp" style="font-size: 44px; color: #25d366; margin-bottom: 10px;"></i>
@@ -854,7 +913,7 @@
               <a href="${data.whatsappUrl}" target="_blank" class="btn-checkout" style="background: #25d366; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px;">
                 <i class="fa-brands fa-whatsapp" style="font-size: 18px;"></i> Abrir WhatsApp Agora
               </a>
-              <button class="btn-detail" onclick="navigator.clipboard.writeText('${data.whatsappUrl}'); showToast('📋 Link do WhatsApp copiado!');" style="width: 100%; margin-top: 10px;">
+              <button class="btn-detail" onclick="if (window._lastWaUrl) { navigator.clipboard.writeText(window._lastWaUrl); showToast('📋 Link do WhatsApp copiado!'); }" style="width: 100%; margin-top: 10px;">
                 <i class="fa-solid fa-copy"></i> Copiar Link do Atendente
               </button>
             </div>
@@ -935,6 +994,8 @@
           }
         });
       }
+
+      updateCustomerAuthBanner();
     });
 
     // Detecta abandono de carrinho

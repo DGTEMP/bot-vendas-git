@@ -742,15 +742,7 @@ class WhatsAppBotService {
       }
 
       if (/^(?:!|\/)?(?:loja|vitrine)$/i.test(lower)) {
-        const tunnelService = require('../services/tunnelService');
-        const storeUrl = tunnelService.getStoreUrl() || 'http://localhost:3001';
-        return this.sendMessage(from,
-          `🛒 *VITRINE DIGITAL & CATÁLOGO (LINK PÚBLICO)* 🛒\n\n` +
-          `🔗 *Link da Loja Virtual:*\n👉 ${storeUrl}\n\n` +
-          `💡 _Este é o link público que pode ser compartilhado em grupos, redes sociais e com clientes para compra direta via WhatsApp, Pix e USDT._`,
-          {},
-          activeSock
-        );
+        return spyFeatures.handleLoja(activeSock, from, senderPhone, senderName);
       }
 
       if (/^(?:!|\/)?(?:escuta|social|sociallistening|ouvinte)$/i.test(lower)) {
@@ -2526,8 +2518,8 @@ class WhatsAppBotService {
     }
 
     // 14.28 Vitrine Digital & Catálogo E-Commerce (Spy Tech Solutions): !loja / !catalogo / !vitrine
-    if (/^(?:!|\/)(?:loja|catalogo|vitrine|store|vercatalogo)$/i.test(lower)) {
-      return spyFeatures.handleLoja(activeSock, from);
+    if (/^(?:!|\/)?(?:loja|catalogo|vitrine|store|vercatalogo)$/i.test(lower) || /^(?:manda\s*(?:o\s*)?)?(?:link\s*(?:da\s*)?)?(?:loja|vitrine|catalogo)$/i.test(lower)) {
+      return spyFeatures.handleLoja(activeSock, from, senderPhone, senderName);
     }
 
     // 14.29 Central de Avisos & Alertas da Equipe (Sistemas Avisos PC): !aviso / !notificar / !urgente / !comunicado

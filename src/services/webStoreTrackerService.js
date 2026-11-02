@@ -63,10 +63,20 @@ class WebStoreTrackerService {
             buying_stage: sessionStatus === 'CHECKOUT_OPEN' ? 'DECISAO_IMINENTE' : 'CONSIDERACAO',
             readiness_score: sessionStatus === 'CHECKOUT_OPEN' ? 75 : 50
           });
+        } else if (customer_name && customer_name !== 'Lead Loja Web' && (!profile.name || profile.name === 'Lead Loja Web')) {
+          models.upsertLeadCognitiveProfile(cleanPhone, { name: customer_name });
         }
 
         // Registra memórias episódicas do comportamento na loja
-        if (event_type === 'PRODUCT_VIEW' && product_name) {
+        if (event_type === 'PAGE_VIEW') {
+          models.addLeadEpisodicMemory(
+            cleanPhone,
+            'STORE_ACCESS',
+            `Acessou a vitrine digital vinculada ao WhatsApp`,
+            `Cliente abriu o catálogo online através do link rastreável`,
+            3
+          );
+        } else if (event_type === 'PRODUCT_VIEW' && product_name) {
           models.addLeadEpisodicMemory(
             cleanPhone,
             'STORE_VIEW',
