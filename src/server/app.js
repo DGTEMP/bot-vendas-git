@@ -4387,6 +4387,33 @@ function createServer() {
     }
   });
 
+  app.get('/api/rentals/overview', (req, res) => {
+    try {
+      const rentals = models.listGroupRentals();
+      const codes = models.listRentalActivationCodes();
+      const globalMode = models.isRentalModeGlobal();
+      const stats = models.getTopCommands ? models.getTopCommands(10) : { totalCount: 0, commands: [] };
+      const unusedCodes = codes.filter(c => !c.used_at);
+      const activeGroups = rentals.filter(r => r.active && (r.is_permanent || (r.expires_at && new Date(r.expires_at) > new Date())));
+
+      res.json({
+        success: true,
+        globalMode,
+        rentals,
+        codes,
+        stats: {
+          totalGroups: rentals.length,
+          activeGroups: activeGroups.length,
+          unusedCodes: unusedCodes.length,
+          totalCommands: stats.totalCount || 0,
+          topCommands: stats.commands || []
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/groups/:groupJid/protection', (req, res) => {
     try {
       const prot = models.getGroupProtection(req.params.groupJid);

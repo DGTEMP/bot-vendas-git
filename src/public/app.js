@@ -621,7 +621,7 @@ async function loadCompanies() {
   try {
     const res = await fetch('/api/companies');
     const companies = await res.json();
-    currentCompanies = companies;
+    currentCompanies = Array.isArray(companies) ? companies : (companies.companies || []);
     populateCompaniesDropdown();
     populateCompanyFilters();
 
@@ -1007,9 +1007,11 @@ async function populateOfferProductsDropdown() {
     let prods = currentProducts;
     if (!prods || prods.length === 0) {
       const res = await fetch('/api/products');
-      prods = await res.json();
+      const data = await res.json();
+      prods = Array.isArray(data) ? data : (data.products || []);
       currentProducts = prods;
     }
+    prods = Array.isArray(prods) ? prods : [];
 
     let html = '<option value="">Nenhum (Link Geral do Bot)</option>';
     prods.forEach(p => {
@@ -1105,7 +1107,8 @@ async function submitBroadcastOffer(e) {
 async function loadProducts() {
   try {
     const res = await fetch('/api/products');
-    currentProducts = await res.json();
+    const data = await res.json();
+    currentProducts = Array.isArray(data) ? data : (data.products || []);
     populateOfferProductsDropdown();
     populateCategoryFilters();
     populateCompanyFilters();
@@ -1119,7 +1122,8 @@ function populateCategoryFilters() {
   const select = document.getElementById('filterProdCategory');
   if (!select) return;
   const currentVal = select.value;
-  const categories = Array.from(new Set(currentProducts.map(p => p.category || 'Geral'))).sort();
+  const prods = Array.isArray(currentProducts) ? currentProducts : [];
+  const categories = Array.from(new Set(prods.map(p => p.category || 'Geral'))).sort();
   select.innerHTML = '<option value="">Todas as Categorias</option>' + 
     categories.map(c => `<option value="${c}">${c}</option>`).join('');
   if (currentVal && categories.includes(currentVal)) {
@@ -1131,8 +1135,9 @@ function populateCompanyFilters() {
   const select = document.getElementById('filterProdCompany');
   if (!select) return;
   const currentVal = select.value;
+  const comps = Array.isArray(currentCompanies) ? currentCompanies : [];
   select.innerHTML = '<option value="">Todas as Empresas</option><option value="0">Matriz (Sem empresa)</option>' +
-    currentCompanies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    comps.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   if (currentVal) {
     select.value = currentVal;
   }
@@ -1545,7 +1550,8 @@ async function submitKeys() {
 async function loadOrders() {
   try {
     const res = await fetch('/api/orders');
-    const orders = await res.json();
+    const data = await res.json();
+    const orders = Array.isArray(data) ? data : (data.orders || []);
 
     renderOrdersTable('tableOrders', orders);
     renderOrdersTable('tableOverviewOrders', orders.slice(0, 5));
@@ -1647,9 +1653,12 @@ async function simulatePayment(tradeNo) {
 async function loadSubscriptions() {
   try {
     const res = await fetch('/api/subscriptions');
-    const subs = await res.json();
+    const data = await res.json();
+    const subs = Array.isArray(data) ? data : (data.subscriptions || []);
 
     const tbody = document.querySelector('#tableSubs tbody');
+    if (!tbody) return;
+
     if (subs.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhuma assinatura ativa no momento.</td></tr>';
       return;
@@ -2103,20 +2112,24 @@ async function loadArmyData() {
 }
 
 function updateArmyMetrics() {
-  const connectedCount = currentArmyInstances.filter(i => i.status === 'CONNECTED').length;
-  const totalInstances = currentArmyInstances.length;
+  const instances = Array.isArray(currentArmyInstances) ? currentArmyInstances : [];
+  const links = Array.isArray(currentArmyLinks) ? currentArmyLinks : [];
+  const campaigns = Array.isArray(currentArmyCampaigns) ? currentArmyCampaigns : [];
+
+  const connectedCount = instances.filter(i => i.status === 'CONNECTED').length;
+  const totalInstances = instances.length;
   const elConn = document.getElementById('armyStatConnected');
   if (elConn) elConn.innerText = `${connectedCount} / ${totalInstances}`;
 
-  const sentToday = currentArmyInstances.reduce((acc, i) => acc + (i.messages_sent_today || 0), 0);
-  const totalLimit = currentArmyInstances.reduce((acc, i) => acc + (i.daily_limit || 50), 0);
+  const sentToday = instances.reduce((acc, i) => acc + (i.messages_sent_today || 0), 0);
+  const totalLimit = instances.reduce((acc, i) => acc + (i.daily_limit || 50), 0);
   const elSent = document.getElementById('armyStatSentToday');
   if (elSent) elSent.innerText = `${sentToday} / ${totalLimit} max`;
 
   const elLinks = document.getElementById('armyStatTotalLinks');
-  if (elLinks) elLinks.innerText = `${currentArmyLinks.length} cadastrados`;
+  if (elLinks) elLinks.innerText = `${links.length} cadastrados`;
 
-  const activeCamps = currentArmyCampaigns.filter(c => c.status === 'RUNNING').length;
+  const activeCamps = campaigns.filter(c => c.status === 'RUNNING').length;
   const elCamps = document.getElementById('armyStatActiveCampaigns');
   if (elCamps) elCamps.innerText = `${activeCamps} ativas`;
 }
@@ -2126,7 +2139,8 @@ function updateArmyMetrics() {
 async function loadArmyInstances() {
   try {
     const res = await fetch('/api/army/instances');
-    currentArmyInstances = await res.json();
+    const data = await res.json();
+    currentArmyInstances = Array.isArray(data) ? data : (data.instances || []);
 
     const tbody = document.querySelector('#tableArmyInstances tbody');
     if (!tbody) return;
@@ -2440,7 +2454,8 @@ function closeArmyQrModal() {
 async function loadArmyLinks() {
   try {
     const res = await fetch('/api/army/links');
-    currentArmyLinks = await res.json();
+    const data = await res.json();
+    currentArmyLinks = Array.isArray(data) ? data : (data.links || []);
 
     const tbody = document.querySelector('#tableArmyLinks tbody');
     if (!tbody) return;
@@ -2565,7 +2580,8 @@ function openCampaignWithLink(linkId) {
 async function loadArmyCampaigns() {
   try {
     const res = await fetch('/api/army/campaigns');
-    currentArmyCampaigns = await res.json();
+    const data = await res.json();
+    currentArmyCampaigns = Array.isArray(data) ? data : (data.campaigns || []);
 
     const tbody = document.querySelector('#tableArmyCampaigns tbody');
     if (!tbody) return;
@@ -3589,7 +3605,8 @@ async function loadChatControls() {
   try {
     const res = await fetch('/api/controls');
     if (!res.ok) return;
-    const controls = await res.json();
+    const data = await res.json();
+    const controls = Array.isArray(data) ? data : (data.controls || []);
     currentChatControls = controls;
 
     const tbody = document.getElementById('tableChatControlsBody');
@@ -3800,7 +3817,8 @@ async function loadGroupAuditLogs() {
   try {
     const res = await fetch('/api/groups/audit-logs?limit=30');
     if (!res.ok) return;
-    const logs = await res.json();
+    const data = await res.json();
+    const logs = Array.isArray(data) ? data : (data.logs || []);
 
     if (!logs || logs.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 15px; color: var(--text-muted);">Nenhum comando de administração de grupos registrado ainda.</td></tr>';
@@ -4980,14 +4998,14 @@ function renderCommandsTable() {
   if (!tbody) return;
 
   const filterInput = document.getElementById('cmdSearchFilter');
-  const query = filterInput ? filterInput.value.toLowerCase().trim() : '';
+  const query = (filterInput && filterInput.value ? filterInput.value : '').toLowerCase().trim();
 
   const filtered = SYSTEM_COMMANDS.filter(item => {
     const matchCat = activeCmdCategory === 'all' || item.category === activeCmdCategory;
     const matchQuery = !query ||
-      item.cmd.toLowerCase().includes(query) ||
-      item.syntax.toLowerCase().includes(query) ||
-      item.desc.toLowerCase().includes(query);
+      (item.cmd && item.cmd.toLowerCase().includes(query)) ||
+      (item.syntax && item.syntax.toLowerCase().includes(query)) ||
+      (item.desc && item.desc.toLowerCase().includes(query));
     return matchCat && matchQuery;
   });
 
@@ -5169,6 +5187,7 @@ async function loadMeteoricStatus() {
     const res = await fetch('/api/meteoric/status');
     if (!res.ok) return;
     const data = await res.json();
+    if (!data || !data.campaign) return;
     currentMeteoricCampaign = data.campaign;
 
     // Métricas
@@ -5410,7 +5429,8 @@ async function loadMeteoricArmyInstances() {
   try {
     const res = await fetch('/api/army/instances');
     if (!res.ok) return;
-    const instances = await res.json();
+    const data = await res.json();
+    const instances = Array.isArray(data) ? data : (data.instances || []);
     if (!instances || instances.length === 0) {
       sel.innerHTML = '<option value="">Nenhum chip cadastrado no Exército</option>';
       return;
@@ -5511,7 +5531,8 @@ async function loadMeteoricGroupsList() {
   try {
     const res = await fetch('/api/meteoric/groups');
     if (!res.ok) return;
-    const groups = await res.json();
+    const data = await res.json();
+    const groups = Array.isArray(data) ? data : (data.groups || []);
     currentMeteoricGroups = groups;
 
     // Atualiza seletor de grupos no mensageiro web e no simulador
@@ -5614,8 +5635,11 @@ async function loadMeteoricStages() {
   try {
     const res = await fetch('/api/meteoric/stages');
     if (!res.ok) return;
-    currentMeteoricStages = await res.json();
-    selectMeteoricStageView(currentEditingStageNum);
+    const data = await res.json();
+    currentMeteoricStages = Array.isArray(data) ? data : (data.stages || []);
+    if (currentMeteoricStages.length > 0) {
+      selectMeteoricStageView(currentEditingStageNum);
+    }
   } catch (err) {
     console.error('Erro ao carregar etapas meteóricas:', err);
   }
@@ -5815,7 +5839,8 @@ async function loadMeteoricActivityLogs() {
   try {
     const res = await fetch('/api/meteoric/activity-logs?limit=40');
     if (!res.ok) return;
-    const logs = await res.json();
+    const data = await res.json();
+    const logs = Array.isArray(data) ? data : (data.logs || []);
 
     if (!logs || logs.length === 0) {
       feedEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 18px; font-size: 13px;">Nenhuma atividade recente registrada no lançamento. Novos membros, anúncios e conversas aparecerão aqui em tempo real.</div>`;
@@ -9611,4 +9636,223 @@ function recoverAbandonedCart(phone, name, total) {
   const msg = 'Olá, ' + name + '! Vi que você separou alguns itens na nossa loja (Total: R$ ' + total + '), mas ainda não concluiu seu pedido. Posso te ajudar com alguma dúvida ou liberar um cupom especial de 10% de desconto para fechar agora?';
   const url = 'https://wa.me/' + cleanPhone + '?text=' + encodeURIComponent(msg);
   window.open(url, '_blank');
+}
+
+// ==========================================
+// GESTÃO DE ALUGUÉIS & RECURSOS NAZUNA (FRONTEND)
+// ==========================================
+let currentRentalsGlobalMode = false;
+
+async function loadRentalsOverview() {
+  try {
+    const res = await fetch('/api/rentals/overview');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.success) return;
+
+    currentRentalsGlobalMode = !!data.globalMode;
+
+    const btnToggle = document.getElementById('btnToggleRentalGlobal');
+    if (btnToggle) {
+      btnToggle.innerHTML = `<i class="fa-solid fa-shield-halved"></i> Modo Global: ${data.globalMode ? '<span style="color:#10b981;font-weight:bold;">ATIVO</span>' : '<span style="color:#ef4444;font-weight:bold;">DESATIVADO</span>'}`;
+    }
+
+    if (data.stats) {
+      const elTotal = document.getElementById('rentalsStatTotalGroups');
+      if (elTotal) elTotal.innerText = data.stats.totalGroups || 0;
+      const elActive = document.getElementById('rentalsStatActiveGroups');
+      if (elActive) elActive.innerText = data.stats.activeGroups || 0;
+      const elUnused = document.getElementById('rentalsStatUnusedCodes');
+      if (elUnused) elUnused.innerText = data.stats.unusedCodes || 0;
+      const elCmds = document.getElementById('rentalsStatTotalCmds');
+      if (elCmds) elCmds.innerText = data.stats.totalCommands || 0;
+    }
+
+    const badgeActive = document.getElementById('badgeActiveRentalsCount');
+    if (badgeActive) badgeActive.innerText = `${(data.rentals || []).length} grupos`;
+
+    const tableGroups = document.getElementById('tableGroupRentalsBody');
+    if (tableGroups) {
+      if (!data.rentals || data.rentals.length === 0) {
+        tableGroups.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b; padding: 20px;">Nenhum grupo cadastrado.</td></tr>';
+      } else {
+        tableGroups.innerHTML = data.rentals.map(r => {
+          const isPerm = !!r.is_permanent;
+          const isAct = !!r.active;
+          const expText = isPerm ? 'Vitalício / Permanente' : (r.expires_at ? new Date(r.expires_at).toLocaleDateString('pt-BR') : '-');
+          const badge = isAct
+            ? '<span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">Ativo</span>'
+            : '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">Expirado</span>';
+
+          return `<tr>
+            <td><strong>${r.group_name || 'Grupo'}</strong><br><small style="color: #64748b; font-family: monospace;">${r.group_jid}</small></td>
+            <td>${badge}<br><small style="color: #94a3b8;">${expText}</small></td>
+            <td>${r.payer_name || 'Admin'}</td>
+            <td style="text-align: right;">
+              <button class="btn btn-xs btn-outline" style="color: #ef4444; border-color: #ef4444;" onclick="deleteRentalGroup('${r.group_jid}')"><i class="fa-solid fa-trash"></i></button>
+            </td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    const badgeCodes = document.getElementById('badgeRentalCodesCount');
+    if (badgeCodes) badgeCodes.innerText = `${(data.codes || []).length} chaves`;
+
+    const tableCodes = document.getElementById('tableRentalCodesBody');
+    if (tableCodes) {
+      if (!data.codes || data.codes.length === 0) {
+        tableCodes.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b; padding: 20px;">Nenhum código gerado ainda.</td></tr>';
+      } else {
+        tableCodes.innerHTML = data.codes.slice(0, 30).map(c => {
+          const isUsed = !!c.used_at;
+          const statusBadge = isUsed
+            ? '<span class="badge" style="background: rgba(100, 116, 139, 0.2); color: #94a3b8;">Usado</span>'
+            : '<span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">Disponível</span>';
+
+          return `<tr>
+            <td><code style="font-weight: bold; color: #f59e0b; font-size: 13px;">${c.code}</code></td>
+            <td>${c.duration_days === 0 ? 'Vitalício' : c.duration_days + ' dias'}</td>
+            <td>${statusBadge}</td>
+            <td><small style="color: #64748b;">${c.used_at ? new Date(c.used_at).toLocaleDateString('pt-BR') : '-'}</small></td>
+            <td style="text-align: right;">
+              <button class="btn btn-xs btn-outline" onclick="copyRentalCodeText('${c.code}')"><i class="fa-solid fa-copy"></i></button>
+            </td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    const tableTopCmds = document.getElementById('tableTopCommandsBody');
+    if (tableTopCmds && data.stats && data.stats.topCommands) {
+      if (data.stats.topCommands.length === 0) {
+        tableTopCmds.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b; padding: 20px;">Nenhum comando registrado ainda.</td></tr>';
+      } else {
+        const total = data.stats.totalCommands || 1;
+        tableTopCmds.innerHTML = data.stats.topCommands.slice(0, 10).map((cmd, idx) => {
+          const pct = Math.round(((cmd.count || 0) / total) * 100);
+          return `<tr>
+            <td><span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc;">#${idx + 1}</span></td>
+            <td><code style="color: #38bdf8; font-weight: bold;">${cmd.command}</code></td>
+            <td><strong>${cmd.count}</strong></td>
+            <td>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                  <div style="width: ${pct}%; height: 100%; background: #a855f7;"></div>
+                </div>
+                <small style="color: #94a3b8; font-size: 11px;">${pct}%</small>
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao carregar visão geral de aluguéis:', err);
+  }
+}
+
+async function toggleGlobalRentalMode() {
+  try {
+    const nextMode = !currentRentalsGlobalMode;
+    const res = await fetch('/api/rentals/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: nextMode })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(nextMode ? 'Modo Aluguel Global ATIVADO com sucesso!' : 'Modo Aluguel Global DESATIVADO!');
+      loadRentalsOverview();
+    }
+  } catch (err) {
+    showToast('Erro ao alternar modo global: ' + err.message, 'error');
+  }
+}
+
+async function openGenerateRentalCodeModal() {
+  const days = prompt('Informe a duração do aluguel em dias (ex: 30, ou 0 para Vitalício/Permanente):', '30');
+  if (days === null) return;
+  const numDays = parseInt(days, 10);
+  if (isNaN(numDays) || numDays < 0) {
+    alert('Por favor, informe um número de dias válido.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/rentals/codes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ durationDays: numDays })
+    });
+    const data = await res.json();
+    if (data.success && data.code) {
+      prompt('Código de Ativação gerado com sucesso! Copie a chave abaixo:', data.code);
+      loadRentalsOverview();
+    } else {
+      showToast(data.error || 'Erro ao gerar código', 'error');
+    }
+  } catch (err) {
+    showToast('Erro ao comunicar com o servidor: ' + err.message, 'error');
+  }
+}
+
+function copyRentalCodeText(code) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(code);
+    showToast('Código ' + code + ' copiado para a área de transferência!');
+  }
+}
+
+async function deleteRentalGroup(groupJid) {
+  if (!confirm('Deseja realmente revogar o aluguel do grupo ' + groupJid + '?')) return;
+  try {
+    const res = await fetch('/api/rentals/groups/' + encodeURIComponent(groupJid), { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Aluguel do grupo revogado.');
+      loadRentalsOverview();
+    }
+  } catch (err) {
+    showToast('Erro ao revogar aluguel: ' + err.message, 'error');
+  }
+}
+
+async function saveGroupProtectionWeb() {
+  const groupJid = document.getElementById('protectionGroupJid')?.value.trim();
+  if (!groupJid) {
+    alert('Por favor, informe o JID do Grupo (@g.us).');
+    return;
+  }
+  const antiFlood = parseInt(document.getElementById('protectionAntiFloodInterval')?.value, 10) || 3;
+  const antiTrava = document.getElementById('protectionAntiTravaSelect')?.value === '1';
+  const welcome = document.getElementById('protectionWelcomeText')?.value || '';
+  const goodbye = document.getElementById('protectionGoodbyeText')?.value || '';
+
+  try {
+    const res = await fetch('/api/groups/' + encodeURIComponent(groupJid) + '/protection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        anti_flood_interval: antiFlood,
+        anti_trava: antiTrava ? 1 : 0,
+        welcome_message: welcome,
+        goodbye_message: goodbye
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Configurações de proteção salvas com sucesso para o grupo!');
+    } else {
+      showToast(data.error || 'Erro ao salvar proteção', 'error');
+    }
+  } catch (err) {
+    showToast('Erro ao salvar: ' + err.message, 'error');
+  }
+}
+
+function loadFreeSlotsForDate(dateStr) {
+  const timeSelect = document.getElementById('meetTime');
+  if (!timeSelect) return;
+  console.log('Data selecionada para agendamento:', dateStr);
 }
