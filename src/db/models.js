@@ -1274,6 +1274,11 @@ const models = {
     return saved;
   },
 
+  getSubBotCatalogProducts(instanceId) {
+    if (!instanceId) return [];
+    return db.prepare('SELECT * FROM products WHERE army_instance_id = ? AND active = 1 ORDER BY id DESC').all(Number(instanceId));
+  },
+
   deleteArmyInstance(id) {
     const inst = models.getArmyInstanceById(id);
     if (inst && inst.is_main) {

@@ -129,21 +129,7 @@ class MatrizAssistantService {
       return this.handleTakeoverEnd(sock, from, targetPhone);
     }
 
-    // 5. Delegação: Divulgação em Massa para Leads via Sub-Bots
-    // Ex: "Mande os sub-bots divulgarem a mensagem '...' para os leads"
-    // Ex: "Sub-bots disparem para os leads a promoção..."
-    // Ex: "!delegar leads Mensagem com {Oi|Olá}"
-    // Ex: "Subbot 2 dispare para os leads: Mensagem..."
-    const broadcastLeadsMatch = rawText.match(
-      /^(?:!|\/)?(?:delegar\s*(?:para\s*)?(?:todos\s*os\s*sub-?bots|sub-?bots?|leads)\s*(?:divulgar|disparar|enviar)?[:\s]+(.+)|(?:mande\s*(?:os\s*)?sub-?bots|sub-?bots|todos\s*os\s*sub-?bots)\s*(?:divulgarem|dispararem|enviarem|disparem|divulguem)\s*(?:para\s*(?:os\s*)?leads)?[:\s]+(.+)|sub-?bot\s*#?(\d+)\s*(?:dispare|divulgue|envie)\s*(?:para\s*(?:os\s*)?leads)[:\s]+(.+)|!delegar\s+leads?\s+(.+))$/is
-    );
-    if (broadcastLeadsMatch) {
-      const specificId = broadcastLeadsMatch[3] ? parseInt(broadcastLeadsMatch[3], 10) : null;
-      const messageText = (broadcastLeadsMatch[1] || broadcastLeadsMatch[2] || broadcastLeadsMatch[4] || broadcastLeadsMatch[5]).trim();
-      return this.delegateBroadcastLeads(sock, from, messageText, specificId);
-    }
-
-    // 6. Delegação: Divulgação em Grupos via Sub-Bots
+    // 5. Delegação: Divulgação em Grupos via Sub-Bots
     // Ex: "Sub-bots divulguem nos grupos: Promoção relâmpago..."
     // Ex: "Mande os subbots transmitirem nos grupos a mensagem..."
     const broadcastGroupsMatch = rawText.match(
@@ -152,6 +138,20 @@ class MatrizAssistantService {
     if (broadcastGroupsMatch) {
       const messageText = (broadcastGroupsMatch[1] || broadcastGroupsMatch[2]).trim();
       return this.delegateBroadcastGroups(sock, from, messageText);
+    }
+
+    // 6. Delegação: Divulgação em Massa para Leads via Sub-Bots
+    // Ex: "Mande os sub-bots divulgarem a mensagem '...' para os leads"
+    // Ex: "Sub-bots disparem para os leads a promoção..."
+    // Ex: "!delegar leads Mensagem com {Oi|Olá}"
+    // Ex: "Subbot 2 dispare para os leads: Mensagem..."
+    const broadcastLeadsMatch = rawText.match(
+      /^(?:!|\/)?(?:delegar\s*(?:para\s*)?(?:todos\s*os\s*sub-?bots|sub-?bots?|leads)\s*(?:divulgar|disparar|enviar)?[:\s]+(.+)|(?:mande\s*(?:os\s*)?sub-?bots|sub-?bots|todos\s*os\s*sub-?bots)\s*(?:divulgarem|dispararem|enviarem|disparem|divulguem)\s*(?:para\s*(?:os\s*)?leads)?[:\s]+(.+)|sub-?bot\s*#?(\d+)\s*(?:dispare|divulgue|envie)\s*(?:para\s*(?:os\s*)?leads)[:\s]+(.+)|!delegar\s+leads?\s+(.+))$/is
+    );
+    if (broadcastLeadsMatch && !lower.includes('grupo')) {
+      const specificId = broadcastLeadsMatch[3] ? parseInt(broadcastLeadsMatch[3], 10) : null;
+      const messageText = (broadcastLeadsMatch[1] || broadcastLeadsMatch[2] || broadcastLeadsMatch[4] || broadcastLeadsMatch[5]).trim();
+      return this.delegateBroadcastLeads(sock, from, messageText, specificId);
     }
 
     // 7. Delegação: Promoção de Produto do Catálogo via Sub-Bots
