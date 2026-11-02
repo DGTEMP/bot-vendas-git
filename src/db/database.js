@@ -1123,7 +1123,317 @@ function initDatabase() {
     db.prepare("UPDATE viral_tracked_profiles SET total_captured = 1, last_scraped_at = datetime('now') WHERE id = ?").run(prof2Id);
   }
 
-  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais e Radar Viral!');
+  // Desativa produtos legados que não pertencem ao catálogo oficial de tecnologia
+  try {
+    db.prepare(`
+      UPDATE products SET active = 0 
+      WHERE category NOT IN ('Softwares', 'Aplicativos', 'Hardware', 'IA', 'Sites', 'Projetos', 'SEO', 'Otimizações', 'Meteórico')
+        AND (army_instance_id IS NULL OR army_instance_id = 0)
+    `).run();
+  } catch (_) {}
+
+  // Semeia o Catálogo Oficial de Tecnologia (Softwares, Apps, Hardware, IA, Sites, Projetos, SEO, Otimizações, Meteórico)
+  const officialTechCatalog = [
+    // 1. Softwares
+    {
+      name: 'SpyBot Pro - Automação WhatsApp & Vendas 24/7',
+      description: 'Bot completo de alta conversão para WhatsApp com multi-números, recuperação de carrinho, disparos em massa e checkout Pix/USDT.',
+      price: 497.00,
+      price_brl: 497.00,
+      price_usdt: 90.36,
+      currency: 'BRL',
+      type: 'license_key',
+      duration_days: 0,
+      category: 'Softwares',
+      specs: 'Node.js Baileys v6+, SQLite ultra-rápido (<1ms), painel web com gráficos, gestão de afiliados e sub-bots.',
+      image_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 100
+    },
+    {
+      name: 'Painel SaaS de Gestão Comercial & CRM Multi-Tenant',
+      description: 'Sistema web completo de gestão comercial com controle de vendedores, comissões de afiliados, relatórios financeiros e CRM.',
+      price: 997.00,
+      price_brl: 997.00,
+      price_usdt: 181.27,
+      currency: 'BRL',
+      type: 'digital_link',
+      duration_days: 0,
+      category: 'Softwares',
+      specs: 'Arquitetura modular multi-empresas, relatórios em tempo real, exportação CSV/Excel e integração com webhooks.',
+      image_url: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 999
+    },
+
+    // 2. Aplicativos Personalizados Sob Medida
+    {
+      name: 'Aplicativo Mobile Personalizado Sob Medida (Android & iOS)',
+      description: 'Desenvolvimento completo de app mobile nativo ou híbrido, com design UI/UX exclusivo, notificações push e APIs integradas.',
+      price: 4500.00,
+      price_brl: 4500.00,
+      price_usdt: 818.18,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Aplicativos',
+      specs: 'React Native / Flutter, autenticação biométrica, offline cache, painel web administrativo e publicação nas lojas.',
+      image_url: 'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 10
+    },
+    {
+      name: 'Web App / PWA Personalizado com Painel Administrativo',
+      description: 'Aplicação Web Progressiva de alta performance, instalável em smartphones e PCs, offline-first e ultra-rápida.',
+      price: 2800.00,
+      price_brl: 2800.00,
+      price_usdt: 509.09,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Aplicativos',
+      specs: 'PWA com Service Workers, banco de dados em tempo real, responsividade 100% fluida e zero tempo de espera.',
+      image_url: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 15
+    },
+
+    // 3. Hardware & Infraestrutura
+    {
+      name: 'Setup Servidor Dedicado & VPS High-Performance para Bots e IA',
+      description: 'Provisionamento de infraestrutura bare-metal/VPS com Linux otimizado, proteção anti-DDoS, Nginx SSL e tuning de RAM/CPU.',
+      price: 850.00,
+      price_brl: 850.00,
+      price_usdt: 154.55,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Hardware',
+      specs: 'Configuração em AWS, Hetzner ou DigitalOcean, firewall avançado, swap zRAM, monitoramento e backups automáticos.',
+      image_url: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 20
+    },
+    {
+      name: 'Workstation Corporativa / Rig Dedicado para Processamento Local de IA',
+      description: 'Consultoria, dimensionamento e montagem de hardware dedicado com GPUs para inferência local de IA sem custos de API.',
+      price: 12500.00,
+      price_brl: 12500.00,
+      price_usdt: 2272.73,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Hardware',
+      specs: 'Configuração com GPUs Nvidia RTX/Enterprise, suporte a modelos 7B a 70B via vLLM/Ollama, refrigeração e estabilidade 24/7.',
+      image_url: 'https://images.unsplash.com/photo-1591488320449-011701bb6704?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 5
+    },
+
+    // 4. Inteligência Artificial (IA)
+    {
+      name: 'Agente de Atendimento Inteligente com IA Generativa (Gemini / GPT)',
+      description: 'Atendente virtual humanizado treinado com o conhecimento do seu negócio para responder dúvidas e converter vendas no WhatsApp.',
+      price: 1800.00,
+      price_brl: 1800.00,
+      price_usdt: 327.27,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'IA',
+      specs: 'Integração Google Gemini / OpenAI, memória de conversa, transbordo automático para humanos e gatilhos de vendas.',
+      image_url: 'https://images.unsplash.com/photo-1677442136019-21780efad99a?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 25
+    },
+    {
+      name: 'Sistema RAG Corporativo (Base de Conhecimento com Busca Semântica)',
+      description: 'Indexação vetorial de PDFs, catálogos e manuais com busca semântica instantânea para respostas corporativas sem alucinações.',
+      price: 2400.00,
+      price_brl: 2400.00,
+      price_usdt: 436.36,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'IA',
+      specs: 'Embeddings vetoriais de alta fidelidade, busca híbrida semântica + BM25, API REST e suporte a múltiplos documentos.',
+      image_url: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 20
+    },
+
+    // 5. Sites & Landing Pages
+    {
+      name: 'Landing Page de Alta Conversão (Copy + Design + Ultra-Rápida)',
+      description: 'Página de vendas moderna e persuasiva, estruturada para tráfego pago, com carregamento abaixo de 1s e alta taxa de conversão.',
+      price: 1200.00,
+      price_brl: 1200.00,
+      price_usdt: 218.18,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Sites',
+      specs: 'HTML5/Tailwind/CSS3 ultra-leve, copy validada, pixels Meta e Google integrados, 100% responsiva.',
+      image_url: 'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 30
+    },
+    {
+      name: 'Site Institucional ou Portal Corporativo Premium',
+      description: 'Site corporativo profissional com páginas de serviços, blog institucional, formulários dinâmicos e conexão com WhatsApp.',
+      price: 2500.00,
+      price_brl: 2500.00,
+      price_usdt: 454.55,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Sites',
+      specs: 'SEO técnico on-page incluso, certificado SSL, design exclusivo no Figma, painel administrativo fácil de gerenciar.',
+      image_url: 'https://images.unsplash.com/photo-1467232004584-a241de8bcf5d?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 15
+    },
+
+    // 6. Projetos Sob Medida
+    {
+      name: 'Desenvolvimento de Software / Projeto Full-Stack Sob Medida',
+      description: 'Solução sob medida desenvolvida do zero para resolver exatamente os desafios operacionais e regras do seu negócio.',
+      price: 3800.00,
+      price_brl: 3800.00,
+      price_usdt: 690.91,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Projetos',
+      specs: 'Node.js/TypeScript, React/Vue, PostgreSQL/SQLite, arquitetura limpa, testes unitários e garantia técnica pós-entrega.',
+      image_url: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 10
+    },
+    {
+      name: 'Integração Personalizada de APIs, Webhooks e Gateways de Pagamento',
+      description: 'Conexão confiável entre sistemas legados, ERPs, CRMs e gateways (Pix automático, Binance Pay, Mercado Pago, Stripe).',
+      price: 1500.00,
+      price_brl: 1500.00,
+      price_usdt: 272.73,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Projetos',
+      specs: 'Fila de reprocessamento automático (dead-letter queue), segurança com HMAC/tokens, logs detalhados e zero perdas de transações.',
+      image_url: 'https://images.unsplash.com/photo-1555421689-491a97ff2040?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 25
+    },
+
+    // 7. SEO & Tráfego Orgânico
+    {
+      name: 'Auditoria Técnica de SEO & Otimização Google 1ª Página',
+      description: 'Diagnóstico profundo de SEO técnico, correção de erros de indexação, schema markup e plano estratégico de palavras-chave.',
+      price: 1350.00,
+      price_brl: 1350.00,
+      price_usdt: 245.45,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'SEO',
+      specs: 'Otimização Core Web Vitals, robots.txt, sitemaps XML, canônicas, arquitetura de links internos e rich snippets.',
+      image_url: 'https://images.unsplash.com/photo-1571721795195-a2ca2d3370a9?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 30
+    },
+    {
+      name: 'Pacote Mensal de Gestão de SEO & Posicionamento Orgânico (30 Dias)',
+      description: 'Acompanhamento contínuo de rankings no Google, criação de conteúdo otimizado, ganho de autoridade e monitoramento.',
+      price: 1900.00,
+      price_brl: 1900.00,
+      price_usdt: 345.45,
+      currency: 'BRL',
+      type: 'vip_subscription',
+      duration_days: 30,
+      category: 'SEO',
+      specs: 'Relatórios mensais de evolução de posições, Search Console, GA4 e otimizações contínuas de páginas estratégicas.',
+      image_url: 'https://images.unsplash.com/photo-1432888498266-38ffec3eaf0a?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 20
+    },
+
+    // 8. Otimizações de Performance
+    {
+      name: 'Otimização de Performance Web (PageSpeed 100/100 & Core Web Vitals)',
+      description: 'Aceleração drástica do tempo de carregamento de páginas, compressão de imagens, minificação e cache avançado.',
+      price: 790.00,
+      price_brl: 790.00,
+      price_usdt: 143.64,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Otimizações',
+      specs: 'Garantia de pontuação verde no Google PageSpeed, redução de TTFB e eliminação de scripts bloqueantes.',
+      image_url: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 50
+    },
+    {
+      name: 'Tuning de Performance de Banco de Dados, Backend & Redução de Latência',
+      description: 'Auditoria de queries lentas, criação de índices estratégicos, statement cache, tuning de pooling e redução de RAM.',
+      price: 1100.00,
+      price_brl: 1100.00,
+      price_usdt: 200.00,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Otimizações',
+      specs: 'Otimização de bancos SQLite, MySQL ou Postgres, benchmarks antes/depois e redução de consumo de CPU/Memória em até 80%.',
+      image_url: 'https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 35
+    },
+
+    // 9. Lançamento Meteórico
+    {
+      name: 'Estruturação Completa de Lançamento Meteórico no WhatsApp',
+      description: 'Configuração total do funil de lançamento meteórico: esteira de grupos VIP, links de auto-transbordamento e cronograma de 5 fases.',
+      price: 3200.00,
+      price_brl: 3200.00,
+      price_usdt: 581.82,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Meteórico',
+      specs: 'Gestão automatizada de grupos, scripts de antecipação, moderação inteligente e abertura cronometrada com checkout acelerado.',
+      image_url: 'https://images.unsplash.com/photo-1533750349088-cd871a92f312?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 15
+    },
+    {
+      name: 'Automação de Sub-Bots & Efeito Manada para Lançamento Meteórico',
+      description: 'Scripts inteligentes de interação com sub-bots simultâneos gerando prova social, quebrando objeções e ativando escassez ao vivo.',
+      price: 2100.00,
+      price_brl: 2100.00,
+      price_usdt: 381.82,
+      currency: 'BRL',
+      type: 'digital',
+      duration_days: 0,
+      category: 'Meteórico',
+      specs: 'Simulação humanizada com delays orgânicos, múltiplos chips coordenados pela Matriz e disparo de links secretos com desconto.',
+      image_url: 'https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 25
+    }
+  ];
+
+  const insertProdStmt = db.prepare(`
+    INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, category, specs, image_url, stock_qty, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  `);
+
+  for (const p of officialTechCatalog) {
+    const existing = db.prepare('SELECT id FROM products WHERE name = ?').get(p.name);
+    if (!existing) {
+      const res = insertProdStmt.run(
+        p.name, p.description, p.price, p.price_brl, p.price_usdt, p.currency,
+        p.type, p.duration_days, p.category, p.specs, p.image_url, p.stock_qty
+      );
+      if (p.type === 'license_key') {
+        const prodId = Number(res.lastInsertRowid);
+        const insertKey = db.prepare('INSERT INTO inventory_keys (product_id, key_content) VALUES (?, ?)');
+        insertKey.run(prodId, 'SPY-PRO-7788-9900');
+        insertKey.run(prodId, 'SPY-PRO-3344-5566');
+        insertKey.run(prodId, 'SPY-PRO-1122-4455');
+      }
+    } else {
+      db.prepare(`
+        UPDATE products 
+        SET active = 1, category = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, specs = ?, image_url = ?
+        WHERE id = ?
+      `).run(p.category, p.description, p.price, p.price_brl, p.price_usdt, p.specs, p.image_url, existing.id);
+    }
+  }
+
+  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais, Radar Viral e Catálogo Oficial Tech!');
 }
 
 initDatabase();

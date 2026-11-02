@@ -2216,7 +2216,7 @@ class WhatsAppBotService {
       return spyFeatures.handlePPCouple(activeSock, from);
     }
 
-    // 14.28 Vitrine Digital & Catálogo E-Commerce (AutoRepuestos Pro): !loja / !catalogo / !vitrine
+    // 14.28 Vitrine Digital & Catálogo E-Commerce (Spy Tech Solutions): !loja / !catalogo / !vitrine
     if (/^(?:!|\/)(?:loja|catalogo|vitrine|store|vercatalogo)$/i.test(lower)) {
       return spyFeatures.handleLoja(activeSock, from);
     }
@@ -2437,7 +2437,7 @@ class WhatsAppBotService {
         `• *!dado* — Role os dados e ganhe moedas e XP\n` +
         `• *!roleta* — Gire a roleta da sorte para ganhar prêmios\n` +
         `• *!resgatar* — Troque 100 pontos por um Cupom de 15% OFF na loja\n\n` +
-        `🛍️ *Vendas, Vitrine & Loja Automática (AutoRepuestos Pro):*\n` +
+        `🛍️ *Vendas, Vitrine & Catálogo Tech (Spy Solutions):*\n` +
         `• *!loja* ou *!vitrine* — Vitrine online com carrinho e checkout Pix/USDT\n` +
         `• *MENU* — Ver catálogo completo no WhatsApp\n` +
         `• *P1, P2...* — Gerar PIX Copia e Cola instantâneo\n` +

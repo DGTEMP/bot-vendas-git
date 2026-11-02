@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vitrine Online &amp; AutoRepuestos Pro | Catálogo Oficial</title>
+  <title>Spy Tech Studio | Softwares, Apps, Hardware, IA &amp; Soluções Digitais</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -247,8 +247,8 @@
     <a href="/loja" class="brand">
       <div class="brand-icon"><i class="fa-solid fa-bolt"></i></div>
       <div class="brand-text">
-        <h1>PayBot Store &amp; AutoRepuestos</h1>
-        <span>Catálogo Oficial &bull; Checkout Instantâneo Pix &amp; Cripto</span>
+        <h1>Spy Tech &amp; Software Solutions</h1>
+        <span>Catálogo Oficial &bull; Softwares, Apps, Hardware, IA &amp; Soluções Sob Medida</span>
       </div>
     </a>
     <div class="header-actions">
@@ -263,24 +263,29 @@
   <!-- Hero Section -->
   <section class="hero">
     <div class="hero-badge">
-      <i class="fa-solid fa-shield-halved"></i> Garantia de Entrega Imediata &bull; Suporte 24/7
+      <i class="fa-solid fa-shield-halved"></i> Garantia de Qualidade &bull; Suporte Técnico Especializado 24/7
     </div>
-    <h2>Peças, Licenças e Produtos Digitais com <span>Entrega Instantânea</span></h2>
-    <p>Adicione itens ao seu carrinho, aplique cupons de desconto e finalize em segundos via PIX, Cripto USDT ou diretamente no WhatsApp da nossa equipe!</p>
+    <h2>Softwares, Aplicativos, IA e Projetos <span>Sob Medida</span></h2>
+    <p>Tecnologia de ponta para alavancar seu negócio: automações no WhatsApp, aplicativos nativos, inteligência artificial, sites de alta conversão, SEO e lançamentos meteóricos.</p>
   </section>
 
   <!-- Search & Category Controls -->
   <div class="controls-container">
     <div class="search-bar">
       <i class="fa-solid fa-magnifying-glass"></i>
-      <input type="text" id="searchInput" placeholder="Pesquisar por nome de peça, código, curso ou licença..." oninput="handleSearch()">
+      <input type="text" id="searchInput" placeholder="Pesquisar por softwares, apps sob medida, hardware, IA, sites, projetos, SEO..." oninput="handleSearch()">
     </div>
     <div class="category-pills" id="categoryPills">
       <button class="pill active" onclick="setCategory('Todos')">Todos</button>
-      <button class="pill" onclick="setCategory('Auto Peças')">Auto Peças &amp; Acessórios</button>
-      <button class="pill" onclick="setCategory('Licenças')">Chaves &amp; Licenças</button>
-      <button class="pill" onclick="setCategory('Cursos')">Cursos &amp; E-books</button>
-      <button class="pill" onclick="setCategory('VIP')">Assinaturas VIP</button>
+      <button class="pill" onclick="setCategory('Softwares')">Softwares</button>
+      <button class="pill" onclick="setCategory('Aplicativos')">Aplicativos Sob Medida</button>
+      <button class="pill" onclick="setCategory('Hardware')">Hardware</button>
+      <button class="pill" onclick="setCategory('IA')">Inteligência Artificial</button>
+      <button class="pill" onclick="setCategory('Sites')">Sites &amp; LPs</button>
+      <button class="pill" onclick="setCategory('Projetos')">Projetos</button>
+      <button class="pill" onclick="setCategory('SEO')">SEO</button>
+      <button class="pill" onclick="setCategory('Otimizações')">Otimizações</button>
+      <button class="pill" onclick="setCategory('Meteórico')">Lançamento Meteórico</button>
     </div>
   </div>
 
@@ -466,8 +471,8 @@
       grid.innerHTML = filtered.map(prod => {
         const brl = Number(prod.price_brl || prod.price).toFixed(2);
         const usdt = Number(prod.price_usdt || (prod.price / 5.5)).toFixed(2);
-        const badgeClass = prod.type === 'key' ? 'badge-key' : (prod.type === 'vip' ? 'badge-vip' : (prod.category?.toLowerCase().includes('peça') ? 'badge-auto' : 'badge-digital'));
-        const badgeLabel = prod.type === 'key' ? 'Chave / Licença' : (prod.type === 'vip' ? 'Assinatura VIP' : (prod.category || 'Digital'));
+        const badgeClass = (prod.type === 'license_key' || prod.type === 'key') ? 'badge-key' : ((prod.type === 'vip_subscription' || prod.type === 'vip') ? 'badge-vip' : 'badge-digital');
+        const badgeLabel = (prod.type === 'license_key' || prod.type === 'key') ? 'Chave / Licença' : ((prod.type === 'vip_subscription' || prod.type === 'vip') ? 'Assinatura VIP' : (prod.category || 'Digital'));
 
         return `
           <div class="product-card">

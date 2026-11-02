@@ -3752,7 +3752,7 @@ sys.stdout.buffer.write(out.getvalue())
   }
 
   // ==========================================
-  // 6. VITRINE E-COMMERCE & CHECKOUT (AUTOREPUESTOS-PRO)
+  // 6. VITRINE E-COMMERCE & CHECKOUT (SPY TECH SOLUTIONS)
   // ==========================================
   /**
    * Envia o link da vitrine online com produtos em destaque

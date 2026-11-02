@@ -92,8 +92,9 @@ const models = {
     return models.getProductSellers(productId);
   },
 
-  getCategories() {
-    const rows = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' AND (army_instance_id IS NULL OR army_instance_id = 0) ORDER BY category ASC").all();
+  getCategories(activeOnly = true) {
+    const whereActive = activeOnly ? 'WHERE active = 1 AND' : 'WHERE';
+    const rows = db.prepare(`SELECT DISTINCT category FROM products ${whereActive} category IS NOT NULL AND category != '' AND (army_instance_id IS NULL OR army_instance_id = 0) ORDER BY category ASC`).all();
     return rows.map(r => r.category);
   },
 
@@ -3204,7 +3205,7 @@ const models = {
   },
 
   // ==========================================
-  // 18. VITRINE & CATÁLOGO E-COMMERCE (AUTOREPUESTOS-PRO)
+  // 18. VITRINE & CATÁLOGO E-COMMERCE (SPY TECH SOLUTIONS)
   // ==========================================
   getStoreProducts(category = null, search = null) {
     let sql = 'SELECT * FROM products WHERE active = 1 AND (army_instance_id IS NULL OR army_instance_id = 0)';

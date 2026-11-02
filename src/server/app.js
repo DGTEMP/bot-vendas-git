@@ -2501,7 +2501,7 @@ function createServer() {
   });
 
   // ==========================================
-  // E-COMMERCE STOREFRONT & CHECKOUT (AUTOREPUESTOS-PRO)
+  // E-COMMERCE STOREFRONT & CHECKOUT (SPY TECH SOLUTIONS)
   // ==========================================
   app.get(['/loja', '/catalogo', '/vitrine', '/store'], (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'store.html'));
