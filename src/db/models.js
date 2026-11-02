@@ -3187,6 +3187,109 @@ const models = {
     }
     sql += ' ORDER BY id DESC';
     return db.prepare(sql).all(...params);
+  },
+
+  // ==========================================
+  // 19. TAREFAS DELEGADAS AOS SUB-BOTS (COMANDO DA MATRIZ)
+  // ==========================================
+  createDelegatedTask({
+    assigned_instance_id = null,
+    task_type = 'DIRECT_MESSAGE',
+    title,
+    description = '',
+    target = null,
+    message_payload = null,
+    delegated_by = 'OWNER'
+  }) {
+    const taskCode = `TSK-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+    const stmt = db.prepare(`
+      INSERT INTO subbot_delegated_tasks (
+        task_code, assigned_instance_id, task_type, title, description, target, message_payload, status, delegated_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+    `);
+    const res = stmt.run(
+      taskCode,
+      assigned_instance_id ? Number(assigned_instance_id) : null,
+      task_type,
+      title || 'Tarefa Delegada',
+      description || '',
+      target || '',
+      message_payload || '',
+      delegated_by || 'OWNER'
+    );
+    return this.getDelegatedTaskById(Number(res.lastInsertRowid));
+  },
+
+  updateDelegatedTask(id, data = {}) {
+    const existing = this.getDelegatedTaskById(id);
+    if (!existing) return null;
+
+    const status = data.status || existing.status;
+    const result_summary = data.result_summary !== undefined ? data.result_summary : existing.result_summary;
+    const completed_at = (status === 'COMPLETED' || status === 'FAILED') ? (data.completed_at || new Date().toISOString()) : existing.completed_at;
+
+    db.prepare(`
+      UPDATE subbot_delegated_tasks
+      SET status = ?, result_summary = ?, completed_at = ?
+      WHERE id = ?
+    `).run(status, result_summary, completed_at, id);
+
+    return this.getDelegatedTaskById(id);
+  },
+
+  getDelegatedTasks({ limit = 50, status = null, instanceId = null } = {}) {
+    let sql = `
+      SELECT t.*, i.name as bot_name, i.phone as bot_phone, i.is_business as bot_is_business
+      FROM subbot_delegated_tasks t
+      LEFT JOIN whatsapp_army_instances i ON t.assigned_instance_id = i.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (status) {
+      sql += ' AND t.status = ?';
+      params.push(status);
+    }
+    if (instanceId) {
+      sql += ' AND t.assigned_instance_id = ?';
+      params.push(Number(instanceId));
+    }
+    sql += ' ORDER BY t.id DESC LIMIT ?';
+    params.push(Number(limit) || 50);
+
+    return db.prepare(sql).all(...params);
+  },
+
+  getDelegatedTaskById(id) {
+    return db.prepare(`
+      SELECT t.*, i.name as bot_name, i.phone as bot_phone, i.is_business as bot_is_business
+      FROM subbot_delegated_tasks t
+      LEFT JOIN whatsapp_army_instances i ON t.assigned_instance_id = i.id
+      WHERE t.id = ?
+    `).get(id);
+  },
+
+  getDelegatedTaskByCode(taskCode) {
+    return db.prepare(`
+      SELECT t.*, i.name as bot_name, i.phone as bot_phone, i.is_business as bot_is_business
+      FROM subbot_delegated_tasks t
+      LEFT JOIN whatsapp_army_instances i ON t.assigned_instance_id = i.id
+      WHERE t.task_code = ?
+    `).get(taskCode);
+  },
+
+  getDelegatedTasksSummary() {
+    const rows = db.prepare(`
+      SELECT status, COUNT(*) as count
+      FROM subbot_delegated_tasks
+      GROUP BY status
+    `).all();
+
+    const summary = { total: 0, PENDING: 0, IN_PROGRESS: 0, COMPLETED: 0, FAILED: 0 };
+    rows.forEach(r => {
+      summary[r.status] = r.count;
+      summary.total += r.count;
+    });
+    return summary;
   }
 };
 

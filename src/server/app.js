@@ -2833,6 +2833,94 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // 20. CENTRAL DE COMANDO DA MATRIZ & DELEGAÇÃO DE SUB-BOTS
+  // ==========================================
+  app.get('/api/matriz/tasks', (req, res) => {
+    try {
+      const { limit, status, instanceId } = req.query;
+      const tasks = models.getDelegatedTasks({ limit, status, instanceId });
+      const summary = models.getDelegatedTasksSummary();
+      res.json({ success: true, tasks, summary });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/matriz/status', (req, res) => {
+    try {
+      const whatsappArmyService = require('../services/whatsappArmyService');
+      const armySummary = whatsappArmyService.getSubBotsStatusSummary();
+      const tasksSummary = models.getDelegatedTasksSummary();
+      const instances = models.getArmyInstances();
+      res.json({ success: true, armySummary, tasksSummary, instances });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/matriz/delegate', async (req, res) => {
+    try {
+      const { type, instanceId, target, message, title } = req.body;
+      const whatsappArmyService = require('../services/whatsappArmyService');
+
+      let taskType = type || 'DIRECT_MESSAGE';
+      let taskTitle = title || `Tarefa Delegada via Painel Web`;
+      let assignedInstanceId = instanceId ? Number(instanceId) : null;
+
+      const task = models.createDelegatedTask({
+        assigned_instance_id: assignedInstanceId,
+        task_type: taskType,
+        title: taskTitle,
+        description: message || '',
+        target: target || '',
+        message_payload: message || '',
+        delegated_by: 'WEB_OWNER'
+      });
+
+      models.updateDelegatedTask(task.id, { status: 'IN_PROGRESS' });
+
+      // Executa de acordo com o tipo
+      if (taskType === 'DIRECT_MESSAGE' && target && assignedInstanceId) {
+        const cleanPhone = String(target).replace(/\D/g, '');
+        await whatsappArmyService.sendMessageViaInstance(assignedInstanceId, cleanPhone, message);
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Mensagem enviada com sucesso para +${cleanPhone} via Sub-Bot #${assignedInstanceId}`
+        });
+      } else if (taskType === 'BROADCAST_LEADS') {
+        const bRes = await whatsappArmyService.broadcastViaAllSubBots({
+          message,
+          targetType: 'leads',
+          specificInstanceId: assignedInstanceId
+        });
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Disparado com sucesso para ${bRes.totalSent || 0} leads.`
+        });
+      } else if (taskType === 'BROADCAST_GROUPS') {
+        const gRes = await whatsappArmyService.broadcastViaAllSubBots({
+          message,
+          targetType: 'groups'
+        });
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Transmitido para ${gRes.totalSent || 0} grupos.`
+        });
+      } else {
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Missão registrada e alocada com sucesso.`
+        });
+      }
+
+      const updatedTask = models.getDelegatedTaskById(task.id);
+      res.json({ success: true, task: updatedTask });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

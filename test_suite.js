@@ -4770,6 +4770,230 @@ async function main() {
     assert.strictEqual(legacyGata, spyFeatures, 'gataFeaturesService deve ser um stub para spyFeaturesService');
   });
 
+  // ----------------------------------------------------------------
+  // 22. TESTES DA CENTRAL DE COMANDO DA MATRIZ & ASSISTENTE EXECUTIVO DO DONO
+  // ----------------------------------------------------------------
+  console.log('\n👑 22. Testes da Central de Comando da Matriz & Assistente Executivo do Dono:');
+
+  const testSubBot = models.createArmyInstance({
+    name: 'Sub-Bot Matriz Operações',
+    phone: '5511999998811'
+  });
+
+  runTest('Modelos de Tarefas Delegadas pela Matriz aos Sub-Bots (subbot_delegated_tasks)', () => {
+    // 1. Cria tarefa delegada
+    const task = models.createDelegatedTask({
+      assigned_instance_id: testSubBot.id,
+      task_type: 'DIRECT_MESSAGE',
+      title: 'Disparo Especial para Lead VIP',
+      description: 'Envio de link promocional',
+      target: '5511999991234',
+      message_payload: 'Olá, seu acesso VIP foi liberado!',
+      delegated_by: 'OWNER'
+    });
+
+    assert(task.id > 0);
+    assert(task.task_code.startsWith('TSK-'));
+    assert.strictEqual(task.status, 'PENDING');
+    assert.strictEqual(task.assigned_instance_id, testSubBot.id);
+
+    // 2. Atualiza tarefa
+    const updated = models.updateDelegatedTask(task.id, {
+      status: 'COMPLETED',
+      result_summary: 'Entregue com sucesso'
+    });
+    assert.strictEqual(updated.status, 'COMPLETED');
+    assert.strictEqual(updated.result_summary, 'Entregue com sucesso');
+    assert(updated.completed_at !== null);
+
+    // 3. Consulta por código e resumo
+    const byCode = models.getDelegatedTaskByCode(task.task_code);
+    assert.strictEqual(byCode.id, task.id);
+
+    const summary = models.getDelegatedTasksSummary();
+    assert(summary.total >= 1);
+    assert(summary.COMPLETED >= 1);
+  });
+
+  await runTest('Assistente Matriz: Ordem de Mensagem Direta para Sub-Bot', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    // Dono envia ordem em linguagem natural:
+    // "Subbot {id} mande mensagem para 5511988887777 dizendo Olá, tudo pronto!"
+    await matrizAssistant.handleOwnerConversation(
+      mockSock,
+      '5511999990000@s.whatsapp.net',
+      `Subbot ${testSubBot.id} mande mensagem para 5511988887777 dizendo Olá, seu pedido foi enviado!`,
+      'Dono Matriz',
+      '5511999990000',
+      false
+    );
+
+    assert(sent.length >= 1, 'Deve responder ao Dono confirmando a execução da ordem');
+    const replyText = sent[0].text || '';
+    assert(replyText.includes('ORDEM EXECUTADA COM SUCESSO'), 'Deve confirmar a execução');
+    assert(replyText.includes(`Sub-Bot #${testSubBot.id}`), 'Deve citar o sub-bot executor');
+    assert(replyText.includes('5511988887777'), 'Deve confirmar o número do destinatário');
+
+    // Confere se a tarefa foi registrada no banco
+    const tasks = models.getDelegatedTasks({ limit: 5 });
+    const directTask = tasks.find(t => t.target === '5511988887777');
+    assert(directTask, 'A tarefa deve estar registrada no banco');
+    assert.strictEqual(directTask.status, 'COMPLETED');
+  });
+
+  await runTest('Assistente Matriz: Ordem de Disparo em Massa para Leads via Sub-Bots', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    await matrizAssistant.handleOwnerConversation(
+      mockSock,
+      '5511999990000@s.whatsapp.net',
+      'Sub-bots disparem para os leads a seguinte mensagem: {Oi|Olá} amigo! Super oferta disponível no link!',
+      'Dono Matriz',
+      '5511999990000',
+      false
+    );
+
+    assert(sent.length >= 2, 'Deve enviar aviso de início e briefing de conclusão');
+    const finalReport = sent[sent.length - 1].text || '';
+    assert(finalReport.includes('BRIEFING DE CONCLUSÃO DA MISSÃO'), 'Deve entregar o relatório executivo');
+    assert(finalReport.includes('Disparos Realizados com Sucesso'), 'Deve reportar sucesso');
+  });
+
+  await runTest('Assistente Matriz: Relatório Operacional e Status dos Sub-Bots', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    await matrizAssistant.handleOwnerConversation(
+      mockSock,
+      '5511999990000@s.whatsapp.net',
+      'Status dos subbots',
+      'Dono Matriz',
+      '5511999990000',
+      false
+    );
+
+    assert(sent.length >= 1);
+    const reportText = sent[0].text || '';
+    assert(reportText.includes('CENTRAL DE COMANDO DA MATRIZ'), 'Deve exibir cabeçalho executivo');
+    assert(reportText.includes('Visão Geral dos Sub-Bots'), 'Deve contabilizar instâncias');
+    assert(reportText.includes('Missões & Tarefas Delegadas'), 'Deve listar resumo das missões');
+  });
+
+  await runTest('Assistente Matriz: Chat Estratégico e Sugestões Prontas para Execução', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    // Pergunta estratégica do Dono
+    await matrizAssistant.handleOwnerConversation(
+      mockSock,
+      '5511999990000@s.whatsapp.net',
+      'Como podemos usar os sub-bots para bater nossa meta de vendas hoje?',
+      'Dono Matriz',
+      '5511999990000',
+      false
+    );
+
+    assert(sent.length >= 1);
+    const answerText = sent[0].text || '';
+    assert(answerText.includes('ASSISTENTE EXECUTIVA DA MATRIZ'), 'Deve responder no papel de Assistente Executiva');
+    assert(answerText.includes('sub-bots'), 'Deve contextualizar o exército de sub-bots');
+  });
+
+  await runTest('Integração WhatsApp Bot: Dono conversando no PV com a Matriz sem prefixo', async () => {
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const origSend = whatsappBot.sendMessage;
+    const origSock = whatsappBot.sock;
+    const sent = [];
+
+    const ownerPhone = '5511988880000';
+    models.setSetting('OWNER_PHONE', ownerPhone);
+
+    whatsappBot.sock = {
+      user: { id: '5511900000000:1@s.whatsapp.net' }
+    };
+
+    whatsappBot.sendMessage = async (jid, textOrObj) => {
+      const payload = typeof textOrObj === 'string' ? { text: textOrObj } : textOrObj;
+      sent.push(payload);
+      return { key: { id: 'ASSISTANT_REPLY' } };
+    };
+
+    try {
+      // Dono manda mensagem em linguagem natural no privado da Matriz
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: `${ownerPhone}@s.whatsapp.net`, fromMe: false },
+        pushName: 'Dono Soberano',
+        message: { conversation: `Subbot ${testSubBot.id} mande mensagem para 5511977778888 dizendo Seu código Pix é 123` }
+      });
+
+      assert(sent.length >= 1, 'Deve interceptar a ordem do dono e responder');
+      const reply = sent[0].text || '';
+      assert(reply.includes('ORDEM EXECUTADA COM SUCESSO'), 'Matriz deve confirmar ordem delegada no PV');
+    } finally {
+      whatsappBot.sendMessage = origSend;
+      whatsappBot.sock = origSock;
+    }
+  });
+
+  await runTest('Endpoints REST da Central de Comando (/api/matriz/*)', async () => {
+    // 1. GET /api/matriz/tasks
+    const getTasks = await fetchApi('/api/matriz/tasks');
+    assert.strictEqual(getTasks.status, 200);
+    assert.strictEqual(getTasks.data.success, true);
+    assert(Array.isArray(getTasks.data.tasks));
+    assert(typeof getTasks.data.summary === 'object');
+
+    // 2. GET /api/matriz/status
+    const getStatus = await fetchApi('/api/matriz/status');
+    assert.strictEqual(getStatus.status, 200);
+    assert.strictEqual(getStatus.data.success, true);
+    assert(getStatus.data.armySummary.totalSubBots >= 1 || getStatus.data.instances.length >= 1);
+
+    // 3. POST /api/matriz/delegate
+    const postDel = await fetchApi('/api/matriz/delegate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'CUSTOM_ORDER',
+        instanceId: testSubBot.id,
+        title: 'Missão de Teste Via Painel Web',
+        message: 'Avisar clientes da fila de espera'
+      })
+    });
+
+    assert.strictEqual(postDel.status, 200);
+    assert.strictEqual(postDel.data.success, true);
+    assert.strictEqual(postDel.data.task.title, 'Missão de Teste Via Painel Web');
+    assert.strictEqual(postDel.data.task.status, 'COMPLETED');
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

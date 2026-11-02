@@ -552,6 +552,36 @@ class WhatsAppBotService {
 
     // 0.1 COMANDOS DE MODERAÇÃO E CONTROLE (DESATIVAR, ATIVAR, BLOQUEAR, DESBLOQUEAR, STATUS)
     const isAdmin = await this.checkIsAdmin(from, participantJid, isFromMe);
+    const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+
+    // ==============================================================
+    // CENTRAL DE COMANDO DA MATRIZ: ASSISTENTE EXECUTIVO DO DONO
+    // ==============================================================
+    // Quando o Dono conversa com o Bot Matriz, ela atua como Assistente Executivo
+    // orquestrador que delega tarefas para os sub-bots conforme ordenado na tarefa.
+    if (isOwnerUser && !isSubBot) {
+      const matrizAssistantService = require('../services/matrizAssistantService');
+
+      // 1. Comandos com prefixo explícito de assistente / delegação
+      if (/^(?:!|\/)(?:delegar|tarefas|missoes|missao|assistente|comandante|chefe|matriz|ordem)\b/i.test(lower)) {
+        return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
+      }
+
+      // 2. Frases naturais de delegação e controle de sub-bots (em grupo ou privado)
+      if (
+        /^(?:!|\/)?(?:(?:mande\s*(?:o|os)?\s*sub-?bots?|sub-?bots?\s*#?\d*|delegar|status\s*dos?\s*sub-?bots?|painel\s*sub-?bots?|tarefas\s*pendentes|quem\s*t[aá]\s*online|pausar\s*sub-?bot|iniciar\s*sub-?bot|reiniciar\s*sub-?bot)\b)/i.test(lower)
+      ) {
+        return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
+      }
+
+      // 3. Conversação livre no privado com o Dono (mensagens em linguagem natural sem prefixo ! ou /)
+      if (!isGroup && !lower.startsWith('!') && !lower.startsWith('/')) {
+        if (lower === 'menu loja' || lower === 'catalogo') {
+          return this.sendMenu(from, senderName, activeSock);
+        }
+        return matrizAssistantService.handleOwnerConversation(activeSock, from, text, senderName, senderPhone, isGroup);
+      }
+    }
 
     // Desativar / Mute do Bot
     if (/^(?:!|\/)(?:desativar|pausar|mute|parar|stop)(?:\s.*)?$/i.test(lower)) {
@@ -2334,7 +2364,10 @@ class WhatsAppBotService {
         `• *!viralscan* — Faz varredura de virais em todos os perfis agora\n\n`;
 
       if (isOwnerUser) {
-        spyMenu += `👑 *Controle de Sub-Bots & Divulgação (Exclusivo Dono / Bot Principal):*\n` +
+        spyMenu += `👑 *Assistente Matriz & Central de Comando dos Sub-Bots (Exclusivo Dono):*\n` +
+          `• *!assistente* ou conversa no PV — Converse com a Matriz como sua assistente executiva\n` +
+          `• *!delegar <id_bot> <telefone> <msg>* — Delega envio direto para sub-bot específico\n` +
+          `• *!tarefas* ou *!missoes* — Consulta tarefas delegadas e relatório de execução\n` +
           `• *!painelsubbots* — Painel consolidado do exército de sub-bots\n` +
           `• *!divulgar <mensagem>* — Disparo em massa com Spintax via sub-bots para leads\n` +
           `• *!promover <id_produto>* — Dispara promoção do catálogo via sub-bots\n` +

@@ -2060,7 +2060,8 @@ async function loadArmyData() {
     loadFunnelStats(),
     loadOwnerSettings(),
     loadSubBotsSummary(),
-    loadBroadcastProducts()
+    loadBroadcastProducts(),
+    loadMatrizTasks()
   ]);
   updateArmyMetrics();
 }
@@ -6804,5 +6805,148 @@ function copyTunnelUrl() {
   if (window.remoteTunnelUrl) {
     navigator.clipboard.writeText(window.remoteTunnelUrl);
     showToast('Link de acesso remoto copiado com sucesso!');
+  }
+}
+
+
+// ==========================================
+// CENTRAL DE COMANDO DA MATRIZ: TAREFAS DOS SUB-BOTS
+// ==========================================
+let currentMatrizTasks = [];
+
+async function loadMatrizTasks() {
+  try {
+    const res = await fetch('/api/matriz/tasks');
+    const data = await res.json();
+    if (data.success) {
+      currentMatrizTasks = data.tasks || [];
+      renderMatrizTasks(currentMatrizTasks, data.summary || {});
+    }
+  } catch (err) {
+    console.error('Erro ao carregar tarefas da matriz:', err);
+  }
+}
+
+function renderMatrizTasks(tasks, summary) {
+  const elTotal = document.getElementById('matrizTotalTasks');
+  const elComp = document.getElementById('matrizCompletedTasks');
+  const elInProg = document.getElementById('matrizInProgressTasks');
+  const elPend = document.getElementById('matrizPendingTasks');
+
+  if (elTotal) elTotal.innerText = summary.total || tasks.length;
+  if (elComp) elComp.innerText = summary.COMPLETED || tasks.filter(t => t.status === 'COMPLETED').length;
+  if (elInProg) elInProg.innerText = summary.IN_PROGRESS || tasks.filter(t => t.status === 'IN_PROGRESS').length;
+  if (elPend) elPend.innerText = summary.PENDING || tasks.filter(t => t.status === 'PENDING').length;
+
+  const tbody = document.getElementById('tbodyMatrizTasks');
+  if (!tbody) return;
+
+  if (tasks.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" style="text-align: center; color: #888; padding: 25px;">
+          Nenhuma missão delegada recentemente aos sub-bots. Clique em "Delegar Tarefa" ou envie uma ordem no WhatsApp do Bot Matriz!
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = tasks.map(t => {
+    let statusBadge = '<span class="badge badge-warning">Pendente</span>';
+    if (t.status === 'COMPLETED') statusBadge = '<span class="badge badge-success">Concluída</span>';
+    else if (t.status === 'IN_PROGRESS') statusBadge = '<span class="badge badge-info">Em Andamento</span>';
+    else if (t.status === 'FAILED') statusBadge = '<span class="badge badge-danger">Falhou</span>';
+
+    const botName = t.bot_name ? `#${t.assigned_instance_id} (${t.bot_name})` : '<span style="color: #f59e0b; font-weight: 600;">Todos os Sub-Bots</span>';
+    const target = t.target ? `+${t.target}` : '—';
+    const time = t.created_at ? new Date(t.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+    const result = t.result_summary || 'Aguardando processamento...';
+
+    return `
+      <tr>
+        <td><code>${t.task_code}</code></td>
+        <td><span style="font-size: 11px; padding: 3px 6px; background: rgba(255,255,255,0.06); border-radius: 4px;">${t.task_type}</span></td>
+        <td><strong>${escapeHtml(t.title || 'Missão')}</strong></td>
+        <td>${botName}</td>
+        <td>${target}</td>
+        <td>${statusBadge}</td>
+        <td><small style="color: #aaa;">${time}</small></td>
+        <td><small style="color: #ddd;">${escapeHtml(result)}</small></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openDelegateTaskModal() {
+  const select = document.getElementById('delegateTargetBot');
+  if (select) {
+    select.innerHTML = '<option value="">Todos os Sub-Bots (Cluster / Balanceado)</option>';
+    (currentArmyInstances || []).forEach(inst => {
+      const isOnline = inst.status === 'CONNECTED';
+      const label = `#${inst.id} - ${inst.name} (${inst.phone ? '+' + inst.phone : 'Sem número'}) ${isOnline ? '🟢' : '⚪'}`;
+      select.innerHTML += `<option value="${inst.id}">${label}</option>`;
+    });
+  }
+  document.getElementById('formDelegateTask')?.reset();
+  onDelegateTaskTypeChange();
+  document.getElementById('modalDelegateTask')?.classList.add('active');
+}
+
+function closeDelegateTaskModal() {
+  document.getElementById('modalDelegateTask')?.classList.remove('active');
+}
+
+function onDelegateTaskTypeChange() {
+  const type = document.getElementById('delegateTaskType')?.value;
+  const groupTarget = document.getElementById('groupDelegateTarget');
+  const phoneInput = document.getElementById('delegateTargetPhone');
+  if (!groupTarget) return;
+
+  if (type === 'DIRECT_MESSAGE') {
+    groupTarget.style.display = 'block';
+    if (phoneInput) phoneInput.required = true;
+  } else {
+    groupTarget.style.display = 'none';
+    if (phoneInput) phoneInput.required = false;
+  }
+}
+
+async function submitDelegateTask(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btnSubmitDelegate');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Delegando Missão...';
+  }
+
+  try {
+    const instanceId = document.getElementById('delegateTargetBot')?.value || null;
+    const type = document.getElementById('delegateTaskType')?.value;
+    const target = document.getElementById('delegateTargetPhone')?.value || '';
+    const title = document.getElementById('delegateTaskTitle')?.value || '';
+    const message = document.getElementById('delegateTaskMessage')?.value || '';
+
+    const res = await fetch('/api/matriz/delegate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, instanceId, target, title, message })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast('Missão delegada com sucesso aos sub-bots!');
+      closeDelegateTaskModal();
+      await loadMatrizTasks();
+    } else {
+      alert('Erro ao delegar tarefa: ' + (data.error || 'Falha na requisição'));
+    }
+  } catch (err) {
+    alert('Erro de conexão: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Delegar Missão Imediata';
+    }
   }
 }

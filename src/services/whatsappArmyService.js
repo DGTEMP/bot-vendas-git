@@ -969,8 +969,10 @@ class WhatsAppArmyService {
     });
 
     return {
+      totalInstances: instances.length,
       totalSubBots: subBots.length,
       onlineSubBots: onlineSubBots.length,
+      connectedCount: onlineSubBots.length + (mainBot.status === 'CONNECTED' ? 1 : 0),
       totalSentToday,
       totalDailyCapacity,
       mainBot: {

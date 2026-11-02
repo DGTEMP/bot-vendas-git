@@ -645,6 +645,23 @@ function initDatabase() {
       response_text TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- 31. Tabela de Tarefas Delegadas pela Matriz aos Sub-Bots (Comando e Controle de Sub-Bots)
+    CREATE TABLE IF NOT EXISTS subbot_delegated_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_code TEXT UNIQUE NOT NULL,
+      assigned_instance_id INTEGER REFERENCES whatsapp_army_instances(id) ON DELETE SET NULL,
+      task_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      target TEXT,
+      message_payload TEXT,
+      status TEXT DEFAULT 'PENDING',
+      result_summary TEXT,
+      delegated_by TEXT DEFAULT 'OWNER',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
+    );
   `);
 
   // Migrações seguras
