@@ -157,9 +157,19 @@ class WhatsAppBotService {
           } catch (_) {}
 
           if (isLoggedOut) {
-            console.log('🛑 [WhatsApp Matriz] Desconectado por logout.');
-            // Mantém a pasta preservada; reset de credenciais deve ser acionado explicitamente via resetSession
-            setTimeout(() => this.start(), 5000);
+            console.log('🛑 [WhatsApp Matriz] Desconectado por logout (401). Limpando sessão antiga para permitir nova conexão...');
+            this.currentPairingCode = null;
+            this.currentQr = null;
+            this.currentQrDataUrl = null;
+            try {
+              if (fs.existsSync(this.authFolder) && process.env.NODE_ENV !== 'test') {
+                fs.rmSync(this.authFolder, { recursive: true, force: true });
+              }
+            } catch (_) {}
+            setTimeout(() => this.start(), 2000);
+          } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+            console.log('⚡ [WhatsApp Matriz] Pareamento confirmado pelo celular! Reinicializando imediatamente...');
+            setTimeout(() => this.start(), 300);
           } else {
             console.log(`📱 [WhatsApp Matriz] Conexão encerrada temporariamente (código ${statusCode}). Reconectando em 4 segundos...`);
             setTimeout(() => this.start(), 4000);
@@ -3327,9 +3337,13 @@ class WhatsAppBotService {
   }
 
   async requestPairingCode(phone) {
-    const cleanPhone = String(phone).replace(/\D/g, '');
+    let cleanPhone = String(phone).replace(/\D/g, '');
+    // Se digitou número com 10 ou 11 dígitos sem DDI (ex: 48984702848 ou 11999998888), adiciona 55 automaticamente
+    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+      cleanPhone = '55' + cleanPhone;
+    }
     if (!cleanPhone || cleanPhone.length < 10) {
-      throw new Error('Informe o telefone completo com DDI e DDD (ex: 5511999998888)');
+      throw new Error('Informe o telefone completo com DDI e DDD (ex: 5548984702848)');
     }
 
     if (process.env.NODE_ENV === 'test') {
@@ -3340,24 +3354,79 @@ class WhatsAppBotService {
       return { success: true, pairingCode: simCode, simulated: true };
     }
 
-    if (this.sock?.authState?.creds?.registered) {
-      throw new Error('Esta conta WhatsApp já está pareada e ativa.');
+    // Se já estiver conectado ativamente com este mesmo número
+    if (this.isConnected && this.sock?.user?.id) {
+      const activeNumber = this.sock.user.id.split(':')[0].replace(/\D/g, '');
+      if (activeNumber === cleanPhone) {
+        return { success: true, alreadyConnected: true, message: 'Este WhatsApp já está pareado e ativo!' };
+      }
+    }
+
+    // Se a sessão em disco não estiver conectada mas contiver credenciais de um chip anterior que deslogou, limpa para novo pareamento
+    const credsFile = path.join(this.authFolder, 'creds.json');
+    if (!this.isConnected && fs.existsSync(credsFile)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+        if (raw && raw.registered) {
+          console.log('🔄 [WhatsApp Matriz] Limpando credenciais antigas/desconectadas para novo pareamento via código...');
+          await this.stop();
+          fs.rmSync(this.authFolder, { recursive: true, force: true });
+          await this.start();
+        }
+      } catch (_) {}
     }
 
     if (!this.sock) {
       await this.start();
-      await new Promise(r => setTimeout(r, 2000));
     }
 
+    // Aguarda o WebSocket conectar e ficar aberto via waitForSocketOpen nativo do Baileys
     try {
-      await new Promise(r => setTimeout(r, 1200));
-      const code = await this.sock.requestPairingCode(cleanPhone);
-      const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
-      this.currentPairingCode = formattedCode;
-      return { success: true, pairingCode: formattedCode };
-    } catch (err) {
-      throw new Error('Falha ao gerar código de pareamento: ' + err.message);
+      if (typeof this.sock?.waitForSocketOpen === 'function') {
+        await Promise.race([
+          this.sock.waitForSocketOpen(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout WebSocket')), 8000))
+        ]);
+      }
+    } catch (_) {}
+
+    // Confirma se o WebSocket está aberto para tráfego de dados
+    let isReady = false;
+    for (let i = 0; i < 20; i++) {
+      if (this.sock?.ws?.isOpen) {
+        isReady = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 400));
     }
+
+    if (!isReady) {
+      throw new Error('Timeout aguardando conexão com os servidores do WhatsApp. Tente novamente.');
+    }
+
+    // Tenta obter o código de pareamento com até 4 tentativas suaves
+    let code = null;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        await new Promise(r => setTimeout(r, attempt === 1 ? 600 : 1500));
+        code = await this.sock.requestPairingCode(cleanPhone);
+        if (code) break;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[WhatsApp Matriz] Tentativa ${attempt} de gerar código:`, err.message);
+      }
+    }
+
+    if (!code) {
+      throw new Error('Falha ao gerar código de pareamento: ' + (lastErr?.message || 'Servidor WhatsApp não respondeu.'));
+    }
+
+    const cleanCode = String(code).replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    const formattedCode = cleanCode.length === 8 ? `${cleanCode.slice(0, 4)}-${cleanCode.slice(4)}` : code;
+    this.currentPairingCode = formattedCode;
+    this.statusMessage = 'Aguardando validação do código ' + formattedCode;
+    return { success: true, pairingCode: formattedCode };
   }
 
   async resetSession(force = false) {

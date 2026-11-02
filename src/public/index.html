@@ -3676,30 +3676,35 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
 
                 <!-- ABA PAIRING CODE -->
                 <div id="wppTabPairing" style="display: none; padding: 10px 0;">
-                  <p style="font-size: 13px; color: var(--text-muted); text-align: left; margin-bottom: 10px;">
-                    Digite o número de telefone do WhatsApp com DDI e DDD (ex: <b>5511999998888</b>):
+                  <p style="font-size: 13px; color: var(--text-muted); text-align: left; margin-bottom: 8px;">
+                    Digite o número de telefone com DDD (com ou sem 55, exatamente como cadastrado no seu WhatsApp):
                   </p>
-                  <div style="display: flex; gap: 8px; margin-bottom: 15px;">
-                    <input type="text" id="wppPairingPhone" class="form-control" placeholder="5511999998888" style="text-align: center; font-weight: bold; letter-spacing: 1px;">
-                    <button type="button" class="btn btn-primary" onclick="requestWppPairingCode()" style="white-space: nowrap;">
+                  <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <input type="text" id="wppPairingPhone" class="form-control" placeholder="Ex: 5548984702848 ou 4884702848" style="text-align: center; font-weight: bold; letter-spacing: 1px;">
+                    <button type="button" id="btnGenPairingCode" class="btn btn-primary" onclick="requestWppPairingCode(this)" style="white-space: nowrap;">
                       <i class="fa-solid fa-bolt"></i> Gerar Código
                     </button>
                   </div>
-
-                  <div id="wppPairingCodeBox" style="display: none; background: #0f172a; border: 2px dashed #3b82f6; border-radius: 8px; padding: 18px; margin: 15px 0;">
-                    <span style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">DIGITE ESTE CÓDIGO NO SEU WHATSAPP:</span>
-                    <div id="wppPairingCodeText" style="font-size: 28px; font-weight: 800; letter-spacing: 4px; color: #38bdf8; font-family: monospace;">----</div>
-                    <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="copyWppPairingCode()">
-                      <i class="fa-solid fa-copy"></i> Copiar Código
-                    </button>
+                  <div class="text-xs text-muted mb-3" style="text-align:left;">
+                    <i class="fa-solid fa-circle-info text-info"></i> Dica: Digite o número exatamente igual ao que aparece no seu perfil do WhatsApp (com ou sem o dígito 9).
                   </div>
 
-                  <div style="background: rgba(255, 255, 255, 0.03); border-radius: 6px; padding: 10px; font-size: 12px; color: var(--text-muted); text-align: left;">
-                    <b>Instruções no celular:</b><br>
-                    1. WhatsApp &gt; <b>Aparelhos Conectados</b>.<br>
+                  <div id="wppPairingCodeBox" style="display: none; background: #0b1329; border: 2px dashed #38bdf8; border-radius: 10px; padding: 18px; margin: 15px 0; text-align: center;">
+                    <span style="font-size: 12px; color: #94a3b8; font-weight: 700; display: block; margin-bottom: 8px;">DIGITE ESTE CÓDIGO DE 8 DÍGITOS NO SEU WHATSAPP:</span>
+                    <div id="wppPairingCodeText" style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #38bdf8; font-family: monospace; user-select: all; cursor: pointer;" onclick="copyWppPairingCode()" title="Clique para copiar">----</div>
+                    <div style="margin-top: 10px; display: flex; justify-content: center; gap: 8px;">
+                      <button type="button" class="btn btn-sm btn-outline" onclick="copyWppPairingCode()">
+                        <i class="fa-solid fa-copy"></i> Copiar Código
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style="background: rgba(255, 255, 255, 0.03); border-radius: 8px; padding: 12px; font-size: 12px; color: #cbd5e1; text-align: left; border: 1px solid rgba(255, 255, 255, 0.08);">
+                    <strong style="color: #38bdf8;"><i class="fa-solid fa-mobile-screen-button"></i> Passo a passo no seu celular:</strong><br>
+                    1. Abra o WhatsApp no celular &gt; Menu (3 pontinhos) ou Ajustes &gt; <b>Aparelhos Conectados</b>.<br>
                     2. Toque em <b>Conectar um Aparelho</b>.<br>
-                    3. Toque em <b>Conectar com número de telefone</b>.<br>
-                    4. Digite o código de 8 dígitos acima.
+                    3. No rodapé da tela da câmera, toque em <b>Conectar com número de telefone</b>.<br>
+                    4. Digite o código de 8 dígitos exibido acima (válido por 2 minutos).
                   </div>
                 </div>
 
@@ -4960,8 +4965,8 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
           Conecte sem precisar escanear QR Code! Digite o número do chip com DDI e DDD (ex: <b>5511999998888</b>):
         </p>
         <div style="display: flex; gap: 8px; margin-bottom: 15px;">
-          <input type="text" id="armyPairingPhone" class="form-control" placeholder="5511999998888" style="text-align: center; font-weight: bold; letter-spacing: 1px;">
-          <button type="button" class="btn btn-primary" onclick="requestArmyPairingCode()" style="white-space: nowrap;">
+          <input type="text" id="armyPairingPhone" class="form-control" placeholder="Ex: 5548984702848 ou 48984702848" style="text-align: center; font-weight: bold; letter-spacing: 1px;">
+          <button type="button" class="btn btn-primary" onclick="requestArmyPairingCode(this)" style="white-space: nowrap;">
             <i class="fa-solid fa-bolt"></i> Gerar Código
           </button>
         </div>

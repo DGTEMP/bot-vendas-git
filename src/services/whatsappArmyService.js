@@ -279,6 +279,14 @@ class WhatsAppArmyService {
             return;
           }
 
+          if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+            console.log(`[Exército WhatsApp ⚡] Chip #${instanceId} pareamento confirmado pelo celular! Reinicializando imediatamente...`);
+            setTimeout(() => {
+              this.startInstance(instanceId).catch(() => {});
+            }, 300);
+            return;
+          }
+
           // Verifica se a instância ainda existe no banco e está ativa antes de agendar reconexão
           const currentInst = models.getArmyInstanceById(instanceId);
           if (!currentInst || !currentInst.active) {
@@ -478,13 +486,22 @@ class WhatsAppArmyService {
       throw new Error('Este chip já está registrado e pareado.');
     }
 
+    try {
+      if (typeof sock?.waitForSocketOpen === 'function') {
+        await Promise.race([
+          sock.waitForSocketOpen(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout WebSocket')), 8000))
+        ]);
+      }
+    } catch (_) {}
+
     let code = null;
     let lastErr = null;
 
     // Tenta obter o código de pareamento com até 6 tentativas, aguardando a conexão Baileys estar pronta
     for (let attempt = 1; attempt <= 6; attempt++) {
       try {
-        await new Promise(r => setTimeout(r, attempt === 1 ? 1500 : 2000));
+        await new Promise(r => setTimeout(r, attempt === 1 ? 600 : 1500));
         code = await sock.requestPairingCode(cleanPhone);
         if (code) break;
       } catch (err) {
@@ -510,6 +527,41 @@ class WhatsAppArmyService {
     }
 
     throw new Error('Falha ao gerar código de pareamento: ' + (lastErr?.message || 'Timeout ao contatar os servidores do WhatsApp. Tente novamente em alguns segundos.'));
+  }
+
+  async requestPairingCodeForNewInstance(phone) {
+    let cleanPhone = String(phone).replace(/[^0-9]/g, '');
+    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+      cleanPhone = '55' + cleanPhone;
+    }
+    if (!cleanPhone || cleanPhone.length < 10) {
+      throw new Error('Informe o telefone completo com DDI e DDD (ex: 5548984702848)');
+    }
+
+    if (process.env.NODE_ENV === 'test') {
+      const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const simCode = `${p1}-${p2}`;
+      return { success: true, code: simCode, pairingCode: simCode, instanceId: 999 };
+    }
+
+    // Procura uma instância de Sub-Bot desconectada ou cria uma nova
+    const instances = models.getArmyInstances();
+    let targetInst = instances.find(i => !i.is_main && (i.status === 'DISCONNECTED' || i.status === 'WAITING_PAIRING'));
+    if (!targetInst) {
+      targetInst = models.createArmyInstance({
+        name: `Sub-Bot Chip +${cleanPhone.slice(-4)}`,
+        phone: cleanPhone,
+        role: 'LEAD_OUTREACH',
+        status: 'WAITING_PAIRING',
+        daily_limit: 50
+      });
+    } else {
+      models.updateArmyInstance(targetInst.id, { phone: cleanPhone, status: 'WAITING_PAIRING' });
+    }
+
+    const res = await this.requestPairingCode(targetInst.id, cleanPhone);
+    return { success: true, code: res.pairingCode, pairingCode: res.pairingCode, instanceId: targetInst.id };
   }
 
   getInstanceQr(instanceId) {

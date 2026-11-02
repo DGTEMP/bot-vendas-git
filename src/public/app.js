@@ -223,16 +223,26 @@ function switchWppConnectTab(tab) {
   }
 }
 
-async function requestWppPairingCode() {
+async function requestWppPairingCode(btnEl) {
   const phoneInput = document.getElementById('wppPairingPhone');
-  const phone = phoneInput ? phoneInput.value.trim() : '';
-  if (!phone) {
-    alert('Informe o número de telefone completo com DDI e DDD (ex: 5511999998888)');
+  const rawPhone = phoneInput ? phoneInput.value.trim() : '';
+  const cleanPhone = rawPhone.replace(/\D/g, '');
+
+  if (!cleanPhone || cleanPhone.length < 10) {
+    alert('Informe o número com DDD. Ex: 5548984702848 ou 48984702848');
+    phoneInput?.focus();
     return;
   }
 
   const codeBox = document.getElementById('wppPairingCodeBox');
   const codeText = document.getElementById('wppPairingCodeText');
+  let oldBtnHtml = '';
+  if (btnEl) {
+    oldBtnHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+    btnEl.disabled = true;
+  }
+
   if (codeText) codeText.innerText = 'GERANDO...';
   if (codeBox) codeBox.style.display = 'block';
 
@@ -240,18 +250,28 @@ async function requestWppPairingCode() {
     const res = await fetch('/api/whatsapp/pairing-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone })
+      body: JSON.stringify({ phone: cleanPhone })
     });
     const data = await res.json();
     if (res.ok && data.pairingCode) {
       if (codeText) codeText.innerText = data.pairingCode;
+      showBotToast('Código Gerado', `Código ${data.pairingCode} pronto! Digite no WhatsApp do seu celular.`, 'success');
+    } else if (data.alreadyConnected) {
+      if (codeText) codeText.innerText = 'ONLINE';
+      showBotToast('Já Conectado', data.message || 'Esta conta WhatsApp já está pareada e ativa!', 'info');
+      loadWhatsAppStatus();
     } else {
       if (codeText) codeText.innerText = 'ERRO';
-      alert('Erro ao gerar código de pareamento: ' + (data.error || 'Falha na resposta do servidor'));
+      showBotToast('Erro no Pareamento', data.error || 'Falha ao gerar código.', 'error');
     }
   } catch (err) {
     if (codeText) codeText.innerText = 'ERRO';
-    alert('Erro de conexão: ' + err.message);
+    showBotToast('Erro de Conexão', err.message, 'error');
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = oldBtnHtml;
+      btnEl.disabled = false;
+    }
   }
 }
 
@@ -260,9 +280,9 @@ function copyWppPairingCode() {
   const code = codeEl ? codeEl.innerText.trim() : '';
   if (code && code !== '----' && code !== 'GERANDO...' && code !== 'ERRO') {
     navigator.clipboard.writeText(code).then(() => {
-      alert('Código copiado com sucesso! Digite no seu WhatsApp celular.');
+      showBotToast('Código Copiado', `Código ${code} copiado para a área de transferência!`, 'success');
     }).catch(() => {
-      alert('Código: ' + code);
+      prompt('Copie o código abaixo:', code);
     });
   }
 }
@@ -2268,17 +2288,27 @@ async function refreshArmyQr() {
   } catch (_) {}
 }
 
-async function requestArmyPairingCode() {
+async function requestArmyPairingCode(btnEl) {
   if (!currentArmyQrInstanceId) return;
   const phoneInput = document.getElementById('armyPairingPhone');
-  const phone = phoneInput ? phoneInput.value.trim() : '';
-  if (!phone) {
-    alert('Informe o número de telefone completo com DDI e DDD (ex: 5511999998888)');
+  const rawPhone = phoneInput ? phoneInput.value.trim() : '';
+  const cleanPhone = rawPhone.replace(/\D/g, '');
+
+  if (!cleanPhone || cleanPhone.length < 10) {
+    showBotToast('Atenção', 'Informe o número com DDD. Ex: 5548984702848 ou 48984702848', 'warning');
+    phoneInput?.focus();
     return;
   }
 
   const codeBox = document.getElementById('armyPairingCodeBox');
   const codeText = document.getElementById('armyPairingCodeText');
+  let oldBtnHtml = '';
+  if (btnEl) {
+    oldBtnHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+    btnEl.disabled = true;
+  }
+
   if (codeText) codeText.innerText = 'GERANDO...';
   if (codeBox) codeBox.style.display = 'block';
 
@@ -2286,18 +2316,24 @@ async function requestArmyPairingCode() {
     const res = await fetch(`/api/army/instances/${currentArmyQrInstanceId}/pairing-code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone })
+      body: JSON.stringify({ phone: cleanPhone })
     });
     const data = await res.json();
     if (res.ok && data.pairingCode) {
       if (codeText) codeText.innerText = data.pairingCode;
+      showBotToast('Código Gerado', `Código ${data.pairingCode} gerado com sucesso!`, 'success');
     } else {
       if (codeText) codeText.innerText = 'ERRO';
-      alert('Erro ao gerar código de pareamento: ' + (data.error || 'Falha na resposta do servidor'));
+      showBotToast('Erro no Pareamento', data.error || 'Falha ao gerar código.', 'error');
     }
   } catch (err) {
     if (codeText) codeText.innerText = 'ERRO';
-    alert('Erro de conexão: ' + err.message);
+    showBotToast('Erro de Conexão', err.message, 'error');
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = oldBtnHtml;
+      btnEl.disabled = false;
+    }
   }
 }
 
@@ -7284,7 +7320,7 @@ async function botDeckAction(action, btnEl = null) {
     logBotDeck(`[SUCESSO] ${data.message}`, 'success');
     alert(data.message);
 
-    if (action === 'SUBBOT_PAIRING_CODE' && data.message.includes('Código:')) {
+    if (action === 'SUBBOT_PAIRING_CODE' && data.message && data.message.includes('Código')) {
       const codeRes = document.getElementById('botdeckPairResult');
       if (codeRes) {
         codeRes.style.display = 'block';
