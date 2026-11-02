@@ -26,6 +26,9 @@
         <a href="#" class="nav-item active" data-tab="overview">
           <i class="fa-solid fa-chart-pie"></i> Visão Geral
         </a>
+        <a href="#" class="nav-item" data-tab="botdeck" style="color: #38bdf8; font-weight: 700;">
+          <i class="fa-solid fa-gamepad" style="color: #38bdf8;"></i> Operar Todos os Bots
+        </a>
         <a href="#" class="nav-item" data-tab="settings">
           <i class="fa-solid fa-sliders"></i> Central de Configurações
         </a>
@@ -501,6 +504,740 @@
           </div>
 
         </section>
+        <!-- TAB OPERACIONAL: BOT DECK (OPERAR TODOS OS BOTS) -->
+        <section id="tab-botdeck" class="tab-pane">
+          <!-- Top Bar: Status dos Bots & Seletor Global -->
+          <div class="botdeck-topbar card">
+            <div class="botdeck-status-item">
+              <div class="botdeck-status-icon"><i class="fa-brands fa-whatsapp" style="color: #25d366;"></i></div>
+              <div>
+                <div class="botdeck-status-title">Matriz Principal</div>
+                <div class="botdeck-status-sub" id="botdeckMainStatus"><span class="badge badge-success">Online</span> 554884702848</div>
+              </div>
+            </div>
+
+            <div class="botdeck-status-item">
+              <div class="botdeck-status-icon"><i class="fa-solid fa-tower-broadcast" style="color: #f59e0b;"></i></div>
+              <div>
+                <div class="botdeck-status-title">Sub-Bots (Cluster)</div>
+                <div class="botdeck-status-sub" id="botdeckSubbotsCount">Carregando chips...</div>
+              </div>
+            </div>
+
+            <div class="botdeck-status-item">
+              <div class="botdeck-status-icon"><i class="fa-solid fa-paper-plane" style="color: #38bdf8;"></i></div>
+              <div>
+                <div class="botdeck-status-title">Disparos Hoje</div>
+                <div class="botdeck-status-sub" id="botdeckTodaySent">0 mensagens</div>
+              </div>
+            </div>
+
+            <div class="botdeck-topbar-actions">
+              <button class="btn btn-outline btn-sm" onclick="loadBotDeck()"><i class="fa-solid fa-arrows-rotate"></i> Atualizar Status</button>
+            </div>
+          </div>
+
+          <!-- Quick Filter Tabs for Bot Deck -->
+          <div class="botdeck-filter-bar">
+            <button class="botdeck-tab-btn active" onclick="filterBotDeck('all', this)"><i class="fa-solid fa-layer-group"></i> Todas as Funções</button>
+            <button class="botdeck-tab-btn" onclick="filterBotDeck('mensagens', this)"><i class="fa-solid fa-comment-dots"></i> Mensagens &amp; Voz</button>
+            <button class="botdeck-tab-btn" onclick="filterBotDeck('grupos', this)"><i class="fa-solid fa-users"></i> Grupos &amp; Moderação</button>
+            <button class="botdeck-tab-btn" onclick="filterBotDeck('midias', this)"><i class="fa-solid fa-photo-film"></i> Mídias, IA &amp; Downloads</button>
+            <button class="botdeck-tab-btn" onclick="filterBotDeck('meteoro', this)"><i class="fa-solid fa-meteor"></i> Lançamento Meteórico</button>
+            <button class="botdeck-tab-btn" onclick="filterBotDeck('vendas', this)"><i class="fa-solid fa-cart-shopping"></i> Vendas &amp; Cupons</button>
+            <button class="botdeck-tab-btn" onclick="filterBotDeck('subbots', this)"><i class="fa-solid fa-robot"></i> Chips &amp; Infra</button>
+          </div>
+
+          <!-- Grid of Operational Cards -->
+          <div class="botdeck-grid">
+
+            <!-- CARD 1: Enviar Mensagem Direta -->
+            <div class="card botdeck-card" data-category="mensagens">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;"><i class="fa-solid fa-paper-plane"></i></div>
+                <div>
+                  <h4>Enviar Mensagem Direta</h4>
+                  <span>Disparo instantâneo com suporte a Spintax</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Disparar Através de:</label>
+                  <select id="botdeck-msg-inst" class="form-control form-control-sm botdeck-inst-select">
+                    <option value="main">Matriz Principal</option>
+                  </select>
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário (DDD + Número ou JID de Grupo):</label>
+                  <input type="text" id="botdeck-msg-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888 ou 120363...@g.us">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Mensagem (Suporta Spintax {Olá|Oi}):</label>
+                  <textarea id="botdeck-msg-text" class="form-control form-control-sm" rows="3" placeholder="{Olá|Oi} {Cliente|Amigo}! Como podemos te ajudar hoje?"></textarea>
+                </div>
+                <button class="btn btn-primary w-100" onclick="botDeckAction('SEND_MESSAGE', this)">
+                  <i class="fa-solid fa-rocket"></i> Enviar Mensagem
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 2: Enviar Áudio PTT (Voz Realista) -->
+            <div class="card botdeck-card" data-category="mensagens">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;"><i class="fa-solid fa-microphone-lines"></i></div>
+                <div>
+                  <h4>Enviar Áudio de Voz PTT</h4>
+                  <span>Sintetiza voz natural e envia como nota de voz</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Disparar Através de:</label>
+                  <select id="botdeck-voice-inst" class="form-control form-control-sm botdeck-inst-select">
+                    <option value="main">Matriz Principal</option>
+                  </select>
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário (Telefone):</label>
+                  <input type="text" id="botdeck-voice-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Texto para o Bot Falar em Áudio:</label>
+                  <textarea id="botdeck-voice-text" class="form-control form-control-sm" rows="3" placeholder="Olá! Passando para avisar que liberamos sua condição exclusiva com desconto hoje."></textarea>
+                </div>
+                <button class="btn btn-success w-100" onclick="botDeckAction('SEND_VOICE_PTT', this)">
+                  <i class="fa-solid fa-microphone"></i> Enviar Áudio PTT
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 3: Agendar Mensagem Futura -->
+            <div class="card botdeck-card" data-category="mensagens">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;"><i class="fa-solid fa-clock"></i></div>
+                <div>
+                  <h4>Agendar Mensagem Futura</h4>
+                  <span>O worker executa automaticamente no horário</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Chip de Envio:</label>
+                  <select id="botdeck-sched-inst" class="form-control form-control-sm botdeck-inst-select">
+                    <option value="main">Matriz Principal</option>
+                  </select>
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário (Telefone):</label>
+                  <input type="text" id="botdeck-sched-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Data e Hora de Execução:</label>
+                  <input type="datetime-local" id="botdeck-sched-datetime" class="form-control form-control-sm">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Mensagem Programada:</label>
+                  <textarea id="botdeck-sched-text" class="form-control form-control-sm" rows="2" placeholder="Lembrete: sua sessão começa em 30 minutos!"></textarea>
+                </div>
+                <button class="btn btn-warning w-100" onclick="botDeckAction('SCHEDULE_MESSAGE', this)">
+                  <i class="fa-solid fa-calendar-check"></i> Agendar Mensagem
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 4: Disparo Inteligente em Cluster -->
+            <div class="card botdeck-card" data-category="mensagens">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;"><i class="fa-solid fa-network-wired"></i></div>
+                <div>
+                  <h4>Disparo Inteligente em Cluster</h4>
+                  <span>Distribui leads com balanceamento entre sub-bots</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Quantidade Máxima de Leads:</label>
+                  <input type="number" id="botdeck-balance-qty" class="form-control form-control-sm" value="50" min="1" max="1000">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Mensagem com Spintax:</label>
+                  <textarea id="botdeck-balance-text" class="form-control form-control-sm" rows="3" placeholder="{Olá|Oi|E aí} {nome}! {Tudo bem?|Como vai?} Liberamos uma condição imperdível."></textarea>
+                </div>
+                <button class="btn btn-purple w-100" style="background:#8b5cf6; color:#fff;" onclick="botDeckAction('SMART_LOAD_BALANCE', this)">
+                  <i class="fa-solid fa-bolt"></i> Distribuir no Cluster de Sub-Bots
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 5: Transmissão em Todos os Grupos -->
+            <div class="card botdeck-card" data-category="grupos">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-bullhorn"></i></div>
+                <div>
+                  <h4>Transmissão em Todos os Grupos</h4>
+                  <span>Envia aviso geral para todos os grupos do WhatsApp</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Mensagem do Comunicado:</label>
+                  <textarea id="botdeck-broadcast-text" class="form-control form-control-sm" rows="4" placeholder="📢 *COMUNICADO OFICIAL*
+
+Atenção membros: nova atualização disponível no painel!"></textarea>
+                </div>
+                <button class="btn btn-danger w-100" onclick="botDeckAction('BROADCAST_GROUPS', this)">
+                  <i class="fa-solid fa-tower-broadcast"></i> Transmitir para Todos os Grupos
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 6: Live Takeover / Assumir Atendimento -->
+            <div class="card botdeck-card" data-category="mensagens">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(236, 72, 153, 0.15); color: #ec4899;"><i class="fa-solid fa-headset"></i></div>
+                <div>
+                  <h4>Live Relay &amp; Takeover Humano</h4>
+                  <span>Assuma a conversa de qualquer lead em tempo real</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Telefone do Lead:</label>
+                  <input type="text" id="botdeck-takeover-target" class="form-control form-control-sm" placeholder="Ex: 5511988887777">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Sub-Bot Responsável:</label>
+                  <select id="botdeck-takeover-inst" class="form-control form-control-sm botdeck-inst-select">
+                    <option value="1">Chip #1</option>
+                  </select>
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Mensagem de Resposta Manual:</label>
+                  <textarea id="botdeck-takeover-msg" class="form-control form-control-sm" rows="2" placeholder="Olá! Sou o atendente humano responsável e estou assumindo seu atendimento."></textarea>
+                </div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-primary flex-1 btn-sm" onclick="botDeckTakeover('reply', this)"><i class="fa-solid fa-paper-plane"></i> Responder</button>
+                  <button class="btn btn-outline flex-1 btn-sm" onclick="botDeckTakeover('start', this)"><i class="fa-solid fa-user-lock"></i> Assumir</button>
+                  <button class="btn btn-danger flex-1 btn-sm" onclick="botDeckTakeover('end', this)"><i class="fa-solid fa-xmark"></i> Encerrar</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD 7: Moderação e Gestão de Grupos -->
+            <div class="card botdeck-card" data-category="grupos">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;"><i class="fa-solid fa-shield-halved"></i></div>
+                <div>
+                  <h4>Moderação de Grupos WhatsApp</h4>
+                  <span>Promover, rebaixar, banir e silenciar participantes</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Selecionar Grupo:</label>
+                  <select id="botdeck-mod-group" class="form-control form-control-sm botdeck-groups-select" onchange="syncGroupJid(this)">
+                    <option value="">Selecione ou digite o JID abaixo...</option>
+                  </select>
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">JID do Grupo (se não listado acima):</label>
+                  <input type="text" id="botdeck-mod-group-jid" class="form-control form-control-sm" placeholder="Ex: 120363099887766554@g.us">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Telefone do Membro:</label>
+                  <input type="text" id="botdeck-mod-user" class="form-control form-control-sm" placeholder="Ex: 5511999990000">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Motivo (para Ban ou Advertência):</label>
+                  <input type="text" id="botdeck-mod-reason" class="form-control form-control-sm" placeholder="Ex: Spam ou desrespeito às regras">
+                </div>
+                <div class="botdeck-btn-grid">
+                  <button class="btn btn-success btn-sm" onclick="botDeckGroupAction('GROUP_PROMOTE', this)"><i class="fa-solid fa-user-shield"></i> Promover Admin</button>
+                  <button class="btn btn-warning btn-sm" onclick="botDeckGroupAction('GROUP_DEMOTE', this)"><i class="fa-solid fa-user-minus"></i> Rebaixar Admin</button>
+                  <button class="btn btn-danger btn-sm" onclick="botDeckGroupAction('GROUP_BAN', this)"><i class="fa-solid fa-ban"></i> Expulsar Membro</button>
+                  <button class="btn btn-outline btn-sm" onclick="botDeckGroupAction('GROUP_WARN', this)"><i class="fa-solid fa-triangle-exclamation"></i> Dar Warn (3-Ban)</button>
+                  <button class="btn btn-secondary btn-sm" onclick="botDeckGroupAction('GROUP_MUTE', this)"><i class="fa-solid fa-lock"></i> Silenciar Grupo</button>
+                  <button class="btn btn-primary btn-sm" onclick="botDeckGroupAction('GROUP_UNMUTE', this)"><i class="fa-solid fa-lock-open"></i> Abrir Grupo</button>
+                  <button class="btn btn-outline btn-sm" onclick="botDeckGroupAction('GROUP_REVOKE_LINK', this)"><i class="fa-solid fa-link-slash"></i> Resetar Link</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD 8: Marcar Todos (@tagall) -->
+            <div class="card botdeck-card" data-category="grupos">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(249, 115, 22, 0.15); color: #f97316;"><i class="fa-solid fa-at"></i></div>
+                <div>
+                  <h4>Marcar Todos os Membros (@tagall)</h4>
+                  <span>Notifica todos os participantes ativos do grupo</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Selecionar Grupo:</label>
+                  <select id="botdeck-tagall-group" class="form-control form-control-sm botdeck-groups-select">
+                    <option value="">Selecione o grupo...</option>
+                  </select>
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Mensagem do Chamado:</label>
+                  <textarea id="botdeck-tagall-msg" class="form-control form-control-sm" rows="3" placeholder="Atenção pessoal! Reunião extraordinária hoje às 20h. Não faltem!"></textarea>
+                </div>
+                <button class="btn btn-warning w-100" onclick="botDeckAction('GROUP_TAGALL', this)">
+                  <i class="fa-solid fa-bullhorn"></i> Marcar Todos no Grupo
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 9: Alterar Nome e Descrição do Grupo -->
+            <div class="card botdeck-card" data-category="grupos">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(14, 203, 129, 0.15); color: #0ecb81;"><i class="fa-solid fa-pen-to-square"></i></div>
+                <div>
+                  <h4>Alterar Dados do Grupo</h4>
+                  <span>Altere título e descrição instantaneamente</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Selecionar Grupo:</label>
+                  <select id="botdeck-edit-group" class="form-control form-control-sm botdeck-groups-select">
+                    <option value="">Selecione o grupo...</option>
+                  </select>
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Novo Nome / Título do Grupo:</label>
+                  <div class="d-flex gap-2">
+                    <input type="text" id="botdeck-edit-name" class="form-control form-control-sm" placeholder="Ex: Grupo VIP Oficial #01">
+                    <button class="btn btn-outline btn-sm" onclick="botDeckAction('GROUP_SET_NAME', this)">Salvar</button>
+                  </div>
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Nova Descrição do Grupo:</label>
+                  <textarea id="botdeck-edit-desc" class="form-control form-control-sm" rows="2" placeholder="Regras oficiais e comunicados do lançamento..."></textarea>
+                </div>
+                <button class="btn btn-primary w-100" onclick="botDeckAction('GROUP_SET_DESC', this)">
+                  <i class="fa-solid fa-floppy-disk"></i> Atualizar Descrição do Grupo
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 10: Download & Envio de Áudio MP3 -->
+            <div class="card botdeck-card" data-category="midias">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;"><i class="fa-solid fa-music"></i></div>
+                <div>
+                  <h4>Download &amp; Envio de Áudio MP3</h4>
+                  <span>Baixa com título oficial e seletor de qualidade H/S</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário (Telefone ou Grupo):</label>
+                  <input type="text" id="botdeck-audio-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Nome da Música ou Link (YouTube / TikTok):</label>
+                  <input type="text" id="botdeck-audio-query" class="form-control form-control-sm" placeholder="Ex: Linkin Park Numb ou URL">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Qualidade do Áudio:</label>
+                  <select id="botdeck-audio-quality" class="form-control form-control-sm">
+                    <option value="H">Alta Fidelidade (H - 320kbps)</option>
+                    <option value="S">Padrão / Leve (S - 128kbps)</option>
+                  </select>
+                </div>
+                <button class="btn btn-success w-100" onclick="botDeckAction('DOWNLOAD_AUDIO', this)">
+                  <i class="fa-solid fa-cloud-arrow-down"></i> Baixar &amp; Enviar Áudio
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 11: Download & Envio de Vídeo MP4 -->
+            <div class="card botdeck-card" data-category="midias">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-video"></i></div>
+                <div>
+                  <h4>Download &amp; Envio de Vídeo MP4</h4>
+                  <span>Download de qualquer rede com seletor H/S</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário (Telefone ou Grupo):</label>
+                  <input type="text" id="botdeck-video-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Link do Vídeo (YouTube, TikTok, Instagram, Twitter):</label>
+                  <input type="text" id="botdeck-video-url" class="form-control form-control-sm" placeholder="https://youtube.com/watch?v=...">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Qualidade do Vídeo:</label>
+                  <select id="botdeck-video-quality" class="form-control form-control-sm">
+                    <option value="H">Alta Resolução (H - 1080p / 720p)</option>
+                    <option value="S">Padrão / Leve (S - 480p / 360p)</option>
+                  </select>
+                </div>
+                <button class="btn btn-danger w-100" onclick="botDeckAction('DOWNLOAD_VIDEO', this)">
+                  <i class="fa-solid fa-film"></i> Baixar &amp; Enviar Vídeo
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 12: Inteligência Artificial (Gemini / GPT) -->
+            <div class="card botdeck-card" data-category="midias">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(14, 165, 233, 0.15); color: #0ea5e9;"><i class="fa-solid fa-brain"></i></div>
+                <div>
+                  <h4>Inteligência Artificial (Gemini / GPT)</h4>
+                  <span>Consulta a IA e entrega a resposta no WhatsApp</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário (Telefone ou Grupo):</label>
+                  <input type="text" id="botdeck-ai-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Pergunta ou Prompt para a IA:</label>
+                  <textarea id="botdeck-ai-prompt" class="form-control form-control-sm" rows="3" placeholder="Escreva uma copy persuasiva para vender nosso aplicativo sob medida com 20% de desconto."></textarea>
+                </div>
+                <button class="btn btn-primary w-100" onclick="botDeckAction('AI_QUERY', this)">
+                  <i class="fa-solid fa-wand-magic-sparkles"></i> Consultar IA &amp; Enviar
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 13: Geração de Imagem com IA -->
+            <div class="card botdeck-card" data-category="midias">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(236, 72, 153, 0.15); color: #ec4899;"><i class="fa-solid fa-palette"></i></div>
+                <div>
+                  <h4>Geração de Imagens com IA</h4>
+                  <span>Cria arte inédita descrita pelo prompt</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário (Telefone ou Grupo):</label>
+                  <input type="text" id="botdeck-aiimg-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Descrição da Imagem:</label>
+                  <input type="text" id="botdeck-aiimg-prompt" class="form-control form-control-sm" placeholder="Um robô futurista azul em uma sala de servidores 3D neon">
+                </div>
+                <button class="btn btn-purple w-100" style="background:#d946ef; color:#fff;" onclick="botDeckAction('AI_IMAGE', this)">
+                  <i class="fa-solid fa-image"></i> Gerar &amp; Enviar Imagem
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 14: Voz Sintetizada TTS -->
+            <div class="card botdeck-card" data-category="midias">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;"><i class="fa-solid fa-bullhorn"></i></div>
+                <div>
+                  <h4>Voz Sintetizada TTS (Google Voice)</h4>
+                  <span>Converte texto em arquivo de voz audível</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário:</label>
+                  <input type="text" id="botdeck-tts-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Idioma:</label>
+                  <select id="botdeck-tts-lang" class="form-control form-control-sm">
+                    <option value="pt">Português (pt-BR)</option>
+                    <option value="en">Inglês (en-US)</option>
+                    <option value="es">Espanhol (es-ES)</option>
+                  </select>
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Texto para Falar:</label>
+                  <textarea id="botdeck-tts-text" class="form-control form-control-sm" rows="2" placeholder="Olá! Seja muito bem-vindo ao nosso suporte prioritário."></textarea>
+                </div>
+                <button class="btn btn-warning w-100" onclick="botDeckAction('SEND_TTS', this)">
+                  <i class="fa-solid fa-volume-high"></i> Sintetizar &amp; Enviar Voz
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 15: Gerador de QR Code -->
+            <div class="card botdeck-card" data-category="midias">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;"><i class="fa-solid fa-qrcode"></i></div>
+                <div>
+                  <h4>Gerador de Imagem QR Code</h4>
+                  <span>Cria QR Code para links, Pix ou textos</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Destinatário:</label>
+                  <input type="text" id="botdeck-qr-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Texto ou Link:</label>
+                  <input type="text" id="botdeck-qr-text" class="form-control form-control-sm" placeholder="https://seusite.com ou Chave Pix">
+                </div>
+                <button class="btn btn-success w-100" onclick="botDeckAction('SEND_QR', this)">
+                  <i class="fa-solid fa-qrcode"></i> Gerar &amp; Enviar QR Code
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 16: Lançamento Meteórico -->
+            <div class="card botdeck-card" data-category="meteoro">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(249, 115, 22, 0.15); color: #f97316;"><i class="fa-solid fa-meteor"></i></div>
+                <div>
+                  <h4>Funil do Lançamento Meteórico</h4>
+                  <span>Dispare fases, trave grupos e ative efeito manada</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Fase do Lançamento:</label>
+                  <select id="botdeck-met-stage" class="form-control form-control-sm">
+                    <option value="1">1. Antecipação &amp; Boas-Vindas</option>
+                    <option value="2">2. Revelação da Oferta &amp; Tira-Dúvidas</option>
+                    <option value="3">3. Abertura Oficial do Carrinho (Link)</option>
+                    <option value="4">4. Escassez &amp; Últimas Vagas</option>
+                    <option value="5">5. Encerramento do Lançamento</option>
+                  </select>
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Link de Checkout / Desconto (Fases 3 e 4):</label>
+                  <input type="text" id="botdeck-met-link" class="form-control form-control-sm" placeholder="https://seusite.com/checkout?cupom=VIP50">
+                </div>
+                <div class="d-flex flex-column gap-2">
+                  <button class="btn btn-primary w-100" onclick="botDeckAction('METEORIC_STAGE', this)"><i class="fa-solid fa-rocket"></i> Executar Fase nos Grupos</button>
+                  <button class="btn btn-purple w-100" style="background:#7c3aed; color:#fff;" onclick="botDeckAction('METEORIC_MANADA', this)"><i class="fa-solid fa-fire"></i> Disparar Efeito Manada (Sub-Bots)</button>
+                  <div class="d-flex gap-2">
+                    <button class="btn btn-outline flex-1 btn-sm" onclick="botDeckMeteoricMode('announcement', this)"><i class="fa-solid fa-lock"></i> Silenciar Grupos</button>
+                    <button class="btn btn-outline flex-1 btn-sm" onclick="botDeckMeteoricMode('not_announcement', this)"><i class="fa-solid fa-lock-open"></i> Abrir Grupos</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD 17: Criar Grupo com Transbordamento -->
+            <div class="card botdeck-card" data-category="meteoro">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;"><i class="fa-solid fa-folder-plus"></i></div>
+                <div>
+                  <h4>Criar Grupo de Lançamento</h4>
+                  <span>Cria novo grupo com transbordamento automático</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Nome Base do Grupo:</label>
+                  <input type="text" id="botdeck-met-basename" class="form-control form-control-sm" value="Oferta VIP #{num}">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Limite de Membros para Transbordar:</label>
+                  <input type="number" id="botdeck-met-max" class="form-control form-control-sm" value="200">
+                </div>
+                <button class="btn btn-success w-100" onclick="botDeckAction('METEORIC_CREATE_GROUP', this)">
+                  <i class="fa-solid fa-plus-circle"></i> Criar Grupo com Transbordamento
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 18: Cobrança Instantânea Pix / Cripto -->
+            <div class="card botdeck-card" data-category="vendas">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(14, 203, 129, 0.15); color: #0ecb81;"><i class="fa-solid fa-credit-card"></i></div>
+                <div>
+                  <h4>Cobrança Instantânea Pix / Cripto</h4>
+                  <span>Gera QR Code Copia e Cola imediato</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Nome do Cliente:</label>
+                  <input type="text" id="botdeck-chg-name" class="form-control form-control-sm" placeholder="Ex: Roberto Silva">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Telefone do Cliente:</label>
+                  <input type="text" id="botdeck-chg-phone" class="form-control form-control-sm" placeholder="Ex: 5511999990001">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Valor em R$:</label>
+                  <input type="number" id="botdeck-chg-amt" class="form-control form-control-sm" value="120.00" step="0.01">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Método de Pagamento:</label>
+                  <select id="botdeck-chg-gw" class="form-control form-control-sm">
+                    <option value="pix">PIX Instantâneo</option>
+                    <option value="binancepay">Binance Pay (USDT)</option>
+                  </select>
+                </div>
+                <button class="btn btn-success w-100" onclick="botDeckAction('QUICK_CHARGE', this)">
+                  <i class="fa-solid fa-money-bill-wave"></i> Gerar Cobrança Imediata
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 19: Cupons & Carrinhos Abandonados -->
+            <div class="card botdeck-card" data-category="vendas">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;"><i class="fa-solid fa-tags"></i></div>
+                <div>
+                  <h4>Cupons &amp; Carrinho Abandonado</h4>
+                  <span>Recuperação e desconto relâmpago</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="mb-3">
+                  <button class="btn btn-warning w-100" onclick="botDeckAction('RECOVER_CARTS', this)">
+                    <i class="fa-solid fa-cart-shopping"></i> Disparar Recuperação de Carrinho
+                  </button>
+                </div>
+                <hr style="border-color: var(--border-color); margin: 12px 0;">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Código do Novo Cupom:</label>
+                  <input type="text" id="botdeck-cpn-code" class="form-control form-control-sm" placeholder="Ex: METEORO20" style="text-transform:uppercase;">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Desconto (%):</label>
+                  <input type="number" id="botdeck-cpn-disc" class="form-control form-control-sm" value="20">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Limite de Usos (0 = ilimitado):</label>
+                  <input type="number" id="botdeck-cpn-uses" class="form-control form-control-sm" value="0">
+                </div>
+                <button class="btn btn-outline w-100" onclick="botDeckAction('QUICK_COUPON', this)">
+                  <i class="fa-solid fa-plus"></i> Criar Cupom de Desconto
+                </button>
+              </div>
+            </div>
+
+            <!-- CARD 20: Controle de Chat e Mute do Bot -->
+            <div class="card botdeck-card" data-category="subbots">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-volume-xmark"></i></div>
+                <div>
+                  <h4>Controle de Chat &amp; Bloqueio</h4>
+                  <span>Silencie o bot em chats específicos ou bloqueie spammers</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Telefone ou JID do Chat:</label>
+                  <input type="text" id="botdeck-ctrl-target" class="form-control form-control-sm" placeholder="Ex: 5511999998888 ou 1203...@g.us">
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Motivo da Ação:</label>
+                  <input type="text" id="botdeck-ctrl-reason" class="form-control form-control-sm" placeholder="Ex: Atendimento pessoal direto">
+                </div>
+                <div class="botdeck-btn-grid">
+                  <button class="btn btn-warning btn-sm" onclick="botDeckAction('CHAT_MUTE', this)"><i class="fa-solid fa-volume-xmark"></i> Silenciar Bot</button>
+                  <button class="btn btn-success btn-sm" onclick="botDeckAction('CHAT_UNMUTE', this)"><i class="fa-solid fa-volume-high"></i> Reativar Bot</button>
+                  <button class="btn btn-danger btn-sm" onclick="botDeckAction('USER_BLOCK', this)"><i class="fa-solid fa-ban"></i> Bloquear Usuário</button>
+                  <button class="btn btn-outline btn-sm" onclick="botDeckAction('USER_UNBLOCK', this)"><i class="fa-solid fa-check"></i> Desbloquear</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD 21: Central de Avisos da Equipe -->
+            <div class="card botdeck-card" data-category="subbots">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(236, 72, 153, 0.15); color: #ec4899;"><i class="fa-solid fa-bell"></i></div>
+                <div>
+                  <h4>Central de Avisos da Equipe</h4>
+                  <span>Emita comunicados sonoros para todos os computadores</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Título do Aviso:</label>
+                  <input type="text" id="botdeck-ntc-title" class="form-control form-control-sm" placeholder="Ex: Reunião Geral de Fechamento">
+                </div>
+                <div class="form-group mb-2">
+                  <label class="form-label-sm">Mensagem do Comunicado:</label>
+                  <textarea id="botdeck-ntc-msg" class="form-control form-control-sm" rows="2" placeholder="Todos os operadores acessem a sala VIP para o alinhamento."></textarea>
+                </div>
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Categoria:</label>
+                  <select id="botdeck-ntc-cat" class="form-control form-control-sm">
+                    <option value="info">Informativo Geral</option>
+                    <option value="urgente">Alerta Crítico / Urgente (Som)</option>
+                    <option value="trabalho">Trabalho &amp; Metas</option>
+                  </select>
+                </div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-primary flex-1 btn-sm" onclick="botDeckNoticeAction(false, this)"><i class="fa-solid fa-bullhorn"></i> Emitir Aviso</button>
+                  <button class="btn btn-danger flex-1 btn-sm" onclick="botDeckNoticeAction(true, this)"><i class="fa-solid fa-radiation"></i> Alerta Crítico</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD 22: Conectar Novo Chip por Código -->
+            <div class="card botdeck-card" data-category="subbots">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(14, 203, 129, 0.15); color: #0ecb81;"><i class="fa-solid fa-mobile-screen-button"></i></div>
+                <div>
+                  <h4>Conectar Novo Sub-Bot (Pairing Code)</h4>
+                  <span>Gera código de 8 dígitos para conectar chip sem QR</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="form-group mb-3">
+                  <label class="form-label-sm">Número de Telefone do Novo Chip (com DDD):</label>
+                  <input type="text" id="botdeck-pair-phone" class="form-control form-control-sm" placeholder="Ex: 5548984702848">
+                </div>
+                <button class="btn btn-success w-100" onclick="botDeckAction('SUBBOT_PAIRING_CODE', this)">
+                  <i class="fa-solid fa-key"></i> Gerar Código de Conexão
+                </button>
+                <div id="botdeckPairResult" class="mt-2 text-center" style="display:none; font-size:18px; font-weight:800; color:#10b981; letter-spacing:2px;"></div>
+              </div>
+            </div>
+
+            <!-- CARD 23: Otimizações & Túnel Remoto -->
+            <div class="card botdeck-card" data-category="subbots">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;"><i class="fa-solid fa-gauge-high"></i></div>
+                <div>
+                  <h4>Otimizações &amp; Túnel Remoto</h4>
+                  <span>Limpeza profunda de RAM e manutenção do túnel</span>
+                </div>
+              </div>
+              <div class="botdeck-card-body">
+                <div class="d-flex flex-column gap-2">
+                  <button class="btn btn-outline w-100" onclick="botDeckAction('OPTIMIZE_MEMORY', this)">
+                    <i class="fa-solid fa-broom"></i> Otimizar RAM &amp; Garbage Collector
+                  </button>
+                  <button class="btn btn-outline w-100" onclick="botDeckAction('RESTART_TUNNEL', this)">
+                    <i class="fa-solid fa-network-wired"></i> Reiniciar Túnel Seguro
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Console Terminal de Execução em Tempo Real -->
+          <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <i class="fa-solid fa-terminal" style="color: #38bdf8;"></i> <strong>Terminal Operacional de Execução ao Vivo</strong>
+                <span class="text-muted text-sm ml-2">&bull; Registra o resultado instantâneo de cada botão acionado</span>
+              </div>
+              <button class="btn btn-sm btn-outline" onclick="clearBotDeckConsole()"><i class="fa-solid fa-trash"></i> Limpar Console</button>
+            </div>
+            <div class="card-body p-0">
+              <div id="botdeckConsole" class="botdeck-console">
+                <div class="botdeck-console-line text-muted">[Sistema] Terminal de comando operacional iniciado. Selecione qualquer função e clique no botão correspondente para executar.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+
 
         <!-- TAB 2: CENTRAL DE CONFIGURAÇÕES -->
         <section id="tab-settings" class="tab-pane">

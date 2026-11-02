@@ -2961,6 +2961,520 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // BOT DECK: PAINEL DE CONTROLE INTEGRAL DE TODOS OS BOTS
+  // ==========================================
+  app.get('/api/botdeck/overview', async (req, res) => {
+    try {
+      const instances = models.getArmyInstances();
+      const mainStatus = whatsappBot.getConnectionStatus ? whatsappBot.getConnectionStatus() : { connected: false };
+      let groups = [];
+      try {
+        groups = await whatsappBot.fetchAllGroups(false);
+      } catch (_) {}
+      const recentTasks = models.getDelegatedTasks(30);
+      const metrics = models.getMetrics();
+      res.json({
+        success: true,
+        main: {
+          connected: !!mainStatus.connected,
+          phone: mainStatus.phone || process.env.ADMIN_NOTIFY_WHATSAPP_PHONE || '554884702848',
+          name: 'Matriz Principal'
+        },
+        instances,
+        groups: groups.map(g => ({ id: g.id, subject: g.subject, size: g.size })),
+        recentTasks,
+        metrics
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/botdeck/execute', async (req, res) => {
+    try {
+      const { action, payload = {} } = req.body;
+      const whatsappArmyService = require('../services/whatsappArmyService');
+      const matrizAssistantService = require('../services/matrizAssistantService');
+      const spyFeatures = require('../services/spyFeaturesService');
+      const meteoricService = require('../services/meteoricService');
+
+      let resultMsg = '';
+      let logTaskType = action;
+
+      switch (action) {
+        case 'SEND_MESSAGE': {
+          const { instanceId, target, message } = payload;
+          if (!target || !message) throw new Error('Destinatário e mensagem são obrigatórios.');
+          const cleanPhone = String(target).replace(/\D/g, '');
+          const isJid = target.includes('@');
+          const finalTarget = isJid ? target : `${cleanPhone}@s.whatsapp.net`;
+
+          if (!instanceId || instanceId === 'main' || instanceId === '1') {
+            if (whatsappBot.isConnected) {
+              await whatsappBot.sendMessage(finalTarget, message);
+            } else {
+              await whatsappArmyService.sendArmyMessage(1, cleanPhone || target, message);
+            }
+            resultMsg = `Mensagem enviada com sucesso pela Matriz Principal para ${target}`;
+          } else {
+            const chipId = Number(instanceId);
+            await whatsappArmyService.sendMessageViaInstance(chipId, cleanPhone || target, message);
+            resultMsg = `Mensagem enviada com sucesso pelo Sub-Bot #${chipId} para ${target}`;
+          }
+          break;
+        }
+
+        case 'SEND_VOICE_PTT': {
+          const { instanceId, target, text } = payload;
+          if (!target || !text) throw new Error('Destinatário e texto do áudio são obrigatórios.');
+          const cleanPhone = String(target).replace(/\D/g, '');
+          const chipId = Number(instanceId) || 1;
+          await whatsappArmyService.sendVoiceViaInstance(chipId, cleanPhone, text);
+          resultMsg = `Áudio PTT enviado com sucesso pelo Chip #${chipId} para +${cleanPhone}`;
+          break;
+        }
+
+        case 'SCHEDULE_MESSAGE': {
+          const { instanceId, target, message, scheduled_at } = payload;
+          if (!target || !message || !scheduled_at) throw new Error('Destinatário, mensagem e data/hora são obrigatórios.');
+          const task = models.createDelegatedTask({
+            assigned_instance_id: instanceId ? Number(instanceId) : 1,
+            task_type: 'SCHEDULED_DISPATCH',
+            title: `Mensagem Agendada para +${target}`,
+            description: message,
+            target,
+            message_payload: message,
+            delegated_by: 'WEB_OPERATOR',
+            scheduled_at
+          });
+          resultMsg = `Mensagem agendada com sucesso para ${scheduled_at} (Código: ${task.task_code})`;
+          break;
+        }
+
+        case 'SMART_LOAD_BALANCE': {
+          const { qty, message } = payload;
+          if (!message) throw new Error('Texto da mensagem é obrigatório.');
+          const count = parseInt(qty, 10) || 50;
+          await matrizAssistantService.delegateSmartBalancing({ sendMessage: async () => true }, null, count, message);
+          resultMsg = `Disparo inteligente para ${count} leads distribuído entre todos os Sub-Bots!`;
+          break;
+        }
+
+        case 'BROADCAST_GROUPS': {
+          const { message } = payload;
+          if (!message) throw new Error('Mensagem para os grupos é obrigatória.');
+          const gRes = await whatsappArmyService.broadcastViaAllSubBots({ message, targetType: 'groups' });
+          resultMsg = `Transmissão enviada para ${gRes.totalSent || 0} grupos no WhatsApp!`;
+          break;
+        }
+
+        case 'TAKEOVER_START': {
+          const { target, instanceId } = payload;
+          if (!target) throw new Error('Número do lead é obrigatório.');
+          const cleanPhone = String(target).replace(/\D/g, '');
+          whatsappArmyService.setOwnerRelay(cleanPhone, Number(instanceId) || 1, 'web_dashboard');
+          resultMsg = `Takeover humano iniciado para +${cleanPhone}! Conversa repassada ao Dono.`;
+          break;
+        }
+
+        case 'TAKEOVER_REPLY': {
+          const { target, instanceId, message } = payload;
+          if (!target || !message) throw new Error('Telefone e mensagem são obrigatórios.');
+          const cleanPhone = String(target).replace(/\D/g, '');
+          const chipId = Number(instanceId) || 1;
+          await whatsappArmyService.sendMessageViaInstance(chipId, cleanPhone, message);
+          resultMsg = `Resposta do operador enviada para +${cleanPhone} via Chip #${chipId}!`;
+          break;
+        }
+
+        case 'TAKEOVER_END': {
+          const { target } = payload;
+          if (!target) throw new Error('Número do lead é obrigatório.');
+          const cleanPhone = String(target).replace(/\D/g, '');
+          whatsappArmyService.removeOwnerRelay(cleanPhone);
+          resultMsg = `Takeover encerrado para +${cleanPhone}. Bot automatizado reassumiu.`;
+          break;
+        }
+
+        case 'DOWNLOAD_AUDIO': {
+          const { target, query, quality } = payload;
+          if (!target || !query) throw new Error('Destinatário e link/nome da música são obrigatórios.');
+          const finalTarget = target.includes('@') ? target : `${target.replace(/\D/g, '')}@s.whatsapp.net`;
+          const qual = quality === 'H' ? 'H' : 'S';
+          await spyFeatures.handlePlayMusic(whatsappBot.sock, finalTarget, `${query} ${qual}`);
+          resultMsg = `Áudio (${qual === 'H' ? 'Alta Fidelidade' : 'Padrão'}) enviado para ${target}!`;
+          break;
+        }
+
+        case 'DOWNLOAD_VIDEO': {
+          const { target, url, quality } = payload;
+          if (!target || !url) throw new Error('Destinatário e link do vídeo são obrigatórios.');
+          const finalTarget = target.includes('@') ? target : `${target.replace(/\D/g, '')}@s.whatsapp.net`;
+          const qual = quality === 'H' ? 'H' : 'S';
+          await spyFeatures.handleDownloadVideo(whatsappBot.sock, finalTarget, `${url} ${qual}`);
+          resultMsg = `Vídeo (${qual === 'H' ? 'HD' : 'Padrão'}) enviado para ${target}!`;
+          break;
+        }
+
+        case 'AI_QUERY': {
+          const { target, prompt } = payload;
+          if (!target || !prompt) throw new Error('Destinatário e pergunta/prompt são obrigatórios.');
+          const finalTarget = target.includes('@') ? target : `${target.replace(/\D/g, '')}@s.whatsapp.net`;
+          await spyFeatures.handleAIChat(whatsappBot.sock, finalTarget, `!ia ${prompt}`, 'Operador Web');
+          resultMsg = `Consulta à IA realizada e resposta enviada para ${target}!`;
+          break;
+        }
+
+        case 'AI_IMAGE': {
+          const { target, prompt } = payload;
+          if (!target || !prompt) throw new Error('Destinatário e descrição da imagem são obrigatórios.');
+          const finalTarget = target.includes('@') ? target : `${target.replace(/\D/g, '')}@s.whatsapp.net`;
+          await spyFeatures.handleImagine(whatsappBot.sock, finalTarget, `!imagine ${prompt}`);
+          resultMsg = `Imagem gerada por IA enviada para ${target}!`;
+          break;
+        }
+
+        case 'SEND_TTS': {
+          const { target, text, lang } = payload;
+          if (!target || !text) throw new Error('Destinatário e texto são obrigatórios.');
+          const finalTarget = target.includes('@') ? target : `${target.replace(/\D/g, '')}@s.whatsapp.net`;
+          await spyFeatures.handleTTS(whatsappBot.sock, finalTarget, `!tts ${lang ? lang + ' ' : ''}${text}`);
+          resultMsg = `Voz sintetizada TTS enviada com sucesso para ${target}!`;
+          break;
+        }
+
+        case 'SEND_QR': {
+          const { target, text } = payload;
+          if (!target || !text) throw new Error('Destinatário e texto/link do QR são obrigatórios.');
+          const finalTarget = target.includes('@') ? target : `${target.replace(/\D/g, '')}@s.whatsapp.net`;
+          await spyFeatures.handleQRCode(whatsappBot.sock, finalTarget, `!qr ${text}`);
+          resultMsg = `QR Code gerado e enviado para ${target}!`;
+          break;
+        }
+
+        case 'GROUP_PROMOTE': {
+          const { groupJid, userPhone } = payload;
+          if (!groupJid || !userPhone) throw new Error('ID do Grupo e telefone são obrigatórios.');
+          const cleanUser = String(userPhone).replace(/\D/g, '');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          if (whatsappBot.sock && whatsappBot.isConnected) {
+            await whatsappBot.sock.groupParticipantsUpdate(finalGroup, [`${cleanUser}@s.whatsapp.net`], 'promote');
+          }
+          resultMsg = `Membro +${cleanUser} promovido a Administrador no grupo!`;
+          break;
+        }
+
+        case 'GROUP_DEMOTE': {
+          const { groupJid, userPhone } = payload;
+          if (!groupJid || !userPhone) throw new Error('ID do Grupo e telefone são obrigatórios.');
+          const cleanUser = String(userPhone).replace(/\D/g, '');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          if (whatsappBot.sock && whatsappBot.isConnected) {
+            await whatsappBot.sock.groupParticipantsUpdate(finalGroup, [`${cleanUser}@s.whatsapp.net`], 'demote');
+          }
+          resultMsg = `Membro +${cleanUser} rebaixado de Administrador no grupo!`;
+          break;
+        }
+
+        case 'GROUP_BAN': {
+          const { groupJid, userPhone, reason } = payload;
+          if (!groupJid || !userPhone) throw new Error('ID do Grupo e telefone são obrigatórios.');
+          const cleanUser = String(userPhone).replace(/\D/g, '');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          if (whatsappBot.sock && whatsappBot.isConnected) {
+            await whatsappBot.sock.groupParticipantsUpdate(finalGroup, [`${cleanUser}@s.whatsapp.net`], 'remove');
+          }
+          models.logGroupAdminAction({
+            platform: 'whatsapp',
+            groupId: finalGroup,
+            adminId: 'WEB_OPERATOR',
+            adminName: 'Painel Web',
+            action: 'BAN',
+            targetId: cleanUser,
+            details: reason || 'Expulso via Painel Web'
+          });
+          resultMsg = `Membro +${cleanUser} expulso do grupo com sucesso!`;
+          break;
+        }
+
+        case 'GROUP_MUTE': {
+          const { groupJid } = payload;
+          if (!groupJid) throw new Error('ID do Grupo é obrigatório.');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          await whatsappBot.setGroupAnnouncement(finalGroup, true);
+          resultMsg = `Grupo silenciado! Agora apenas administradores podem enviar mensagens.`;
+          break;
+        }
+
+        case 'GROUP_UNMUTE': {
+          const { groupJid } = payload;
+          if (!groupJid) throw new Error('ID do Grupo é obrigatório.');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          await whatsappBot.setGroupAnnouncement(finalGroup, false);
+          resultMsg = `Grupo aberto! Todos os participantes podem enviar mensagens.`;
+          break;
+        }
+
+        case 'GROUP_TAGALL': {
+          const { groupJid, message } = payload;
+          if (!groupJid) throw new Error('ID do Grupo é obrigatório.');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          const meta = whatsappBot.sock ? await whatsappBot.sock.groupMetadata(finalGroup).catch(() => null) : null;
+          await spyFeatures.handleTagAll(whatsappBot.sock, finalGroup, `!tagall ${message || ''}`, meta);
+          resultMsg = `Todos os membros foram marcados com sucesso no grupo!`;
+          break;
+        }
+
+        case 'GROUP_SET_NAME': {
+          const { groupJid, title } = payload;
+          if (!groupJid || !title) throw new Error('ID do Grupo e novo título são obrigatórios.');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          if (whatsappBot.sock && whatsappBot.isConnected) {
+            await whatsappBot.sock.groupUpdateSubject(finalGroup, title);
+          }
+          resultMsg = `Nome do grupo alterado para "${title}"!`;
+          break;
+        }
+
+        case 'GROUP_SET_DESC': {
+          const { groupJid, desc } = payload;
+          if (!groupJid || !desc) throw new Error('ID do Grupo e descrição são obrigatórios.');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          if (whatsappBot.sock && whatsappBot.isConnected) {
+            await whatsappBot.sock.groupUpdateDescription(finalGroup, desc);
+          }
+          resultMsg = `Descrição do grupo atualizada com sucesso!`;
+          break;
+        }
+
+        case 'GROUP_REVOKE_LINK': {
+          const { groupJid } = payload;
+          if (!groupJid) throw new Error('ID do Grupo é obrigatório.');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          let code = '';
+          if (whatsappBot.sock && whatsappBot.isConnected) {
+            code = await whatsappBot.sock.groupRevokeInvite(finalGroup);
+          }
+          resultMsg = `Link do grupo resetado! Novo código de convite: ${code || 'Gerado'}`;
+          break;
+        }
+
+        case 'GROUP_WARN': {
+          const { groupJid, userPhone, reason } = payload;
+          if (!groupJid || !userPhone) throw new Error('ID do Grupo e telefone são obrigatórios.');
+          const cleanUser = String(userPhone).replace(/\D/g, '');
+          const finalGroup = groupJid.includes('@') ? groupJid : `${groupJid}@g.us`;
+          const wRes = spyFeatures.addWarning(finalGroup, cleanUser, reason || 'Violação de regras');
+          resultMsg = `Advertência registrada para +${cleanUser} (${wRes.count}/3)!${wRes.count >= 3 ? ' Usuário banido automaticamente!' : ''}`;
+          break;
+        }
+
+        case 'SUBBOT_PAUSE': {
+          const { instanceId } = payload;
+          if (!instanceId) throw new Error('ID do Sub-Bot é obrigatório.');
+          const chipId = Number(instanceId);
+          models.updateArmyInstance(chipId, { status: 'PAUSED' });
+          resultMsg = `Sub-Bot #${chipId} pausado com sucesso!`;
+          break;
+        }
+
+        case 'SUBBOT_RESUME': {
+          const { instanceId } = payload;
+          if (!instanceId) throw new Error('ID do Sub-Bot é obrigatório.');
+          const chipId = Number(instanceId);
+          models.updateArmyInstance(chipId, { status: 'CONNECTED' });
+          resultMsg = `Sub-Bot #${chipId} retomado com sucesso!`;
+          break;
+        }
+
+        case 'SUBBOT_SYNC_CATALOG': {
+          const { instanceId } = payload;
+          if (!instanceId) throw new Error('ID do Sub-Bot é obrigatório.');
+          const chipId = Number(instanceId);
+          const prods = models.getProducts(true);
+          models.saveSubBotCatalogProducts(chipId, prods);
+          resultMsg = `Catálogo oficial sincronizado no Sub-Bot #${chipId} (${prods.length} itens)!`;
+          break;
+        }
+
+        case 'SUBBOT_PAIRING_CODE': {
+          const { phone } = payload;
+          if (!phone) throw new Error('Número de telefone do chip é obrigatório.');
+          const clean = phone.replace(/\D/g, '');
+          const resCode = await whatsappArmyService.requestPairingCodeForNewInstance(clean);
+          resultMsg = `Código de emparelhamento gerado: ${resCode.code} (Expira em 2 minutos)`;
+          break;
+        }
+
+        case 'METEORIC_STAGE': {
+          const { stageNum, link } = payload;
+          const sNum = parseInt(stageNum, 10) || 1;
+          const resStage = await meteoricService.executeStage(sNum, link);
+          resultMsg = `Fase ${sNum} do Lançamento Meteórico executada em ${resStage.groupsReached || 0} grupos!`;
+          break;
+        }
+
+        case 'METEORIC_MANADA': {
+          await meteoricService.simulateDialogue(1);
+          resultMsg = `Simulação de prova social e efeito manada disparada com sucesso!`;
+          break;
+        }
+
+        case 'METEORIC_MODE_ALL': {
+          const { mode } = payload;
+          const isAnnounce = mode === 'announcement';
+          await meteoricService.setAllGroupsMode(isAnnounce);
+          resultMsg = `Todos os grupos do lançamento foram ${isAnnounce ? 'silenciados (somente admins)' : 'abertos para todos os membros'}!`;
+          break;
+        }
+
+        case 'METEORIC_CREATE_GROUP': {
+          const { baseName, maxMembers } = payload;
+          const newGrp = await meteoricService.createMeteoricGroup(baseName || 'Oferta VIP #{num}', parseInt(maxMembers, 10) || 200);
+          resultMsg = `Novo grupo "${newGrp.title}" criado com sucesso! Link: ${newGrp.invite_url || 'N/A'}`;
+          break;
+        }
+
+        case 'QUICK_CHARGE': {
+          const { name, phone, amount, gateway, productId } = payload;
+          if (!phone || !amount) throw new Error('Telefone e valor são obrigatórios.');
+          const cleanPhone = String(phone).replace(/\D/g, '');
+          const amt = parseFloat(amount);
+          const gw = gateway || 'pix';
+          const pId = productId ? Number(productId) : (models.getProducts(true)[0]?.id || 1);
+          const tradeNo = `ORD_QUICK_${Date.now()}`;
+          models.createOrder({
+            merchant_trade_no: tradeNo,
+            platform: 'whatsapp',
+            platform_user_id: `${cleanPhone}@s.whatsapp.net`,
+            platform_user_name: name || `Cliente +${cleanPhone}`,
+            product_id: pId,
+            gateway: gw,
+            amount: amt,
+            currency: 'BRL',
+            status: 'PENDING'
+          });
+          resultMsg = `Cobrança de R$ ${amt.toFixed(2)} gerada via ${gw.toUpperCase()}! Pedido: ${tradeNo}`;
+          break;
+        }
+
+        case 'QUICK_COUPON': {
+          const { code, discount, maxUses } = payload;
+          if (!code || !discount) throw new Error('Código e percentual de desconto são obrigatórios.');
+          models.createCoupon({
+            code: String(code).toUpperCase().trim(),
+            discount_percent: parseFloat(discount),
+            max_uses: parseInt(maxUses, 10) || 0
+          });
+          resultMsg = `Cupom ${code.toUpperCase()} (${discount}% OFF) criado com sucesso!`;
+          break;
+        }
+
+        case 'RECOVER_CARTS': {
+          const orders = models.getPendingOrdersToRecover(0);
+          let sent = 0;
+          for (const ord of orders) {
+            try {
+              const msg = `👋 Olá, ${ord.platform_user_name || 'Amigo'}! Seu pedido para *${ord.product_name || 'produto'}* ainda está reservado.\n\nFinalize seu pagamento com segurança via PIX ou Cripto!`;
+              if (whatsappBot.isConnected) {
+                await whatsappBot.sendMessage(ord.platform_user_id, msg);
+              }
+              models.markOrderRecovered(ord.merchant_trade_no);
+              sent++;
+            } catch (_) {}
+          }
+          resultMsg = `Recuperação de carrinho concluída: ${sent} mensagens enviadas!`;
+          break;
+        }
+
+        case 'CHAT_MUTE': {
+          const { target, reason } = payload;
+          if (!target) throw new Error('Telefone ou JID é obrigatório.');
+          const isGrp = target.includes('@g.us');
+          models.muteChat({
+            platform: 'whatsapp',
+            chatId: target,
+            targetType: isGrp ? 'GROUP' : 'PRIVATE',
+            reason: reason || 'Mute acionado via Painel Web',
+            createdBy: 'WEB_OPERATOR'
+          });
+          resultMsg = `Bot silenciado com sucesso no ${isGrp ? 'grupo' : 'chat'} ${target}!`;
+          break;
+        }
+
+        case 'CHAT_UNMUTE': {
+          const { target } = payload;
+          if (!target) throw new Error('Telefone ou JID é obrigatório.');
+          models.unmuteChat('whatsapp', target);
+          resultMsg = `Bot reativado com sucesso no chat ${target}!`;
+          break;
+        }
+
+        case 'USER_BLOCK': {
+          const { phone, reason } = payload;
+          if (!phone) throw new Error('Telefone do usuário é obrigatório.');
+          const cleanPhone = String(phone).replace(/\D/g, '');
+          models.blockUser({
+            platform: 'whatsapp',
+            userId: cleanPhone,
+            reason: reason || 'Bloqueio via Painel Web',
+            createdBy: 'WEB_OPERATOR'
+          });
+          resultMsg = `Usuário +${cleanPhone} bloqueado globalmente no bot!`;
+          break;
+        }
+
+        case 'USER_UNBLOCK': {
+          const { phone } = payload;
+          if (!phone) throw new Error('Telefone do usuário é obrigatório.');
+          const cleanPhone = String(phone).replace(/\D/g, '');
+          models.unblockUser('whatsapp', cleanPhone);
+          resultMsg = `Usuário +${cleanPhone} desbloqueado com sucesso!`;
+          break;
+        }
+
+        case 'OPTIMIZE_MEMORY': {
+          const beforeRss = Math.round(process.memoryUsage().rss / 1024 / 1024);
+          if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
+          if (typeof whatsappBot.cleanupMemory === 'function') whatsappBot.cleanupMemory();
+          if (typeof spyFeatures.cleanupMemory === 'function') spyFeatures.cleanupMemory();
+          if (typeof global.gc === 'function') global.gc();
+          const afterRss = Math.round(process.memoryUsage().rss / 1024 / 1024);
+          resultMsg = `Memória otimizada! RAM reduzida de ${beforeRss}MB para ${afterRss}MB (economia de ${Math.max(0, beforeRss - afterRss)}MB).`;
+          break;
+        }
+
+        case 'RESTART_TUNNEL': {
+          const tunnelService = require('../services/tunnelService');
+          const tRes = await tunnelService.startCloudflaredTunnel(3000, true);
+          resultMsg = `Túnel remoto reiniciado com sucesso! URL: ${tRes.url || 'Ativo'}`;
+          break;
+        }
+
+        default:
+          throw new Error(`Ação desconhecida: "${action}"`);
+      }
+
+      models.createDelegatedTask({
+        assigned_instance_id: payload.instanceId ? Number(payload.instanceId) : 1,
+        task_type: logTaskType,
+        title: `Ação Web: ${action}`,
+        description: resultMsg,
+        target: payload.target || payload.groupJid || payload.phone || 'CLUSTER',
+        message_payload: payload.message || payload.text || payload.prompt || '',
+        delegated_by: 'WEB_OPERATOR',
+        status: 'COMPLETED',
+        result_summary: resultMsg
+      });
+
+      res.json({ success: true, message: resultMsg, action });
+    } catch (err) {
+      console.error('[BotDeck Execute Error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 

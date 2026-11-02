@@ -51,6 +51,9 @@ function switchTab(tabName) {
     document.getElementById('pageTitle').innerText = targetLink.innerText.trim();
   }
 
+  if (tabName === 'botdeck') {
+    loadBotDeck();
+  }
   if (tabName === 'connections') {
     startQrPolling();
     loadChatControls();
@@ -6960,6 +6963,459 @@ async function submitDelegateTask(e) {
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Delegar Missão Imediata';
+    }
+  }
+}
+
+
+// ==========================================
+// BOT DECK: OPERAÇÃO TOTAL DOS BOTS VIA PAINEL WEB
+// ==========================================
+let botdeckData = { instances: [], groups: [], main: {} };
+
+async function loadBotDeck() {
+  try {
+    const res = await fetch('/api/botdeck/overview');
+    const data = await res.json();
+    if (!data.success) return;
+
+    botdeckData = data;
+
+    // Atualiza Top Bar
+    const mainStatusEl = document.getElementById('botdeckMainStatus');
+    if (mainStatusEl) {
+      mainStatusEl.innerHTML = data.main.connected 
+        ? `<span class="badge badge-success">Online</span> ${data.main.phone || ''}`
+        : `<span class="badge badge-danger">Desconectado</span> ${data.main.phone || ''}`;
+    }
+
+    const subbotsEl = document.getElementById('botdeckSubbotsCount');
+    if (subbotsEl) {
+      const activeCount = data.instances.filter(i => i.status === 'CONNECTED').length;
+      subbotsEl.innerText = `${activeCount} ativos / ${data.instances.length} chips`;
+    }
+
+    const todayEl = document.getElementById('botdeckTodaySent');
+    if (todayEl) {
+      const totalSent = data.instances.reduce((acc, curr) => acc + (curr.messages_sent_today || 0), 0);
+      todayEl.innerText = `${totalSent} enviadas hoje`;
+    }
+
+    // Popula dropdowns de Instâncias / Chips
+    const instSelects = document.querySelectorAll('.botdeck-inst-select');
+    instSelects.forEach(sel => {
+      const currentVal = sel.value;
+      sel.innerHTML = '<option value="main">Matriz Principal</option>';
+      data.instances.forEach(inst => {
+        const isConn = inst.status === 'CONNECTED';
+        const opt = document.createElement('option');
+        opt.value = inst.id;
+        opt.innerText = `Sub-Bot #${inst.id} - ${inst.name} (${inst.phone || 'Sem número'}) [${inst.status}]`;
+        sel.appendChild(opt);
+      });
+      if (currentVal) sel.value = currentVal;
+    });
+
+    // Popula dropdowns de Grupos
+    const groupSelects = document.querySelectorAll('.botdeck-groups-select');
+    groupSelects.forEach(sel => {
+      const currentVal = sel.value;
+      sel.innerHTML = '<option value="">Selecione o grupo do WhatsApp...</option>';
+      data.groups.forEach(grp => {
+        const opt = document.createElement('option');
+        opt.value = grp.id;
+        opt.innerText = `${grp.subject || 'Grupo sem nome'} (${grp.size || 0} membros)`;
+        sel.appendChild(opt);
+      });
+      if (currentVal) sel.value = currentVal;
+    });
+
+    // Carrega tarefas recentes no console se vazio
+    const consoleEl = document.getElementById('botdeckConsole');
+    if (consoleEl && data.recentTasks && data.recentTasks.length > 0) {
+      data.recentTasks.slice(0, 5).forEach(t => {
+        logBotDeck(`[${t.created_at || 'Recente'}] ${t.title} -> ${t.result_summary || t.status}`, 'info');
+      });
+    }
+
+  } catch (err) {
+    console.error('[BotDeck load error]:', err);
+  }
+}
+
+function syncGroupJid(selectEl) {
+  const jidInput = document.getElementById('botdeck-mod-group-jid');
+  if (jidInput && selectEl.value) {
+    jidInput.value = selectEl.value;
+  }
+}
+
+function filterBotDeck(cat, btn) {
+  document.querySelectorAll('.botdeck-tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  const cards = document.querySelectorAll('.botdeck-card');
+  cards.forEach(card => {
+    if (cat === 'all' || card.getAttribute('data-category') === cat) {
+      card.style.display = 'flex';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+}
+
+function logBotDeck(msg, type = 'info') {
+  const consoleEl = document.getElementById('botdeckConsole');
+  if (!consoleEl) return;
+  const time = new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  div.className = `botdeck-console-line ${type}`;
+  div.innerText = `[${time}] ${msg}`;
+  consoleEl.appendChild(div);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+function clearBotDeckConsole() {
+  const consoleEl = document.getElementById('botdeckConsole');
+  if (consoleEl) {
+    consoleEl.innerHTML = '<div class="botdeck-console-line text-muted">[Sistema] Console limpo. Pronto para novos comandos.</div>';
+  }
+}
+
+async function botDeckAction(action, btnEl = null) {
+  let oldBtnText = '';
+  if (btnEl) {
+    oldBtnText = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Executando...';
+    btnEl.disabled = true;
+  }
+
+  try {
+    let payload = {};
+
+    switch (action) {
+      case 'SEND_MESSAGE':
+        payload = {
+          instanceId: document.getElementById('botdeck-msg-inst')?.value || 'main',
+          target: document.getElementById('botdeck-msg-target')?.value?.trim(),
+          message: document.getElementById('botdeck-msg-text')?.value?.trim()
+        };
+        break;
+
+      case 'SEND_VOICE_PTT':
+        payload = {
+          instanceId: document.getElementById('botdeck-voice-inst')?.value || 'main',
+          target: document.getElementById('botdeck-voice-target')?.value?.trim(),
+          text: document.getElementById('botdeck-voice-text')?.value?.trim()
+        };
+        break;
+
+      case 'SCHEDULE_MESSAGE':
+        payload = {
+          instanceId: document.getElementById('botdeck-sched-inst')?.value || 'main',
+          target: document.getElementById('botdeck-sched-target')?.value?.trim(),
+          scheduled_at: document.getElementById('botdeck-sched-datetime')?.value,
+          message: document.getElementById('botdeck-sched-text')?.value?.trim()
+        };
+        break;
+
+      case 'SMART_LOAD_BALANCE':
+        payload = {
+          qty: document.getElementById('botdeck-balance-qty')?.value,
+          message: document.getElementById('botdeck-balance-text')?.value?.trim()
+        };
+        break;
+
+      case 'BROADCAST_GROUPS':
+        payload = {
+          message: document.getElementById('botdeck-broadcast-text')?.value?.trim()
+        };
+        break;
+
+      case 'GROUP_TAGALL':
+        payload = {
+          groupJid: document.getElementById('botdeck-tagall-group')?.value,
+          message: document.getElementById('botdeck-tagall-msg')?.value?.trim()
+        };
+        break;
+
+      case 'GROUP_SET_NAME':
+        payload = {
+          groupJid: document.getElementById('botdeck-edit-group')?.value,
+          title: document.getElementById('botdeck-edit-name')?.value?.trim()
+        };
+        break;
+
+      case 'GROUP_SET_DESC':
+        payload = {
+          groupJid: document.getElementById('botdeck-edit-group')?.value,
+          desc: document.getElementById('botdeck-edit-desc')?.value?.trim()
+        };
+        break;
+
+      case 'DOWNLOAD_AUDIO':
+        payload = {
+          target: document.getElementById('botdeck-audio-target')?.value?.trim(),
+          query: document.getElementById('botdeck-audio-query')?.value?.trim(),
+          quality: document.getElementById('botdeck-audio-quality')?.value || 'H'
+        };
+        break;
+
+      case 'DOWNLOAD_VIDEO':
+        payload = {
+          target: document.getElementById('botdeck-video-target')?.value?.trim(),
+          url: document.getElementById('botdeck-video-url')?.value?.trim(),
+          quality: document.getElementById('botdeck-video-quality')?.value || 'H'
+        };
+        break;
+
+      case 'AI_QUERY':
+        payload = {
+          target: document.getElementById('botdeck-ai-target')?.value?.trim(),
+          prompt: document.getElementById('botdeck-ai-prompt')?.value?.trim()
+        };
+        break;
+
+      case 'AI_IMAGE':
+        payload = {
+          target: document.getElementById('botdeck-aiimg-target')?.value?.trim(),
+          prompt: document.getElementById('botdeck-aiimg-prompt')?.value?.trim()
+        };
+        break;
+
+      case 'SEND_TTS':
+        payload = {
+          target: document.getElementById('botdeck-tts-target')?.value?.trim(),
+          lang: document.getElementById('botdeck-tts-lang')?.value || 'pt',
+          text: document.getElementById('botdeck-tts-text')?.value?.trim()
+        };
+        break;
+
+      case 'SEND_QR':
+        payload = {
+          target: document.getElementById('botdeck-qr-target')?.value?.trim(),
+          text: document.getElementById('botdeck-qr-text')?.value?.trim()
+        };
+        break;
+
+      case 'METEORIC_STAGE':
+        payload = {
+          stageNum: document.getElementById('botdeck-met-stage')?.value,
+          link: document.getElementById('botdeck-met-link')?.value?.trim()
+        };
+        break;
+
+      case 'METEORIC_MANADA':
+        payload = {};
+        break;
+
+      case 'METEORIC_CREATE_GROUP':
+        payload = {
+          baseName: document.getElementById('botdeck-met-basename')?.value?.trim(),
+          maxMembers: document.getElementById('botdeck-met-max')?.value
+        };
+        break;
+
+      case 'QUICK_CHARGE':
+        payload = {
+          name: document.getElementById('botdeck-chg-name')?.value?.trim(),
+          phone: document.getElementById('botdeck-chg-phone')?.value?.trim(),
+          amount: document.getElementById('botdeck-chg-amt')?.value,
+          gateway: document.getElementById('botdeck-chg-gw')?.value
+        };
+        break;
+
+      case 'RECOVER_CARTS':
+        payload = {};
+        break;
+
+      case 'QUICK_COUPON':
+        payload = {
+          code: document.getElementById('botdeck-cpn-code')?.value?.trim(),
+          discount: document.getElementById('botdeck-cpn-disc')?.value,
+          maxUses: document.getElementById('botdeck-cpn-uses')?.value
+        };
+        break;
+
+      case 'CHAT_MUTE':
+      case 'CHAT_UNMUTE':
+        payload = {
+          target: document.getElementById('botdeck-ctrl-target')?.value?.trim(),
+          reason: document.getElementById('botdeck-ctrl-reason')?.value?.trim()
+        };
+        break;
+
+      case 'USER_BLOCK':
+      case 'USER_UNBLOCK':
+        payload = {
+          phone: document.getElementById('botdeck-ctrl-target')?.value?.trim(),
+          reason: document.getElementById('botdeck-ctrl-reason')?.value?.trim()
+        };
+        break;
+
+      case 'SUBBOT_PAIRING_CODE':
+        payload = {
+          phone: document.getElementById('botdeck-pair-phone')?.value?.trim()
+        };
+        break;
+
+      case 'OPTIMIZE_MEMORY':
+      case 'RESTART_TUNNEL':
+        payload = {};
+        break;
+    }
+
+    logBotDeck(`Disparando comando ${action}...`, 'info');
+
+    const res = await fetch('/api/botdeck/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Falha ao executar ação no bot');
+    }
+
+    logBotDeck(`[SUCESSO] ${data.message}`, 'success');
+    alert(data.message);
+
+    if (action === 'SUBBOT_PAIRING_CODE' && data.message.includes('Código:')) {
+      const codeRes = document.getElementById('botdeckPairResult');
+      if (codeRes) {
+        codeRes.style.display = 'block';
+        codeRes.innerText = data.message;
+      }
+    }
+
+    loadBotDeck();
+
+  } catch (err) {
+    logBotDeck(`[ERRO] ${err.message}`, 'error');
+    alert('Erro: ' + err.message);
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = oldBtnText;
+      btnEl.disabled = false;
+    }
+  }
+}
+
+async function botDeckGroupAction(actionType, btnEl) {
+  let oldText = '';
+  if (btnEl) {
+    oldText = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    btnEl.disabled = true;
+  }
+
+  try {
+    const selectedGroup = document.getElementById('botdeck-mod-group')?.value;
+    const manualGroup = document.getElementById('botdeck-mod-group-jid')?.value?.trim();
+    const groupJid = selectedGroup || manualGroup;
+    const userPhone = document.getElementById('botdeck-mod-user')?.value?.trim();
+    const reason = document.getElementById('botdeck-mod-reason')?.value?.trim();
+
+    if (!groupJid && actionType !== 'GROUP_REVOKE_LINK') {
+      throw new Error('Selecione ou informe o JID do Grupo.');
+    }
+
+    let action = '';
+    if (actionType === 'GROUP_PROMOTE') action = 'GROUP_PROMOTE';
+    else if (actionType === 'GROUP_DEMOTE') action = 'GROUP_DEMOTE';
+    else if (actionType === 'GROUP_BAN') action = 'GROUP_BAN';
+    else if (actionType === 'GROUP_WARN') action = 'GROUP_WARN';
+    else if (actionType === 'GROUP_MUTE') action = 'GROUP_MUTE';
+    else if (actionType === 'GROUP_UNMUTE') action = 'GROUP_UNMUTE';
+    else if (actionType === 'GROUP_REVOKE_LINK') action = 'GROUP_REVOKE_LINK';
+
+    const payload = { groupJid, userPhone, reason };
+    logBotDeck(`Executando ação no grupo: ${action}...`, 'info');
+
+    const res = await fetch('/api/botdeck/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Erro na operação de grupo');
+
+    logBotDeck(`[GRUPO SUCESSO] ${data.message}`, 'success');
+    alert(data.message);
+
+  } catch (err) {
+    logBotDeck(`[ERRO GRUPO] ${err.message}`, 'error');
+    alert('Erro: ' + err.message);
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = oldText;
+      btnEl.disabled = false;
+    }
+  }
+}
+
+async function botDeckTakeover(subAction, btnEl) {
+  const target = document.getElementById('botdeck-takeover-target')?.value?.trim();
+  const instanceId = document.getElementById('botdeck-takeover-inst')?.value;
+  const message = document.getElementById('botdeck-takeover-msg')?.value?.trim();
+
+  let action = 'TAKEOVER_START';
+  if (subAction === 'reply') action = 'TAKEOVER_REPLY';
+  if (subAction === 'end') action = 'TAKEOVER_END';
+
+  const payload = { target, instanceId, message };
+  botDeckAction(action, btnEl);
+}
+
+async function botDeckMeteoricMode(mode, btnEl) {
+  const payload = { mode };
+  botDeckAction('METEORIC_MODE_ALL', btnEl);
+}
+
+async function botDeckNoticeAction(isUrgent, btnEl) {
+  const title = document.getElementById('botdeck-ntc-title')?.value?.trim() || 'Aviso da Central';
+  const message = document.getElementById('botdeck-ntc-msg')?.value?.trim();
+  const category = isUrgent ? 'urgente' : (document.getElementById('botdeck-ntc-cat')?.value || 'info');
+
+  if (!message) {
+    alert('Digite a mensagem do comunicado.');
+    return;
+  }
+
+  let oldText = '';
+  if (btnEl) {
+    oldText = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enviando...';
+    btnEl.disabled = true;
+  }
+
+  try {
+    const res = await fetch('/api/notices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        message,
+        category,
+        color: isUrgent ? '#ef4444' : '#2196f3',
+        sound_alert: isUrgent ? 1 : 0,
+        broadcast_whatsapp: true
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao emitir aviso');
+
+    logBotDeck(`[AVISO EMITIDO] ${title}: ${message}`, 'success');
+    alert('Aviso emitido com sucesso para a equipe e grupos!');
+  } catch (err) {
+    logBotDeck(`[ERRO AVISO] ${err.message}`, 'error');
+    alert('Erro: ' + err.message);
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = oldText;
+      btnEl.disabled = false;
     }
   }
 }
