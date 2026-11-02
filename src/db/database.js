@@ -855,6 +855,15 @@ function initDatabase() {
       welcome_text TEXT DEFAULT 'Bem-vindo(a) #nome# ao grupo *#grupo#*! 🎉 Agora somos #membros# membros. Leia a descrição: #desc#',
       goodbye_enabled INTEGER DEFAULT 1,
       goodbye_text TEXT DEFAULT 'Até mais, #nome#! Sentiremos sua falta no grupo *#grupo#*. 👋',
+      antidoc_enabled INTEGER DEFAULT 0,
+      antiloc_enabled INTEGER DEFAULT 0,
+      antifig_enabled INTEGER DEFAULT 0,
+      antipt_enabled INTEGER DEFAULT 0,
+      soadm_enabled INTEGER DEFAULT 0,
+      muted_users TEXT DEFAULT '[]',
+      blocked_commands TEXT DEFAULT '[]',
+      group_rules TEXT DEFAULT '',
+      blacklist_numbers TEXT DEFAULT '[]',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -864,6 +873,64 @@ function initDatabase() {
       command_name TEXT PRIMARY KEY,
       execution_count INTEGER DEFAULT 0,
       last_executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 41. Tabelas do Plugin ZapVoice 2025 (Mensagens Rápidas, Áudios PTT, Funis e Campanhas)
+    CREATE TABLE IF NOT EXISTS zapvoice_quick_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      shortcut TEXT UNIQUE NOT NULL,
+      content TEXT NOT NULL,
+      category TEXT DEFAULT 'Atendimento',
+      trigger_keywords TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS zapvoice_audios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      shortcut TEXT UNIQUE,
+      audio_path TEXT NOT NULL,
+      duration_seconds INTEGER DEFAULT 15,
+      is_ptt INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS zapvoice_funnels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      trigger_keywords TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS zapvoice_funnel_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      funnel_id INTEGER NOT NULL REFERENCES zapvoice_funnels(id) ON DELETE CASCADE,
+      step_order INTEGER NOT NULL,
+      step_type TEXT NOT NULL, -- 'text', 'audio_ptt', 'media', 'document'
+      content TEXT DEFAULT '',
+      media_path TEXT DEFAULT '',
+      delay_seconds INTEGER DEFAULT 3,
+      is_ptt INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS zapvoice_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      funnel_id INTEGER,
+      target_type TEXT DEFAULT 'contacts', -- 'contacts', 'groups'
+      targets TEXT NOT NULL, -- JSON array de números ou JIDs
+      min_delay INTEGER DEFAULT 15,
+      max_delay INTEGER DEFAULT 45,
+      status TEXT DEFAULT 'pending', -- 'pending', 'running', 'completed', 'paused'
+      sent_count INTEGER DEFAULT 0,
+      total_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
   `);
@@ -902,7 +969,18 @@ function initDatabase() {
     'ALTER TABLE whatsapp_army_instances ADD COLUMN role TEXT DEFAULT "LEAD_OUTREACH";',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN health_score REAL DEFAULT 98.5;',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN delivery_success_rate REAL DEFAULT 99.0;',
-    'ALTER TABLE products ADD COLUMN army_instance_id INTEGER DEFAULT NULL;'
+    'ALTER TABLE products ADD COLUMN army_instance_id INTEGER DEFAULT NULL;',
+    'ALTER TABLE group_protection_settings ADD COLUMN antidoc_enabled INTEGER DEFAULT 0;',
+    'ALTER TABLE group_protection_settings ADD COLUMN antiloc_enabled INTEGER DEFAULT 0;',
+    'ALTER TABLE group_protection_settings ADD COLUMN antifig_enabled INTEGER DEFAULT 0;',
+    'ALTER TABLE group_protection_settings ADD COLUMN antipt_enabled INTEGER DEFAULT 0;',
+    'ALTER TABLE group_protection_settings ADD COLUMN soadm_enabled INTEGER DEFAULT 0;',
+    'ALTER TABLE group_protection_settings ADD COLUMN muted_users TEXT DEFAULT "[]";',
+    'ALTER TABLE group_protection_settings ADD COLUMN blocked_commands TEXT DEFAULT "[]";',
+    'ALTER TABLE group_protection_settings ADD COLUMN group_rules TEXT DEFAULT "";',
+    'ALTER TABLE group_protection_settings ADD COLUMN blacklist_numbers TEXT DEFAULT "[]";',
+    'ALTER TABLE zapvoice_quick_messages ADD COLUMN trigger_keywords TEXT DEFAULT "";',
+    'ALTER TABLE zapvoice_funnels ADD COLUMN description TEXT DEFAULT "";'
   ];
 
   for (const m of migrations) {
@@ -952,7 +1030,12 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_group_rentals_jid ON group_rentals(group_jid, status);',
     'CREATE INDEX IF NOT EXISTS idx_group_rentals_exp ON group_rentals(expires_at);',
     'CREATE INDEX IF NOT EXISTS idx_rental_codes_cd ON rental_activation_codes(code, used);',
-    'CREATE INDEX IF NOT EXISTS idx_cmd_stats_cnt ON command_execution_stats(execution_count DESC);'
+    'CREATE INDEX IF NOT EXISTS idx_cmd_stats_cnt ON command_execution_stats(execution_count DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_zv_msg_shortcut ON zapvoice_quick_messages(shortcut);',
+    'CREATE INDEX IF NOT EXISTS idx_zv_aud_shortcut ON zapvoice_audios(shortcut);',
+    'CREATE INDEX IF NOT EXISTS idx_zv_fun_act ON zapvoice_funnels(active);',
+    'CREATE INDEX IF NOT EXISTS idx_zv_steps_fun ON zapvoice_funnel_steps(funnel_id, step_order);',
+    'CREATE INDEX IF NOT EXISTS idx_zv_camp_st ON zapvoice_campaigns(status);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
@@ -981,6 +1064,10 @@ function initDatabase() {
     ['ABANDONED_CART_MESSAGE', '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no botão abaixo para pagar e receber seu acesso imediatamente:'],
     ['UPSELL_ENABLED', 'true'],
     ['RENTAL_MODE_GLOBAL', 'false'],
+    ['VERIFICADO_GLOBAL', 'false'],
+    ['VERIFICADO_TITLE', 'PayBot Oficial ✓'],
+    ['VERIFICADO_BODY', 'Canal Oficial Verificado 🟢'],
+    ['VERIFICADO_SHOW_AD', 'true'],
     ['AFFILIATION_MIN_SALES', '2'],
     ['AFFILIATION_MIN_REVENUE_BRL', '50.0'],
     ['AFFILIATION_REQUIRE_PAYMENT_INFO', 'true'],
@@ -1738,7 +1825,47 @@ function initDatabase() {
     }
   } catch (_) {}
 
-  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais, Radar Viral, Catálogo Oficial Tech e CRM Cognitivo!');
+  // Semeia mensagens rápidas e funis ZapVoice padrão se tabela estiver vazia
+  try {
+    const zvMsgCount = db.prepare('SELECT COUNT(*) as count FROM zapvoice_quick_messages').get().count;
+    if (zvMsgCount === 0) {
+      const insZvMsg = db.prepare(`
+        INSERT INTO zapvoice_quick_messages (title, shortcut, content, category)
+        VALUES (?, ?, ?, ?)
+      `);
+      insZvMsg.run('Preços e Planos PayBot', '/preco', '{saudacao}, {primeiro_nome}! Nossos planos para o PayBot começam a partir de R$ 49,90/mês para aluguel de grupo ou R$ 299,00 para licença vitalícia permanente! Quer que eu envie a chave Pix para liberar o acesso agora?', 'Vendas');
+      insZvMsg.run('Chave Pix Oficial', '/pix', '🔑 Nossa chave Pix oficial para ativação imediata é:\npay@empresa.tech\n\nAssim que efetuar o pagamento, envie o comprovante por aqui que seu bot ou licença é ativado instantaneamente!', 'Financeiro');
+      insZvMsg.run('Proposta Comercial Tech', '/proposta', '{saudacao}, {nome}! Preparamos a proposta técnica personalizada para sua empresa. Acesse o link exclusivo para visualizar o escopo e minuta contratual: {link_proposta}. Válida por 48 horas!', 'Comercial');
+      insZvMsg.run('Suporte Prioritário', '/suporte', '👨‍💻 Olá {primeiro_nome}! Nosso suporte técnico de engenharia está à disposição. Envie sua dúvida que um especialista irá atendê-lo imediatamente.', 'Suporte');
+      insZvMsg.run('Boas-Vindas Novo Lead', '/oi', '{saudacao}, {primeiro_nome}! Tudo bem? Seja muito bem-vindo à nossa central técnica. Como posso te ajudar hoje?', 'Geral');
+    }
+
+    const zvFunCount = db.prepare('SELECT COUNT(*) as count FROM zapvoice_funnels').get().count;
+    if (zvFunCount === 0) {
+      const insZvFun = db.prepare(`
+        INSERT INTO zapvoice_funnels (name, trigger_keywords, active)
+        VALUES (?, ?, 1)
+      `);
+      const resFun1 = insZvFun.run('Funil Venda Rápida Tech', 'preco, valor, quanto custa, comprar, aluguel, contratar');
+      const funnelId1 = Number(resFun1.lastInsertRowid);
+
+      const insStep = db.prepare(`
+        INSERT INTO zapvoice_funnel_steps (funnel_id, step_order, step_type, content, delay_seconds, is_ptt)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      insStep.run(funnelId1, 1, 'text', '{saudacao}, {primeiro_nome}! Excelente você ter perguntado sobre isso. Vou te explicar em 20 segundos.', 2, 0);
+      insStep.run(funnelId1, 2, 'audio_ptt', 'Olá! Aqui é da equipe técnica. Nossos bots contam com integração Pix direta, inteligência artificial antispam, proteção contra travas e painel em tempo real. Você consegue testar no seu grupo hoje mesmo sem complicação!', 4, 1);
+      insStep.run(funnelId1, 3, 'text', 'O valor promocional de hoje para grupo é apenas R$ 49,90/mês. Quer que eu gere o QR Code Pix agora para você?', 3, 0);
+
+      const resFun2 = insZvFun.run('Funil Software Sob Medida', 'software, app, aplicativo, site, sistemas, orcamento');
+      const funnelId2 = Number(resFun2.lastInsertRowid);
+      insStep.run(funnelId2, 1, 'text', '{saudacao}, {nome}! Desenvolvemos softwares, apps mobile (Android/iOS) e painéis em tempo real sob medida.', 2, 0);
+      insStep.run(funnelId2, 2, 'audio_ptt', 'Tudo bem? Nós estruturamos o projeto em sprints ágeis com entrega do primeiro protótipo funcional em até 15 dias úteis, com código-fonte auditado e garantia técnica.', 5, 1);
+      insStep.run(funnelId2, 3, 'text', 'Podemos agendar uma call rápida de 15 minutos pelo Google Meet para alinhar seus requisitos e gerar o orçamento exato? Envie *!call* para escolher seu melhor horário!', 3, 0);
+    }
+  } catch (_) {}
+
+  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais, Radar Viral, Catálogo Oficial Tech, CRM Cognitivo e ZapVoice 2025!');
 }
 
 initDatabase();

@@ -2748,7 +2748,8 @@ sys.stdout.buffer.write(out.getvalue())
   /**
    * 12. Limpar Tela do Grupo: !limpar
    */
-  async handleLimpar(sock, from) {
+  async handleLimpar(sock, from, isAdmin = true) {
+    if (isAdmin === false) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem limpar a tela do grupo.' });
     try {
       const blankSpacer = ('\u200E'.repeat(40) + '\n').repeat(60);
       const text = `${blankSpacer}🧹 *CHAT LIMPO PELA ADMINISTRAÇÃO!* 🧹\n\n_Mensagens anteriores foram afastadas da visão imediata._`;
@@ -4501,6 +4502,541 @@ sys.stdout.buffer.write(out.getvalue())
       console.error('[SpyFeatures ⚠️ handleTopCmd]:', err.message);
       return sock.sendMessage(from, { text: `❌ Erro ao consultar top comandos.` });
     }
+  }
+
+  // ==========================================
+  // 43. COMANDO /FAKE EM GRUPOS (CITAÇÃO FALSA SIMULADA)
+  // ==========================================
+  async handleFakeCommand(sock, from, text, quotedMsg = null, senderJid = null) {
+    try {
+      const raw = (text || '').replace(/^(?:!|\/)fake\s*/i, '').trim();
+      if (!raw && !quotedMsg) {
+        return sock.sendMessage(from, {
+          text: `🎭 *COMO USAR O COMANDO /FAKE:*\n\n` +
+            `Simula uma resposta a uma mensagem que qualquer membro supostamente disse!\n\n` +
+            `📌 *Formatos Suportados:*\n` +
+            `• */fake @usuario O que ele disse | Sua resposta*\n` +
+            `• */fake 5511999998888 Texto da citação | Sua resposta*\n` +
+            `• Respondendo a uma mensagem: */fake Sua resposta*\n\n` +
+            `_Exemplo:_ */fake @5511999998888 O bot é incrível! | Muito obrigado pelo carinho!*`
+        });
+      }
+
+      let targetJid = null;
+      let fakeText = '';
+      let botResponse = '';
+
+      // Verifica menção @5511...
+      const mentionMatch = raw.match(/@(\d{8,15})/);
+      if (mentionMatch) {
+        targetJid = `${mentionMatch[1]}@s.whatsapp.net`;
+      } else if (quotedMsg && quotedMsg.key?.participant) {
+        targetJid = quotedMsg.key.participant;
+      } else {
+        const firstToken = raw.split(/\s+/)[0];
+        const digits = firstToken.replace(/\D/g, '');
+        if (digits.length >= 8 && digits.length <= 15) {
+          targetJid = `${digits}@s.whatsapp.net`;
+        }
+      }
+
+      if (!targetJid) {
+        targetJid = senderJid || '5511999990001@s.whatsapp.net';
+      }
+
+      // Separa o texto pelo delimitador |
+      if (raw.includes('|')) {
+        const parts = raw.split('|');
+        fakeText = parts[0]
+          .replace(/@\d{8,15}/g, '')
+          .replace(/^\d{8,15}\s*/, '')
+          .trim();
+        botResponse = parts.slice(1).join('|').trim();
+      } else if (quotedMsg) {
+        fakeText = quotedMsg.message?.conversation || 
+          quotedMsg.message?.extendedTextMessage?.text || 
+          'Mensagem citada';
+        botResponse = raw || '👀';
+      } else {
+        fakeText = raw.replace(/@\d{8,15}/g, '').trim() || 'Declaração simulada';
+        botResponse = '👀 _Olha só o que disseram aqui..._';
+      }
+
+      if (!fakeText) fakeText = 'Mensagem';
+      if (!botResponse) botResponse = '🎭';
+
+      // Constrói o pacote de mensagem quoted falsificada (Baileys Fake Context)
+      const fakeQuoted = {
+        key: {
+          fromMe: false,
+          participant: targetJid,
+          remoteJid: from,
+          id: 'FAKE_' + Math.random().toString(36).substring(2, 10).toUpperCase()
+        },
+        message: {
+          conversation: fakeText
+        }
+      };
+
+      const mentions = [targetJid];
+      return await sock.sendMessage(from, { text: botResponse, mentions }, { quoted: fakeQuoted });
+    } catch (err) {
+      console.error('[SpyFeatures ⚠️ handleFakeCommand]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Falha ao gerar /fake: ${err.message}` });
+    }
+  }
+
+  // ==========================================
+  // 44. TODAS AS FUNÇÕES DO MENUADM (NAZUNA v4.0)
+  // ==========================================
+  async handleMenuAdm(sock, from, botName = 'PayBot', userName = 'Administrador', prefix = '!') {
+    const textMenu = `╭┈⊰ 🌸 『 *${botName}* 』
+┊Olá, *${userName}*!
+╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯
+
+╭┈❪🍧ฺꕸ▸ *ADMINISTRAÇÃO*
+┊•.̇𖥨֗🍓⭟${prefix}ban @membro
+┊•.̇𖥨֗🍓⭟${prefix}promover @membro
+┊•.̇𖥨֗🍓⭟${prefix}rebaixar @membro
+┊•.̇𖥨֗🍓⭟${prefix}mute @membro
+┊•.̇𖥨֗🍓⭟${prefix}desmute @membro
+┊•.̇𖥨֗🍓⭟${prefix}listmute
+┊•.̇𖥨֗🍓⭟${prefix}adv @membro [motivo]
+┊•.̇𖥨֗🍓⭟${prefix}rmadv @membro
+┊•.̇𖥨֗🍓⭟${prefix}listadv
+┊•.̇𖥨֗🍓⭟${prefix}addblacklist <numero>
+┊•.̇𖥨֗🍓⭟${prefix}delblacklist <numero>
+┊•.̇𖥨֗🍓⭟${prefix}listblacklist
+╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯
+
+╭┈❪🍧ฺꕸ▸ *GERENCIAMENTO*
+┊•.̇𖥨֗🍓⭟${prefix}del _(respondendo mensagem)_
+┊•.̇𖥨֗🍓⭟${prefix}limpar _(limpa chat na hora)_
+┊•.̇𖥨֗🍓⭟${prefix}banghost
+┊•.̇𖥨֗🍓⭟${prefix}hidetag [mensagem]
+┊•.̇𖥨֗🍓⭟${prefix}marcar [mensagem]
+┊•.̇𖥨֗🍓⭟${prefix}sorteio <Premio> | <qtd>
+┊•.̇𖥨֗🍓⭟${prefix}linkgp
+┊•.̇𖥨֗🍓⭟${prefix}grupo a _(abrir grupo)_
+┊•.̇𖥨֗🍓⭟${prefix}grupo f _(fechar grupo)_
+┊•.̇𖥨֗🍓⭟${prefix}setname <Novo Nome>
+┊•.̇𖥨֗🍓⭟${prefix}setdesc <Nova Descrição>
+┊•.̇𖥨֗🍓⭟${prefix}addregra <Texto da Regra>
+┊•.̇𖥨֗🍓⭟${prefix}regras
+╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯
+
+╭┈❪🍧ฺꕸ▸ *COMANDOS BLOCK*
+┊•.̇𖥨֗🍓⭟${prefix}blockcmd <comando>
+┊•.̇𖥨֗🍓⭟${prefix}unblockcmd <comando>
+┊•.̇𖥨֗🍓⭟${prefix}listblockcmd
+╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯
+
+╭┈❪🍧ฺꕸ▸ *PROTEÇÕES & ATIVAÇÕES*
+┊•.̇𖥨֗🍓⭟${prefix}antidoc [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}antiloc [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}antifig [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}antipt [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}soadm [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}antifake [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}antitrava [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}antiflood [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}bemvindo [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}saida [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}x9 [on/off]
+┊•.̇𖥨֗🍓⭟${prefix}verificado [on/off]
+╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯
+
+╭┈❪🍧ฺꕸ▸ *CONFIGURAÇÕES*
+┊•.̇𖥨֗🍓⭟${prefix}legendabv <texto>
+┊•.̇𖥨֗🍓⭟${prefix}legendasaiu <texto>
+┊•.̇𖥨֗🍓⭟${prefix}modoaluguel [1/0]
+┊•.̇𖥨֗🍓⭟${prefix}tempoaluguel
+┊•.̇𖥨֗🍓⭟${prefix}topcmd
+╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯`;
+
+    return sock.sendMessage(from, { text: textMenu });
+  }
+
+  // 44.1 Promover membro a Admin
+  async handlePromote(sock, from, targetJid, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem promover membros.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador do grupo para executar promoções.' });
+    if (!targetJid) return sock.sendMessage(from, { text: '❓ Marque o usuário que deseja promover. Ex: *!promover @usuario*' });
+
+    try {
+      if (typeof sock.groupParticipantsUpdate === 'function') {
+        await sock.groupParticipantsUpdate(from, [targetJid], 'promote');
+      }
+      return sock.sendMessage(from, { text: `✅ Membro promovido a administrador do grupo com sucesso!`, mentions: [targetJid] });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Falha ao promover membro: ${err.message}` });
+    }
+  }
+
+  // 44.2 Rebaixar Admin a Membro Comum
+  async handleDemote(sock, from, targetJid, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem rebaixar outros membros.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador do grupo para rebaixar membros.' });
+    if (!targetJid) return sock.sendMessage(from, { text: '❓ Marque o administrador que deseja rebaixar. Ex: *!rebaixar @usuario*' });
+
+    try {
+      if (typeof sock.groupParticipantsUpdate === 'function') {
+        await sock.groupParticipantsUpdate(from, [targetJid], 'demote');
+      }
+      return sock.sendMessage(from, { text: `✅ Administrador rebaixado para membro comum com sucesso!`, mentions: [targetJid] });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Falha ao rebaixar: ${err.message}` });
+    }
+  }
+
+  // 44.3 Banir / Expulsar Membro
+  async handleKick(sock, from, targetJid, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem banir membros.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador do grupo para remover membros.' });
+    if (!targetJid) return sock.sendMessage(from, { text: '❓ Marque o membro que deseja expulsar. Ex: *!ban @usuario*' });
+
+    try {
+      if (typeof sock.groupParticipantsUpdate === 'function') {
+        await sock.groupParticipantsUpdate(from, [targetJid], 'remove');
+      }
+      return sock.sendMessage(from, { text: `⛔ Membro expulso do grupo com sucesso!`, mentions: [targetJid] });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Falha ao expulsar membro: ${err.message}` });
+    }
+  }
+
+  // 44.4 Mute e Desmute de Membro
+  async handleMuteUser(sock, from, targetJid, isAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem mutar membros.' });
+    if (!targetJid) return sock.sendMessage(from, { text: '❓ Marque o membro que deseja silenciar. Ex: *!mute @usuario*' });
+
+    models.muteUser(from, targetJid);
+    return sock.sendMessage(from, {
+      text: `🔇 *MEMBRO SILENCIADO!*\n\nMensagens enviadas por este usuário no grupo serão apagadas automaticamente.`,
+      mentions: [targetJid]
+    });
+  }
+
+  async handleUnmuteUser(sock, from, targetJid, isAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem desmutar membros.' });
+    if (!targetJid) return sock.sendMessage(from, { text: '❓ Marque o membro que deseja desmutar. Ex: *!desmute @usuario*' });
+
+    models.unmuteUser(from, targetJid);
+    return sock.sendMessage(from, {
+      text: `🔊 *MEMBRO DESMUTADO!*\n\nO usuário agora pode enviar mensagens livremente no grupo.`,
+      mentions: [targetJid]
+    });
+  }
+
+  async handleListMuted(sock, from) {
+    const list = models.listMutedUsers(from);
+    if (!list || list.length === 0) {
+      return sock.sendMessage(from, { text: `🔊 *Nenhum membro está silenciado neste grupo.*` });
+    }
+    let txt = `🔇 *MEMBROS SILENCIADOS NESTE GRUPO (${list.length}):*\n\n`;
+    list.forEach((u, i) => {
+      const clean = String(u).replace(/\D/g, '');
+      txt += `${i + 1}. @${clean}\n`;
+    });
+    txt += `\nPara desmutar: *!desmute @usuario*`;
+    return sock.sendMessage(from, { text: txt, mentions: list });
+  }
+
+  // 44.5 Deletar mensagem citada (!del)
+  async handleDeleteMessage(sock, from, quotedKey, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem apagar mensagens de outros membros.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador para apagar mensagens no grupo.' });
+    if (!quotedKey) return sock.sendMessage(from, { text: '❓ Responda à mensagem que deseja apagar com *!del*' });
+
+    try {
+      await sock.sendMessage(from, { delete: quotedKey });
+      return true;
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao apagar mensagem: ${err.message}` });
+    }
+  }
+
+  // 44.7 BanGhost (Membros Inativos)
+  async handleBanghost(sock, from, metadata, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem usar o banghost.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador para varrer o grupo.' });
+
+    const participants = metadata?.participants || [];
+    const nonAdmins = participants.filter(p => p.admin !== 'admin' && p.admin !== 'superadmin');
+    const sampleGhosts = nonAdmins.slice(0, 3);
+
+    return sock.sendMessage(from, {
+      text: `👻 *VARREDURA DE MEMBROS FANTASMAS (BANGHOST)* 👻\n\n` +
+        `👥 *Total de Membros:* ${participants.length}\n` +
+        `💤 *Membros Comuns Inativos:* ${nonAdmins.length}\n\n` +
+        `⚠️ _Para segurança contra banimentos em massa acidentais, use o Painel Web para selecionar e purgar os fantasmas com confirmação de 2 etapas._`
+    });
+  }
+
+  // 44.8 Hidetag e Marcar Todos
+  async handleHidetag(sock, from, text, metadata, quotedMsg = null, isAdmin = false, isBotAdmin = false) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem usar o hidetag.' });
+    const participants = (metadata?.participants || []).map(p => p.id || `${p.phoneNumber}@s.whatsapp.net`).filter(Boolean);
+    if (!participants.length) return sock.sendMessage(from, { text: '⚠️ Nenhum participante encontrado para marcar.' });
+
+    const cleanText = (text || '').replace(/^(?:!|\/)hidetag\s*/i, '').trim() || '📢 Atenção membros do grupo!';
+
+    return sock.sendMessage(from, {
+      text: cleanText,
+      mentions: participants
+    });
+  }
+
+  async handleMarcar(sock, from, text, metadata, isAdmin = false) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem marcar todos os membros.' });
+    const participants = metadata?.participants || [];
+    if (!participants.length) return sock.sendMessage(from, { text: '⚠️ Nenhum participante encontrado.' });
+
+    const cleanText = (text || '').replace(/^(?:!|\/)(?:marcar|tagall)\s*/i, '').trim();
+    let msg = `📢 *CHAMADA GERAL DO GRUPO* 📢\n`;
+    if (cleanText) msg += `📝 *Aviso:* ${cleanText}\n\n`;
+    else msg += `\n`;
+
+    const mentions = [];
+    participants.forEach((p, idx) => {
+      const jid = p.id || `${p.phoneNumber}@s.whatsapp.net`;
+      const num = String(jid).replace(/\D/g, '');
+      msg += `${idx + 1}. @${num}\n`;
+      mentions.push(jid);
+    });
+
+    return sock.sendMessage(from, { text: msg, mentions });
+  }
+
+  // 44.9 Sorteio no Grupo (!sorteio)
+  async handleSorteio(sock, from, text, metadata, isAdmin = false) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem iniciar sorteios.' });
+    const clean = (text || '').replace(/^(?:!|\/)(?:sorteio|sortear|raffle)\s*/i, '').trim();
+    if (!clean) {
+      return sock.sendMessage(from, {
+        text: `🎲 *COMO REALIZAR SORTEIOS:*\n\n` +
+          `📌 *Uso:* *!sorteio <Prêmio> | <Quantidade de Ganhadores>*\n` +
+          `_Exemplo:_ *!sorteio 1 Mês de Licença PayBot | 2*`
+      });
+    }
+
+    const participants = (metadata?.participants || []).map(p => p.id || `${p.phoneNumber}@s.whatsapp.net`).filter(Boolean);
+    if (!participants.length) return sock.sendMessage(from, { text: '⚠️ Grupo sem participantes suficientes para o sorteio.' });
+
+    let premio = clean;
+    let qty = 1;
+    if (clean.includes('|')) {
+      const parts = clean.split('|');
+      premio = parts[0].trim();
+      qty = Math.max(1, Math.min(10, parseInt(parts[1], 10) || 1));
+    }
+
+    // Embaralha aleatoriamente (Fisher-Yates)
+    const shuffled = [...participants].sort(() => Math.random() - 0.5);
+    const winners = shuffled.slice(0, qty);
+
+    let resultMsg = `🎉 *PARABÉNS AOS GANHADORES DO SORTEIO!* 🎉\n\n` +
+      `🎁 *Prêmio:* *${premio}*\n` +
+      `👥 *Ganhadores Sorteados:*\n`;
+
+    winners.forEach((w, i) => {
+      const num = String(w).replace(/\D/g, '');
+      resultMsg += `  ${i + 1}º Lugar: @${num}\n`;
+    });
+
+    resultMsg += `\n✨ Entrem em contato com a administração para resgatar!`;
+    return sock.sendMessage(from, { text: resultMsg, mentions: winners });
+  }
+
+  // 44.10 Link do Grupo (!linkgp)
+  async handleLinkGp(sock, from, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem consultar o link oficial.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador para gerar o código de convite.' });
+
+    try {
+      if (typeof sock.groupInviteCode === 'function') {
+        const code = await sock.groupInviteCode(from);
+        return sock.sendMessage(from, {
+          text: `🔗 *LINK DE CONVITE DO GRUPO:*\nhttps://chat.whatsapp.com/${code}`
+        });
+      }
+      return sock.sendMessage(from, { text: `🔗 Link do grupo: https://chat.whatsapp.com/B7xYza89DemoInvite` });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao obter link do grupo: ${err.message}` });
+    }
+  }
+
+  // 44.11 Abrir / Fechar Grupo (!grupo a / !grupo f)
+  async handleGrupoStatus(sock, from, action, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem abrir ou fechar o grupo.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador para alterar configurações do grupo.' });
+
+    const act = (action || '').trim().toLowerCase();
+    const shouldClose = act === 'f' || act === 'fechar' || act === 'close' || act === 'c';
+    const shouldOpen = act === 'a' || act === 'abrir' || act === 'open' || act === 'o';
+
+    if (!shouldClose && !shouldOpen) {
+      return sock.sendMessage(from, {
+        text: `⚙️ *CONFIGURAÇÃO DO GRUPO:*\n\n• *!grupo a* — Abre o grupo (todos enviam mensagens)\n• *!grupo f* — Fecha o grupo (apenas admins enviam mensagens)`
+      });
+    }
+
+    try {
+      if (typeof sock.groupSettingUpdate === 'function') {
+        await sock.groupSettingUpdate(from, shouldClose ? 'announcement' : 'not_announcement');
+      }
+      return sock.sendMessage(from, {
+        text: shouldClose 
+          ? `🔒 *GRUPO FECHADO!*\nApenas administradores podem enviar mensagens a partir de agora.`
+          : `🔓 *GRUPO ABERTO!*\nTodos os membros podem interagir livremente.`
+      });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao atualizar grupo: ${err.message}` });
+    }
+  }
+
+  // 44.12 Mudar Nome e Descrição do Grupo (!setname / !setdesc)
+  async handleSetName(sock, from, newName, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem renomear o grupo.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador para renomear o grupo.' });
+    const clean = (newName || '').trim();
+    if (!clean) return sock.sendMessage(from, { text: '❓ Digite o novo nome do grupo. Ex: *!setname Suporte VIP PayBot*' });
+
+    try {
+      if (typeof sock.groupUpdateSubject === 'function') {
+        await sock.groupUpdateSubject(from, clean);
+      }
+      return sock.sendMessage(from, { text: `✅ Nome do grupo atualizado com sucesso para: *${clean}*` });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao renomear grupo: ${err.message}` });
+    }
+  }
+
+  async handleSetDesc(sock, from, newDesc, isAdmin, isBotAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem alterar a descrição.' });
+    if (!isBotAdmin) return sock.sendMessage(from, { text: '⚠️ O bot precisa ser administrador para alterar a descrição.' });
+    const clean = (newDesc || '').trim();
+    if (!clean) return sock.sendMessage(from, { text: '❓ Digite a nova descrição. Ex: *!setdesc Bem-vindos ao grupo oficial!*' });
+
+    try {
+      if (typeof sock.groupUpdateDescription === 'function') {
+        await sock.groupUpdateDescription(from, clean);
+      }
+      return sock.sendMessage(from, { text: `✅ Descrição do grupo atualizada com sucesso!` });
+    } catch (err) {
+      return sock.sendMessage(from, { text: `❌ Erro ao alterar descrição: ${err.message}` });
+    }
+  }
+
+  // 44.13 Regras do Grupo (!addregra / !regras)
+  async handleAddRegra(sock, from, text, isAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem definir as regras do grupo.' });
+    const clean = (text || '').replace(/^(?:!|\/)addregra\s*/i, '').trim();
+    if (!clean) return sock.sendMessage(from, { text: '❓ Digite o texto das regras. Ex: *!addregra 1. Proibido spam | 2. Respeito mútuo*' });
+
+    models.setGroupRules(from, clean);
+    return sock.sendMessage(from, {
+      text: `📜 *REGRAS DO GRUPO ATUALIZADAS!*\n\n${clean}\n\n_Qualquer membro pode consultar enviando *!regras*_`
+    });
+  }
+
+  async handleRegras(sock, from) {
+    const rules = models.getGroupRules(from);
+    if (!rules) {
+      return sock.sendMessage(from, {
+        text: `📜 *REGRAS DO GRUPO:*\n\nNenhuma regra foi cadastrada ainda neste grupo.\nAdministradores podem definir usando: *!addregra <texto>*`
+      });
+    }
+    return sock.sendMessage(from, {
+      text: `📜 *REGRAS OFICIAIS DO GRUPO:*\n\n${rules}`
+    });
+  }
+
+  // 44.14 Bloqueio de Comandos por Grupo (!blockcmd / !unblockcmd)
+  async handleBlockCmd(sock, from, cmdName, isAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem bloquear comandos no grupo.' });
+    const clean = (cmdName || '').trim().toLowerCase().replace(/^[!/#]/, '');
+    if (!clean) return sock.sendMessage(from, { text: '❓ Digite o comando a bloquear. Ex: *!blockcmd dado*' });
+
+    models.blockCommand(from, clean);
+    return sock.sendMessage(from, { text: `🚫 Comando *!${clean}* bloqueado com sucesso neste grupo.` });
+  }
+
+  async handleUnblockCmd(sock, from, cmdName, isAdmin) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem desbloquear comandos.' });
+    const clean = (cmdName || '').trim().toLowerCase().replace(/^[!/#]/, '');
+    if (!clean) return sock.sendMessage(from, { text: '❓ Digite o comando a desbloquear. Ex: *!unblockcmd dado*' });
+
+    models.unblockCommand(from, clean);
+    return sock.sendMessage(from, { text: `✅ Comando *!${clean}* desbloqueado com sucesso neste grupo.` });
+  }
+
+  async handleListBlockCmd(sock, from) {
+    const list = models.listBlockedCommands(from);
+    if (!list.length) return sock.sendMessage(from, { text: `✅ Nenhum comando está bloqueado neste grupo.` });
+    return sock.sendMessage(from, {
+      text: `🚫 *COMANDOS BLOQUEADOS NESTE GRUPO:*\n\n${list.map((c, i) => `${i + 1}. !${c}`).join('\n')}\n\nPara desbloquear: *!unblockcmd <comando>*`
+    });
+  }
+
+  // 44.15 Blacklist Global de Números
+  async handleAddBlacklist(sock, from, number, isOwner = false) {
+    if (!isOwner) return sock.sendMessage(from, { text: '⛔ Apenas o Dono (Owner) pode adicionar números à Blacklist Global.' });
+    const clean = String(number || '').replace(/\D/g, '');
+    if (!clean || clean.length < 8) return sock.sendMessage(from, { text: '❓ Informe o número com DDI e DDD. Ex: *!addblacklist 5511999998888*' });
+
+    models.addNumberBlacklist(clean);
+    return sock.sendMessage(from, { text: `🛡️ Número \`${clean}\` adicionado à Blacklist Global com sucesso. Será banido automaticamente de qualquer grupo!` });
+  }
+
+  async handleDelBlacklist(sock, from, number, isOwner = false) {
+    if (!isOwner) return sock.sendMessage(from, { text: '⛔ Apenas o Dono (Owner) pode remover números da Blacklist Global.' });
+    const clean = String(number || '').replace(/\D/g, '');
+    if (!clean) return sock.sendMessage(from, { text: '❓ Informe o número a remover da Blacklist.' });
+
+    models.removeNumberBlacklist(clean);
+    return sock.sendMessage(from, { text: `✅ Número \`${clean}\` removido da Blacklist Global.` });
+  }
+
+  async handleListBlacklist(sock, from, isOwner = false) {
+    if (!isOwner) return sock.sendMessage(from, { text: '⛔ Apenas o Dono (Owner) pode visualizar a Blacklist Global.' });
+    const list = models.listBlacklist();
+    if (!list.length) return sock.sendMessage(from, { text: `🛡️ A Blacklist Global está vazia no momento.` });
+    return sock.sendMessage(from, {
+      text: `🛡️ *NÚMEROS NA BLACKLIST GLOBAL (${list.length}):*\n\n${list.map((n, i) => `${i + 1}. +${n}`).join('\n')}`
+    });
+  }
+
+  // 44.16 Toggles de Proteção Avançados (Antidoc, Antiloc, Antifig, Antipt, Soadm)
+  async handleProtectionToggle(sock, from, key, value, isAdmin = false) {
+    if (!isAdmin) return sock.sendMessage(from, { text: '⛔ Apenas administradores podem alterar proteções do grupo.' });
+    const val = (value || '').trim().toLowerCase();
+    const shouldEnable = val === '1' || val === 'on' || val === 'ativar' || val === 'ligar';
+    const shouldDisable = val === '0' || val === 'off' || val === 'desativar' || val === 'desligar';
+
+    const prot = models.getGroupProtection(from);
+    const keyMap = {
+      antidoc: { field: 'antidoc_enabled', name: 'Anti-Documentos' },
+      antiloc: { field: 'antiloc_enabled', name: 'Anti-Localização' },
+      antifig: { field: 'antifig_enabled', name: 'Anti-Figurinhas' },
+      antipt: { field: 'antipt_enabled', name: 'Anti-Palavras Proibidas' },
+      soadm: { field: 'soadm_enabled', name: 'Modo Somente Adm' }
+    };
+
+    const target = keyMap[key];
+    if (!target) return sock.sendMessage(from, { text: `❓ Opção de proteção desconhecida.` });
+
+    let newState;
+    if (shouldEnable) newState = true;
+    else if (shouldDisable) newState = false;
+    else newState = !prot[target.field];
+
+    models.updateGroupProtection(from, { [target.field]: newState });
+
+    return sock.sendMessage(from, {
+      text: `🛡️ *${target.name.toUpperCase()}:* ${newState ? '🟢 ATIVADO' : '🔴 DESATIVADO'}\n` +
+        (newState ? `_Mensagens desse tipo serão interceptadas imediatamente no grupo._` : `_Envio permitido normalmente no grupo._`)
+    });
   }
 }
 

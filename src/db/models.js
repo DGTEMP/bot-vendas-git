@@ -763,6 +763,10 @@ const models = {
     const valStr = String(value);
     _settingsMemoryCache.set(key, valStr);
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, valStr);
+    if (key === 'TUNNEL_URL') {
+      _settingsMemoryCache.set('TUNNEL_ADMIN_URL', valStr);
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('TUNNEL_ADMIN_URL', valStr);
+    }
   },
 
   getAllSettings() {
@@ -4509,6 +4513,42 @@ const models = {
       fields.push('goodbye_text = ?');
       values.push(String(patch.goodbye_text));
     }
+    if (patch.antidoc_enabled !== undefined) {
+      fields.push('antidoc_enabled = ?');
+      values.push(patch.antidoc_enabled ? 1 : 0);
+    }
+    if (patch.antiloc_enabled !== undefined) {
+      fields.push('antiloc_enabled = ?');
+      values.push(patch.antiloc_enabled ? 1 : 0);
+    }
+    if (patch.antifig_enabled !== undefined) {
+      fields.push('antifig_enabled = ?');
+      values.push(patch.antifig_enabled ? 1 : 0);
+    }
+    if (patch.antipt_enabled !== undefined) {
+      fields.push('antipt_enabled = ?');
+      values.push(patch.antipt_enabled ? 1 : 0);
+    }
+    if (patch.soadm_enabled !== undefined) {
+      fields.push('soadm_enabled = ?');
+      values.push(patch.soadm_enabled ? 1 : 0);
+    }
+    if (patch.muted_users !== undefined) {
+      fields.push('muted_users = ?');
+      values.push(typeof patch.muted_users === 'string' ? patch.muted_users : JSON.stringify(patch.muted_users));
+    }
+    if (patch.blocked_commands !== undefined) {
+      fields.push('blocked_commands = ?');
+      values.push(typeof patch.blocked_commands === 'string' ? patch.blocked_commands : JSON.stringify(patch.blocked_commands));
+    }
+    if (patch.group_rules !== undefined) {
+      fields.push('group_rules = ?');
+      values.push(String(patch.group_rules));
+    }
+    if (patch.blacklist_numbers !== undefined) {
+      fields.push('blacklist_numbers = ?');
+      values.push(typeof patch.blacklist_numbers === 'string' ? patch.blacklist_numbers : JSON.stringify(patch.blacklist_numbers));
+    }
 
     if (fields.length > 0) {
       fields.push('updated_at = CURRENT_TIMESTAMP');
@@ -4517,6 +4557,189 @@ const models = {
     }
 
     return models.getGroupProtection(groupId);
+  },
+
+  // Helpers para Mute de Usuários por Grupo (Nazuna MenuAdm)
+  isUserMuted(groupId, userJid) {
+    if (!groupId || !userJid) return false;
+    const prot = models.getGroupProtection(groupId);
+    if (!prot || !prot.muted_users) return false;
+    try {
+      const list = JSON.parse(prot.muted_users || '[]');
+      const targetPhone = String(userJid).replace(/\D/g, '');
+      return list.some(item => {
+        const itemClean = String(item).replace(/\D/g, '');
+        return item === userJid || (itemClean && itemClean === targetPhone);
+      });
+    } catch (_) {
+      return false;
+    }
+  },
+
+  muteUser(groupId, userJid) {
+    if (!groupId || !userJid) return false;
+    const prot = models.getGroupProtection(groupId);
+    let list = [];
+    try { list = JSON.parse(prot?.muted_users || '[]'); } catch (_) {}
+    if (!list.includes(userJid)) {
+      list.push(userJid);
+      models.updateGroupProtection(groupId, { muted_users: list });
+    }
+    return true;
+  },
+
+  unmuteUser(groupId, userJid) {
+    if (!groupId || !userJid) return false;
+    const prot = models.getGroupProtection(groupId);
+    let list = [];
+    try { list = JSON.parse(prot?.muted_users || '[]'); } catch (_) {}
+    const targetPhone = String(userJid).replace(/\D/g, '');
+    const filtered = list.filter(item => {
+      const itemClean = String(item).replace(/\D/g, '');
+      return item !== userJid && (!itemClean || itemClean !== targetPhone);
+    });
+    models.updateGroupProtection(groupId, { muted_users: filtered });
+    return true;
+  },
+
+  listMutedUsers(groupId) {
+    if (!groupId) return [];
+    const prot = models.getGroupProtection(groupId);
+    try { return JSON.parse(prot?.muted_users || '[]'); } catch (_) { return []; }
+  },
+
+  // Helpers para Bloqueio de Comandos por Grupo (Nazuna MenuAdm)
+  isCommandBlocked(groupId, cmdName) {
+    if (!groupId || !cmdName) return false;
+    const prot = models.getGroupProtection(groupId);
+    if (!prot || !prot.blocked_commands) return false;
+    try {
+      const list = JSON.parse(prot.blocked_commands || '[]');
+      const clean = String(cmdName).trim().toLowerCase().replace(/^[!/#]/, '');
+      return list.includes(clean);
+    } catch (_) { return false; }
+  },
+
+  blockCommand(groupId, cmdName) {
+    if (!groupId || !cmdName) return false;
+    const clean = String(cmdName).trim().toLowerCase().replace(/^[!/#]/, '');
+    const prot = models.getGroupProtection(groupId);
+    let list = [];
+    try { list = JSON.parse(prot?.blocked_commands || '[]'); } catch (_) {}
+    if (!list.includes(clean)) {
+      list.push(clean);
+      models.updateGroupProtection(groupId, { blocked_commands: list });
+    }
+    return true;
+  },
+
+  unblockCommand(groupId, cmdName) {
+    if (!groupId || !cmdName) return false;
+    const clean = String(cmdName).trim().toLowerCase().replace(/^[!/#]/, '');
+    const prot = models.getGroupProtection(groupId);
+    let list = [];
+    try { list = JSON.parse(prot?.blocked_commands || '[]'); } catch (_) {}
+    const filtered = list.filter(c => c !== clean);
+    models.updateGroupProtection(groupId, { blocked_commands: filtered });
+    return true;
+  },
+
+  listBlockedCommands(groupId) {
+    if (!groupId) return [];
+    const prot = models.getGroupProtection(groupId);
+    try { return JSON.parse(prot?.blocked_commands || '[]'); } catch (_) { return []; }
+  },
+
+  // Helpers para Regras do Grupo (Nazuna MenuAdm)
+  getGroupRules(groupId) {
+    if (!groupId) return '';
+    const prot = models.getGroupProtection(groupId);
+    return prot?.group_rules || '';
+  },
+
+  setGroupRules(groupId, rules) {
+    if (!groupId) return false;
+    models.updateGroupProtection(groupId, { group_rules: String(rules || '') });
+    return true;
+  },
+
+  // Helpers para Blacklist Global de Números (Nazuna MenuAdm)
+  isNumberBlacklisted(number) {
+    if (!number) return false;
+    const clean = String(number).replace(/\D/g, '');
+    if (!clean) return false;
+    const raw = models.getSetting('GLOBAL_BLACKLIST', '[]');
+    try {
+      const list = JSON.parse(raw);
+      return list.some(item => String(item).replace(/\D/g, '') === clean);
+    } catch (_) { return false; }
+  },
+
+  addNumberBlacklist(number) {
+    if (!number) return false;
+    const clean = String(number).replace(/\D/g, '');
+    if (!clean) return false;
+    const raw = models.getSetting('GLOBAL_BLACKLIST', '[]');
+    let list = [];
+    try { list = JSON.parse(raw); } catch (_) {}
+    if (!list.includes(clean)) {
+      list.push(clean);
+      models.setSetting('GLOBAL_BLACKLIST', JSON.stringify(list));
+    }
+    return true;
+  },
+
+  removeNumberBlacklist(number) {
+    if (!number) return false;
+    const clean = String(number).replace(/\D/g, '');
+    const raw = models.getSetting('GLOBAL_BLACKLIST', '[]');
+    let list = [];
+    try { list = JSON.parse(raw); } catch (_) {}
+    const filtered = list.filter(item => String(item).replace(/\D/g, '') !== clean);
+    models.setSetting('GLOBAL_BLACKLIST', JSON.stringify(filtered));
+    return true;
+  },
+
+  listBlacklist() {
+    const raw = models.getSetting('GLOBAL_BLACKLIST', '[]');
+    try { return JSON.parse(raw); } catch (_) { return []; }
+  },
+
+  // ==========================================
+  // 39. VERIFICADO GLOBAL (GATA NINA & SPY BOT)
+  // ==========================================
+  isVerificadoGlobal() {
+    return models.getSetting('VERIFICADO_GLOBAL', 'false') === 'true';
+  },
+
+  setVerificadoGlobal(enabled) {
+    models.setSetting('VERIFICADO_GLOBAL', enabled ? 'true' : 'false');
+    return models.isVerificadoGlobal();
+  },
+
+  getVerificadoConfig() {
+    return {
+      enabled: models.isVerificadoGlobal(),
+      title: models.getSetting('VERIFICADO_TITLE', 'PayBot Oficial ✓'),
+      body: models.getSetting('VERIFICADO_BODY', 'Canal Oficial Verificado 🟢'),
+      show_ad: models.getSetting('VERIFICADO_SHOW_AD', 'true') === 'true'
+    };
+  },
+
+  setVerificadoConfig(config = {}, bodyArg, showAdArg) {
+    let cfg = config;
+    if (typeof cfg === 'string') {
+      cfg = {
+        title: config,
+        body: bodyArg,
+        show_ad: showAdArg
+      };
+    }
+    if (cfg.enabled !== undefined) models.setVerificadoGlobal(cfg.enabled);
+    if (cfg.title !== undefined) models.setSetting('VERIFICADO_TITLE', String(cfg.title));
+    if (cfg.body !== undefined) models.setSetting('VERIFICADO_BODY', String(cfg.body));
+    if (cfg.show_ad !== undefined) models.setSetting('VERIFICADO_SHOW_AD', cfg.show_ad ? 'true' : 'false');
+    return models.getVerificadoConfig();
   },
 
   // ==========================================
@@ -4553,6 +4776,234 @@ const models = {
         percentage: total > 0 ? Number(((r.execution_count / total) * 100).toFixed(1)) : 0,
         last_executed_at: r.last_executed_at
       }))
+    };
+  },
+
+  // ==========================================
+  // 40. ZAPVOICE 2025 (MENSAGENS RÁPIDAS, ÁUDIOS PTT & FUNIS)
+  // ==========================================
+  listZapVoiceMessages(category = null) {
+    if (category) {
+      return db.prepare('SELECT * FROM zapvoice_quick_messages WHERE category = ? ORDER BY id ASC').all(category);
+    }
+    return db.prepare('SELECT * FROM zapvoice_quick_messages ORDER BY id ASC').all();
+  },
+
+  getZapVoiceMessage(idOrShortcut) {
+    if (!idOrShortcut) return null;
+    let row;
+    if (typeof idOrShortcut === 'number' || /^\d+$/.test(idOrShortcut)) {
+      row = db.prepare('SELECT * FROM zapvoice_quick_messages WHERE id = ?').get(Number(idOrShortcut));
+    } else {
+      const clean = String(idOrShortcut).trim();
+      const withSlash = clean.startsWith('/') ? clean : `/${clean}`;
+      row = db.prepare('SELECT * FROM zapvoice_quick_messages WHERE shortcut = ? OR shortcut = ?').get(clean, withSlash);
+    }
+    return row || null;
+  },
+
+  saveZapVoiceMessage(data = {}) {
+    const { id, title, shortcut, content, category } = data;
+    const trigger_keywords = data.trigger_keywords || data.trigger_keyword || '';
+    if (!title || !shortcut || !content) {
+      throw new Error('title, shortcut e content são obrigatórios para mensagem rápida ZapVoice');
+    }
+    const cleanShortcut = shortcut.startsWith('/') ? shortcut : `/${shortcut}`;
+    let targetId = id;
+    if (!targetId) {
+      const existing = models.getZapVoiceMessage(cleanShortcut);
+      if (existing) targetId = existing.id;
+    }
+    if (targetId) {
+      db.prepare(`
+        UPDATE zapvoice_quick_messages 
+        SET title = ?, shortcut = ?, content = ?, category = ?, trigger_keywords = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(title, cleanShortcut, content, category || 'Geral', trigger_keywords, Number(targetId));
+      return models.getZapVoiceMessage(Number(targetId));
+    }
+    const res = db.prepare(`
+      INSERT INTO zapvoice_quick_messages (title, shortcut, content, category, trigger_keywords)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(title, cleanShortcut, content, category || 'Geral', trigger_keywords);
+    return models.getZapVoiceMessage(Number(res.lastInsertRowid));
+  },
+
+  deleteZapVoiceMessage(id) {
+    if (!id) return false;
+    db.prepare('DELETE FROM zapvoice_quick_messages WHERE id = ?').run(Number(id));
+    return true;
+  },
+
+  // Áudios PTT ZapVoice
+  listZapVoiceAudios() {
+    return db.prepare('SELECT * FROM zapvoice_audios ORDER BY id ASC').all();
+  },
+
+  getZapVoiceAudio(idOrShortcut) {
+    if (!idOrShortcut) return null;
+    if (typeof idOrShortcut === 'number' || /^\d+$/.test(idOrShortcut)) {
+      return db.prepare('SELECT * FROM zapvoice_audios WHERE id = ?').get(Number(idOrShortcut));
+    }
+    return db.prepare('SELECT * FROM zapvoice_audios WHERE shortcut = ?').get(String(idOrShortcut));
+  },
+
+  saveZapVoiceAudio(data = {}) {
+    const { id, title, shortcut, audio_path, duration_seconds, is_ptt } = data;
+    if (!title || !audio_path) throw new Error('title e audio_path são obrigatórios para áudio ZapVoice');
+    if (id) {
+      db.prepare(`
+        UPDATE zapvoice_audios 
+        SET title = ?, shortcut = ?, audio_path = ?, duration_seconds = ?, is_ptt = ?
+        WHERE id = ?
+      `).run(title, shortcut || null, audio_path, duration_seconds || 15, is_ptt !== undefined ? (is_ptt ? 1 : 0) : 1, Number(id));
+      return models.getZapVoiceAudio(Number(id));
+    }
+    const res = db.prepare(`
+      INSERT INTO zapvoice_audios (title, shortcut, audio_path, duration_seconds, is_ptt)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(title, shortcut || null, audio_path, duration_seconds || 15, is_ptt !== undefined ? (is_ptt ? 1 : 0) : 1);
+    return models.getZapVoiceAudio(Number(res.lastInsertRowid));
+  },
+
+  deleteZapVoiceAudio(id) {
+    if (!id) return false;
+    db.prepare('DELETE FROM zapvoice_audios WHERE id = ?').run(Number(id));
+    return true;
+  },
+
+  // Funis Sequenciais ZapVoice
+  listZapVoiceFunnels(activeOnly = false) {
+    const sql = activeOnly
+      ? 'SELECT * FROM zapvoice_funnels WHERE active = 1 ORDER BY id ASC'
+      : 'SELECT * FROM zapvoice_funnels ORDER BY id ASC';
+    const funnels = db.prepare(sql).all();
+    return funnels.map(f => ({
+      ...f,
+      steps: models.getZapVoiceFunnelSteps(f.id)
+    }));
+  },
+
+  getZapVoiceFunnel(id) {
+    if (!id) return null;
+    let funnel;
+    if (typeof id === 'number' || /^\d+$/.test(id)) {
+      funnel = db.prepare('SELECT * FROM zapvoice_funnels WHERE id = ?').get(Number(id));
+    } else {
+      funnel = db.prepare('SELECT * FROM zapvoice_funnels WHERE LOWER(name) LIKE ?').get(`%${String(id).toLowerCase()}%`);
+    }
+    if (!funnel) return null;
+    funnel.steps = models.getZapVoiceFunnelSteps(funnel.id);
+    return funnel;
+  },
+
+  saveZapVoiceFunnel(data = {}) {
+    const { id, name, active } = data;
+    const trigger_keywords = data.trigger_keywords || data.trigger_keyword || '';
+    const description = data.description || '';
+    if (!name) throw new Error('name é obrigatório para funil ZapVoice');
+    if (id) {
+      db.prepare(`
+        UPDATE zapvoice_funnels 
+        SET name = ?, description = ?, trigger_keywords = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(name, description, trigger_keywords, active !== undefined ? (active ? 1 : 0) : 1, Number(id));
+      return models.getZapVoiceFunnel(Number(id));
+    }
+    const res = db.prepare(`
+      INSERT INTO zapvoice_funnels (name, description, trigger_keywords, active)
+      VALUES (?, ?, ?, ?)
+    `).run(name, description, trigger_keywords, active !== undefined ? (active ? 1 : 0) : 1);
+    return models.getZapVoiceFunnel(Number(res.lastInsertRowid));
+  },
+
+  deleteZapVoiceFunnel(id) {
+    if (!id) return false;
+    db.prepare('DELETE FROM zapvoice_funnel_steps WHERE funnel_id = ?').run(Number(id));
+    db.prepare('DELETE FROM zapvoice_funnels WHERE id = ?').run(Number(id));
+    return true;
+  },
+
+  getZapVoiceFunnelSteps(funnelId) {
+    if (!funnelId) return [];
+    return db.prepare('SELECT * FROM zapvoice_funnel_steps WHERE funnel_id = ? ORDER BY step_order ASC').all(Number(funnelId));
+  },
+
+  saveZapVoiceFunnelStep(data = {}) {
+    const { id, funnel_id, step_order, content, media_path, delay_seconds } = data;
+    const step_type = data.step_type || data.message_type || (data.is_ptt ? 'audio_ptt' : 'text');
+    const is_ptt = (data.is_ptt || data.message_type === 'audio_ptt' || step_type === 'audio_ptt') ? 1 : 0;
+    if (!funnel_id || !step_type) throw new Error('funnel_id e step_type são obrigatórios');
+    if (id) {
+      db.prepare(`
+        UPDATE zapvoice_funnel_steps
+        SET step_order = ?, step_type = ?, content = ?, media_path = ?, delay_seconds = ?, is_ptt = ?
+        WHERE id = ?
+      `).run(step_order || 1, step_type, content || '', media_path || '', delay_seconds !== undefined ? delay_seconds : 3, is_ptt, Number(id));
+      return db.prepare('SELECT * FROM zapvoice_funnel_steps WHERE id = ?').get(Number(id));
+    }
+    const res = db.prepare(`
+      INSERT INTO zapvoice_funnel_steps (funnel_id, step_order, step_type, content, media_path, delay_seconds, is_ptt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(Number(funnel_id), step_order || 1, step_type, content || '', media_path || '', delay_seconds !== undefined ? delay_seconds : 3, is_ptt);
+    return db.prepare('SELECT * FROM zapvoice_funnel_steps WHERE id = ?').get(Number(res.lastInsertRowid));
+  },
+
+  deleteZapVoiceFunnelStep(stepId) {
+    if (!stepId) return false;
+    db.prepare('DELETE FROM zapvoice_funnel_steps WHERE id = ?').run(Number(stepId));
+    return true;
+  },
+
+  // Campanhas em Massa ZapVoice
+  listZapVoiceCampaigns() {
+    return db.prepare('SELECT * FROM zapvoice_campaigns ORDER BY created_at DESC').all();
+  },
+
+  saveZapVoiceCampaign(data = {}) {
+    const { name, funnel_id, target_type, targets, min_delay, max_delay } = data;
+    const strTargets = typeof targets === 'string' ? targets : JSON.stringify(targets || []);
+    const res = db.prepare(`
+      INSERT INTO zapvoice_campaigns (name, funnel_id, target_type, targets, min_delay, max_delay, total_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      name || 'Campanha ZapVoice',
+      funnel_id ? Number(funnel_id) : null,
+      target_type || 'contacts',
+      strTargets,
+      min_delay || 15,
+      max_delay || 45,
+      Array.isArray(targets) ? targets.length : 1
+    );
+    return db.prepare('SELECT * FROM zapvoice_campaigns WHERE id = ?').get(Number(res.lastInsertRowid));
+  },
+
+  updateZapVoiceCampaign(id, patch = {}) {
+    if (!id) return null;
+    const fields = [];
+    const values = [];
+    if (patch.status !== undefined) { fields.push('status = ?'); values.push(patch.status); }
+    if (patch.sent_count !== undefined) { fields.push('sent_count = ?'); values.push(Number(patch.sent_count)); }
+    if (patch.total_count !== undefined) { fields.push('total_count = ?'); values.push(Number(patch.total_count)); }
+    if (fields.length > 0) {
+      values.push(Number(id));
+      db.prepare(`UPDATE zapvoice_campaigns SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    }
+    return db.prepare('SELECT * FROM zapvoice_campaigns WHERE id = ?').get(Number(id));
+  },
+
+  getZapVoiceStats() {
+    const totalMessages = db.prepare('SELECT COUNT(*) as cnt FROM zapvoice_quick_messages').get().cnt;
+    const totalAudios = db.prepare('SELECT COUNT(*) as cnt FROM zapvoice_audios').get().cnt;
+    const totalFunnels = db.prepare('SELECT COUNT(*) as cnt FROM zapvoice_funnels WHERE active = 1').get().cnt;
+    const totalCampaigns = db.prepare('SELECT COUNT(*) as cnt FROM zapvoice_campaigns').get().cnt;
+    const totalSent = db.prepare('SELECT SUM(sent_count) as total FROM zapvoice_campaigns').get().total || 0;
+    return {
+      total_messages: totalMessages,
+      total_audios: totalAudios,
+      total_funnels: totalFunnels,
+      total_campaigns: totalCampaigns,
+      total_sent: Number(totalSent)
     };
   }
 

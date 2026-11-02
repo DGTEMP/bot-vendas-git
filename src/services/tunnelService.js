@@ -51,11 +51,11 @@ class TunnelService {
    */
   getAdminUrl() {
     if (this._adminMockUrl) return this._adminMockUrl;
-    if (this.currentAdminUrl) return this.currentAdminUrl;
     try {
-      const saved = models.getSetting('TUNNEL_ADMIN_URL', null) || models.getSetting('TUNNEL_URL', null);
+      const saved = models.getSetting('TUNNEL_URL', null) || models.getSetting('TUNNEL_ADMIN_URL', null);
       if (saved && saved.startsWith('https://')) return saved;
     } catch (_) {}
+    if (this.currentAdminUrl) return this.currentAdminUrl;
     return null;
   }
 

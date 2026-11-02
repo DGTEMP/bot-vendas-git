@@ -14,6 +14,8 @@ const nlpService = require('../services/nlpService');
 const meteoricService = require('../services/meteoricService');
 const whatsappBot = require('../bots/whatsappBot');
 const telegramBot = require('../bots/telegramBot');
+const zapVoiceService = require('../services/zapVoiceService');
+const spyFeatures = require('../services/spyFeaturesService');
 
 function createServer() {
   const app = express();
@@ -4138,6 +4140,48 @@ function createServer() {
           break;
         }
 
+        case 'TOGGLE_VERIFICADO_GLOBAL': {
+          const isEn = payload.enabled !== undefined ? !!payload.enabled : !models.isVerificadoGlobal();
+          models.setVerificadoGlobal(isEn);
+          if (payload.title) models.setSetting('VERIFICADO_TITLE', payload.title);
+          if (payload.body) models.setSetting('VERIFICADO_BODY', payload.body);
+          resultMsg = `Verificado Global definido para: ${isEn ? 'ATIVADO 🟢' : 'DESATIVADO ⚪'}`;
+          break;
+        }
+
+        case 'SEND_FAKE_MESSAGE': {
+          const { groupJid, targetJid, fakeText, responseText } = payload;
+          if (!groupJid) throw new Error('groupJid é obrigatório para envio de fake.');
+          await spyFeatures.handleFakeCommand(whatsappBot.sock, groupJid, `${fakeText || 'Mensagem'} | ${responseText || 'Olha só'}`, null, targetJid);
+          resultMsg = `Mensagem fake simulada disparada no grupo ${groupJid}!`;
+          break;
+        }
+
+        case 'EXECUTE_ZAPVOICE_FUNNEL': {
+          const { funnelId, targetJid, context } = payload;
+          if (!funnelId || !targetJid) throw new Error('funnelId e targetJid são obrigatórios.');
+          await zapVoiceService.executeFunnel(whatsappBot.sock, targetJid, funnelId, context || {});
+          resultMsg = `Funil #${funnelId} disparado com sucesso para ${targetJid}!`;
+          break;
+        }
+
+        case 'ADMIN_GROUP_ACTION': {
+          const { groupJid, groupAction, targetJid, newText } = payload;
+          if (!groupJid) throw new Error('groupJid é obrigatório.');
+          if (groupAction === 'promote') await spyFeatures.handlePromote(whatsappBot.sock, groupJid, targetJid, true, true);
+          else if (groupAction === 'demote') await spyFeatures.handleDemote(whatsappBot.sock, groupJid, targetJid, true, true);
+          else if (groupAction === 'kick') await spyFeatures.handleKick(whatsappBot.sock, groupJid, targetJid, true, true);
+          else if (groupAction === 'mute') await spyFeatures.handleMuteUser(whatsappBot.sock, groupJid, targetJid, true);
+          else if (groupAction === 'unmute') await spyFeatures.handleUnmuteUser(whatsappBot.sock, groupJid, targetJid, true);
+          else if (groupAction === 'open') await spyFeatures.handleGrupoStatus(whatsappBot.sock, groupJid, 'a', true, true);
+          else if (groupAction === 'close') await spyFeatures.handleGrupoStatus(whatsappBot.sock, groupJid, 'f', true, true);
+          else if (groupAction === 'limpar') await spyFeatures.handleLimpar(whatsappBot.sock, groupJid, true);
+          else if (groupAction === 'setname') await spyFeatures.handleSetName(whatsappBot.sock, groupJid, newText, true, true);
+          else if (groupAction === 'setdesc') await spyFeatures.handleSetDesc(whatsappBot.sock, groupJid, newText, true, true);
+          resultMsg = `Ação "${groupAction}" executada com sucesso no grupo ${groupJid}!`;
+          break;
+        }
+
         default:
           throw new Error(`Ação desconhecida: "${action}"`);
       }
@@ -4260,6 +4304,218 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // ROTAS REST: VERIFICADO GLOBAL (GATA NINA & SPY BOT)
+  // ==========================================
+  app.get('/api/features/verificado-global', (req, res) => {
+    try {
+      res.json({ success: true, config: models.getVerificadoConfig() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/features/verificado-global', (req, res) => {
+    try {
+      const updated = models.setVerificadoConfig(req.body);
+      res.json({ success: true, config: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // ROTAS REST: COMANDO /FAKE EM GRUPOS
+  // ==========================================
+  app.post('/api/features/fake', async (req, res) => {
+    try {
+      const { groupJid, targetJid, fakeText, responseText } = req.body;
+      if (!groupJid) return res.status(400).json({ error: 'groupJid é obrigatório.' });
+      await spyFeatures.handleFakeCommand(
+        whatsappBot.sock,
+        groupJid,
+        `${fakeText || 'Declaração'} | ${responseText || 'Olha só isso'}`,
+        null,
+        targetJid
+      );
+      res.json({ success: true, message: `Mensagem fake disparada com sucesso no grupo ${groupJid}!` });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // ROTAS REST: AÇÕES ADMINISTRATIVAS (NAZUNA MENUADM)
+  // ==========================================
+  app.post('/api/groups/:groupJid/admin-action', async (req, res) => {
+    try {
+      const { groupJid } = req.params;
+      const { action, targetJid, text } = req.body;
+      if (!groupJid || !action) return res.status(400).json({ error: 'groupJid e action são obrigatórios.' });
+
+      let resultMsg = 'Ação executada com sucesso.';
+      if (action === 'promote') await spyFeatures.handlePromote(whatsappBot.sock, groupJid, targetJid, true, true);
+      else if (action === 'demote') await spyFeatures.handleDemote(whatsappBot.sock, groupJid, targetJid, true, true);
+      else if (action === 'kick') await spyFeatures.handleKick(whatsappBot.sock, groupJid, targetJid, true, true);
+      else if (action === 'mute') await spyFeatures.handleMuteUser(whatsappBot.sock, groupJid, targetJid, true);
+      else if (action === 'unmute') await spyFeatures.handleUnmuteUser(whatsappBot.sock, groupJid, targetJid, true);
+      else if (action === 'open') await spyFeatures.handleGrupoStatus(whatsappBot.sock, groupJid, 'a', true, true);
+      else if (action === 'close') await spyFeatures.handleGrupoStatus(whatsappBot.sock, groupJid, 'f', true, true);
+      else if (action === 'limpar') await spyFeatures.handleLimpar(whatsappBot.sock, groupJid, true);
+      else if (action === 'setname') await spyFeatures.handleSetName(whatsappBot.sock, groupJid, text, true, true);
+      else if (action === 'setdesc') await spyFeatures.handleSetDesc(whatsappBot.sock, groupJid, text, true, true);
+      else return res.status(400).json({ error: `Ação "${action}" desconhecida.` });
+
+      res.json({ success: true, action, message: resultMsg });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // ROTAS REST: ZAPVOICE 2025 (MENSAGENS, ÁUDIOS PTT, FUNIS & CAMPANHAS)
+  // ==========================================
+  app.get('/api/zapvoice/messages', (req, res) => {
+    try {
+      res.json({ success: true, messages: models.listZapVoiceMessages(req.query.category) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/zapvoice/messages', (req, res) => {
+    try {
+      const msg = models.saveZapVoiceMessage(req.body);
+      res.json({ success: true, message: msg });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/zapvoice/messages/:id', (req, res) => {
+    try {
+      models.deleteZapVoiceMessage(req.params.id);
+      res.json({ success: true, message: 'Mensagem rápida excluída com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/zapvoice/audios', (req, res) => {
+    try {
+      res.json({ success: true, audios: models.listZapVoiceAudios() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/zapvoice/audios', (req, res) => {
+    try {
+      const audio = models.saveZapVoiceAudio(req.body);
+      res.json({ success: true, audio });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/zapvoice/audios/:id', (req, res) => {
+    try {
+      models.deleteZapVoiceAudio(req.params.id);
+      res.json({ success: true, message: 'Áudio PTT excluído com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/zapvoice/funnels', (req, res) => {
+    try {
+      const activeOnly = req.query.activeOnly === 'true';
+      res.json({ success: true, funnels: models.listZapVoiceFunnels(activeOnly) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/zapvoice/funnels', (req, res) => {
+    try {
+      const funnel = models.saveZapVoiceFunnel(req.body);
+      res.json({ success: true, funnel });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/zapvoice/funnels/:id', (req, res) => {
+    try {
+      models.deleteZapVoiceFunnel(req.params.id);
+      res.json({ success: true, message: 'Funil excluído com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/zapvoice/funnels/:id/steps', (req, res) => {
+    try {
+      res.json({ success: true, steps: models.getZapVoiceFunnelSteps(req.params.id) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/zapvoice/funnels/:id/steps', (req, res) => {
+    try {
+      const step = models.saveZapVoiceFunnelStep({ ...req.body, funnel_id: req.params.id });
+      res.json({ success: true, step });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/zapvoice/funnels/steps/:stepId', (req, res) => {
+    try {
+      models.deleteZapVoiceFunnelStep(req.params.stepId);
+      res.json({ success: true, message: 'Etapa do funil excluída.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/zapvoice/funnels/:id/execute', async (req, res) => {
+    try {
+      const { targetJid, context } = req.body;
+      if (!targetJid) return res.status(400).json({ error: 'targetJid é obrigatório.' });
+      const result = await zapVoiceService.executeFunnel(whatsappBot.sock, targetJid, req.params.id, context || {});
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/zapvoice/campaigns', (req, res) => {
+    try {
+      res.json({ success: true, campaigns: models.listZapVoiceCampaigns() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/zapvoice/campaigns', (req, res) => {
+    try {
+      const campaign = models.saveZapVoiceCampaign(req.body);
+      res.json({ success: true, campaign });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/zapvoice/stats', (req, res) => {
+    try {
+      res.json({ success: true, stats: models.getZapVoiceStats() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 
@@ -4279,7 +4535,8 @@ function createStoreServer() {
     '/index.html', '/app.js', '/api/settings', '/api/botdeck',
     '/api/cognitive', '/api/army', '/api/sellers', '/api/affiliates',
     '/api/export', '/api/metrics', '/api/system', '/api/moderation',
-    '/api/orders', '/api/companies', '/api/rentals', '/api/stats'
+    '/api/orders', '/api/companies', '/api/rentals', '/api/stats',
+    '/api/zapvoice', '/api/features'
   ];
   app.use((req, res, next) => {
     const p = req.path.toLowerCase();

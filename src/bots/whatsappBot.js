@@ -10,6 +10,7 @@ const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
 const fulfillment = require('../services/fulfillment');
 const spyFeatures = require('../services/spyFeaturesService');
+const zapVoiceService = require('../services/zapVoiceService');
 
 
 function safeExtractJid(val) {
@@ -247,6 +248,19 @@ class WhatsAppBotService {
 
         // Anti-Fake / Anti-Estrangeiro (Spy Security)
         await spyFeatures.checkAntiFakeEntry(sock, id, normalizedParticipants);
+
+        // Verificação de Blacklist Global (Auto-Ban imediato de números proibidos)
+        for (const pJid of normalizedParticipants) {
+          const num = String(pJid).replace(/\D/g, '');
+          if (models.isNumberBlacklisted(num)) {
+            try {
+              if (typeof sock.groupParticipantsUpdate === 'function') {
+                await sock.groupParticipantsUpdate(id, [pJid], 'remove');
+              }
+              await this.sendMessage(id, `🛡️ *BLACKLIST DETECTADA:*\nO número @${num} consta na lista negra global e foi expulso imediatamente.`, { mentions: [pJid] }, sock);
+            } catch (_) {}
+          }
+        }
 
         const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true' || (models.getGroupProtection(id)?.welcome_enabled === 1 && models.getSetting(`WELCOME_${id}`, null) === 'true');
         if (!isWelcomeActive) return;
@@ -519,6 +533,32 @@ class WhatsAppBotService {
       spyFeatures.recordActivity(from, senderPhone);
     }
 
+    // Interceptador de Membros Mutados no Grupo (!mute)
+    if (isGroup && !isFromMe && senderPhone && models.isUserMuted(from, senderPhone)) {
+      try {
+        if (msg.key) await activeSock.sendMessage(from, { delete: msg.key });
+      } catch (_) {}
+      return;
+    }
+
+    // Interceptador de Proteções de Mídia no Grupo (AntiDoc, AntiLoc, AntiFig)
+    if (isGroup && !isFromMe) {
+      const prot = models.getGroupProtection(from);
+      const isDocument = !!(msg.message?.documentMessage || msg.message?.documentWithCaptionMessage);
+      const isLocation = !!(msg.message?.locationMessage || msg.message?.liveLocationMessage);
+      const isSticker = !!msg.message?.stickerMessage;
+
+      if ((isDocument && prot?.antidoc_enabled) || (isLocation && prot?.antiloc_enabled) || (isSticker && prot?.antifig_enabled)) {
+        const isAdminUser = await this.checkIsAdmin(from, participantJid, isFromMe);
+        if (!isAdminUser) {
+          try {
+            if (msg.key) await activeSock.sendMessage(from, { delete: msg.key });
+          } catch (_) {}
+          return;
+        }
+      }
+    }
+
     // Interceptador Anti-View-Once: Revela fotos e vídeos de visualização única
     if (!isFromMe) {
       try {
@@ -577,6 +617,36 @@ class WhatsAppBotService {
     // 0.1 COMANDOS DE MODERAÇÃO E CONTROLE (DESATIVAR, ATIVAR, BLOQUEAR, DESBLOQUEAR, STATUS)
     const isAdmin = await this.checkIsAdmin(from, participantJid, isFromMe);
     const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+
+    // Verificação de Comandos Bloqueados e Modo Somente Admin (!soadm / !blockcmd)
+    if (isGroup && (lower.startsWith('!') || lower.startsWith('/'))) {
+      const firstToken = lower.split(/\s+/)[0].replace(/^[!/#]/, '');
+      if (models.isCommandBlocked(from, firstToken)) {
+        return this.sendMessage(from, `🚫 O comando *!${firstToken}* foi desativado pela administração deste grupo.`, {}, activeSock);
+      }
+
+      const prot = models.getGroupProtection(from);
+      if (prot?.soadm_enabled && !isAdmin && !isOwnerUser) {
+        return; // Usuário comum ignorado silenciosamente no modo Somente Adm
+      }
+    }
+
+    // Atalhos Rápidos ZapVoice 2025 (ex: /preco, /pix, /proposta, /suporte, /oi)
+    if (lower.startsWith('/') && !lower.startsWith('/fake')) {
+      const zvMatch = zapVoiceService.findMatchingQuickMessage(text);
+      if (zvMatch) {
+        return this.sendMessage(from, zvMatch.parsedContent, {}, activeSock);
+      }
+    }
+
+    // Gatilhos de Palavras-Chave ZapVoice 2025 (Disparo Automático de Funis por Intenção do Lead)
+    if (!lower.startsWith('!') && !lower.startsWith('/') && !isFromMe) {
+      const triggerMatch = zapVoiceService.findMatchingTrigger(text);
+      if (triggerMatch) {
+        await zapVoiceService.executeFunnel(activeSock, from, triggerMatch.funnel.id, { name: senderName });
+        return;
+      }
+    }
 
     // ==============================================================
     // CENTRAL DE COMANDO DA MATRIZ: ASSISTENTE EXECUTIVO DO DONO
@@ -2583,6 +2653,292 @@ class WhatsAppBotService {
       return spyFeatures.handleTopCmd(activeSock, from);
     }
 
+    // ==========================================
+    // 14.18 VERIFICADO GLOBAL (GATA NINA & SPY BOT)
+    // ==========================================
+    if (/^(?:!|\/)(?:verificado-global|verificado|seloverificado)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!isOwnerUser) {
+        return this.sendMessage(from, '⛔ Apenas o Dono (Owner) pode configurar o Verificado Global.', {}, activeSock);
+      }
+      const parts = text.trim().split(/\s+/).slice(1);
+      const sub = parts[0]?.toLowerCase();
+      if (sub === 'on' || sub === '1' || sub === 'ativar' || sub === 'ligar') {
+        models.setVerificadoGlobal(true);
+        return this.sendMessage(from, '✅ *VERIFICADO GLOBAL ATIVADO!* 🟢\n\nA partir de agora, todas as mensagens oficiais do bot serão enviadas com o selo verificado e citação oficial do WhatsApp.', {}, activeSock);
+      } else if (sub === 'off' || sub === '0' || sub === 'desativar' || sub === 'desligar') {
+        models.setVerificadoGlobal(false);
+        return this.sendMessage(from, '⚪ *VERIFICADO GLOBAL DESATIVADO!*\nMensagens do bot voltarão a ser enviadas no formato padrão.', {}, activeSock);
+      } else {
+        const cfg = models.getVerificadoConfig();
+        return this.sendMessage(from, `🛡️ *STATUS DO VERIFICADO GLOBAL (Gata Nina & SPY BOT):*\n\n` +
+          `• *Estado:* ${cfg.enabled ? '🟢 ATIVADO' : '🔴 DESATIVADO'}\n` +
+          `• *Título do Selo:* \`${cfg.title}\`\n` +
+          `• *Subtítulo:* \`${cfg.body}\`\n\n` +
+          `_Para alterar:_ *!verificado on* ou *!verificado off*`, {}, activeSock);
+      }
+    }
+
+    // ==========================================
+    // 14.19 COMANDO /FAKE EM GRUPOS (CITAÇÃO FALSA)
+    // ==========================================
+    if (/^(?:!|\/)fake(?:\s+.*)?$/i.test(lower)) {
+      const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ? {
+        key: {
+          participant: msg.message.extendedTextMessage.contextInfo.participant,
+          id: msg.message.extendedTextMessage.contextInfo.stanzaId
+        },
+        message: msg.message.extendedTextMessage.contextInfo.quotedMessage
+      } : null;
+      return spyFeatures.handleFakeCommand(activeSock, from, text, quotedMsg, participantJid);
+    }
+
+    // ==========================================
+    // 14.20 TODAS AS FUNÇÕES DO MENUADM (NAZUNA v4.0)
+    // ==========================================
+    if (/^(?:!|\/)(?:menuadm|menuadmin|menuadmins|admmenu)$/i.test(lower)) {
+      if (!isGroup) {
+        return this.sendMessage(from, '⚠️ O Menu Administrativo só pode ser acessado dentro de grupos.', {}, activeSock);
+      }
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      if (!adminStatus.isRequesterAdmin && !isOwnerUser) {
+        return this.sendMessage(from, '⛔ Apenas administradores do grupo podem acessar o menu de administração.', {}, activeSock);
+      }
+      const botName = models.getSetting('BOT_NAME', 'PayBot');
+      return spyFeatures.handleMenuAdm(activeSock, from, botName, senderName || 'Administrador', '!');
+    }
+
+    // Promover membro a admin (!promover @user)
+    if (/^(?:!|\/)(?:promover|promote)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const target = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+        (text.match(/@(\d+)/)?.[1] ? `${text.match(/@(\d+)/)[1]}@s.whatsapp.net` : null) ||
+        msg.message?.extendedTextMessage?.contextInfo?.participant;
+      return spyFeatures.handlePromote(activeSock, from, target, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Rebaixar admin a membro comum (!rebaixar @user)
+    if (/^(?:!|\/)(?:rebaixar|demote)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const target = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+        (text.match(/@(\d+)/)?.[1] ? `${text.match(/@(\d+)/)[1]}@s.whatsapp.net` : null) ||
+        msg.message?.extendedTextMessage?.contextInfo?.participant;
+      return spyFeatures.handleDemote(activeSock, from, target, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Banir membro do grupo (!ban @user)
+    if (/^(?:!|\/)(?:ban|kick)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const target = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+        (text.match(/@(\d+)/)?.[1] ? `${text.match(/@(\d+)/)[1]}@s.whatsapp.net` : null) ||
+        msg.message?.extendedTextMessage?.contextInfo?.participant;
+      return spyFeatures.handleKick(activeSock, from, target, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Mutar membro no grupo (!mute @user)
+    if (/^(?:!|\/)(?:mute|mutar)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const target = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+        (text.match(/@(\d+)/)?.[1] ? `${text.match(/@(\d+)/)[1]}@s.whatsapp.net` : null) ||
+        msg.message?.extendedTextMessage?.contextInfo?.participant;
+      return spyFeatures.handleMuteUser(activeSock, from, target, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    // Desmutar membro no grupo (!desmute @user)
+    if (/^(?:!|\/)(?:desmute|desmutar|unmute)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const target = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+        (text.match(/@(\d+)/)?.[1] ? `${text.match(/@(\d+)/)[1]}@s.whatsapp.net` : null) ||
+        msg.message?.extendedTextMessage?.contextInfo?.participant;
+      return spyFeatures.handleUnmuteUser(activeSock, from, target, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    // Listar membros mutados (!listmute)
+    if (/^(?:!|\/)(?:listmute|listmutes|mutados)$/i.test(lower)) {
+      return spyFeatures.handleListMuted(activeSock, from);
+    }
+
+    // Deletar mensagem citada (!del)
+    if (/^(?:!|\/)(?:del|delete|d)$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const quotedKey = msg.message?.extendedTextMessage?.contextInfo?.stanzaId ? {
+        remoteJid: from,
+        fromMe: false,
+        id: msg.message.extendedTextMessage.contextInfo.stanzaId,
+        participant: msg.message.extendedTextMessage.contextInfo.participant
+      } : null;
+      return spyFeatures.handleDeleteMessage(activeSock, from, quotedKey, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Limpar tela do chat (!limpar)
+    if (/^(?:!|\/)(?:limpar|clean|limparchat)$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleLimpar(activeSock, from, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    // BanGhost (!banghost)
+    if (/^(?:!|\/)(?:banghost|fantasmas)$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleBanghost(activeSock, from, adminStatus.metadata, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Hidetag (!hidetag <msg>)
+    if (/^(?:!|\/)(?:hidetag|totag)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleHidetag(activeSock, from, text, adminStatus.metadata, null, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Marcar todos (!marcar / !tagall)
+    if (/^(?:!|\/)(?:marcar|tagall|todos)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleMarcar(activeSock, from, text, adminStatus.metadata, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    // Sorteio no grupo (!sorteio)
+    if (/^(?:!|\/)(?:sorteio|sortear|raffle)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleSorteio(activeSock, from, text, adminStatus.metadata, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    // Link do grupo (!linkgp)
+    if (/^(?:!|\/)(?:linkgp|linkgroup|linkdogrupo)$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleLinkGp(activeSock, from, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Abrir / Fechar grupo (!grupo a / !grupo f)
+    if (/^(?:!|\/)(?:grupo|gp|group)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleGrupoStatus(activeSock, from, parts[0], adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Mudar nome do grupo (!setname <novo nome>)
+    if (/^(?:!|\/)(?:setname|mudarnome)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const newName = text.replace(/^(?:!|\/)(?:setname|mudarnome)\s*/i, '').trim();
+      return spyFeatures.handleSetName(activeSock, from, newName, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Mudar descrição do grupo (!setdesc <nova desc>)
+    if (/^(?:!|\/)(?:setdesc|mudardesc)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const newDesc = text.replace(/^(?:!|\/)(?:setdesc|mudardesc)\s*/i, '').trim();
+      return spyFeatures.handleSetDesc(activeSock, from, newDesc, adminStatus.isRequesterAdmin || isOwnerUser, adminStatus.isBotAdmin);
+    }
+
+    // Regras do grupo (!addregra / !regras)
+    if (/^(?:!|\/)(?:addregra|definirregras)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleAddRegra(activeSock, from, text, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:regras|rules)$/i.test(lower)) {
+      return spyFeatures.handleRegras(activeSock, from);
+    }
+
+    // Bloqueio de comando no grupo (!blockcmd / !unblockcmd / !listblockcmd)
+    if (/^(?:!|\/)(?:blockcmd|bloquearcmd)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleBlockCmd(activeSock, from, parts[0], adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:unblockcmd|desbloquearcmd)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleUnblockCmd(activeSock, from, parts[0], adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:listblockcmd|comandosbloqueados)$/i.test(lower)) {
+      return spyFeatures.handleListBlockCmd(activeSock, from);
+    }
+
+    // Blacklist global (!addblacklist / !delblacklist / !listblacklist)
+    if (/^(?:!|\/)(?:addblacklist|bloquearnumero)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleAddBlacklist(activeSock, from, parts[0], isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:delblacklist|desbloquearnumero)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleDelBlacklist(activeSock, from, parts[0], isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:listblacklist|blacklist)$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleListBlacklist(activeSock, from, isOwnerUser);
+    }
+
+    // Toggles de proteções (!antidoc, !antiloc, !antifig, !antipt, !soadm)
+    if (/^(?:!|\/)(?:antidoc|antidocumento)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleProtectionToggle(activeSock, from, 'antidoc', parts[0], adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:antiloc|antilocalizacao)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleProtectionToggle(activeSock, from, 'antiloc', parts[0], adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:antifig|antisticker)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleProtectionToggle(activeSock, from, 'antifig', parts[0], adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:antipt|antipalavroes)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleProtectionToggle(activeSock, from, 'antipt', parts[0], adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+    if (/^(?:!|\/)(?:soadm|onlyadm|soadmin)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      const parts = text.trim().split(/\s+/).slice(1);
+      return spyFeatures.handleProtectionToggle(activeSock, from, 'soadm', parts[0], adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    // ==========================================
+    // 14.21 CENTRAL ZAPVOICE 2025 (!zapvoice / !funil)
+    // ==========================================
+    if (/^(?:!|\/)(?:zapvoice|zv)$/i.test(lower)) {
+      return this.sendMessage(from, zapVoiceService.formatStatusCard(), {}, activeSock);
+    }
+
+    if (/^(?:!|\/)(?:funil|funnel)(?:\s+.*)?$/i.test(lower)) {
+      const parts = text.trim().split(/\s+/).slice(1);
+      const funnelQuery = parts[0];
+      const targetQuery = parts[1] || from;
+      if (!funnelQuery) {
+        return this.sendMessage(from, `🎙️ *DISPARADOR DE FUNIL ZAPVOICE 2025*\n\n` +
+          `📌 *Uso:* *!funil <id_ou_nome> [telefone_ou_grupo]*\n` +
+          `_Exemplo:_ *!funil 1* ou *!funil 1 5511999998888*\n\n` +
+          `Para ver todos os funis disponíveis, envie: *!zapvoice*`, {}, activeSock);
+      }
+      const res = await zapVoiceService.executeFunnel(activeSock, targetQuery, funnelQuery, { name: senderName });
+      return this.sendMessage(from, res.message, {}, activeSock);
+    }
+
     // 15. Menu Geral de Comandos Spy Bot + Loja: !help / !bot / !comandos / !menu2 / !spy / !spybot / !ajudatudo
     if (/^(?:!|\/)?(?:help|bot|comandos|menu2|spy|spybot|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
@@ -3248,6 +3604,39 @@ class WhatsAppBotService {
       return false;
     }
 
+    // Decoração de Verificado Global (Selo Oficial Verificado estilo Gata Nina & SPY BOT)
+    let finalOptions = { ...options };
+    if (models.isVerificadoGlobal() && !options.noVerificado) {
+      const verifConfig = models.getVerificadoConfig();
+      if (!finalOptions.contextInfo) finalOptions.contextInfo = {};
+      finalOptions.contextInfo.forwardingScore = 999;
+      finalOptions.contextInfo.isForwarded = true;
+      if (verifConfig.show_ad !== false) {
+        finalOptions.contextInfo.externalAdReply = {
+          title: verifConfig.title || 'PayBot Oficial ✓',
+          body: verifConfig.body || 'Canal Oficial Verificado 🟢',
+          mediaType: 1,
+          previewType: 'PHOTO',
+          renderLargerThumbnail: false,
+          showAdAttribution: true,
+          sourceUrl: 'https://whatsapp.com'
+        };
+      }
+      if (!finalOptions.quoted) {
+        finalOptions.quoted = {
+          key: {
+            fromMe: false,
+            participant: '0@s.whatsapp.net',
+            remoteJid: 'status@broadcast',
+            id: 'VERIF_' + Math.random().toString(36).substring(2, 10).toUpperCase()
+          },
+          message: {
+            conversation: '✓ Canal Oficial Verificado'
+          }
+        };
+      }
+    }
+
     try {
       if (typeof sock.sendPresenceUpdate === 'function') {
         await sock.sendPresenceUpdate('composing', targetJid);
@@ -3261,9 +3650,13 @@ class WhatsAppBotService {
 
     try {
       if (typeof text === 'object' && text !== null) {
-        await sock.sendMessage(targetJid, text);
+        const payload = { ...text };
+        if (models.isVerificadoGlobal() && !options.noVerificado && !payload.contextInfo) {
+          payload.contextInfo = finalOptions.contextInfo;
+        }
+        await sock.sendMessage(targetJid, payload, finalOptions);
       } else {
-        await sock.sendMessage(targetJid, { text, ...options });
+        await sock.sendMessage(targetJid, { text, ...finalOptions }, finalOptions);
       }
       return true;
     } catch (err) {

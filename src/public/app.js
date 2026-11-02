@@ -9335,3 +9335,19 @@ function convertCalculationToProposal() {
     scope_description: 'Projeto ' + r.categoryName + ' com complexidade ' + r.complexityName + ' e garantia ' + r.slaName + '.'
   });
 }
+
+
+`
+
+// ==========================================
+// CENTRAL ZAPVOICE 2025 & RECURSOS AVANÇADOS NAZUNA / SPY BOT
+// ==========================================
+
+async function loadZapVoiceOverview() {
+  try {
+    const [resStats, resMsgs, resFuns, resVerif] = await Promise.all([
+      fetch('/api/zapvoice/stats').then(r => r.json()).catch(() => ({ stats: {} })),
+      fetch('/api/zapvoice/messages').then(r => r.json()).catch(() => ({ messages: [] })),
+      fetch('/api/zapvoice/funnels').then(r => r.json()).catch(() => ({ funnels: [] })),
+      fetch('/api/features/verificado-global').then(r => r.json()).catch(() => ({ config: {} }))
+    ])
