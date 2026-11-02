@@ -2585,9 +2585,18 @@ class WhatsAppBotService {
       }
     }
 
-    // 6. Processamento de Linguagem Natural em Português Brasileiro (NLP / NLU PT-BR)
+    // 6. Processamento de Linguagem Natural em Português Brasileiro (NLP / NLU PT-BR) & CRM Cognitivo Hexis
     try {
       const nlpService = require('../services/nlpService');
+      const cognitiveService = require('../services/cognitiveSalesService');
+
+      // Extração de memórias episódicas e perfil cognitivo em conversas privadas
+      if (!isGroup && senderPhone) {
+        try {
+          cognitiveService.analyzeAndExtractProfile(senderPhone, senderName, text);
+        } catch (_) {}
+      }
+
       const nlp = await nlpService.processMessage({
         text,
         customerName: senderName,
@@ -2642,11 +2651,43 @@ class WhatsAppBotService {
           });
         }
         if (nlp.replyText) {
-          return this.sendMessage(from, nlp.replyText, {}, activeSock);
+          let replyToSend = nlp.replyText;
+          if (!isGroup && cognitiveService) {
+            if (['GENERAL_CHAT', 'PRICE_QUERY', 'HOW_IT_WORKS', 'TRUST_AND_GUARANTEE', 'BUY_INTENT', 'GREETING'].includes(nlp.intent)) {
+              try {
+                const consultReply = await cognitiveService.generateConsultativeReply({
+                  phone: senderPhone,
+                  name: senderName,
+                  text,
+                  nlpResult: nlp,
+                  matchedProduct: nlp.entities?.matchedProduct
+                });
+                if (consultReply) replyToSend = consultReply;
+              } catch (_) {}
+            } else {
+              replyToSend = cognitiveService.humanizeResponse(replyToSend);
+            }
+          }
+          return this.sendMessage(from, replyToSend, {}, activeSock);
         }
       }
     } catch (nlpErr) {
       console.error('[WhatsApp NLP Error]:', nlpErr.message);
+    }
+
+    // Fallback Consultivo / Padrão
+    if (!isGroup && senderPhone) {
+      try {
+        const cognitiveService = require('../services/cognitiveSalesService');
+        const consultFallback = await cognitiveService.generateConsultativeReply({
+          phone: senderPhone,
+          name: senderName,
+          text
+        });
+        if (consultFallback) {
+          return this.sendMessage(from, consultFallback, {}, activeSock);
+        }
+      } catch (_) {}
     }
 
     // Fallback

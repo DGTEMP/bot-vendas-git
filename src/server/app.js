@@ -2962,6 +2962,102 @@ function createServer() {
   });
 
   // ==========================================
+  // ROTAS DO CRM COGNITIVO & VENDAS CONSULTIVAS HEXIS
+  // ==========================================
+  app.get('/api/cognitive/overview', (req, res) => {
+    try {
+      const data = models.getCognitiveLeadsOverview();
+      res.json({ success: true, ...data });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/cognitive/leads/:phone', (req, res) => {
+    try {
+      const phone = req.params.phone;
+      const profile = models.getLeadCognitiveProfile(phone);
+      if (!profile) return res.status(404).json({ error: 'Lead não encontrado.' });
+      res.json({ success: true, profile });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/cognitive/leads/:phone', (req, res) => {
+    try {
+      const phone = req.params.phone;
+      const updated = models.upsertLeadCognitiveProfile(phone, req.body);
+      res.json({ success: true, profile: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/cognitive/leads/:phone/belief', (req, res) => {
+    try {
+      const phone = req.params.phone;
+      const { key, value, evidence, confidence } = req.body;
+      if (!key || !value) return res.status(400).json({ error: 'key e value são obrigatórios.' });
+      const beliefs = models.updateLeadBelief(phone, key, value, evidence || '', confidence || 0.8);
+      res.json({ success: true, beliefs });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/cognitive/leads/:phone/memory', (req, res) => {
+    try {
+      const phone = req.params.phone;
+      const { type, summary, excerpt, importance } = req.body;
+      if (!summary) return res.status(400).json({ error: 'summary é obrigatório.' });
+      const mem = models.addLeadEpisodicMemory(phone, type || 'REQUIREMENT', summary, excerpt || '', importance || 3);
+      res.json({ success: true, memory: mem });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/cognitive/leads/:phone/hook', async (req, res) => {
+    try {
+      const phone = req.params.phone;
+      const cognitiveService = require('../services/cognitiveSalesService');
+      const profile = models.getLeadCognitiveProfile(phone);
+      if (!profile) return res.status(404).json({ error: 'Lead não encontrado.' });
+
+      const hookReply = await cognitiveService.generateConsultativeReply({
+        phone,
+        name: profile.name,
+        text: 'Por favor, gere um gancho de follow-up personalizado de alta atenção baseado no histórico.'
+      });
+      res.json({ success: true, hook: hookReply, profile });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/cognitive/heartbeat', async (req, res) => {
+    try {
+      const { dryRun = false, limit = 20 } = req.body;
+      const cognitiveService = require('../services/cognitiveSalesService');
+      const result = await cognitiveService.runAutonomousHeartbeat({ dryRun: Boolean(dryRun), limit: Number(limit) });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/cognitive/leads/:phone', (req, res) => {
+    try {
+      const phone = req.params.phone;
+      models.deleteCognitiveLead(phone);
+      res.json({ success: true, message: `Lead +${phone} e histórico cognitivo excluídos.` });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // BOT DECK: PAINEL DE CONTROLE INTEGRAL DE TODOS OS BOTS
   // ==========================================
 // ==========================================
@@ -3669,6 +3765,24 @@ function createServer() {
             models.resetArmyInstancesQuota();
             resultMsg = `Cota diária de TODOS os Sub-Bots foi resetada com sucesso para 0 envios.`;
           }
+          break;
+        }
+
+        case 'RUN_COGNITIVE_HEARTBEAT': {
+          const cognitiveService = require('../services/cognitiveSalesService');
+          const hbResult = await cognitiveService.runAutonomousHeartbeat({ dryRun: false, limit: 15 });
+          resultMsg = `Heartbeat Cognitivo executado! ${hbResult.processed} leads processados para follow-up ("Earning Attention").`;
+          break;
+        }
+
+        case 'COGNITIVE_UPDATE_STAGE': {
+          const { phone, stage, readiness } = payload;
+          if (!phone || !stage) throw new Error('Telefone e novo estágio são obrigatórios.');
+          models.upsertLeadCognitiveProfile(phone, {
+            buying_stage: stage,
+            readiness_score: readiness !== undefined ? Number(readiness) : undefined
+          });
+          resultMsg = `Estágio do lead +${phone} atualizado para ${stage}${readiness !== undefined ? ` (${readiness}%)` : ''}!`;
           break;
         }
 

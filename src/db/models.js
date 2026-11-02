@@ -3697,7 +3697,183 @@ const models = {
       },
       bots
     };
+  },
+
+  // ==========================================
+  // 35. HEXIS CONSULTATIVE SALES INTELLIGENCE & EPISODIC CRM
+  // ==========================================
+  getLeadCognitiveProfile(phone) {
+    if (!phone) return null;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const profile = db.prepare('SELECT * FROM lead_cognitive_profiles WHERE phone = ?').get(cleanPhone);
+    if (!profile) return null;
+    profile.beliefs = models.getLeadBeliefs(cleanPhone);
+    profile.memories = models.getLeadEpisodicMemories(cleanPhone, 15);
+    return profile;
+  },
+
+  upsertLeadCognitiveProfile(phone, data = {}) {
+    if (!phone) return null;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const existing = db.prepare('SELECT * FROM lead_cognitive_profiles WHERE phone = ?').get(cleanPhone);
+
+    const now = new Date().toISOString();
+    if (!existing) {
+      db.prepare(`
+        INSERT INTO lead_cognitive_profiles (
+          phone, name, company_niche, project_scope, tech_stack,
+          budget_tier, budget_confidence, buying_stage, readiness_score,
+          main_objection, objection_confidence, last_quote_amount, last_quote_details,
+          next_followup_at, followup_count, notes, last_interaction_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        cleanPhone,
+        data.name || 'Lead WhatsApp',
+        data.company_niche || 'Geral / Tech',
+        data.project_scope || 'Software & Soluções Digitais',
+        data.tech_stack || 'Node.js, Web, Automações',
+        data.budget_tier || 'MEDIO',
+        data.budget_confidence !== undefined ? Number(data.budget_confidence) : 0.5,
+        data.buying_stage || 'DESCOBERTA',
+        data.readiness_score !== undefined ? Number(data.readiness_score) : 30,
+        data.main_objection || 'NENHUMA',
+        data.objection_confidence !== undefined ? Number(data.objection_confidence) : 0.0,
+        data.last_quote_amount !== undefined ? Number(data.last_quote_amount) : 0,
+        data.last_quote_details ?? null,
+        data.next_followup_at ?? null,
+        data.followup_count ?? 0,
+        data.notes ?? '',
+        now,
+        now
+      );
+    } else {
+      const updated = {
+        name: data.name ?? existing.name ?? 'Lead WhatsApp',
+        company_niche: data.company_niche ?? existing.company_niche ?? 'Geral / Tech',
+        project_scope: data.project_scope ?? existing.project_scope ?? 'Software & Soluções Digitais',
+        tech_stack: data.tech_stack ?? existing.tech_stack ?? 'Node.js, Web, Automações',
+        budget_tier: data.budget_tier ?? existing.budget_tier ?? 'MEDIO',
+        budget_confidence: data.budget_confidence !== undefined ? Number(data.budget_confidence) : (existing.budget_confidence ?? 0.5),
+        buying_stage: data.buying_stage ?? existing.buying_stage ?? 'DESCOBERTA',
+        readiness_score: data.readiness_score !== undefined ? Number(data.readiness_score) : (existing.readiness_score ?? 30),
+        main_objection: data.main_objection ?? existing.main_objection ?? 'NENHUMA',
+        objection_confidence: data.objection_confidence !== undefined ? Number(data.objection_confidence) : (existing.objection_confidence ?? 0.0),
+        last_quote_amount: data.last_quote_amount !== undefined ? Number(data.last_quote_amount) : (existing.last_quote_amount ?? 0),
+        last_quote_details: data.last_quote_details ?? existing.last_quote_details ?? null,
+        next_followup_at: data.next_followup_at ?? existing.next_followup_at ?? null,
+        followup_count: data.followup_count !== undefined ? Number(data.followup_count) : (existing.followup_count ?? 0),
+        notes: data.notes ?? existing.notes ?? ''
+      };
+
+      db.prepare(`
+        UPDATE lead_cognitive_profiles SET
+          name = ?, company_niche = ?, project_scope = ?, tech_stack = ?,
+          budget_tier = ?, budget_confidence = ?, buying_stage = ?, readiness_score = ?,
+          main_objection = ?, objection_confidence = ?, last_quote_amount = ?, last_quote_details = ?,
+          next_followup_at = ?, followup_count = ?, notes = ?, last_interaction_at = ?, updated_at = ?
+        WHERE phone = ?
+      `).run(
+        updated.name, updated.company_niche, updated.project_scope, updated.tech_stack,
+        updated.budget_tier, updated.budget_confidence, updated.buying_stage, updated.readiness_score,
+        updated.main_objection, updated.objection_confidence, updated.last_quote_amount, updated.last_quote_details,
+        updated.next_followup_at, updated.followup_count, updated.notes, now, now,
+        cleanPhone
+      );
+    }
+    return models.getLeadCognitiveProfile(cleanPhone);
+  },
+
+  updateLeadBelief(phone, key, value, evidence = '', confidence = 0.5) {
+    if (!phone || !key) return null;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const conf = Math.max(0.0, Math.min(1.0, Number(confidence) || 0.5));
+    db.prepare(`
+      INSERT INTO lead_cognitive_beliefs (lead_phone, belief_key, belief_value, evidence_text, confidence, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(lead_phone, belief_key) DO UPDATE SET
+        belief_value = excluded.belief_value,
+        evidence_text = excluded.evidence_text,
+        confidence = excluded.confidence,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(cleanPhone, key, String(value), String(evidence || ''), conf);
+    return models.getLeadBeliefs(cleanPhone);
+  },
+
+  getLeadBeliefs(phone) {
+    if (!phone) return [];
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    return db.prepare('SELECT * FROM lead_cognitive_beliefs WHERE lead_phone = ? ORDER BY confidence DESC').all(cleanPhone);
+  },
+
+  addLeadEpisodicMemory(phone, memoryType, factSummary, rawExcerpt = '', importance = 3) {
+    if (!phone || !factSummary) return null;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const imp = Math.max(1, Math.min(5, parseInt(importance, 10) || 3));
+    const res = db.prepare(`
+      INSERT INTO lead_episodic_memories (lead_phone, memory_type, fact_summary, raw_excerpt, importance)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(cleanPhone, memoryType || 'REQUIREMENT', factSummary, rawExcerpt || '', imp);
+    return { id: Number(res.lastInsertRowid), phone: cleanPhone, memoryType, factSummary, importance: imp };
+  },
+
+  getLeadEpisodicMemories(phone, limit = 20) {
+    if (!phone) return [];
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    return db.prepare('SELECT * FROM lead_episodic_memories WHERE lead_phone = ? ORDER BY created_at DESC LIMIT ?').all(cleanPhone, limit);
+  },
+
+  getLeadsPendingFollowup(limit = 20) {
+    return db.prepare(`
+      SELECT * FROM lead_cognitive_profiles
+      WHERE (next_followup_at IS NOT NULL AND datetime(next_followup_at) <= datetime('now'))
+         OR (buying_stage IN ('PROPOSTA', 'QUALIFICACAO', 'OBJECOES') AND datetime(last_interaction_at) <= datetime('now', '-24 hours'))
+      ORDER BY readiness_score DESC, next_followup_at ASC
+      LIMIT ?
+    `).all(limit);
+  },
+
+  getCognitiveLeadsOverview() {
+    const leads = db.prepare('SELECT * FROM lead_cognitive_profiles ORDER BY readiness_score DESC, updated_at DESC').all();
+    for (const lead of leads) {
+      lead.beliefs = models.getLeadBeliefs(lead.phone);
+      lead.memories_count = db.prepare('SELECT COUNT(*) as count FROM lead_episodic_memories WHERE lead_phone = ?').get(lead.phone)?.count || 0;
+    }
+
+    const stageSummary = {
+      DESCOBERTA: leads.filter(l => l.buying_stage === 'DESCOBERTA').length,
+      QUALIFICACAO: leads.filter(l => l.buying_stage === 'QUALIFICACAO').length,
+      PROPOSTA: leads.filter(l => l.buying_stage === 'PROPOSTA').length,
+      OBJECOES: leads.filter(l => l.buying_stage === 'OBJECOES').length,
+      FECHAMENTO: leads.filter(l => l.buying_stage === 'FECHAMENTO').length,
+      CONVERTIDO: leads.filter(l => l.buying_stage === 'CONVERTIDO').length,
+      PERDIDO: leads.filter(l => l.buying_stage === 'PERDIDO').length
+    };
+
+    const avgReadiness = leads.length > 0 ? Math.round(leads.reduce((a, b) => a + (b.readiness_score || 0), 0) / leads.length) : 0;
+    const highIntentCount = leads.filter(l => (l.readiness_score || 0) >= 70).length;
+    const totalPipelineValue = leads
+      .filter(l => l.buying_stage !== 'PERDIDO')
+      .reduce((a, b) => a + (Number(b.last_quote_amount) || (b.budget_tier === 'CORPORATIVO' ? 15000 : (b.budget_tier === 'ALTO' ? 7500 : (b.budget_tier === 'MEDIO' ? 3500 : 1200)))), 0);
+
+    return {
+      total_leads: leads.length,
+      avg_readiness: avgReadiness,
+      high_intent_count: highIntentCount,
+      total_pipeline_value: totalPipelineValue,
+      stages: stageSummary,
+      leads
+    };
+  },
+
+  deleteCognitiveLead(phone) {
+    if (!phone) return false;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    db.prepare('DELETE FROM lead_cognitive_beliefs WHERE lead_phone = ?').run(cleanPhone);
+    db.prepare('DELETE FROM lead_episodic_memories WHERE lead_phone = ?').run(cleanPhone);
+    db.prepare('DELETE FROM lead_cognitive_profiles WHERE phone = ?').run(cleanPhone);
+    return true;
   }
+
 };
 
 module.exports = models;

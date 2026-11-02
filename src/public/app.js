@@ -89,6 +89,7 @@ function switchTab(tabName) {
   if (tabName === 'viral') loadViralRadarAll();
   if (tabName === 'social') loadSocialData();
   if (tabName === 'nlp') loadNlpData();
+  if (tabName === 'cognitive') loadCognitiveOverview();
   if (tabName === 'notices') loadNotices();
 }
 
@@ -97,6 +98,7 @@ async function loadAllData() {
   await Promise.all([
     loadMetrics(),
     loadWhatsAppStatus(),
+    loadCognitiveOverview(),
     loadCompanies(),
     loadProducts(),
     loadOrders(),
@@ -8295,5 +8297,431 @@ async function toggleBotPause(instanceId, currentStatus) {
     loadBotDeckTelemetry(false);
   } catch (err) {
     showBotToast('Erro', err.message, 'error');
+  }
+}
+
+
+// ==========================================
+// CENTRAL DE INTELIGENCIA CONSULTIVA & CRM COGNITIVO (HEXIS)
+// ==========================================
+let currentCognitiveData = null;
+let currentViewingCogPhone = null;
+
+async function loadCognitiveOverview() {
+  try {
+    const res = await fetch('/api/cognitive/overview');
+    const data = await res.json();
+    if (!data.success) return;
+    currentCognitiveData = data;
+
+    // Métricas Top Cards
+    const elTotal = document.getElementById('cogStatTotalLeads');
+    const elAvg = document.getElementById('cogStatAvgReadiness');
+    const elHigh = document.getElementById('cogStatHighIntent');
+    const elPipe = document.getElementById('cogStatPipeline');
+
+    if (elTotal) elTotal.innerText = data.total_leads || 0;
+    if (elAvg) elAvg.innerText = (data.avg_readiness || 0) + '%';
+    if (elHigh) elHigh.innerText = data.high_intent_count || 0;
+    if (elPipe) elPipe.innerText = (data.total_pipeline_value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    // Funil Pills
+    renderCognitiveStagePills(data.stages || {});
+
+    // Tabela de Leads
+    renderCognitiveLeadsTable(data.leads || []);
+  } catch (err) {
+    console.error('Erro ao carregar CRM cognitivo:', err);
+  }
+}
+
+function renderCognitiveStagePills(stages) {
+  const container = document.getElementById('cogStagePills');
+  if (!container) return;
+
+  const stageDefs = [
+    { key: 'DESCOBERTA', label: '1. Descoberta', color: '#94a3b8' },
+    { key: 'QUALIFICACAO', label: '2. Qualificação', color: '#38bdf8' },
+    { key: 'PROPOSTA', label: '3. Proposta', color: '#f59e0b' },
+    { key: 'OBJECOES', label: '4. Objeções', color: '#ec4899' },
+    { key: 'FECHAMENTO', label: '5. Fechamento', color: '#a855f7' },
+    { key: 'CONVERTIDO', label: '6. Convertido', color: '#10b981' },
+    { key: 'PERDIDO', label: '7. Perdido', color: '#ef4444' }
+  ];
+
+  container.innerHTML = stageDefs.map(s => {
+    const count = stages[s.key] || 0;
+    return '<div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-left: 3px solid ' + s.color + '; border-radius: 6px; padding: 10px 12px;">' +
+      '<span style="font-size: 11px; color: var(--text-muted); display: block;">' + s.label + '</span>' +
+      '<div style="font-size: 18px; font-weight: 800; color: ' + s.color + '; margin-top: 2px;">' + count + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderCognitiveLeadsTable(leads) {
+  const tbody = document.getElementById('tableCognitiveLeadsBody');
+  if (!tbody) return;
+
+  if (!leads || leads.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 30px; color: var(--text-muted);">Nenhum lead com perfil cognitivo registrado ainda. Envie uma mensagem no WhatsApp para ver a extração em tempo real!</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = leads.map(lead => {
+    const budgetBadgeClass = lead.budget_tier === 'CORPORATIVO' ? 'badge-primary' : (lead.budget_tier === 'ALTO' ? 'badge-paid' : 'badge-pending');
+    const score = Math.max(0, Math.min(100, lead.readiness_score || 30));
+    const scoreColor = score >= 75 ? '#10b981' : (score >= 50 ? '#38bdf8' : '#f59e0b');
+
+    const objectionLabel = {
+      'PRECO': '💰 Preço / Verba',
+      'PRAZO': '⏱️ Prazo de Entrega',
+      'CONFIANCA_GARANTIA': '🛡️ Garantia / SLA',
+      'DECISOR': '👥 Sócio / Comitê',
+      'COMPLEXIDADE': '⚙️ Complexidade',
+      'NENHUMA': '✅ Sem Objeções'
+    }[lead.main_objection] || (lead.main_objection || 'Nenhuma');
+
+    return '<tr>' +
+      '<td>' +
+        '<div style="font-weight: 700; color: #fff;">' + (lead.name || 'Lead WhatsApp') + '</div>' +
+        '<div style="font-size: 11px; color: var(--text-muted); font-family: monospace;">+' + lead.phone + '</div>' +
+      '</td>' +
+      '<td>' +
+        '<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px;">' +
+          (lead.company_niche || 'Geral Tech') +
+        '</span>' +
+      '</td>' +
+      '<td style="max-width: 220px; font-size: 12px; color: #cbd5e1;">' +
+        '<div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + (lead.project_scope || '') + '">' +
+          (lead.project_scope || 'Software sob medida') +
+        '</div>' +
+        '<div style="font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' +
+          'Stack: ' + (lead.tech_stack || 'Node.js, Web') +
+        '</div>' +
+      '</td>' +
+      '<td>' +
+        '<span class="badge ' + budgetBadgeClass + '" style="font-size: 11px;">' +
+          lead.budget_tier + ' (' + (((lead.budget_confidence || 0.5) * 100).toFixed(0)) + '%)' +
+        '</span>' +
+      '</td>' +
+      '<td>' +
+        '<span style="font-size: 11px; font-weight: 600; color: ' + (lead.main_objection === 'NENHUMA' ? '#10b981' : '#ec4899') + ';">' +
+          objectionLabel +
+        '</span>' +
+      '</td>' +
+      '<td style="min-width: 140px;">' +
+        '<div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px;">' +
+          '<span style="color: ' + scoreColor + '; font-weight: 700;">' + score + '%</span>' +
+          '<span style="color: var(--text-muted); font-size: 10px;">' + (score >= 70 ? 'Pronto' : 'Aquecendo') + '</span>' +
+        '</div>' +
+        '<div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">' +
+          '<div style="width: ' + score + '%; height: 100%; background: ' + scoreColor + '; border-radius: 3px;"></div>' +
+        '</div>' +
+      '</td>' +
+      '<td>' +
+        '<select class="form-control form-control-sm" style="font-size: 11px; padding: 4px 6px; height: auto;" onchange="updateLeadBuyingStage(\'' + lead.phone + '\', this.value)">' +
+          '<option value="DESCOBERTA" ' + (lead.buying_stage === 'DESCOBERTA' ? 'selected' : '') + '>Descoberta</option>' +
+          '<option value="QUALIFICACAO" ' + (lead.buying_stage === 'QUALIFICACAO' ? 'selected' : '') + '>Qualificação</option>' +
+          '<option value="PROPOSTA" ' + (lead.buying_stage === 'PROPOSTA' ? 'selected' : '') + '>Proposta</option>' +
+          '<option value="OBJECOES" ' + (lead.buying_stage === 'OBJECOES' ? 'selected' : '') + '>Objeções</option>' +
+          '<option value="FECHAMENTO" ' + (lead.buying_stage === 'FECHAMENTO' ? 'selected' : '') + '>Fechamento</option>' +
+          '<option value="CONVERTIDO" ' + (lead.buying_stage === 'CONVERTIDO' ? 'selected' : '') + '>Convertido</option>' +
+          '<option value="PERDIDO" ' + (lead.buying_stage === 'PERDIDO' ? 'selected' : '') + '>Perdido</option>' +
+        '</select>' +
+      '</td>' +
+      '<td style="text-align: center; white-space: nowrap;">' +
+        '<button class="btn btn-sm btn-primary" onclick="openCognitiveModal(\'' + lead.phone + '\')" title="Inspecionar crenças, memórias e histórico" style="padding: 4px 8px; font-size: 11px; background: #a855f7; border-color: #a855f7;">' +
+          '<i class="fa-solid fa-brain"></i> Inspecionar' +
+        '</button> ' +
+        '<button class="btn btn-sm btn-secondary" onclick="openCognitiveModal(\'' + lead.phone + '\', true)" title="Gerar gancho de follow-up" style="padding: 4px 8px; font-size: 11px;">' +
+          '<i class="fa-solid fa-bolt"></i> Gancho' +
+        '</button> ' +
+        '<button class="btn btn-sm btn-danger" onclick="deleteCognitiveLead(\'' + lead.phone + '\')" title="Excluir lead" style="padding: 4px 8px; font-size: 11px;">' +
+          '<i class="fa-solid fa-trash-can"></i>' +
+        '</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function filterCognitiveTable() {
+  const query = (document.getElementById('cogSearchInput')?.value || '').toLowerCase().trim();
+  if (!currentCognitiveData || !currentCognitiveData.leads) return;
+  const filtered = currentCognitiveData.leads.filter(l => {
+    return (l.name || '').toLowerCase().includes(query) ||
+      (l.phone || '').includes(query) ||
+      (l.company_niche || '').toLowerCase().includes(query) ||
+      (l.project_scope || '').toLowerCase().includes(query);
+  });
+  renderCognitiveLeadsTable(filtered);
+}
+
+async function updateLeadBuyingStage(phone, newStage) {
+  try {
+    const res = await fetch('/api/cognitive/leads/' + phone, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ buying_stage: newStage })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao atualizar');
+    showBotToast('Estágio Atualizado', 'Lead +' + phone + ' alterado para ' + newStage, 'info');
+    loadCognitiveOverview();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+async function deleteCognitiveLead(phone) {
+  if (!confirm('Deseja realmente excluir o lead +' + phone + ' e todas as suas memórias cognitivas?')) return;
+  try {
+    const res = await fetch('/api/cognitive/leads/' + phone, { method: 'DELETE' });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao excluir');
+    showBotToast('Lead Removido', 'Lead +' + phone + ' removido com sucesso.', 'info');
+    loadCognitiveOverview();
+  } catch (err) {
+    showBotToast('Erro ao Excluir', err.message, 'error');
+  }
+}
+
+async function openCognitiveModal(phone, autoGenerateHook) {
+  currentViewingCogPhone = phone;
+  const modal = document.getElementById('modalCognitiveLead');
+  if (!modal) return;
+  modal.classList.add('active');
+
+  const containerDetails = document.getElementById('cogModalHeaderDetails');
+  const beliefsBody = document.getElementById('tableCogBeliefsBody');
+  const timeline = document.getElementById('cogMemoriesTimeline');
+  const hookPreview = document.getElementById('cogHookPreview');
+  const btnCopy = document.getElementById('btnCopyHook');
+  const btnSend = document.getElementById('btnSendHook');
+
+  if (hookPreview) hookPreview.value = '';
+  if (btnCopy) btnCopy.style.display = 'none';
+  if (btnSend) btnSend.style.display = 'none';
+
+  if (containerDetails) containerDetails.innerHTML = '<div class="text-center"><i class="fa-solid fa-spinner fa-spin"></i> Carregando perfil cognitivo...</div>';
+  if (beliefsBody) beliefsBody.innerHTML = '<tr><td colspan="4" class="text-center">Carregando crenças...</td></tr>';
+  if (timeline) timeline.innerHTML = '<div class="text-center">Carregando memórias...</div>';
+
+  try {
+    const res = await fetch('/api/cognitive/leads/' + phone);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Lead não encontrado');
+    const p = data.profile;
+
+    document.getElementById('modalCogLeadTitle').innerHTML = '<i class="fa-solid fa-brain-circuit"></i> Perfil Cognitivo: ' + (p.name || 'Lead') + ' (+' + p.phone + ')';
+
+    if (containerDetails) {
+      containerDetails.innerHTML = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">' +
+        '<div><b style="color:var(--text-muted); font-size:11px;">NICHO:</b><br><span style="color:#38bdf8; font-weight:700;">' + (p.company_niche || 'Geral') + '</span></div>' +
+        '<div><b style="color:var(--text-muted); font-size:11px;">ESCOPO:</b><br><span style="color:#fff;">' + (p.project_scope || 'Software sob medida') + '</span></div>' +
+        '<div><b style="color:var(--text-muted); font-size:11px;">ORÇAMENTO:</b><br><span style="color:#fbbf24; font-weight:700;">' + p.budget_tier + ' (' + (((p.budget_confidence || 0.5) * 100).toFixed(0)) + '%)</span></div>' +
+        '<div><b style="color:var(--text-muted); font-size:11px;">OBJEÇÃO:</b><br><span style="color:#ec4899; font-weight:700;">' + (p.main_objection || 'Nenhuma') + '</span></div>' +
+        '<div><b style="color:var(--text-muted); font-size:11px;">READINESS:</b><br><span style="color:#10b981; font-weight:800;">' + (p.readiness_score || 30) + '% de Fechamento</span></div>' +
+        '<div><b style="color:var(--text-muted); font-size:11px;">ESTÁGIO:</b><br><span class="badge badge-paid">' + (p.buying_stage || 'DESCOBERTA') + '</span></div>' +
+      '</div>' +
+      (p.notes ? '<div style="margin-top:10px; padding-top:8px; border-top:1px dashed var(--border-color); font-size:12px; color:var(--text-muted);"><b>Notas:</b> ' + p.notes + '</div>' : '');
+    }
+
+    // Render Crenças
+    if (beliefsBody) {
+      if (!p.beliefs || p.beliefs.length === 0) {
+        beliefsBody.innerHTML = '<tr><td colspan="4" class="text-center" style="padding:15px; color:var(--text-muted);">Nenhuma crença auditada cadastrada.</td></tr>';
+      } else {
+        beliefsBody.innerHTML = p.beliefs.map(b => '<tr>' +
+          '<td style="font-family:monospace; color:#38bdf8;">' + b.belief_key + '</td>' +
+          '<td style="font-weight:600; color:#fff;">' + b.belief_value + '</td>' +
+          '<td style="color:var(--text-muted); font-size:11px; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="' + (b.evidence_text || '') + '">' + (b.evidence_text || '-') + '</td>' +
+          '<td><span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8;">' + (((b.confidence || 0.5) * 100).toFixed(0)) + '%</span></td>' +
+        '</tr>').join('');
+      }
+    }
+
+    // Render Memórias
+    if (timeline) {
+      if (!p.memories || p.memories.length === 0) {
+        timeline.innerHTML = '<div style="text-align:center; padding:15px; color:var(--text-muted);">Nenhuma memória episódica registrada ainda.</div>';
+      } else {
+        const typeColors = {
+          'REQUIREMENT': '#38bdf8',
+          'BUDGET': '#fbbf24',
+          'OBJECTION': '#ec4899',
+          'QUOTE': '#a855f7',
+          'AGREEMENT': '#10b981',
+          'TIMELINE': '#f97316',
+          'FEEDBACK': '#94a3b8'
+        };
+        timeline.innerHTML = p.memories.map(m => {
+          const col = typeColors[m.memory_type] || '#fff';
+          return '<div style="background:rgba(255,255,255,0.02); border-left:3px solid ' + col + '; border-radius:4px; padding:8px 12px;">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+              '<span style="font-size:10px; font-weight:700; color:' + col + '; text-transform:uppercase;">[' + m.memory_type + ']</span>' +
+              '<span style="font-size:10px; color:var(--text-muted);">' + new Date(m.created_at).toLocaleString('pt-BR') + '</span>' +
+            '</div>' +
+            '<div style="font-size:12px; color:#fff; margin-top:2px;">' + m.fact_summary + '</div>' +
+            (m.raw_excerpt ? '<div style="font-size:11px; color:var(--text-muted); font-style:italic; margin-top:2px;">"' + m.raw_excerpt + '"</div>' : '') +
+          '</div>';
+        }).join('');
+      }
+    }
+
+    if (autoGenerateHook) {
+      generateAttentionHookForLead();
+    }
+  } catch (err) {
+    if (containerDetails) containerDetails.innerHTML = '<div class="text-danger">Erro: ' + err.message + '</div>';
+  }
+}
+
+function closeCognitiveModal() {
+  const modal = document.getElementById('modalCognitiveLead');
+  if (modal) modal.classList.remove('active');
+  currentViewingCogPhone = null;
+}
+
+function toggleAddBeliefBox() {
+  const box = document.getElementById('cogAddBeliefBox');
+  if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveNewLeadBelief() {
+  if (!currentViewingCogPhone) return;
+  const key = document.getElementById('newBeliefKey')?.value?.trim();
+  const value = document.getElementById('newBeliefVal')?.value?.trim();
+  const confidence = parseFloat(document.getElementById('newBeliefConf')?.value || '0.85');
+  const evidence = document.getElementById('newBeliefEvidence')?.value?.trim();
+
+  if (!key || !value) {
+    alert('Preencha a chave e o valor da crença.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/cognitive/leads/' + currentViewingCogPhone + '/belief', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value, confidence, evidence })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao salvar crença');
+    showBotToast('Crença Salva', 'Crença ' + key + ' adicionada ao lead.', 'success');
+    toggleAddBeliefBox();
+    openCognitiveModal(currentViewingCogPhone);
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+function toggleAddMemoryBox() {
+  const box = document.getElementById('cogAddMemoryBox');
+  if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveNewLeadMemory() {
+  if (!currentViewingCogPhone) return;
+  const type = document.getElementById('newMemType')?.value;
+  const summary = document.getElementById('newMemSummary')?.value?.trim();
+
+  if (!summary) {
+    alert('Preencha o resumo do fato para registrar a memória.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/cognitive/leads/' + currentViewingCogPhone + '/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, summary, importance: 4 })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao salvar memória');
+    showBotToast('Memória Gravada', 'Fato episódico registrado com sucesso.', 'success');
+    toggleAddMemoryBox();
+    openCognitiveModal(currentViewingCogPhone);
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+async function generateAttentionHookForLead() {
+  if (!currentViewingCogPhone) return;
+  const hookPreview = document.getElementById('cogHookPreview');
+  const btnCopy = document.getElementById('btnCopyHook');
+  const btnSend = document.getElementById('btnSendHook');
+
+  if (hookPreview) hookPreview.value = 'Sintetizando histórico e gerando gancho de alta atenção...';
+  try {
+    const res = await fetch('/api/cognitive/leads/' + currentViewingCogPhone + '/hook', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao gerar gancho');
+    if (hookPreview) hookPreview.value = data.hook || '';
+    if (btnCopy) btnCopy.style.display = 'inline-block';
+    if (btnSend) btnSend.style.display = 'inline-block';
+  } catch (err) {
+    if (hookPreview) hookPreview.value = 'Erro: ' + err.message;
+  }
+}
+
+function copyHookMessage() {
+  const hookPreview = document.getElementById('cogHookPreview');
+  if (!hookPreview || !hookPreview.value) return;
+  navigator.clipboard.writeText(hookPreview.value);
+  showBotToast('Copiado', 'Gancho de follow-up copiado para a área de transferência!', 'success');
+}
+
+async function sendHookViaWhatsApp() {
+  if (!currentViewingCogPhone) return;
+  const hookPreview = document.getElementById('cogHookPreview');
+  const msg = hookPreview?.value?.trim();
+  if (!msg) return;
+
+  if (!confirm('Enviar este gancho de follow-up agora para +' + currentViewingCogPhone + ' via WhatsApp?')) return;
+
+  try {
+    const res = await fetch('/api/botdeck/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'SEND_MESSAGE',
+        payload: { target: currentViewingCogPhone, message: msg }
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha no envio');
+    showBotToast('Gancho Disparado', 'Mensagem enviada com sucesso para +' + currentViewingCogPhone + '!', 'success');
+    closeCognitiveModal();
+    loadCognitiveOverview();
+  } catch (err) {
+    showBotToast('Erro no Envio', err.message, 'error');
+  }
+}
+
+async function runCognitiveHeartbeat() {
+  if (!confirm('Deseja acionar a varredura autônoma do Heartbeat para todos os leads que precisam de follow-up?')) return;
+  try {
+    const res = await fetch('/api/cognitive/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: false, limit: 15 })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha no Heartbeat');
+    showBotToast('Heartbeat Concluído', data.processed + ' leads processados e cronogramas de atenção atualizados!', 'success');
+    loadCognitiveOverview();
+  } catch (err) {
+    showBotToast('Erro no Heartbeat', err.message, 'error');
+  }
+}
+
+
+function executeBotDeckCognitiveAction() {
+  const act = document.getElementById('botdeckCogAction')?.value;
+  if (act === 'inspect') {
+    switchTab('cognitive');
+  } else {
+    runCognitiveHeartbeat();
   }
 }

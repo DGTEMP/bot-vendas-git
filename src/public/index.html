@@ -65,6 +65,9 @@
         <a href="#" class="nav-item" data-tab="viral">
           <i class="fa-solid fa-fire" style="color: #ef4444;"></i> Radar Viral &amp; Posts IA
         </a>
+        <a href="#" class="nav-item" data-tab="cognitive" style="color: #a855f7; font-weight: 700;">
+          <i class="fa-solid fa-brain-circuit" style="color: #a855f7;"></i> CRM Cognitivo &amp; Hexis
+        </a>
         <a href="#" class="nav-item" data-tab="nlp">
           <i class="fa-solid fa-brain" style="color: #38bdf8;"></i> Linguagem Natural (NLP)
         </a>
@@ -664,10 +667,35 @@
             <button class="botdeck-tab-btn" onclick="filterBotDeck('meteoro', this)"><i class="fa-solid fa-meteor"></i> Lançamento Meteórico</button>
             <button class="botdeck-tab-btn" onclick="filterBotDeck('vendas', this)"><i class="fa-solid fa-cart-shopping"></i> Vendas &amp; Cupons</button>
             <button class="botdeck-tab-btn" onclick="filterBotDeck('subbots', this)"><i class="fa-solid fa-robot"></i> Chips &amp; Infra</button>
+            <button class="botdeck-tab-btn" onclick="filterBotDeck('cognitive', this)" style="color: #c084fc;"><i class="fa-solid fa-brain-circuit"></i> Hexis &amp; CRM</button>
           </div>
 
           <!-- Grid of Operational Cards -->
           <div class="botdeck-grid">
+            <!-- CARD COGNITIVO: CRM Cognitivo & Follow-up Hexis -->
+            <div class="card botdeck-card" data-category="cognitive">
+              <div class="botdeck-card-header">
+                <div class="botdeck-card-icon" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;"><i class="fa-solid fa-brain-circuit"></i></div>
+                <div>
+                  <h4>CRM Cognitivo &amp; Follow-Up Hexis</h4>
+                  <span class="botdeck-card-badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc;">Inteligência Consultiva</span>
+                </div>
+              </div>
+              <p class="botdeck-card-desc">Execute varredura autônoma de follow-up ("Earning Attention") com base nas crenças e memórias episódicas de cada lead.</p>
+              <div class="botdeck-form">
+                <div class="botdeck-form-group">
+                  <label>Ação Cognitiva Rápida</label>
+                  <select id="botdeckCogAction" class="botdeck-input">
+                    <option value="heartbeat">Executar Heartbeat de Atenção (Todos os Leads Pendentes)</option>
+                    <option value="inspect">Abrir Central Completa de CRM Cognitivo</option>
+                  </select>
+                </div>
+                <button type="button" class="btn btn-primary btn-block" style="background: #a855f7; border-color: #a855f7; font-weight: 700;" onclick="executeBotDeckCognitiveAction()">
+                  <i class="fa-solid fa-bolt"></i> Executar Ação Cognitiva
+                </button>
+              </div>
+            </div>
+
 
             <!-- CARD 1: Enviar Mensagem Direta -->
             <div class="card botdeck-card" data-category="mensagens">
@@ -4276,6 +4304,121 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
           </div>
         </section>
 
+        <!-- TAB 19: CENTRAL DE INTELIGENCIA CONSULTIVA & CRM COGNITIVO (HEXIS) -->
+        <section id="tab-cognitive" class="tab-pane">
+          <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px;">
+            <div>
+              <h2 style="display: flex; align-items: center; gap: 10px; margin: 0; color: #fff;">
+                <i class="fa-solid fa-brain-circuit" style="color: #a855f7;"></i>
+                Central de Inteligência Consultiva &amp; CRM Cognitivo
+                <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-size: 11px; font-weight: 700; border: 1px solid rgba(168, 85, 247, 0.4);">Hexis Architecture</span>
+              </h2>
+              <p class="section-desc" style="margin-top: 6px; margin-bottom: 0;">
+                Memória episódica por contato, sistema de crenças baseado em evidências, motor anti-voz de robô e follow-up autônomo (Earning Attention) para fechamento de softwares sob medida, IA, aplicativos e serviços de alto ticket.
+              </p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <button class="btn btn-primary" onclick="runCognitiveHeartbeat()" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; font-weight: 700;">
+                <i class="fa-solid fa-heart-pulse"></i> Executar Heartbeat Follow-Up
+              </button>
+              <button class="btn btn-secondary" onclick="loadCognitiveOverview()">
+                <i class="fa-solid fa-rotate"></i> Atualizar
+              </button>
+            </div>
+          </div>
+
+          <!-- METRICAS COGNITIVAS CONSOLIDADAS -->
+          <div class="stats-grid" style="margin-bottom: 24px;">
+            <div class="stat-card" style="border-top: 3px solid #a855f7;">
+              <div class="stat-icon purple"><i class="fa-solid fa-users-viewfinder"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Leads Cognitivos</span>
+                <h3 id="cogStatTotalLeads">0</h3>
+                <small style="color: #c084fc;">Perfis monitorados</small>
+              </div>
+            </div>
+
+            <div class="stat-card" style="border-top: 3px solid #3b82f6;">
+              <div class="stat-icon blue"><i class="fa-solid fa-gauge-high"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Prontidão Média</span>
+                <h3 id="cogStatAvgReadiness">0%</h3>
+                <small style="color: #60a5fa;">Readiness de fechamento</small>
+              </div>
+            </div>
+
+            <div class="stat-card" style="border-top: 3px solid #10b981;">
+              <div class="stat-icon green"><i class="fa-solid fa-fire"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Alta Intenção</span>
+                <h3 id="cogStatHighIntent">0</h3>
+                <small style="color: #4ade80;">Score &ge; 70% (Fechar hoje)</small>
+              </div>
+            </div>
+
+            <div class="stat-card" style="border-top: 3px solid #f59e0b;">
+              <div class="stat-icon gold"><i class="fa-solid fa-sack-dollar"></i></div>
+              <div class="stat-info">
+                <span class="stat-label">Pipeline Negociado</span>
+                <h3 id="cogStatPipeline">R$ 0,00</h3>
+                <small style="color: #fbbf24;">Valor total em aberto</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- FUNIL DE ESTAGIOS COGNITIVOS -->
+          <div class="card mb-4" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h3 style="font-size: 15px; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-filter" style="color: #38bdf8;"></i> Esteira Consultiva de Decisão
+              </h3>
+              <small style="color: var(--text-muted);">Classificação cognitiva contínua dos leads</small>
+            </div>
+            <div class="card-body">
+              <div id="cogStagePills" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
+                <!-- Preenchido dinamicamente via JS -->
+              </div>
+            </div>
+          </div>
+
+          <!-- TABELA DE LEADS & PERFIS COGNITIVOS -->
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-user-astronaut" style="color: #a855f7;"></i>
+                  Radar de Leads, Crenças Auditadas &amp; Memória
+                </h3>
+                <p class="section-desc" style="margin-bottom: 0;">
+                  Veja em tempo real a pontuação de prontidão, objeções ativas e memórias registradas pelo consultor bot.
+                </p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="cogSearchInput" class="form-control form-control-sm" placeholder="Filtrar por nome, nicho ou telefone..." onkeyup="filterCognitiveTable()" style="width: 260px;">
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table" id="tableCognitiveLeads">
+                <thead>
+                  <tr>
+                    <th>Lead / Contato</th>
+                    <th>Nicho &amp; Empresa</th>
+                    <th>Escopo / Stack Técnica</th>
+                    <th>Faixa Orçamento</th>
+                    <th>Objeção Detectada</th>
+                    <th>Prontidão (Readiness)</th>
+                    <th>Estágio Atual</th>
+                    <th style="text-align: center;">Ações Consultivas</th>
+                  </tr>
+                </thead>
+                <tbody id="tableCognitiveLeadsBody">
+                  <tr><td colspan="8" class="text-center" style="padding: 30px; color: var(--text-muted);">Carregando leads cognitivos...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
       </div>
     </main>
   </div>
@@ -5623,5 +5766,129 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
   </div>
 
 <div id="botdeck-toast-container"></div>
+  <!-- MODAL DE INSPECAO COGNITIVA & HISTORICO HEXIS -->
+  <div id="modalCognitiveLead" class="modal">
+    <div class="modal-content" style="max-width: 880px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden;">
+      <div class="modal-header" style="flex-shrink: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 14px;">
+        <h3 id="modalCogLeadTitle" style="display: flex; align-items: center; gap: 8px; margin: 0; color: #a855f7;">
+          <i class="fa-solid fa-brain-circuit"></i> Perfil Cognitivo &amp; Memória do Lead
+        </h3>
+        <button type="button" class="btn-close" onclick="closeCognitiveModal()">&times;</button>
+      </div>
+      <div class="modal-body-scroll" style="overflow-y: auto; flex: 1; padding-right: 6px;">
+        <div id="cogModalHeaderDetails" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <!-- Preenchido dinamicamente -->
+        </div>
+
+        <!-- ABA DE CRENCAS BASEADAS EM EVIDENCIAS -->
+        <div style="margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="margin: 0; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+              <i class="fa-solid fa-list-check"></i> Sistema de Crenças Auditadas (Evidence-Based Beliefs)
+            </h4>
+            <button class="btn btn-sm btn-outline" onclick="toggleAddBeliefBox()">
+              <i class="fa-solid fa-plus"></i> Adicionar Crença
+            </button>
+          </div>
+          <div id="cogAddBeliefBox" style="display: none; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>Chave da Crença</label>
+                <input type="text" id="newBeliefKey" class="form-control form-control-sm" placeholder="Ex: lead_budget, decision_maker, urgency">
+              </div>
+              <div class="form-group flex-1">
+                <label>Valor / Conclusão</label>
+                <input type="text" id="newBeliefVal" class="form-control form-control-sm" placeholder="Ex: R$ 5.000 / Alta prioridade">
+              </div>
+              <div class="form-group" style="width: 120px;">
+                <label>Confiança (0 a 1.0)</label>
+                <input type="number" step="0.05" min="0" max="1" id="newBeliefConf" class="form-control form-control-sm" value="0.85">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Evidência (Trecho dito pelo lead)</label>
+              <input type="text" id="newBeliefEvidence" class="form-control form-control-sm" placeholder="Ex: 'Tenho 5 mil pra investir até semana que vem'">
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="saveNewLeadBelief()">Salvar Crença</button>
+          </div>
+          <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+            <table class="table" style="font-size: 12px;">
+              <thead>
+                <tr>
+                  <th>Crença (Key)</th>
+                  <th>Conclusão (Value)</th>
+                  <th>Evidência Textual</th>
+                  <th>Confiança</th>
+                </tr>
+              </thead>
+              <tbody id="tableCogBeliefsBody">
+                <tr><td colspan="4" class="text-center">Nenhuma crença registrada.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ABA DE MEMORIAS EPISODICAS -->
+        <div style="margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="margin: 0; color: #a855f7; display: flex; align-items: center; gap: 6px;">
+              <i class="fa-solid fa-clock-rotate-left"></i> Linha do Tempo &amp; Memórias Episódicas
+            </h4>
+            <button class="btn btn-sm btn-outline" onclick="toggleAddMemoryBox()">
+              <i class="fa-solid fa-plus"></i> Adicionar Fato
+            </button>
+          </div>
+          <div id="cogAddMemoryBox" style="display: none; background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+            <div class="form-row">
+              <div class="form-group" style="width: 180px;">
+                <label>Tipo de Memória</label>
+                <select id="newMemType" class="form-control form-control-sm">
+                  <option value="REQUIREMENT">Requisito Técnico</option>
+                  <option value="BUDGET">Orçamento / Verba</option>
+                  <option value="OBJECTION">Objeção / Dúvida</option>
+                  <option value="QUOTE">Proposta / Valor</option>
+                  <option value="TIMELINE">Prazo / Cronograma</option>
+                  <option value="AGREEMENT">Acordo / Fechamento</option>
+                </select>
+              </div>
+              <div class="form-group flex-1">
+                <label>Resumo do Fato</label>
+                <input type="text" id="newMemSummary" class="form-control form-control-sm" placeholder="Ex: Pediu integração Pix e painel web em tempo real">
+              </div>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="saveNewLeadMemory()">Salvar Memória</button>
+          </div>
+          <div id="cogMemoriesTimeline" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto;">
+            <!-- Preenchido dinamicamente -->
+          </div>
+        </div>
+
+        <!-- GERADOR DE GANCHO DE ATENCAO (EARNING ATTENTION) -->
+        <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 14px;">
+          <h4 style="margin: 0 0 8px 0; color: #10b981; display: flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Gancho de Atenção Personalizado (Hexis Follow-Up)
+          </h4>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+            Gera uma mensagem de alto valor personalizada com o histórico do lead, eliminando frases clichês robóticas.
+          </p>
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button class="btn btn-sm btn-primary" onclick="generateAttentionHookForLead()" style="background: #10b981; border-color: #10b981; font-weight: 600;">
+              <i class="fa-solid fa-bolt"></i> Gerar Gancho Agora
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="copyHookMessage()" id="btnCopyHook" style="display: none;">
+              <i class="fa-solid fa-copy"></i> Copiar Mensagem
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="sendHookViaWhatsApp()" id="btnSendHook" style="display: none; background: #25d366; border-color: #25d366;">
+              <i class="fa-brands fa-whatsapp"></i> Enviar pelo WhatsApp
+            </button>
+          </div>
+          <textarea id="cogHookPreview" class="form-control" rows="3" placeholder="Clique em 'Gerar Gancho Agora' para sintetizar a abordagem..." readonly style="font-size: 13px;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px; display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-secondary" onclick="closeCognitiveModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

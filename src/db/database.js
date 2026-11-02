@@ -719,6 +719,53 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 34. Tabela de Perfis Cognitivos de Leads (Hexis Consultative Sales Intelligence)
+    CREATE TABLE IF NOT EXISTS lead_cognitive_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT UNIQUE NOT NULL,
+      name TEXT,
+      company_niche TEXT,
+      project_scope TEXT,
+      tech_stack TEXT,
+      budget_tier TEXT DEFAULT 'MEDIO', -- 'BAIXO', 'MEDIO', 'ALTO', 'CORPORATIVO'
+      budget_confidence REAL DEFAULT 0.5,
+      buying_stage TEXT DEFAULT 'DESCOBERTA', -- 'DESCOBERTA', 'QUALIFICACAO', 'PROPOSTA', 'OBJECOES', 'FECHAMENTO', 'CONVERTIDO', 'PERDIDO'
+      readiness_score INTEGER DEFAULT 30, -- 0 a 100
+      main_objection TEXT DEFAULT 'NENHUMA', -- 'PRECO', 'PRAZO', 'CONFIANCA_GARANTIA', 'DECISOR', 'COMPLEXIDADE', 'PRIORIDADE', 'NENHUMA'
+      objection_confidence REAL DEFAULT 0.0,
+      last_quote_amount REAL DEFAULT 0,
+      last_quote_details TEXT,
+      last_interaction_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      next_followup_at DATETIME,
+      followup_count INTEGER DEFAULT 0,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 35. Tabela de Crenças Baseadas em Evidências (Evidence-Based Beliefs)
+    CREATE TABLE IF NOT EXISTS lead_cognitive_beliefs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_phone TEXT NOT NULL,
+      belief_key TEXT NOT NULL,
+      belief_value TEXT NOT NULL,
+      evidence_text TEXT,
+      confidence REAL DEFAULT 0.5,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(lead_phone, belief_key)
+    );
+
+    -- 36. Tabela de Memória Episódica do Lead (Episodic Memories & Dialogue Facts)
+    CREATE TABLE IF NOT EXISTS lead_episodic_memories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_phone TEXT NOT NULL,
+      memory_type TEXT NOT NULL, -- 'REQUIREMENT', 'BUDGET', 'OBJECTION', 'QUOTE', 'AGREEMENT', 'TIMELINE', 'FEEDBACK'
+      fact_summary TEXT NOT NULL,
+      raw_excerpt TEXT,
+      importance INTEGER DEFAULT 3,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
 
   // Migrações seguras
@@ -791,7 +838,12 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_affiliates_active ON affiliates(active);',
     'CREATE INDEX IF NOT EXISTS idx_mod_reports_grp ON moderation_reports(group_jid, status);',
     'CREATE INDEX IF NOT EXISTS idx_mod_reports_msg ON moderation_reports(message_id);',
-    'CREATE INDEX IF NOT EXISTS idx_mod_rules_cat ON moderation_rules(category, enabled);'
+    'CREATE INDEX IF NOT EXISTS idx_mod_rules_cat ON moderation_rules(category, enabled);',
+    'CREATE INDEX IF NOT EXISTS idx_cog_prof_phone ON lead_cognitive_profiles(phone);',
+    'CREATE INDEX IF NOT EXISTS idx_cog_prof_stage ON lead_cognitive_profiles(buying_stage, readiness_score);',
+    'CREATE INDEX IF NOT EXISTS idx_cog_prof_followup ON lead_cognitive_profiles(next_followup_at);',
+    'CREATE INDEX IF NOT EXISTS idx_cog_beliefs_phone ON lead_cognitive_beliefs(lead_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_cog_memories_phone ON lead_episodic_memories(lead_phone, importance);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
@@ -1479,7 +1531,62 @@ function initDatabase() {
     }
   }
 
-  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais, Radar Viral e Catálogo Oficial Tech!');
+  // Semeia perfis cognitivos iniciais de demonstração se tabela estiver vazia
+  try {
+    const cogCount = db.prepare('SELECT COUNT(*) as count FROM lead_cognitive_profiles').get().count;
+    if (cogCount === 0) {
+      const insProf = db.prepare(`
+        INSERT INTO lead_cognitive_profiles (
+          phone, name, company_niche, project_scope, tech_stack,
+          budget_tier, budget_confidence, buying_stage, readiness_score,
+          main_objection, objection_confidence, last_quote_amount, last_quote_details,
+          next_followup_at, followup_count, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+1 day'), 1, ?)
+      `);
+
+      insProf.run(
+        '5511988880001', 'Dr. Marcos Silveira', 'Saúde & Clínicas',
+        'Aplicativo Mobile de Agendamento & Prontuário com Painel Web',
+        'Node.js, React Native, PostgreSQL, Pix Direto',
+        'MEDIO', 0.85, 'PROPOSTA', 78,
+        'PRAZO', 0.80, 4800.00, 'App Android/iOS + Painel Web em 20 dias',
+        'Lead busca agilidade para inauguração da nova unidade em 3 semanas.'
+      );
+
+      insProf.run(
+        '5511977770002', 'Mariana Mendes', 'E-commerce & Varejo',
+        'Bot de Vendas Inteligente com IA e Checkout Integrado WhatsApp',
+        'Node.js, Baileys, Gemini Flash, SQLite',
+        'MEDIO', 0.75, 'QUALIFICACAO', 62,
+        'PRECO', 0.65, 2400.00, 'Bot com fluxo anti-carrinho abandonado e Pix',
+        'Interessada em reduzir custos com atendentes humanos aos finais de semana.'
+      );
+
+      // Crenças do Dr. Marcos
+      const insBelief = db.prepare(`
+        INSERT OR IGNORE INTO lead_cognitive_beliefs (lead_phone, belief_key, belief_value, evidence_text, confidence)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      insBelief.run('5511988880001', 'lead_budget', 'R$ 4.500 - R$ 6.000', 'Citou que reservou 5k para o sistema da clínica', 0.85);
+      insBelief.run('5511988880001', 'main_objection', 'Prazo de Entrega', 'Perguntou se consegue entregar antes do dia 25', 0.80);
+      insBelief.run('5511988880001', 'decision_maker', 'Sim (Sócio-fundador)', 'Disse que ele mesmo aprova o orçamento', 0.90);
+      insBelief.run('5511988880001', 'tech_interest', 'App Mobile + Painel Web', 'Exigiu app para pacientes e painel para médicos', 0.95);
+
+      // Memórias episódicas
+      const insMem = db.prepare(`
+        INSERT INTO lead_episodic_memories (lead_phone, memory_type, fact_summary, raw_excerpt, importance)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      insMem.run('5511988880001', 'REQUIREMENT', 'Precisa de autenticação de pacientes e emissão de comprovantes Pix', 'Preciso que o paciente receba o comprovante e veja o horário marcado', 4);
+      insMem.run('5511988880001', 'QUOTE', 'Proposta enviada: R$ 4.800 em 2x com entrega do MVP em 15 dias', 'Consigo fazer 4800 em 2x entregando a primeira versão em 15 dias', 5);
+      insMem.run('5511988880001', 'TIMELINE', 'Inauguração da filial prevista para o fim do mês', 'Minha filial abre dia 28, preciso estar rodando', 4);
+
+      insMem.run('5511977770002', 'REQUIREMENT', 'Integração de checkout Pix no WhatsApp com disparo de rastreio', 'Quero que envie o código de rastreio dos Correios automaticamente', 4);
+      insMem.run('5511977770002', 'BUDGET', 'Orçamento sensível: busca retorno rápido sobre investimento', 'Tenho verba enxuta agora, preciso ver se o bot se paga no primeiro mês', 3);
+    }
+  } catch (_) {}
+
+  console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais, Radar Viral, Catálogo Oficial Tech e CRM Cognitivo!');
 }
 
 initDatabase();
