@@ -48,6 +48,28 @@ class SubscriptionCronService {
     }, 30000);
     this.meteoricCheckInterval.unref?.();
 
+    // 5. Verificação de reuniões agendadas & lembrete 1h antes (Google Meet)
+    this.meetingReminderInterval = setInterval(() => {
+      try {
+        const meetingService = require('./meetingService');
+        meetingService.checkAndSendMeetingReminders().catch(err => {
+          console.error('[Cron ❌ Erro nos lembretes de reunião]:', err.message);
+        });
+      } catch (_) {}
+    }, 60000);
+    this.meetingReminderInterval.unref?.();
+
+    // 6. Heartbeat Autônomo de Follow-up Consultivo (Hexis Sales)
+    this.cognitiveHeartbeatInterval = setInterval(() => {
+      try {
+        const cognitiveService = require('./cognitiveSalesService');
+        cognitiveService.runAutonomousHeartbeat().catch(err => {
+          console.error('[Cron ❌ Erro no heartbeat cognitivo]:', err.message);
+        });
+      } catch (_) {}
+    }, 5 * 60 * 1000);
+    this.cognitiveHeartbeatInterval.unref?.();
+
     // Executa uma checagem imediata
     setTimeout(() => {
       this.checkPendingOrders();

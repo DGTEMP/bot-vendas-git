@@ -8330,6 +8330,9 @@ async function loadCognitiveOverview() {
 
     // Tabela de Leads
     renderCognitiveLeadsTable(data.leads || []);
+    renderCognitiveKanban(data.leads || []);
+    loadScheduledMeetings();
+    loadCommercialProposals();
   } catch (err) {
     console.error('Erro ao carregar CRM cognitivo:', err);
   }
@@ -8724,4 +8727,609 @@ function executeBotDeckCognitiveAction() {
   } else {
     runCognitiveHeartbeat();
   }
+}
+
+
+// ==========================================
+// CENTRAL DE VENDAS CONSULTIVAS & CRM COGNITIVO HEXIS (KANBAN, MEETINGS, PROPOSALS, CALCULATOR)
+// ==========================================
+
+let currentActiveCognitiveView = 'kanban';
+let currentCalculatedScope = null;
+
+function switchCognitiveView(viewName) {
+  currentActiveCognitiveView = viewName;
+  const views = ['kanban', 'table', 'meetings', 'proposals', 'calculator'];
+  const viewMap = {
+    kanban: 'cogViewKanban',
+    table: 'cogViewTable',
+    meetings: 'cogViewMeetings',
+    proposals: 'cogViewProposals',
+    calculator: 'cogViewCalculator'
+  };
+
+  const btnMap = {
+    kanban: 'btnViewKanban',
+    table: 'btnViewTable',
+    meetings: 'btnViewMeetings',
+    proposals: 'btnViewProposals',
+    calculator: 'btnViewCalculator'
+  };
+
+  views.forEach(v => {
+    const el = document.getElementById(viewMap[v]);
+    const btn = document.getElementById(btnMap[v]);
+    if (el) el.style.display = (v === viewName) ? (v === 'calculator' ? 'block' : 'block') : 'none';
+    if (btn) {
+      if (v === viewName) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+  });
+
+  if (viewName === 'meetings') loadScheduledMeetings();
+  if (viewName === 'proposals') loadCommercialProposals();
+  if (viewName === 'calculator') runLiveScopeCalculation();
+}
+
+async function refreshCognitiveWorkspace() {
+  try {
+    await Promise.all([
+      loadCognitiveOverview(),
+      loadScheduledMeetings(),
+      loadCommercialProposals()
+    ]);
+    showBotToast('Sincronizado', 'Pipeline Kanban, reuniões e propostas atualizados!', 'success');
+  } catch (err) {
+    showBotToast('Aviso', 'Erro ao sincronizar: ' + err.message, 'warning');
+  }
+}
+
+// ==========================================
+// 1. PIPELINE KANBAN COM DRAG-AND-DROP
+// ==========================================
+
+function renderCognitiveKanban(leads) {
+  const stages = ['DESCOBERTA', 'QUALIFICACAO', 'PROPOSTA', 'OBJECOES', 'FECHAMENTO', 'CONVERTIDO'];
+  const grouped = {};
+  const totals = {};
+
+  stages.forEach(st => {
+    grouped[st] = [];
+    totals[st] = 0;
+  });
+
+  (leads || []).forEach(l => {
+    const st = stages.includes(l.buying_stage) ? l.buying_stage : 'DESCOBERTA';
+    grouped[st].push(l);
+    totals[st] += Number(l.estimated_budget || 0);
+  });
+
+  stages.forEach(st => {
+    const colCount = document.getElementById('count-' + st);
+    const colVal = document.getElementById('val-' + st);
+    const colCards = document.getElementById('cards-' + st);
+
+    if (colCount) colCount.innerText = grouped[st].length;
+    if (colVal) colVal.innerText = totals[st].toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    if (colCards) {
+      if (grouped[st].length === 0) {
+        colCards.innerHTML = '<div style="padding: 25px 10px; text-align: center; color: var(--text-muted); font-size: 11px; border: 1px dashed rgba(255,255,255,0.08); border-radius: 8px;">Nenhum lead nesta etapa</div>';
+      } else {
+        colCards.innerHTML = grouped[st].map(lead => {
+          const score = Math.max(0, Math.min(100, lead.readiness_score || 30));
+          const scoreColor = score >= 75 ? '#10b981' : (score >= 50 ? '#38bdf8' : '#f59e0b');
+          const budgetFormatted = Number(lead.estimated_budget || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+          return '<div class="crm-kanban-card" id="kcard-' + lead.phone + '" draggable="true" ondragstart="handleCardDragStart(event, \'' + lead.phone + '\')">' +
+            '<div class="crm-card-title">' +
+              '<span>' + (lead.name || 'Lead WhatsApp') + '</span>' +
+              '<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 10px;">' + (lead.company_niche || 'Tech') + '</span>' +
+            '</div>' +
+            '<div class="crm-card-phone">+' + lead.phone + '</div>' +
+            '<div class="crm-card-scope" title="' + (lead.project_scope || '') + '">' +
+              (lead.project_scope ? (lead.project_scope.length > 55 ? lead.project_scope.substring(0, 55) + '...' : lead.project_scope) : 'Software sob medida') +
+            '</div>' +
+            '<div class="crm-readiness-bar">' +
+              '<div class="crm-readiness-fill" style="width: ' + score + '%; background: ' + scoreColor + ';"></div>' +
+            '</div>' +
+            '<div class="crm-card-footer">' +
+              '<div class="crm-card-budget">' + budgetFormatted + '</div>' +
+              '<div class="crm-card-actions">' +
+                '<button class="crm-card-btn" title="Perfil e Crenças" onclick="openCognitiveModal(\'' + lead.phone + '\')"><i class="fa-solid fa-brain"></i></button>' +
+                '<button class="crm-card-btn" title="Agendar Google Meet" onclick="openScheduleMeetingModal(\'' + lead.phone + '\', \'' + (lead.name || '') + '\', \'' + (lead.project_scope || '') + '\')"><i class="fa-solid fa-video"></i></button>' +
+                '<button class="crm-card-btn" title="Gerar Proposta" onclick="openCreateProposalModal({ lead_phone: \'' + lead.phone + '\', lead_name: \'' + (lead.name || '') + '\', investment_brl: ' + (lead.estimated_budget || 0) + ' })"><i class="fa-solid fa-file-contract"></i></button>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+    }
+  });
+}
+
+function handleCardDragStart(e, phone) {
+  e.dataTransfer.setData('text/plain', phone);
+  e.dataTransfer.effectAllowed = 'move';
+  const card = document.getElementById('kcard-' + phone);
+  if (card) card.classList.add('dragging');
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const col = e.currentTarget;
+  if (col && !col.classList.contains('drag-over')) {
+    col.classList.add('drag-over');
+  }
+}
+
+function handleDragLeave(e) {
+  const col = e.currentTarget;
+  if (col) col.classList.remove('drag-over');
+}
+
+async function handleDrop(e, targetStage) {
+  e.preventDefault();
+  const col = e.currentTarget;
+  if (col) col.classList.remove('drag-over');
+
+  const phone = e.dataTransfer.getData('text/plain');
+  if (!phone) return;
+
+  const card = document.getElementById('kcard-' + phone);
+  if (card) card.classList.remove('dragging');
+
+  // Atualiza visualmente e chama a API
+  try {
+    const res = await fetch('/api/cognitive/leads/' + phone + '/stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage: targetStage })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao atualizar estágio');
+
+    showBotToast('Estágio Atualizado', 'Lead +' + phone + ' movido para ' + targetStage, 'success');
+    loadCognitiveOverview();
+  } catch (err) {
+    showBotToast('Erro no Drag & Drop', err.message, 'error');
+    loadCognitiveOverview();
+  }
+}
+
+// ==========================================
+// 2. REUNIÕES & GOOGLE MEET
+// ==========================================
+
+async function loadScheduledMeetings() {
+  try {
+    const res = await fetch('/api/meetings');
+    const data = await res.json();
+    if (!data.success) return;
+
+    const meetings = data.meetings || [];
+    const badge = document.getElementById('badgeMeetingCount');
+    const stat = document.getElementById('cogStatTotalMeetings');
+    if (badge) badge.innerText = meetings.length;
+    if (stat) stat.innerText = meetings.length;
+
+    const tbody = document.getElementById('tableScheduledMeetingsBody');
+    if (!tbody) return;
+
+    if (meetings.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding: 30px; color: var(--text-muted);">Nenhuma reunião agendada no momento. Clique no botão acima para agendar uma call técnica!</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = meetings.map(m => {
+      const [y, mo, d] = (m.meeting_date || '').split('-');
+      const dateFormatted = d ? `${d}/${mo}/${y}` : m.meeting_date;
+      const statusMap = {
+        SCHEDULED: '<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">Agendada</span>',
+        CONFIRMED: '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">Confirmada</span>',
+        COMPLETED: '<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">Concluída</span>',
+        CANCELED: '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">Cancelada</span>'
+      };
+
+      const reminderBadge = m.reminder_sent
+        ? '<span style="color: #10b981; font-size: 11px; font-weight: 600;"><i class="fa-solid fa-check"></i> Enviado</span>'
+        : '<span style="color: #f59e0b; font-size: 11px;"><i class="fa-solid fa-clock"></i> Pendente (1h antes)</span>';
+
+      return '<tr>' +
+        '<td>' +
+          '<div style="font-weight: 700; color: #fff;">' + dateFormatted + '</div>' +
+          '<div style="font-size: 11px; color: #38bdf8; font-weight: 600;">' + m.meeting_time + ' (' + (m.duration_minutes || 30) + ' min)</div>' +
+        '</td>' +
+        '<td>' +
+          '<div style="font-weight: 600; color: #fff;">' + (m.lead_name || 'Lead') + '</div>' +
+          '<div style="font-size: 11px; color: var(--text-muted); font-family: monospace;">+' + m.lead_phone + '</div>' +
+        '</td>' +
+        '<td style="max-width: 200px; font-size: 12px; color: #cbd5e1;">' +
+          (m.topic_scope || m.meeting_title || 'Software / IA') +
+        '</td>' +
+        '<td>' +
+          '<a href="' + m.meet_url + '" target="_blank" class="btn btn-sm btn-primary" style="padding: 3px 8px; font-size: 11px; background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">' +
+            '<i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir Meet' +
+          '</a>' +
+        '</td>' +
+        '<td>' + (statusMap[m.status] || m.status) + '</td>' +
+        '<td>' + reminderBadge + '</td>' +
+        '<td style="text-align: center; white-space: nowrap;">' +
+          '<button class="btn btn-sm btn-secondary" onclick="remindScheduledMeeting(' + m.id + ')" title="Disparar Lembrete Agora" style="padding: 3px 7px; font-size: 11px;"><i class="fa-solid fa-bell"></i></button> ' +
+          '<button class="btn btn-sm btn-success" onclick="completeScheduledMeeting(' + m.id + ')" title="Marcar como Concluída" style="padding: 3px 7px; font-size: 11px;"><i class="fa-solid fa-check"></i></button> ' +
+          '<button class="btn btn-sm btn-danger" onclick="cancelScheduledMeeting(' + m.id + ')" title="Cancelar Reunião" style="padding: 3px 7px; font-size: 11px;"><i class="fa-solid fa-ban"></i></button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar reuniões:', err);
+  }
+}
+
+function openScheduleMeetingModal(prefillPhone, prefillName, prefillScope) {
+  const modal = document.getElementById('modalScheduleMeeting');
+  if (!modal) return;
+
+  if (prefillPhone) document.getElementById('meetLeadPhone').value = prefillPhone;
+  if (prefillName) document.getElementById('meetLeadName').value = prefillName;
+  if (prefillScope) document.getElementById('meetScope').value = prefillScope;
+
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  document.getElementById('meetDate').value = tomorrow.toISOString().split('T')[0];
+
+  modal.classList.add('active');
+}
+
+function closeScheduleMeetingModal() {
+  const modal = document.getElementById('modalScheduleMeeting');
+  if (modal) modal.classList.remove('active');
+}
+
+async function saveScheduledMeeting(e) {
+  e.preventDefault();
+  const phone = document.getElementById('meetLeadPhone').value.trim();
+  const name = document.getElementById('meetLeadName').value.trim();
+  const title = document.getElementById('meetTitle').value.trim();
+  const date = document.getElementById('meetDate').value;
+  const time = document.getElementById('meetTime').value;
+  const duration = document.getElementById('meetDuration').value;
+  const meet_url = document.getElementById('meetUrl').value.trim();
+  const topic = document.getElementById('meetScope').value.trim();
+
+  try {
+    const res = await fetch('/api/meetings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lead_phone: phone,
+        lead_name: name,
+        meeting_title: title,
+        meeting_date: date,
+        meeting_time: time,
+        duration_minutes: duration,
+        meet_url: meet_url || undefined,
+        topic_scope: topic
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao agendar reunião');
+
+    showBotToast('Reunião Agendada!', 'Call marcada para ' + date + ' às ' + time + '. Link: ' + data.meeting.meet_url, 'success');
+    closeScheduleMeetingModal();
+    loadScheduledMeetings();
+    loadCognitiveOverview();
+  } catch (err) {
+    showBotToast('Erro no Agendamento', err.message, 'error');
+  }
+}
+
+async function remindScheduledMeeting(id) {
+  try {
+    const res = await fetch('/api/meetings/' + id + '/remind', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao disparar');
+    showBotToast('Lembrete Enviado', 'Mensagem de lembrete despachada pelo WhatsApp!', 'success');
+    loadScheduledMeetings();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+async function completeScheduledMeeting(id) {
+  try {
+    const res = await fetch('/api/meetings/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'COMPLETED' })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao concluir');
+    showBotToast('Concluída', 'Reunião marcada como realizada!', 'success');
+    loadScheduledMeetings();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+async function cancelScheduledMeeting(id) {
+  const reason = prompt('Informe o motivo do cancelamento (opcional):') || '';
+  try {
+    const res = await fetch('/api/meetings/' + id + '/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao cancelar');
+    showBotToast('Cancelada', 'Reunião cancelada com sucesso.', 'info');
+    loadScheduledMeetings();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+// ==========================================
+// 3. PROPOSTAS COMERCIAIS & CONTRATOS INTERATIVOS
+// ==========================================
+
+async function loadCommercialProposals() {
+  try {
+    const res = await fetch('/api/proposals');
+    const data = await res.json();
+    if (!data.success) return;
+
+    const proposals = data.proposals || [];
+    const badge = document.getElementById('badgeProposalCount');
+    const stat = document.getElementById('cogStatTotalProposals');
+    if (badge) badge.innerText = proposals.length;
+    if (stat) stat.innerText = proposals.length;
+
+    const tbody = document.getElementById('tableCommercialProposalsBody');
+    if (!tbody) return;
+
+    if (proposals.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 30px; color: var(--text-muted);">Nenhuma proposta comercial gerada ainda. Clique em "Gerar Proposta Comercial" para criar a primeira!</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = proposals.map(p => {
+      const isAccepted = p.status === 'ACCEPTED';
+      const statusBadge = isAccepted
+        ? '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">✅ Aceita</span>'
+        : (p.status === 'SENT' ? '<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">Enviada</span>' : '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">Rascunho</span>');
+
+      const valFormatted = Number(p.investment_brl || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+      return '<tr>' +
+        '<td>' +
+          '<div style="font-weight: 700; color: #38bdf8; font-family: monospace;">' + p.code + '</div>' +
+          '<div style="font-size: 11px; color: var(--text-muted);">' + new Date(p.created_at).toLocaleDateString('pt-BR') + '</div>' +
+        '</td>' +
+        '<td>' +
+          '<div style="font-weight: 600; color: #fff;">' + (p.lead_name || 'Cliente') + '</div>' +
+          '<div style="font-size: 11px; color: var(--text-muted); font-family: monospace;">+' + p.lead_phone + '</div>' +
+        '</td>' +
+        '<td style="max-width: 220px; font-size: 12px; color: #cbd5e1;">' +
+          '<strong>' + p.project_title + '</strong>' +
+        '</td>' +
+        '<td>' +
+          '<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; font-size: 11px;">' + p.category + '</span>' +
+        '</td>' +
+        '<td>' + p.timeline_weeks + ' sem</td>' +
+        '<td style="font-weight: 700; color: #4ade80;">' + valFormatted + '</td>' +
+        '<td>' +
+          statusBadge +
+          '<div style="font-size: 10px; color: var(--text-muted); margin-top: 3px;"><i class="fa-solid fa-eye"></i> ' + (p.view_count || 0) + ' visualizações</div>' +
+        '</td>' +
+        '<td style="text-align: center; white-space: nowrap;">' +
+          '<a href="/proposta/' + p.token + '" target="_blank" class="btn btn-sm btn-primary" title="Abrir Link da Proposta" style="padding: 3px 8px; font-size: 11px; background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700;">' +
+            '<i class="fa-solid fa-arrow-up-right-from-square"></i> Ver' +
+          '</a> ' +
+          '<button class="btn btn-sm btn-success" onclick="sendCommercialProposalToWhatsApp(' + p.id + ')" title="Enviar Proposta pelo WhatsApp" style="padding: 3px 8px; font-size: 11px;">' +
+            '<i class="fa-brands fa-whatsapp"></i> Enviar' +
+          '</button> ' +
+          '<button class="btn btn-sm btn-danger" onclick="deleteCommercialProposal(' + p.id + ')" title="Excluir Proposta" style="padding: 3px 8px; font-size: 11px;">' +
+            '<i class="fa-solid fa-trash-can"></i>' +
+          '</button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar propostas:', err);
+  }
+}
+
+function openCreateProposalModal(prefillData = {}) {
+  const modal = document.getElementById('modalCreateProposal');
+  if (!modal) return;
+
+  if (prefillData.lead_phone) document.getElementById('propLeadPhone').value = prefillData.lead_phone;
+  if (prefillData.lead_name) document.getElementById('propLeadName').value = prefillData.lead_name;
+  if (prefillData.lead_company) document.getElementById('propLeadCompany').value = prefillData.lead_company;
+  if (prefillData.project_title) document.getElementById('propProjectTitle').value = prefillData.project_title;
+  if (prefillData.category) document.getElementById('propCategory').value = prefillData.category;
+  if (prefillData.investment_brl) document.getElementById('propInvestment').value = prefillData.investment_brl;
+  if (prefillData.timeline_weeks) document.getElementById('propTimeline').value = prefillData.timeline_weeks;
+  if (prefillData.tech_stack) document.getElementById('propTechStack').value = prefillData.tech_stack;
+  if (prefillData.scope_description) document.getElementById('propScopeDesc').value = prefillData.scope_description;
+
+  if (!prefillData.project_title) {
+    applyProposalPreset(document.getElementById('propCategory').value || 'SOFTWARE');
+  }
+
+  modal.classList.add('active');
+}
+
+function closeCreateProposalModal() {
+  const modal = document.getElementById('modalCreateProposal');
+  if (modal) modal.classList.remove('active');
+}
+
+function applyProposalPreset(cat) {
+  const presets = {
+    SOFTWARE: { title: 'Software Sob Medida & Painel de Gestão em Tempo Real', price: 4800, weeks: 3, stack: 'Node.js, Vue.js/React, SQLite/PostgreSQL, WebSockets' },
+    APP_MOBILE: { title: 'Aplicativo Mobile Personalizado (iOS & Android)', price: 6500, weeks: 4, stack: 'React Native / Flutter, Node.js API, Firebase' },
+    AI_AGENT: { title: 'Agente de IA Consultivo & Automação Cognitiva', price: 3900, weeks: 2, stack: 'Gemini API, Node.js, Baileys WhatsApp, SQLite Vetorial' },
+    HARDWARE_IOT: { title: 'Solução Integrada de Hardware, IoT & Telemetria', price: 5400, weeks: 4, stack: 'ESP32 / MicroPython, MQTT Broker, Node.js, Dashboard' },
+    SITE_PORTAL: { title: 'Portal Institucional de Alta Performance & Conversão', price: 2500, weeks: 2, stack: 'TailwindCSS, Vanilla JS, HTML5, CDN Cloudflare' },
+    SEO_TUNING: { title: 'Consultoria de SEO Técnico, Indexação & Performance', price: 1900, weeks: 2, stack: 'Google Search Console, Schema.org, Lighthouse' },
+    METEORIC: { title: 'Máquina de Lançamento Meteórico Automatizado', price: 3500, weeks: 2, stack: 'Baileys Multi-Device, Checkout Pix, Grupos VIP' }
+  };
+
+  const p = presets[cat] || presets.SOFTWARE;
+  document.getElementById('propProjectTitle').value = p.title;
+  document.getElementById('propInvestment').value = p.price;
+  document.getElementById('propTimeline').value = p.weeks;
+  document.getElementById('propTechStack').value = p.stack;
+}
+
+async function saveCommercialProposal(e) {
+  e.preventDefault();
+  const phone = document.getElementById('propLeadPhone').value.trim();
+  const name = document.getElementById('propLeadName').value.trim();
+  const company = document.getElementById('propLeadCompany').value.trim();
+  const title = document.getElementById('propProjectTitle').value.trim();
+  const category = document.getElementById('propCategory').value;
+  const scopeDesc = document.getElementById('propScopeDesc').value.trim();
+  const investment = document.getElementById('propInvestment').value;
+  const timeline = document.getElementById('propTimeline').value;
+  const techStack = document.getElementById('propTechStack').value.trim();
+  const paymentTerms = document.getElementById('propPaymentTerms').value.trim();
+  const rawDeliverables = document.getElementById('propDeliverablesText').value.trim();
+
+  const deliverables = [];
+  if (rawDeliverables) {
+    rawDeliverables.split('\n').forEach(line => {
+      if (line.includes('|')) {
+        const [t, d] = line.split('|');
+        deliverables.push({ title: t.trim(), desc: d.trim() });
+      } else if (line.trim()) {
+        deliverables.push({ title: line.trim(), desc: 'Entregável homologado com testes e documentação.' });
+      }
+    });
+  }
+
+  try {
+    const res = await fetch('/api/proposals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lead_phone: phone,
+        lead_name: name,
+        lead_company: company,
+        project_title: title,
+        category,
+        scope_description: scopeDesc,
+        investment_brl: investment,
+        timeline_weeks: timeline,
+        tech_stack: techStack,
+        payment_terms: paymentTerms,
+        deliverables: deliverables.length > 0 ? deliverables : undefined
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao salvar proposta');
+
+    showBotToast('Proposta Gerada!', 'Código ' + data.proposal.code + ' gerado com sucesso! Link: /proposta/' + data.proposal.token, 'success');
+    closeCreateProposalModal();
+    loadCommercialProposals();
+    loadCognitiveOverview();
+  } catch (err) {
+    showBotToast('Erro na Proposta', err.message, 'error');
+  }
+}
+
+async function sendCommercialProposalToWhatsApp(id) {
+  if (!confirm('Deseja enviar a proposta comercial e o link interativo diretamente para o WhatsApp do cliente?')) return;
+  try {
+    const res = await fetch('/api/proposals/' + id + '/send', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao enviar');
+
+    showBotToast('Proposta Enviada!', data.message, 'success');
+    loadCommercialProposals();
+  } catch (err) {
+    showBotToast('Erro no Envio', err.message, 'error');
+  }
+}
+
+async function deleteCommercialProposal(id) {
+  if (!confirm('Deseja realmente excluir esta proposta comercial?')) return;
+  try {
+    const res = await fetch('/api/proposals/' + id, { method: 'DELETE' });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Falha ao excluir');
+
+    showBotToast('Excluída', 'Proposta removida.', 'info');
+    loadCommercialProposals();
+  } catch (err) {
+    showBotToast('Erro', err.message, 'error');
+  }
+}
+
+// ==========================================
+// 4. CALCULADORA INTERATIVA DE ESCOPO & ORÇAMENTO TÉCNICO
+// ==========================================
+
+async function runLiveScopeCalculation() {
+  const category = document.getElementById('calcCategory')?.value || 'SOFTWARE';
+  const complexity = document.getElementById('calcComplexity')?.value || 'INTERMEDIATE';
+  const slaTier = document.getElementById('calcSla')?.value || 'PROFESSIONAL';
+  const rushDelivery = Boolean(document.getElementById('calcRush')?.checked);
+
+  const addons = [];
+  ['calcAddonPix', 'calcAddonPanel', 'calcAddonWpp', 'calcAddonAi', 'calcAddonRbac', 'calcAddonDocker'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.checked) addons.push(el.value);
+  });
+
+  try {
+    const res = await fetch('/api/scope-calculator/calculate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, complexity, slaTier, addons, rushDelivery })
+    });
+    const data = await res.json();
+    if (!data.success) return;
+
+    currentCalculatedScope = data.result;
+    const r = data.result;
+
+    const elPrice = document.getElementById('calcResultPrice');
+    const elDays = document.getElementById('calcResultDays');
+    const elStack = document.getElementById('calcResultStack');
+    const elDeliverables = document.getElementById('calcResultDeliverables');
+
+    if (elPrice) elPrice.innerText = r.pricingBreakdown.totalInvestmentBrl.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    if (elDays) elDays.innerText = r.timeline.totalDays + ' dias úteis (' + r.timeline.timelineWeeks + ' semanas)';
+    if (elStack) elStack.innerText = r.recommendedTechStack;
+
+    if (elDeliverables) {
+      elDeliverables.innerHTML = (r.deliverables || []).map(d => {
+        return '<div style="background: rgba(255, 255, 255, 0.03); padding: 6px 10px; border-radius: 6px; border-left: 2px solid #38bdf8;">' +
+          '<strong style="color: #fff;">' + d.title + '</strong>' +
+          '<div style="color: var(--text-muted); font-size: 11px;">' + d.desc + '</div>' +
+        '</div>';
+      }).join('');
+    }
+  } catch (err) {
+    console.error('Erro no cálculo ao vivo:', err);
+  }
+}
+
+function convertCalculationToProposal() {
+  if (!currentCalculatedScope) {
+    showBotToast('Atenção', 'Execute o cálculo de escopo primeiro.', 'warning');
+    return;
+  }
+  const r = currentCalculatedScope;
+  openCreateProposalModal({
+    project_title: r.categoryName + ' - Projeto Sob Medida',
+    category: r.category,
+    investment_brl: r.pricingBreakdown.totalInvestmentBrl,
+    timeline_weeks: r.timeline.timelineWeeks,
+    tech_stack: r.recommendedTechStack,
+    scope_description: 'Projeto ' + r.categoryName + ' com complexidade ' + r.complexityName + ' e garantia ' + r.slaName + '.'
+  });
 }

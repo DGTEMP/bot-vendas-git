@@ -3058,6 +3058,276 @@ function createServer() {
   });
 
   // ==========================================
+  // ROTAS DE AGENDAMENTO DE REUNIÕES & DEMONSTRAÇÕES (GOOGLE MEET)
+  // ==========================================
+  app.get('/api/meetings', (req, res) => {
+    try {
+      const { lead_phone, status, date, upcomingOnly, limit } = req.query;
+      const meetings = models.getMeetings({
+        lead_phone,
+        status,
+        date,
+        upcomingOnly: upcomingOnly === 'true' || upcomingOnly === '1',
+        limit: limit ? Number(limit) : 50
+      });
+      res.json({ success: true, meetings });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/meetings/slots', (req, res) => {
+    try {
+      const { date } = req.query;
+      const slots = models.getAvailableMeetingSlots(date);
+      res.json({ success: true, ...slots });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/meetings/:id', (req, res) => {
+    try {
+      const meeting = models.getMeetingById(req.params.id);
+      if (!meeting) return res.status(404).json({ error: 'Reunião não encontrada.' });
+      res.json({ success: true, meeting });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meetings', (req, res) => {
+    try {
+      const meeting = models.createMeeting(req.body);
+      res.json({ success: true, meeting });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/meetings/:id', (req, res) => {
+    try {
+      const updated = models.updateMeeting(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Reunião não encontrada.' });
+      res.json({ success: true, meeting: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meetings/:id/cancel', (req, res) => {
+    try {
+      const updated = models.cancelMeeting(req.params.id, req.body?.reason || '');
+      if (!updated) return res.status(404).json({ error: 'Reunião não encontrada.' });
+      res.json({ success: true, meeting: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/meetings/:id/remind', async (req, res) => {
+    try {
+      const meetingService = require('../services/meetingService');
+      const meeting = models.getMeetingById(req.params.id);
+      if (!meeting) return res.status(404).json({ error: 'Reunião não encontrada.' });
+
+      models.updateMeeting(meeting.id, { reminder_sent: 0 });
+      const results = await meetingService.checkAndSendMeetingReminders();
+      res.json({ success: true, results });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // ROTAS DE PROPOSTAS COMERCIAIS & CONTRATOS (/proposta/:token)
+  // ==========================================
+  app.get('/api/proposals', (req, res) => {
+    try {
+      const { lead_phone, status, category, limit } = req.query;
+      const proposals = models.getProposals({
+        lead_phone,
+        status,
+        category,
+        limit: limit ? Number(limit) : 50
+      });
+      res.json({ success: true, proposals });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/proposals/:id', (req, res) => {
+    try {
+      const proposal = models.getProposalById(req.params.id);
+      if (!proposal) return res.status(404).json({ error: 'Proposta não encontrada.' });
+      res.json({ success: true, proposal });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/proposals', (req, res) => {
+    try {
+      const proposalService = require('../services/proposalService');
+      const { lead_phone, ...customData } = req.body;
+      if (!lead_phone) return res.status(400).json({ error: 'Telefone do lead é obrigatório.' });
+      const proposal = proposalService.generateProposal(lead_phone, customData);
+      res.json({ success: true, proposal });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/proposals/:id', (req, res) => {
+    try {
+      const updated = models.updateProposal(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Proposta não encontrada.' });
+      res.json({ success: true, proposal: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/proposals/:id', (req, res) => {
+    try {
+      models.deleteProposal(req.params.id);
+      res.json({ success: true, message: 'Proposta excluída com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/proposals/:id/send', async (req, res) => {
+    try {
+      const proposal = models.getProposalById(req.params.id);
+      if (!proposal) return res.status(404).json({ error: 'Proposta não encontrada.' });
+
+      const proposalService = require('../services/proposalService');
+      const fulfillment = require('../services/fulfillment');
+      const tunnelService = require('../services/tunnelService');
+      const baseUrl = tunnelService.getUrl() || `http://localhost:${process.env.PORT || 3000}`;
+
+      const shareText = proposalService.generateWhatsAppShareMessage(proposal, baseUrl);
+
+      if (fulfillment.sendWhatsAppMessage) {
+        await fulfillment.sendWhatsAppMessage(`${proposal.lead_phone}@s.whatsapp.net`, shareText);
+      }
+
+      models.updateProposal(proposal.id, { status: 'SENT' });
+      res.json({ success: true, message: `Proposta ${proposal.code} despachada para o WhatsApp +${proposal.lead_phone}!`, shareText });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Visualização Pública Interativa da Proposta
+  app.get('/proposta/:token', (req, res) => {
+    try {
+      const token = req.params.token;
+      const proposal = models.getProposalByToken(token);
+      if (!proposal) {
+        return res.status(404).send('<h1>Proposta não encontrada ou link expirado.</h1>');
+      }
+      models.incrementProposalViews(token, req.ip);
+      const proposalService = require('../services/proposalService');
+      const tunnelService = require('../services/tunnelService');
+      const baseUrl = tunnelService.getUrl() || `http://localhost:${process.env.PORT || 3000}`;
+      const html = proposalService.renderProposalHtml(proposal, baseUrl);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch (err) {
+      res.status(500).send(`Erro ao carregar proposta: ${err.message}`);
+    }
+  });
+
+  // Aceite Digital da Proposta
+  app.post('/api/proposals/:token/accept', (req, res) => {
+    try {
+      const token = req.params.token;
+      const { name } = req.body || {};
+      const accepted = models.acceptProposal(token, { ip: req.ip, name });
+      res.json({ success: true, proposal: accepted });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // ROTAS DA CALCULADORA DE ESCOPO & ORÇAMENTO TÉCNICO
+  // ==========================================
+  app.get('/api/scope-calculator/presets', (req, res) => {
+    try {
+      const calcService = require('../services/techScopeCalculatorService');
+      res.json({
+        success: true,
+        categories: calcService.categories,
+        addons: calcService.addonModules,
+        complexities: calcService.complexityMultipliers,
+        slaTiers: calcService.slaTiers
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/scope-calculator/calculate', (req, res) => {
+    try {
+      const calcService = require('../services/techScopeCalculatorService');
+      const result = calcService.calculate(req.body);
+      res.json({ success: true, result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/scope-calculator/export-proposal', (req, res) => {
+    try {
+      const calcService = require('../services/techScopeCalculatorService');
+      const { lead_phone, lead_name, lead_company, ...calcOptions } = req.body;
+      if (!lead_phone) return res.status(400).json({ error: 'Telefone do lead é obrigatório.' });
+
+      const calcResult = calcService.calculate(calcOptions);
+      const proposalData = calcService.exportToProposalData(calcResult, { lead_phone, lead_name, lead_company });
+      const proposal = models.createProposal(proposalData);
+
+      res.json({ success: true, proposal, calculation: calcResult });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Rota de Atualização Rápida de Estágio do Kanban (Drag & Drop)
+  app.post('/api/cognitive/leads/:phone/stage', (req, res) => {
+    try {
+      const phone = req.params.phone;
+      const { stage, buying_stage, readiness_score } = req.body;
+      const targetStage = stage || buying_stage;
+      if (!targetStage) return res.status(400).json({ error: 'Novo estágio é obrigatório.' });
+
+      const prof = models.getLeadCognitiveProfile(phone);
+      if (!prof) return res.status(404).json({ error: 'Lead não encontrado.' });
+
+      const updated = models.upsertLeadCognitiveProfile(phone, {
+        buying_stage: targetStage,
+        readiness_score: readiness_score !== undefined ? Number(readiness_score) : undefined
+      });
+
+      models.addLeadEpisodicMemory(
+        phone,
+        'STAGE_CHANGE',
+        `Estágio avançado no Kanban de ${prof.buying_stage || 'DESCOBERTA'} para ${targetStage}`,
+        '',
+        3
+      );
+
+      res.json({ success: true, profile: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // BOT DECK: PAINEL DE CONTROLE INTEGRAL DE TODOS OS BOTS
   // ==========================================
 // ==========================================
@@ -3783,6 +4053,47 @@ function createServer() {
             readiness_score: readiness !== undefined ? Number(readiness) : undefined
           });
           resultMsg = `Estágio do lead +${phone} atualizado para ${stage}${readiness !== undefined ? ` (${readiness}%)` : ''}!`;
+          break;
+        }
+
+        case 'SCHEDULE_MEETING': {
+          const { phone, name, title, date, time, duration, meet_url, topic } = payload;
+          if (!phone || !date || !time) throw new Error('Telefone, data e horário são obrigatórios.');
+          const meeting = models.createMeeting({
+            lead_phone: phone,
+            lead_name: name || 'Lead',
+            meeting_title: title || 'Diagnóstico Técnico & Alinhamento',
+            meeting_date: date,
+            meeting_time: time,
+            duration_minutes: duration ? Number(duration) : 30,
+            meet_url: meet_url || undefined,
+            topic_scope: topic || 'Software sob Medida / IA / Projetos'
+          });
+          resultMsg = `Reunião agendada com sucesso para ${date} às ${time}! Meet: ${meeting.meet_url}`;
+          break;
+        }
+
+        case 'GENERATE_PROPOSAL': {
+          const { phone, name, company, title, category, investment, timeline, terms } = payload;
+          if (!phone || !title) throw new Error('Telefone e título do projeto são obrigatórios.');
+          const proposalService = require('../services/proposalService');
+          const prop = proposalService.generateProposal(phone, {
+            lead_name: name,
+            lead_company: company,
+            project_title: title,
+            category: category || 'SOFTWARE',
+            investment_brl: investment ? Number(investment) : undefined,
+            timeline_weeks: timeline ? Number(timeline) : undefined,
+            payment_terms: terms
+          });
+          resultMsg = `Proposta comercial ${prop.code} gerada com sucesso! Link: /proposta/${prop.token}`;
+          break;
+        }
+
+        case 'CALCULATE_SCOPE': {
+          const calcService = require('../services/techScopeCalculatorService');
+          const calc = calcService.calculate(payload);
+          resultMsg = `Escopo calculado: ${calc.categoryName} (${calc.complexityName}) - R$ ${calc.pricingBreakdown.totalInvestmentBrl.toLocaleString('pt-BR')} em ${calc.timeline.totalDays} dias úteis.`;
           break;
         }
 

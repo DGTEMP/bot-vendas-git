@@ -4306,53 +4306,59 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
 
         <!-- TAB 19: CENTRAL DE INTELIGENCIA CONSULTIVA & CRM COGNITIVO (HEXIS) -->
         <section id="tab-cognitive" class="tab-pane">
-          <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px;">
+          <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
             <div>
               <h2 style="display: flex; align-items: center; gap: 10px; margin: 0; color: #fff;">
                 <i class="fa-solid fa-brain-circuit" style="color: #a855f7;"></i>
-                Central de Inteligência Consultiva &amp; CRM Cognitivo
-                <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-size: 11px; font-weight: 700; border: 1px solid rgba(168, 85, 247, 0.4);">Hexis Architecture</span>
+                Central de Vendas Consultivas &amp; CRM Cognitivo
+                <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-size: 11px; font-weight: 700; border: 1px solid rgba(168, 85, 247, 0.4);">Hexis + High-Ticket</span>
               </h2>
               <p class="section-desc" style="margin-top: 6px; margin-bottom: 0;">
-                Memória episódica por contato, sistema de crenças baseado em evidências, motor anti-voz de robô e follow-up autônomo (Earning Attention) para fechamento de softwares sob medida, IA, aplicativos e serviços de alto ticket.
+                Pipeline visual Kanban drag-and-drop, agendamento de Google Meet, gerador de propostas com aceite digital e calculadora interativa de escopo técnico.
               </p>
             </div>
             <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <button class="btn btn-primary" onclick="runCognitiveHeartbeat()" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; font-weight: 700;">
-                <i class="fa-solid fa-heart-pulse"></i> Executar Heartbeat Follow-Up
+              <button class="btn btn-primary" onclick="openScheduleMeetingModal()" style="background: linear-gradient(135deg, #38bdf8, #2563eb); border: none; font-weight: 700;">
+                <i class="fa-solid fa-calendar-plus"></i> Agendar Reunião
               </button>
-              <button class="btn btn-secondary" onclick="loadCognitiveOverview()">
+              <button class="btn btn-primary" onclick="openCreateProposalModal()" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700;">
+                <i class="fa-solid fa-file-circle-plus"></i> Nova Proposta
+              </button>
+              <button class="btn btn-secondary" onclick="runCognitiveHeartbeat()" title="Executa rotina autônoma de follow-up com ganchos novos">
+                <i class="fa-solid fa-heart-pulse" style="color: #c084fc;"></i> Follow-Up Autônomo
+              </button>
+              <button class="btn btn-secondary" onclick="refreshCognitiveWorkspace()">
                 <i class="fa-solid fa-rotate"></i> Atualizar
               </button>
             </div>
           </div>
 
-          <!-- METRICAS COGNITIVAS CONSOLIDADAS -->
-          <div class="stats-grid" style="margin-bottom: 24px;">
+          <!-- METRICAS CONSOLIDADAS -->
+          <div class="stats-grid" style="margin-bottom: 20px;">
             <div class="stat-card" style="border-top: 3px solid #a855f7;">
               <div class="stat-icon purple"><i class="fa-solid fa-users-viewfinder"></i></div>
               <div class="stat-info">
                 <span class="stat-label">Leads Cognitivos</span>
                 <h3 id="cogStatTotalLeads">0</h3>
-                <small style="color: #c084fc;">Perfis monitorados</small>
+                <small style="color: #c084fc;">Perfis ativos monitorados</small>
               </div>
             </div>
 
-            <div class="stat-card" style="border-top: 3px solid #3b82f6;">
-              <div class="stat-icon blue"><i class="fa-solid fa-gauge-high"></i></div>
+            <div class="stat-card" style="border-top: 3px solid #38bdf8;">
+              <div class="stat-icon blue"><i class="fa-solid fa-calendar-check"></i></div>
               <div class="stat-info">
-                <span class="stat-label">Prontidão Média</span>
-                <h3 id="cogStatAvgReadiness">0%</h3>
-                <small style="color: #60a5fa;">Readiness de fechamento</small>
+                <span class="stat-label">Reuniões &amp; Calls</span>
+                <h3 id="cogStatTotalMeetings">0</h3>
+                <small style="color: #38bdf8;">Google Meet confirmadas</small>
               </div>
             </div>
 
             <div class="stat-card" style="border-top: 3px solid #10b981;">
-              <div class="stat-icon green"><i class="fa-solid fa-fire"></i></div>
+              <div class="stat-icon green"><i class="fa-solid fa-file-contract"></i></div>
               <div class="stat-info">
-                <span class="stat-label">Alta Intenção</span>
-                <h3 id="cogStatHighIntent">0</h3>
-                <small style="color: #4ade80;">Score &ge; 70% (Fechar hoje)</small>
+                <span class="stat-label">Propostas Emitidas</span>
+                <h3 id="cogStatTotalProposals">0</h3>
+                <small style="color: #4ade80;">Com link e aceite digital</small>
               </div>
             </div>
 
@@ -4361,60 +4367,328 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
               <div class="stat-info">
                 <span class="stat-label">Pipeline Negociado</span>
                 <h3 id="cogStatPipeline">R$ 0,00</h3>
-                <small style="color: #fbbf24;">Valor total em aberto</small>
+                <small style="color: #fbbf24;">Em negociação / fechamento</small>
               </div>
             </div>
           </div>
 
-          <!-- FUNIL DE ESTAGIOS COGNITIVOS -->
-          <div class="card mb-4" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02);">
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-              <h3 style="font-size: 15px; margin: 0; display: flex; align-items: center; gap: 8px;">
-                <i class="fa-solid fa-filter" style="color: #38bdf8;"></i> Esteira Consultiva de Decisão
-              </h3>
-              <small style="color: var(--text-muted);">Classificação cognitiva contínua dos leads</small>
-            </div>
-            <div class="card-body">
-              <div id="cogStagePills" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
-                <!-- Preenchido dinamicamente via JS -->
+          <!-- BARRAS DE NAVEGACAO DE VISUALIZACOES CRM -->
+          <div class="crm-view-nav">
+            <button class="crm-view-btn active" id="btnViewKanban" onclick="switchCognitiveView('kanban')">
+              <i class="fa-solid fa-table-columns"></i> 📊 Pipeline Kanban Drag &amp; Drop
+            </button>
+            <button class="crm-view-btn" id="btnViewTable" onclick="switchCognitiveView('table')">
+              <i class="fa-solid fa-list-check"></i> 📋 Tabela Detalhada de Leads
+            </button>
+            <button class="crm-view-btn" id="btnViewMeetings" onclick="switchCognitiveView('meetings')">
+              <i class="fa-solid fa-video"></i> 📅 Reuniões &amp; Google Meet (<span id="badgeMeetingCount">0</span>)
+            </button>
+            <button class="crm-view-btn" id="btnViewProposals" onclick="switchCognitiveView('proposals')">
+              <i class="fa-solid fa-file-signature"></i> 📄 Propostas Comerciais (<span id="badgeProposalCount">0</span>)
+            </button>
+            <button class="crm-view-btn" id="btnViewCalculator" onclick="switchCognitiveView('calculator')">
+              <i class="fa-solid fa-calculator"></i> 🧮 Calculadora de Escopo &amp; Orçamento
+            </button>
+          </div>
+
+          <!-- VISUALIZACAO 1: PIPELINE KANBAN (DRAG AND DROP) -->
+          <div id="cogViewKanban">
+            <div class="crm-kanban-board" id="crmKanbanBoard">
+              <!-- Coluna 1: DESCOBERTA -->
+              <div class="crm-kanban-column" id="col-DESCOBERTA" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'DESCOBERTA')">
+                <div class="crm-kanban-header">
+                  <span class="crm-kanban-title" style="color: #94a3b8;"><i class="fa-solid fa-magnifying-glass"></i> Descoberta</span>
+                  <span class="crm-kanban-count" id="count-DESCOBERTA">0</span>
+                </div>
+                <div class="crm-kanban-value" id="val-DESCOBERTA">R$ 0,00</div>
+                <div class="crm-kanban-cards" id="cards-DESCOBERTA"></div>
+              </div>
+
+              <!-- Coluna 2: QUALIFICACAO -->
+              <div class="crm-kanban-column" id="col-QUALIFICACAO" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'QUALIFICACAO')">
+                <div class="crm-kanban-header">
+                  <span class="crm-kanban-title" style="color: #38bdf8;"><i class="fa-solid fa-bullseye"></i> Qualificação &amp; Meet</span>
+                  <span class="crm-kanban-count" id="count-QUALIFICACAO">0</span>
+                </div>
+                <div class="crm-kanban-value" id="val-QUALIFICACAO">R$ 0,00</div>
+                <div class="crm-kanban-cards" id="cards-QUALIFICACAO"></div>
+              </div>
+
+              <!-- Coluna 3: PROPOSTA -->
+              <div class="crm-kanban-column" id="col-PROPOSTA" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'PROPOSTA')">
+                <div class="crm-kanban-header">
+                  <span class="crm-kanban-title" style="color: #a855f7;"><i class="fa-solid fa-file-lines"></i> Proposta Enviada</span>
+                  <span class="crm-kanban-count" id="count-PROPOSTA">0</span>
+                </div>
+                <div class="crm-kanban-value" id="val-PROPOSTA">R$ 0,00</div>
+                <div class="crm-kanban-cards" id="cards-PROPOSTA"></div>
+              </div>
+
+              <!-- Coluna 4: OBJECOES -->
+              <div class="crm-kanban-column" id="col-OBJECOES" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'OBJECOES')">
+                <div class="crm-kanban-header">
+                  <span class="crm-kanban-title" style="color: #f59e0b;"><i class="fa-solid fa-comments"></i> Objeções &amp; Ajustes</span>
+                  <span class="crm-kanban-count" id="count-OBJECOES">0</span>
+                </div>
+                <div class="crm-kanban-value" id="val-OBJECOES">R$ 0,00</div>
+                <div class="crm-kanban-cards" id="cards-OBJECOES"></div>
+              </div>
+
+              <!-- Coluna 5: FECHAMENTO -->
+              <div class="crm-kanban-column" id="col-FECHAMENTO" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'FECHAMENTO')">
+                <div class="crm-kanban-header">
+                  <span class="crm-kanban-title" style="color: #ec4899;"><i class="fa-solid fa-hourglass-half"></i> Fechamento &amp; Pix</span>
+                  <span class="crm-kanban-count" id="count-FECHAMENTO">0</span>
+                </div>
+                <div class="crm-kanban-value" id="val-FECHAMENTO">R$ 0,00</div>
+                <div class="crm-kanban-cards" id="cards-FECHAMENTO"></div>
+              </div>
+
+              <!-- Coluna 6: CONVERTIDO -->
+              <div class="crm-kanban-column" id="col-CONVERTIDO" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event, 'CONVERTIDO')">
+                <div class="crm-kanban-header">
+                  <span class="crm-kanban-title" style="color: #10b981;"><i class="fa-solid fa-circle-check"></i> Convertido &amp; Produção</span>
+                  <span class="crm-kanban-count" id="count-CONVERTIDO">0</span>
+                </div>
+                <div class="crm-kanban-value" id="val-CONVERTIDO">R$ 0,00</div>
+                <div class="crm-kanban-cards" id="cards-CONVERTIDO"></div>
               </div>
             </div>
           </div>
 
-          <!-- TABELA DE LEADS & PERFIS COGNITIVOS -->
-          <div class="card">
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-              <div>
-                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
-                  <i class="fa-solid fa-user-astronaut" style="color: #a855f7;"></i>
-                  Radar de Leads, Crenças Auditadas &amp; Memória
+          <!-- VISUALIZACAO 2: TABELA DE LEADS -->
+          <div id="cogViewTable" style="display: none;">
+            <div class="card mb-4" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02);">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="font-size: 15px; margin: 0; display: flex; align-items: center; gap: 8px;">
+                  <i class="fa-solid fa-filter" style="color: #38bdf8;"></i> Esteira Consultiva de Decisão
                 </h3>
-                <p class="section-desc" style="margin-bottom: 0;">
-                  Veja em tempo real a pontuação de prontidão, objeções ativas e memórias registradas pelo consultor bot.
-                </p>
+                <small style="color: var(--text-muted);">Classificação contínua</small>
               </div>
-              <div style="display: flex; gap: 8px;">
-                <input type="text" id="cogSearchInput" class="form-control form-control-sm" placeholder="Filtrar por nome, nicho ou telefone..." onkeyup="filterCognitiveTable()" style="width: 260px;">
+              <div class="card-body">
+                <div id="cogStagePills" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;"></div>
               </div>
             </div>
-            <div class="table-responsive">
-              <table class="table" id="tableCognitiveLeads">
-                <thead>
-                  <tr>
-                    <th>Lead / Contato</th>
-                    <th>Nicho &amp; Empresa</th>
-                    <th>Escopo / Stack Técnica</th>
-                    <th>Faixa Orçamento</th>
-                    <th>Objeção Detectada</th>
-                    <th>Prontidão (Readiness)</th>
-                    <th>Estágio Atual</th>
-                    <th style="text-align: center;">Ações Consultivas</th>
-                  </tr>
-                </thead>
-                <tbody id="tableCognitiveLeadsBody">
-                  <tr><td colspan="8" class="text-center" style="padding: 30px; color: var(--text-muted);">Carregando leads cognitivos...</td></tr>
-                </tbody>
-              </table>
+
+            <div class="card">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-user-astronaut" style="color: #a855f7;"></i>
+                    Radar de Leads, Crenças Auditadas &amp; Memória
+                  </h3>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="cogSearchInput" class="form-control form-control-sm" placeholder="Filtrar por nome, nicho ou telefone..." onkeyup="filterCognitiveTable()" style="width: 260px;">
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table" id="tableCognitiveLeads">
+                  <thead>
+                    <tr>
+                      <th>Lead / Contato</th>
+                      <th>Nicho &amp; Empresa</th>
+                      <th>Escopo / Stack Técnica</th>
+                      <th>Faixa Orçamento</th>
+                      <th>Objeção Detectada</th>
+                      <th>Prontidão (Readiness)</th>
+                      <th>Estágio Atual</th>
+                      <th style="text-align: center;">Ações Consultivas</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tableCognitiveLeadsBody">
+                    <tr><td colspan="8" class="text-center" style="padding: 30px; color: var(--text-muted);">Carregando leads cognitivos...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- VISUALIZACAO 3: REUNIÕES & GOOGLE MEET -->
+          <div id="cogViewMeetings" style="display: none;">
+            <div class="card">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-video" style="color: #38bdf8;"></i>
+                    Demonstrações &amp; Calls de Diagnóstico Agendadas
+                  </h3>
+                  <p class="section-desc" style="margin-bottom: 0;">
+                    Reuniões técnicas marcadas no Google Meet com lembretes automáticos via WhatsApp 1 hora antes.
+                  </p>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="openScheduleMeetingModal()" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700;">
+                  <i class="fa-solid fa-plus"></i> Agendar Nova Reunião
+                </button>
+              </div>
+              <div class="table-responsive">
+                <table class="table" id="tableScheduledMeetings">
+                  <thead>
+                    <tr>
+                      <th>Data &amp; Horário</th>
+                      <th>Lead / Cliente</th>
+                      <th>Pauta / Escopo do Projeto</th>
+                      <th>Sala Google Meet</th>
+                      <th>Status</th>
+                      <th>Lembrete WhatsApp</th>
+                      <th style="text-align: center;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tableScheduledMeetingsBody">
+                    <tr><td colspan="7" class="text-center" style="padding: 30px; color: var(--text-muted);">Carregando reuniões agendadas...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- VISUALIZACAO 4: PROPOSTAS COMERCIAIS & CONTRATOS -->
+          <div id="cogViewProposals" style="display: none;">
+            <div class="card">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-file-contract" style="color: #10b981;"></i>
+                    Propostas Comerciais &amp; Contratos Interativos (/proposta/:id)
+                  </h3>
+                  <p class="section-desc" style="margin-bottom: 0;">
+                    Minutas completas com cláusulas contratuais de SLA, propriedade de código-fonte, aceite digital e exportação para PDF.
+                  </p>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="openCreateProposalModal()" style="background: #10b981; border-color: #10b981; font-weight: 700;">
+                  <i class="fa-solid fa-plus"></i> Gerar Proposta Comercial
+                </button>
+              </div>
+              <div class="table-responsive">
+                <table class="table" id="tableCommercialProposals">
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Lead / Solicitante</th>
+                      <th>Título do Projeto</th>
+                      <th>Categoria Tech</th>
+                      <th>Prazo</th>
+                      <th>Valor (R$)</th>
+                      <th>Status &amp; Visualizações</th>
+                      <th style="text-align: center;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tableCommercialProposalsBody">
+                    <tr><td colspan="8" class="text-center" style="padding: 30px; color: var(--text-muted);">Carregando propostas comerciais...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- VISUALIZACAO 5: CALCULADORA DE ESCOPO E ORÇAMENTO TÉCNICO -->
+          <div id="cogViewCalculator" style="display: none;">
+            <div class="crm-calc-grid">
+              <!-- Painel de Parametros -->
+              <div class="card">
+                <div class="card-header">
+                  <h3 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-sliders" style="color: #38bdf8;"></i> Parâmetros de Escopo Técnico
+                  </h3>
+                </div>
+                <div class="card-body">
+                  <div class="form-group mb-3">
+                    <label style="font-weight: 700; font-size: 13px;">Tipo de Solução / Projeto:</label>
+                    <select id="calcCategory" class="form-control" onchange="runLiveScopeCalculation()">
+                      <option value="SOFTWARE">💻 Software Sob Medida (Web / SaaS / ERP)</option>
+                      <option value="APP_MOBILE">📱 Aplicativo Mobile Personalizado (iOS &amp; Android)</option>
+                      <option value="AI_AGENT">🤖 Agente de IA Consultivo &amp; Automação Cognitiva</option>
+                      <option value="HARDWARE_IOT">⚡ Hardware, IoT &amp; Telemetria em Nuvem (ESP32 / Pi)</option>
+                      <option value="SITE_PORTAL">🌐 Portal Institucional &amp; Landing de Alta Conversão</option>
+                      <option value="SEO_TUNING">🚀 SEO Técnico &amp; Otimização de Performance</option>
+                      <option value="METEORIC">🔥 Máquina de Lançamento Meteórico Automatizado</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group mb-3">
+                    <label style="font-weight: 700; font-size: 13px;">Complexidade de Backend &amp; Arquitetura:</label>
+                    <select id="calcComplexity" class="form-control" onchange="runLiveScopeCalculation()">
+                      <option value="BASIC">Básica (SQLite, Monólito Otimizado, Deploy Simples)</option>
+                      <option value="INTERMEDIATE" selected>Intermediária (PostgreSQL, Cache Redis, WebSockets, Filas)</option>
+                      <option value="ADVANCED">Avançada (Microsserviços, Alta Disponibilidade, Multi-Region)</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group mb-3">
+                    <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 8px;">Módulos &amp; Integrações Adicionais:</label>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="calcAddonPix" value="pix_gateway" checked onchange="runLiveScopeCalculation()"> Gateway Pix Dinâmico
+                      </label>
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="calcAddonPanel" value="realtime_web_panel" checked onchange="runLiveScopeCalculation()"> Painel Web Tempo Real
+                      </label>
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="calcAddonWpp" value="whatsapp_bot" onchange="runLiveScopeCalculation()"> Motor WhatsApp Baileys
+                      </label>
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="calcAddonAi" value="ai_integration" onchange="runLiveScopeCalculation()"> Integração IA (Gemini/OpenAI)
+                      </label>
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="calcAddonRbac" value="auth_rbac" onchange="runLiveScopeCalculation()"> Níveis de Acesso (RBAC/2FA)
+                      </label>
+                      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="calcAddonDocker" value="docker_ci_cd" onchange="runLiveScopeCalculation()"> Docker &amp; CI/CD Staging
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="form-group mb-3">
+                    <label style="font-weight: 700; font-size: 13px;">Garantia &amp; SLA de Suporte Pós-Entrega:</label>
+                    <select id="calcSla" class="form-control" onchange="runLiveScopeCalculation()">
+                      <option value="STANDARD">Padrão: 30 Dias de Garantia</option>
+                      <option value="PROFESSIONAL" selected>Profissional: 90 Dias + Monitoramento Proativo (+R$ 800)</option>
+                      <option value="ENTERPRISE">Enterprise: 1 Ano + SLA Crítico 2h (+R$ 2.400)</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group" style="background: rgba(245, 158, 11, 0.08); padding: 10px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.2);">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; font-weight: 700; color: #fbbf24;">
+                      <input type="checkbox" id="calcRush" onchange="runLiveScopeCalculation()"> ⚡ Entrega Urgente (Sprint Dedicado 24/7 - Prazo reduzido em 40%)
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Painel de Resultados do Calculo -->
+              <div class="card" style="border: 1px solid rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.85);">
+                <div class="card-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                  <h3 style="margin: 0; font-size: 16px; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-receipt"></i> Estimativa Consolidada &amp; Entregáveis
+                  </h3>
+                </div>
+                <div class="card-body">
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; background: rgba(56, 189, 248, 0.05); padding: 14px; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.2);">
+                    <div>
+                      <small style="color: var(--text-muted); text-transform: uppercase;">Investimento Estimado</small>
+                      <div id="calcResultPrice" style="font-size: 28px; font-weight: 800; color: #38bdf8;">R$ 0,00</div>
+                    </div>
+                    <div style="text-align: right;">
+                      <small style="color: var(--text-muted); text-transform: uppercase;">Prazo de Entrega</small>
+                      <div id="calcResultDays" style="font-size: 18px; font-weight: 700; color: #fff;">0 dias úteis</div>
+                    </div>
+                  </div>
+
+                  <div style="margin-bottom: 14px;">
+                    <strong style="font-size: 12px; color: #94a3b8; text-transform: uppercase;">Stack Recomendada:</strong>
+                    <div id="calcResultStack" style="font-size: 13px; color: #cbd5e1; font-family: monospace; margin-top: 2px;">Node.js, PostgreSQL</div>
+                  </div>
+
+                  <div style="margin-bottom: 16px;">
+                    <strong style="font-size: 12px; color: #94a3b8; text-transform: uppercase;">Entregáveis Inclusos no Escopo:</strong>
+                    <div id="calcResultDeliverables" style="font-size: 12px; margin-top: 6px; display: flex; flex-direction: column; gap: 6px;"></div>
+                  </div>
+
+                  <button class="btn btn-primary btn-block" onclick="convertCalculationToProposal()" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700; padding: 12px;">
+                    <i class="fa-solid fa-file-circle-check"></i> 🚀 Transformar em Proposta Comercial
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -5890,5 +6164,147 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
       </div>
     </div>
   </div>
+
+  <!-- MODAL AGENDAR REUNIAO (GOOGLE MEET) -->
+  <div id="modalScheduleMeeting" class="modal">
+    <div class="modal-content" style="max-width: 640px;">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 8px; margin: 0; color: #38bdf8;">
+          <i class="fa-solid fa-video"></i> Agendar Reunião / Call de Diagnóstico
+        </h3>
+        <button type="button" class="btn-close" onclick="closeScheduleMeetingModal()">&times;</button>
+      </div>
+      <form id="formScheduleMeeting" onsubmit="saveScheduledMeeting(event)">
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Telefone do Lead (com DDD) *</label>
+            <input type="text" id="meetLeadPhone" class="form-control" required placeholder="Ex: 5511999998888">
+          </div>
+          <div class="form-group flex-1">
+            <label>Nome do Lead / Solicitante</label>
+            <input type="text" id="meetLeadName" class="form-control" placeholder="Ex: Roberto Silva">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Título / Pauta da Reunião *</label>
+          <input type="text" id="meetTitle" class="form-control" required value="Reunião de Diagnóstico Técnico &amp; Alinhamento">
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>Data da Reunião *</label>
+            <input type="date" id="meetDate" class="form-control" required onchange="loadFreeSlotsForDate(this.value)">
+          </div>
+          <div class="form-group flex-1">
+            <label>Horário *</label>
+            <input type="time" id="meetTime" class="form-control" required value="14:00">
+          </div>
+          <div class="form-group" style="width: 120px;">
+            <label>Duração</label>
+            <select id="meetDuration" class="form-control">
+              <option value="20">20 min</option>
+              <option value="30" selected>30 min</option>
+              <option value="45">45 min</option>
+              <option value="60">1 hora</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Link da Sala Google Meet (opcional - gerado automaticamente se vazio)</label>
+          <input type="url" id="meetUrl" class="form-control" placeholder="https://meet.google.com/xyz-abcd-efg">
+        </div>
+        <div class="form-group">
+          <label>Escopo / Requisitos a Discutir</label>
+          <input type="text" id="meetScope" class="form-control" placeholder="Ex: App de delivery sob medida com Pix e Painel Web">
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeScheduleMeetingModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700;">
+            <i class="fa-solid fa-calendar-check"></i> Confirmar &amp; Salvar Agendamento
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL GERAR PROPOSTA COMERCIAL & CONTRATO INTERATIVO -->
+  <div id="modalCreateProposal" class="modal">
+    <div class="modal-content" style="max-width: 760px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden;">
+      <div class="modal-header" style="flex-shrink: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 14px;">
+        <h3 style="display: flex; align-items: center; gap: 8px; margin: 0; color: #10b981;">
+          <i class="fa-solid fa-file-contract"></i> Gerar Proposta Comercial &amp; Minuta Contratual
+        </h3>
+        <button type="button" class="btn-close" onclick="closeCreateProposalModal()">&times;</button>
+      </div>
+      <form id="formCreateProposal" onsubmit="saveCommercialProposal(event)" style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;">
+        <div style="overflow-y: auto; flex: 1; min-height: 0; padding-right: 8px;">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Telefone do Lead (com DDD) *</label>
+              <input type="text" id="propLeadPhone" class="form-control" required placeholder="5511999998888">
+            </div>
+            <div class="form-group flex-1">
+              <label>Nome do Lead / Cliente</label>
+              <input type="text" id="propLeadName" class="form-control" placeholder="Roberto Silva">
+            </div>
+            <div class="form-group flex-1">
+              <label>Empresa do Lead</label>
+              <input type="text" id="propLeadCompany" class="form-control" placeholder="Empresa XPTO Ltda">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-2">
+              <label>Título do Projeto *</label>
+              <input type="text" id="propProjectTitle" class="form-control" required placeholder="Ex: Software Sob Medida &amp; Painel de Gestão">
+            </div>
+            <div class="form-group flex-1">
+              <label>Categoria Tech</label>
+              <select id="propCategory" class="form-control" onchange="applyProposalPreset(this.value)">
+                <option value="SOFTWARE">Software Web / ERP</option>
+                <option value="APP_MOBILE">App Mobile (iOS/Android)</option>
+                <option value="AI_AGENT">Agente IA Consultivo</option>
+                <option value="HARDWARE_IOT">Hardware &amp; IoT</option>
+                <option value="SITE_PORTAL">Portal Institucional</option>
+                <option value="SEO_TUNING">SEO Técnico &amp; Tuning</option>
+                <option value="METEORIC">Lançamento Meteórico</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Descrição Resumida do Escopo</label>
+            <textarea id="propScopeDesc" class="form-control" rows="2" placeholder="Resumo executivo do projeto..."></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Investimento Total (R$) *</label>
+              <input type="number" step="0.01" id="propInvestment" class="form-control" required placeholder="4800.00">
+            </div>
+            <div class="form-group flex-1">
+              <label>Prazo Estimado (Semanas) *</label>
+              <input type="number" id="propTimeline" class="form-control" required value="3">
+            </div>
+            <div class="form-group flex-1">
+              <label>Stack Tecnológica</label>
+              <input type="text" id="propTechStack" class="form-control" value="Node.js, Vue/React, SQLite/Postgres, Docker">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Condições de Pagamento</label>
+            <input type="text" id="propPaymentTerms" class="form-control" value="50% entrada via Pix + 50% na homologação e entrega do código-fonte">
+          </div>
+          <div class="form-group">
+            <label>Entregáveis Técnicos (1 por linha: Título | Descrição)</label>
+            <textarea id="propDeliverablesText" class="form-control" rows="3" placeholder="Arquitetura Backend | Banco relacional otimizado&#10;Painel Web | Interface moderna responsiva com métricas"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+          <button type="button" class="btn btn-secondary" onclick="closeCreateProposalModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #10b981; border-color: #10b981; font-weight: 700;">
+            <i class="fa-solid fa-file-signature"></i> Gerar Proposta &amp; Minuta Digital
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 </body>
 </html>

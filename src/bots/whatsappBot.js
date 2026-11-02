@@ -2402,6 +2402,47 @@ class WhatsAppBotService {
       return this.handleViralRadarCommand(activeSock, from, text, isOwnerUser);
     }
 
+    // 14.12 Calculadora Interativa de Escopo e Orçamento Técnico: !orcamento / !estimativa / !calcular
+    if (/^(?:!|\/)(?:orcamento|orçamento|estimativa|calcular)(?:\s+.*)?$/i.test(lower)) {
+      const parts = text.trim().split(/\s+/);
+      const arg = (parts[1] || '').toLowerCase();
+      let cat = 'SOFTWARE';
+      if (arg.includes('app') || arg.includes('mobile')) cat = 'APP_MOBILE';
+      else if (arg.includes('ia') || arg.includes('ai') || arg.includes('bot')) cat = 'AI_AGENT';
+      else if (arg.includes('iot') || arg.includes('hard') || arg.includes('esp')) cat = 'HARDWARE_IOT';
+      else if (arg.includes('site') || arg.includes('web') || arg.includes('landing')) cat = 'SITE_PORTAL';
+      else if (arg.includes('seo') || arg.includes('otim')) cat = 'SEO_TUNING';
+      else if (arg.includes('met') || arg.includes('lanc')) cat = 'METEORIC';
+
+      const calcService = require('../services/techScopeCalculatorService');
+      const calc = calcService.calculate({
+        category: cat,
+        complexity: 'INTERMEDIATE',
+        addons: ['pix_gateway', 'realtime_web_panel']
+      });
+
+      const totalVal = calc.pricingBreakdown.totalInvestmentBrl.toLocaleString('pt-BR');
+      const msg = `⚡ *ESTIMATIVA DE ESCOPO TÉCNICO & ORÇAMENTO* 🚀\n\n` +
+        `📦 *Projeto:* ${calc.categoryName}\n` +
+        `🛠️ *Stack Sugerida:* ${calc.recommendedTechStack}\n` +
+        `⏱️ *Prazo de Execução:* ${calc.timeline.totalDays} dias úteis (${calc.timeline.timelineWeeks} semanas)\n` +
+        `💰 *Investimento Estimado:* R$ ${totalVal}\n\n` +
+        `📌 *Entregáveis Inclusos:*\n` +
+        calc.deliverables.slice(0, 3).map(d => `• *${d.title}*`).join('\n') + `\n\n` +
+        `💡 _Deseja agendar uma call de alinhamento com link do Google Meet para refinarmos o escopo? Envie *!meet* ou nos informe o melhor horário!_`;
+
+      return activeSock.sendMessage(from, { text: msg });
+    }
+
+    // 14.13 Agendamento de Call / Reunião Técnica (Google Meet): !reuniao / !meet / !agendar
+    if (/^(?:!|\/)(?:reuniao|reunião|meet|agendar)(?:\s+.*)?$/i.test(lower)) {
+      const meetingService = require('../services/meetingService');
+      const interaction = await meetingService.handleMeetingInteraction(senderPhone, senderName, text);
+      if (interaction && interaction.replyText) {
+        return activeSock.sendMessage(from, { text: interaction.replyText });
+      }
+    }
+
     // 15. Menu Geral de Comandos Spy Bot + Loja: !help / !bot / !comandos / !menu2 / !spy / !spybot / !ajudatudo
     if (/^(?:!|\/)?(?:help|bot|comandos|menu2|spy|spybot|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
@@ -2451,7 +2492,10 @@ class WhatsAppBotService {
         `• *!viral* ou *!radar* — Painel do radar e virais capturados\n` +
         `• *!viraladd <insta|fb> <@perfil> [nicho]* — Cadastra perfil para capturar virais\n` +
         `• *!gerarpost <id_ou_perfil>* — Gera nosso post adaptado com gancho e CTA\n` +
-        `• *!viralscan* — Faz varredura de virais em todos os perfis agora\n\n`;
+        `• *!viralscan* — Faz varredura de virais em todos os perfis agora\n\n` +
+        `💼 *Consultoria Tech, Orçamentos & Calls:*\n` +
+        `• *!orcamento [tipo]* — Simula escopo e investimento (software, app, ia, iot, site, seo)\n` +
+        `• *!reuniao* ou *!meet* — Consulta agenda e marca call técnica no Google Meet\n\n`;
 
       if (isOwnerUser) {
         spyMenu += `👑 *Assistente Matriz & Central de Comando dos Sub-Bots (Exclusivo Dono):*\n` +
@@ -2595,6 +2639,19 @@ class WhatsAppBotService {
         try {
           cognitiveService.analyzeAndExtractProfile(senderPhone, senderName, text);
         } catch (_) {}
+
+        // Agendamento de Demonstração / Call de Diagnóstico Técnico (Google Meet)
+        try {
+          const meetingService = require('../services/meetingService');
+          if (meetingService.detectMeetingIntent(text)) {
+            const meetingRes = await meetingService.handleMeetingInteraction(senderPhone, senderName, text);
+            if (meetingRes && meetingRes.replyText) {
+              return this.sendMessage(from, meetingRes.replyText, {}, activeSock);
+            }
+          }
+        } catch (mErr) {
+          console.error('[WhatsApp Meeting Error]:', mErr.message);
+        }
       }
 
       const nlp = await nlpService.processMessage({

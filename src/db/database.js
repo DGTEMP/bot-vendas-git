@@ -766,6 +766,54 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 37. Tabela de Reuniões & Demonstrações Agendadas (Google Meet / Calls de Diagnóstico)
+    CREATE TABLE IF NOT EXISTS scheduled_meetings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_phone TEXT NOT NULL,
+      lead_name TEXT,
+      meeting_title TEXT DEFAULT 'Reunião de Diagnóstico Técnico & Alinhamento',
+      meeting_date TEXT NOT NULL, -- YYYY-MM-DD
+      meeting_time TEXT NOT NULL, -- HH:MM
+      meeting_datetime DATETIME NOT NULL,
+      duration_minutes INTEGER DEFAULT 30,
+      meet_url TEXT,
+      topic_scope TEXT,
+      status TEXT DEFAULT 'SCHEDULED', -- 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELED', 'NO_SHOW'
+      reminder_sent INTEGER DEFAULT 0,
+      reminder_sent_at DATETIME,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 38. Tabela de Propostas Comerciais & Contratos Interativos (/proposta/:token)
+    CREATE TABLE IF NOT EXISTS commercial_proposals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL, -- ex: PROP-2026-001
+      token TEXT UNIQUE NOT NULL, -- safe random token para link público
+      lead_phone TEXT NOT NULL,
+      lead_name TEXT,
+      lead_company TEXT,
+      project_title TEXT NOT NULL,
+      category TEXT DEFAULT 'SOFTWARE', -- SOFTWARE, APP_MOBILE, AI_AGENT, HARDWARE_IOT, SITE_PORTAL, SEO_TUNING, METEORIC
+      scope_description TEXT,
+      deliverables_json TEXT, -- JSON array de itens/entregáveis
+      tech_stack TEXT, -- 'Node.js, React, SQLite/Postgres, Baileys, Docker'
+      timeline_weeks INTEGER DEFAULT 3,
+      investment_brl REAL NOT NULL DEFAULT 0.0,
+      payment_terms TEXT, -- '50% entrada via Pix + 50% na homologação final'
+      contract_clauses_json TEXT, -- JSON array de cláusulas de SLA, garantia, sigilo e entrega de código-fonte
+      status TEXT DEFAULT 'DRAFT', -- 'DRAFT', 'SENT', 'ACCEPTED', 'EXPIRED', 'REJECTED'
+      view_count INTEGER DEFAULT 0,
+      last_viewed_at DATETIME,
+      accepted_at DATETIME,
+      accepted_by_ip TEXT,
+      accepted_by_name TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
 
   // Migrações seguras
@@ -843,7 +891,12 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_cog_prof_stage ON lead_cognitive_profiles(buying_stage, readiness_score);',
     'CREATE INDEX IF NOT EXISTS idx_cog_prof_followup ON lead_cognitive_profiles(next_followup_at);',
     'CREATE INDEX IF NOT EXISTS idx_cog_beliefs_phone ON lead_cognitive_beliefs(lead_phone);',
-    'CREATE INDEX IF NOT EXISTS idx_cog_memories_phone ON lead_episodic_memories(lead_phone, importance);'
+    'CREATE INDEX IF NOT EXISTS idx_cog_memories_phone ON lead_episodic_memories(lead_phone, importance);',
+    'CREATE INDEX IF NOT EXISTS idx_meetings_phone ON scheduled_meetings(lead_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_meetings_datetime ON scheduled_meetings(meeting_datetime, status);',
+    'CREATE INDEX IF NOT EXISTS idx_proposals_phone ON commercial_proposals(lead_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_proposals_token ON commercial_proposals(token);',
+    'CREATE INDEX IF NOT EXISTS idx_proposals_code ON commercial_proposals(code);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}

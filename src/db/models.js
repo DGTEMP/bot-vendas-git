@@ -3872,6 +3872,384 @@ const models = {
     db.prepare('DELETE FROM lead_episodic_memories WHERE lead_phone = ?').run(cleanPhone);
     db.prepare('DELETE FROM lead_cognitive_profiles WHERE phone = ?').run(cleanPhone);
     return true;
+  },
+
+  // ==========================================
+  // 36. AGENDAMENTO DE REUNIÕES & DEMONSTRAÇÕES (GOOGLE MEET)
+  // ==========================================
+  createMeeting(data = {}) {
+    if (!data.lead_phone || !data.meeting_date || !data.meeting_time) {
+      throw new Error('Telefone, data e horário da reunião são obrigatórios.');
+    }
+    const cleanPhone = String(data.lead_phone).replace(/\D/g, '');
+    const dateStr = String(data.meeting_date).trim();
+    const timeStr = String(data.meeting_time).trim();
+    const dt = data.meeting_datetime || `${dateStr} ${timeStr}:00`;
+    const meetUrl = data.meet_url || `https://meet.google.com/${Math.random().toString(36).substring(2, 5)}-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 5)}`;
+
+    const stmt = db.prepare(`
+      INSERT INTO scheduled_meetings (
+        lead_phone, lead_name, meeting_title, meeting_date, meeting_time,
+        meeting_datetime, duration_minutes, meet_url, topic_scope, status, notes
+      ) VALUES (?, ?, ?, ?, ?, datetime(?), ?, ?, ?, ?, ?)
+    `);
+
+    const res = stmt.run(
+      cleanPhone,
+      data.lead_name || 'Lead',
+      data.meeting_title || 'Reunião de Diagnóstico Técnico & Alinhamento',
+      dateStr,
+      timeStr,
+      dt,
+      data.duration_minutes ? Number(data.duration_minutes) : 30,
+      meetUrl,
+      data.topic_scope || 'Software sob Medida / IA / Projetos',
+      data.status || 'SCHEDULED',
+      data.notes || ''
+    );
+
+    const meetingId = Number(res.lastInsertRowid);
+
+    // Registra na memória episódica do lead
+    try {
+      models.addLeadEpisodicMemory(
+        cleanPhone,
+        'TIMELINE',
+        `Reunião agendada para ${dateStr} às ${timeStr} (${meetUrl})`,
+        `Meet: ${meetUrl}`,
+        5
+      );
+      // Avança estágio cognitivo se estiver em DESCOBERTA
+      const prof = models.getLeadCognitiveProfile(cleanPhone);
+      if (prof && prof.buying_stage === 'DESCOBERTA') {
+        models.upsertLeadCognitiveProfile(cleanPhone, { buying_stage: 'QUALIFICACAO', readiness_score: Math.max(prof.readiness_score || 30, 60) });
+      }
+    } catch (_) {}
+
+    return models.getMeetingById(meetingId);
+  },
+
+  getMeetingById(id) {
+    if (!id) return null;
+    return db.prepare('SELECT * FROM scheduled_meetings WHERE id = ?').get(Number(id));
+  },
+
+  getMeetings(filters = {}) {
+    let sql = 'SELECT * FROM scheduled_meetings WHERE 1=1';
+    const params = [];
+
+    if (filters.lead_phone) {
+      sql += ' AND lead_phone = ?';
+      params.push(String(filters.lead_phone).replace(/\D/g, ''));
+    }
+    if (filters.status) {
+      sql += ' AND status = ?';
+      params.push(filters.status);
+    }
+    if (filters.date) {
+      sql += ' AND meeting_date = ?';
+      params.push(filters.date);
+    }
+    if (filters.upcomingOnly) {
+      sql += " AND datetime(meeting_datetime) >= datetime('now') AND status IN ('SCHEDULED', 'CONFIRMED')";
+    }
+
+    sql += ' ORDER BY datetime(meeting_datetime) ASC';
+    if (filters.limit) {
+      sql += ' LIMIT ?';
+      params.push(Number(filters.limit));
+    }
+
+    return db.prepare(sql).all(...params);
+  },
+
+  updateMeeting(id, data = {}) {
+    const existing = models.getMeetingById(id);
+    if (!existing) return null;
+
+    const updated = {
+      meeting_title: data.meeting_title ?? existing.meeting_title,
+      meeting_date: data.meeting_date ?? existing.meeting_date,
+      meeting_time: data.meeting_time ?? existing.meeting_time,
+      duration_minutes: data.duration_minutes ?? existing.duration_minutes,
+      meet_url: data.meet_url ?? existing.meet_url,
+      topic_scope: data.topic_scope ?? existing.topic_scope,
+      status: data.status ?? existing.status,
+      reminder_sent: data.reminder_sent !== undefined ? Number(data.reminder_sent) : existing.reminder_sent,
+      notes: data.notes ?? existing.notes
+    };
+
+    const newDt = (data.meeting_date || data.meeting_time)
+      ? `${updated.meeting_date} ${updated.meeting_time}:00`
+      : existing.meeting_datetime;
+
+    db.prepare(`
+      UPDATE scheduled_meetings SET
+        meeting_title = ?, meeting_date = ?, meeting_time = ?,
+        meeting_datetime = datetime(?), duration_minutes = ?, meet_url = ?,
+        topic_scope = ?, status = ?, reminder_sent = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      updated.meeting_title, updated.meeting_date, updated.meeting_time,
+      newDt, updated.duration_minutes, updated.meet_url,
+      updated.topic_scope, updated.status, updated.reminder_sent, updated.notes,
+      Number(id)
+    );
+
+    return models.getMeetingById(id);
+  },
+
+  cancelMeeting(id, reason = '') {
+    return models.updateMeeting(id, {
+      status: 'CANCELED',
+      notes: reason ? `Cancelado: ${reason}` : 'Cancelado pelo operador/cliente'
+    });
+  },
+
+  getUpcomingMeetingReminders(withinMinutes = 60) {
+    return db.prepare(`
+      SELECT * FROM scheduled_meetings
+      WHERE status IN ('SCHEDULED', 'CONFIRMED')
+        AND reminder_sent = 0
+        AND datetime(meeting_datetime) > datetime('now')
+        AND datetime(meeting_datetime) <= datetime('now', '+' || ? || ' minutes')
+      ORDER BY datetime(meeting_datetime) ASC
+    `).all(Number(withinMinutes));
+  },
+
+  getAvailableMeetingSlots(dateStr) {
+    if (!dateStr) {
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      dateStr = tomorrow.toISOString().split('T')[0];
+    }
+
+    const defaultSlots = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'];
+    const booked = db.prepare(`
+      SELECT meeting_time FROM scheduled_meetings
+      WHERE meeting_date = ? AND status IN ('SCHEDULED', 'CONFIRMED')
+    `).all(dateStr).map(r => r.meeting_time);
+
+    return {
+      date: dateStr,
+      available_slots: defaultSlots.filter(s => !booked.includes(s)),
+      booked_slots: booked
+    };
+  },
+
+  // ==========================================
+  // 37. PROPOSTAS COMERCIAIS & CONTRATOS INTERATIVOS (/proposta/:token)
+  // ==========================================
+  createProposal(data = {}) {
+    if (!data.lead_phone || !data.project_title) {
+      throw new Error('Telefone do lead e título do projeto são obrigatórios.');
+    }
+    const cleanPhone = String(data.lead_phone).replace(/\D/g, '');
+    const crypto = require('crypto');
+    const randomHex = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const code = data.code || `PROP-2026-${randomHex}`;
+    const token = data.token || crypto.randomBytes(12).toString('hex');
+
+    const deliverables = Array.isArray(data.deliverables) ? JSON.stringify(data.deliverables) : (data.deliverables_json || '[]');
+    const clauses = Array.isArray(data.contract_clauses) ? JSON.stringify(data.contract_clauses) : (data.contract_clauses_json || '[]');
+
+    const stmt = db.prepare(`
+      INSERT INTO commercial_proposals (
+        code, token, lead_phone, lead_name, lead_company, project_title,
+        category, scope_description, deliverables_json, tech_stack,
+        timeline_weeks, investment_brl, payment_terms, contract_clauses_json,
+        status, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const res = stmt.run(
+      code,
+      token,
+      cleanPhone,
+      data.lead_name || 'Cliente',
+      data.lead_company || '',
+      data.project_title,
+      data.category || 'SOFTWARE',
+      data.scope_description || '',
+      deliverables,
+      data.tech_stack || 'Node.js, React, SQLite/PostgreSQL, Baileys, Docker',
+      data.timeline_weeks ? Number(data.timeline_weeks) : 3,
+      data.investment_brl ? Number(data.investment_brl) : 0.0,
+      data.payment_terms || '50% entrada via Pix + 50% na entrega e homologação',
+      clauses,
+      data.status || 'SENT',
+      data.notes || ''
+    );
+
+    const proposalId = Number(res.lastInsertRowid);
+
+    // Registra na memória episódica do lead e avança estágio no CRM cognitivo
+    try {
+      models.addLeadEpisodicMemory(
+        cleanPhone,
+        'OFFER',
+        `Proposta comercial gerada: ${code} (${data.project_title}) - R$ ${Number(data.investment_brl || 0).toLocaleString('pt-BR')}`,
+        `Token: ${token}`,
+        5
+      );
+      const prof = models.getLeadCognitiveProfile(cleanPhone);
+      const newStage = (prof?.readiness_score || 0) >= 80 ? 'FECHAMENTO' : 'PROPOSTA';
+      models.upsertLeadCognitiveProfile(cleanPhone, {
+        buying_stage: newStage,
+        estimated_budget: Number(data.investment_brl || 0),
+        readiness_score: Math.max(prof?.readiness_score || 40, 75)
+      });
+    } catch (_) {}
+
+    return models.getProposalById(proposalId);
+  },
+
+  _formatProposalRow(row) {
+    if (!row) return null;
+    let deliverables = [];
+    let contract_clauses = [];
+    try { deliverables = JSON.parse(row.deliverables_json || '[]'); } catch (_) {}
+    try { contract_clauses = JSON.parse(row.contract_clauses_json || '[]'); } catch (_) {}
+
+    return {
+      ...row,
+      deliverables,
+      contract_clauses
+    };
+  },
+
+  getProposalById(id) {
+    if (!id) return null;
+    const row = db.prepare('SELECT * FROM commercial_proposals WHERE id = ?').get(Number(id));
+    return models._formatProposalRow(row);
+  },
+
+  getProposalByToken(token) {
+    if (!token) return null;
+    const row = db.prepare('SELECT * FROM commercial_proposals WHERE token = ?').get(String(token).trim());
+    return models._formatProposalRow(row);
+  },
+
+  getProposalByCode(code) {
+    if (!code) return null;
+    const row = db.prepare('SELECT * FROM commercial_proposals WHERE code = ?').get(String(code).trim());
+    return models._formatProposalRow(row);
+  },
+
+  getProposals(filters = {}) {
+    let sql = 'SELECT * FROM commercial_proposals WHERE 1=1';
+    const params = [];
+
+    if (filters.lead_phone) {
+      sql += ' AND lead_phone = ?';
+      params.push(String(filters.lead_phone).replace(/\D/g, ''));
+    }
+    if (filters.status) {
+      sql += ' AND status = ?';
+      params.push(filters.status);
+    }
+    if (filters.category) {
+      sql += ' AND category = ?';
+      params.push(filters.category);
+    }
+
+    sql += ' ORDER BY created_at DESC';
+    if (filters.limit) {
+      sql += ' LIMIT ?';
+      params.push(Number(filters.limit));
+    }
+
+    const rows = db.prepare(sql).all(...params);
+    return rows.map(r => models._formatProposalRow(r));
+  },
+
+  updateProposal(id, data = {}) {
+    const existing = models.getProposalById(id);
+    if (!existing) return null;
+
+    const deliverables = data.deliverables !== undefined
+      ? JSON.stringify(data.deliverables)
+      : (data.deliverables_json ?? existing.deliverables_json);
+
+    const clauses = data.contract_clauses !== undefined
+      ? JSON.stringify(data.contract_clauses)
+      : (data.contract_clauses_json ?? existing.contract_clauses_json);
+
+    db.prepare(`
+      UPDATE commercial_proposals SET
+        lead_name = ?, lead_company = ?, project_title = ?, category = ?,
+        scope_description = ?, deliverables_json = ?, tech_stack = ?,
+        timeline_weeks = ?, investment_brl = ?, payment_terms = ?,
+        contract_clauses_json = ?, status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      data.lead_name ?? existing.lead_name,
+      data.lead_company ?? existing.lead_company,
+      data.project_title ?? existing.project_title,
+      data.category ?? existing.category,
+      data.scope_description ?? existing.scope_description,
+      deliverables,
+      data.tech_stack ?? existing.tech_stack,
+      data.timeline_weeks !== undefined ? Number(data.timeline_weeks) : existing.timeline_weeks,
+      data.investment_brl !== undefined ? Number(data.investment_brl) : existing.investment_brl,
+      data.payment_terms ?? existing.payment_terms,
+      clauses,
+      data.status ?? existing.status,
+      data.notes ?? existing.notes,
+      Number(id)
+    );
+
+    return models.getProposalById(id);
+  },
+
+  acceptProposal(token, clientData = {}) {
+    const prop = models.getProposalByToken(token);
+    if (!prop) throw new Error('Proposta não encontrada.');
+
+    db.prepare(`
+      UPDATE commercial_proposals SET
+        status = 'ACCEPTED',
+        accepted_at = CURRENT_TIMESTAMP,
+        accepted_by_ip = ?,
+        accepted_by_name = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE token = ?
+    `).run(
+      clientData.ip || '127.0.0.1',
+      clientData.name || prop.lead_name || 'Cliente',
+      token
+    );
+
+    // Atualiza estágio do CRM Cognitivo para CONVERTIDO
+    try {
+      models.addLeadEpisodicMemory(
+        prop.lead_phone,
+        'DECISION',
+        `Proposta ${prop.code} ACEITA digitalmente pelo cliente! R$ ${prop.investment_brl}`,
+        `IP: ${clientData.ip || 'online'} | Aceito por: ${clientData.name || prop.lead_name}`,
+        5
+      );
+      models.upsertLeadCognitiveProfile(prop.lead_phone, {
+        buying_stage: 'CONVERTIDO',
+        readiness_score: 100
+      });
+    } catch (_) {}
+
+    return models.getProposalByToken(token);
+  },
+
+  incrementProposalViews(token, ip = '') {
+    db.prepare(`
+      UPDATE commercial_proposals SET
+        view_count = view_count + 1,
+        last_viewed_at = CURRENT_TIMESTAMP
+      WHERE token = ?
+    `).run(token);
+  },
+
+  deleteProposal(id) {
+    if (!id) return false;
+    db.prepare('DELETE FROM commercial_proposals WHERE id = ?').run(Number(id));
+    return true;
   }
 
 };
