@@ -3199,13 +3199,14 @@ const models = {
     description = '',
     target = null,
     message_payload = null,
-    delegated_by = 'OWNER'
+    delegated_by = 'OWNER',
+    scheduled_at = null
   }) {
     const taskCode = `TSK-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
     const stmt = db.prepare(`
       INSERT INTO subbot_delegated_tasks (
-        task_code, assigned_instance_id, task_type, title, description, target, message_payload, status, delegated_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+        task_code, assigned_instance_id, task_type, title, description, target, message_payload, status, delegated_by, scheduled_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
     `);
     const res = stmt.run(
       taskCode,
@@ -3215,7 +3216,8 @@ const models = {
       description || '',
       target || '',
       message_payload || '',
-      delegated_by || 'OWNER'
+      delegated_by || 'OWNER',
+      scheduled_at ? new Date(scheduled_at).toISOString() : null
     );
     return this.getDelegatedTaskById(Number(res.lastInsertRowid));
   },
@@ -3227,12 +3229,13 @@ const models = {
     const status = data.status || existing.status;
     const result_summary = data.result_summary !== undefined ? data.result_summary : existing.result_summary;
     const completed_at = (status === 'COMPLETED' || status === 'FAILED') ? (data.completed_at || new Date().toISOString()) : existing.completed_at;
+    const scheduled_at = data.scheduled_at !== undefined ? (data.scheduled_at ? new Date(data.scheduled_at).toISOString() : null) : existing.scheduled_at;
 
     db.prepare(`
       UPDATE subbot_delegated_tasks
-      SET status = ?, result_summary = ?, completed_at = ?
+      SET status = ?, result_summary = ?, completed_at = ?, scheduled_at = ?
       WHERE id = ?
-    `).run(status, result_summary, completed_at, id);
+    `).run(status, result_summary, completed_at, scheduled_at, id);
 
     return this.getDelegatedTaskById(id);
   },
@@ -3290,6 +3293,35 @@ const models = {
       summary.total += r.count;
     });
     return summary;
+  },
+
+  getDueScheduledDelegatedTasks() {
+    return db.prepare(`
+      SELECT t.*, i.name as bot_name, i.phone as bot_phone, i.is_business as bot_is_business
+      FROM subbot_delegated_tasks t
+      LEFT JOIN whatsapp_army_instances i ON t.assigned_instance_id = i.id
+      WHERE t.status = 'PENDING'
+        AND t.scheduled_at IS NOT NULL
+        AND datetime(t.scheduled_at) <= datetime('now')
+      ORDER BY t.scheduled_at ASC
+    `).all();
+  },
+
+  getPendingLeadsForBalancing(limit = 100) {
+    return db.prepare(`
+      SELECT DISTINCT phone, name FROM (
+        SELECT phone, name FROM campaign_leads WHERE status = 'PENDING'
+        UNION
+        SELECT phone, name FROM lead_funnel_conversations WHERE status = 'ACTIVE'
+        UNION
+        SELECT 
+          REPLACE(REPLACE(REPLACE(platform_user_id, '@s.whatsapp.net', ''), '@c.us', ''), '+', '') as phone,
+          platform_user_name as name
+        FROM orders
+        WHERE platform = 'whatsapp' AND length(platform_user_id) >= 10
+      ) WHERE phone IS NOT NULL AND length(phone) >= 8
+      LIMIT ?
+    `).all(Number(limit) || 100);
   }
 };
 

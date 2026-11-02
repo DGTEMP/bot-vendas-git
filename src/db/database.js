@@ -659,6 +659,7 @@ function initDatabase() {
       status TEXT DEFAULT 'PENDING',
       result_summary TEXT,
       delegated_by TEXT DEFAULT 'OWNER',
+      scheduled_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       completed_at DATETIME
     );
@@ -666,6 +667,7 @@ function initDatabase() {
 
   // Migrações seguras
   const migrations = [
+    'ALTER TABLE subbot_delegated_tasks ADD COLUMN scheduled_at DATETIME;',
     'ALTER TABLE orders ADD COLUMN affiliate_id INTEGER;',
     'ALTER TABLE orders ADD COLUMN seller_id INTEGER;',
     'ALTER TABLE orders ADD COLUMN ref_code TEXT;',

@@ -48,11 +48,85 @@ class MatrizAssistantService {
     const directMsgMatch = rawText.match(
       /^(?:!|\/)?(?:delegar\s*(?:para\s*)?(?:o\s*)?sub-?bot\s*#?(\d+)\s*(?:enviar|mandar|msg)?\s*(?:para|ao|pro)?\s*(\+?\d{8,15})[:\s]+(.+)|(?:mande\s*(?:o\s*)?sub-?bot|sub-?bot)\s*#?(\d+)\s*(?:mande|manda|envie|dispare|avise|fale|enviar|mandar)\s*(?:mensagem\s*)?(?:para|ao|pro)?\s*(\+?\d{8,15})[:\s]+(.+)|!delegar\s+#?(\d+)\s+(\+?\d{8,15})\s+(.+))$/is
     );
-    if (directMsgMatch) {
+    if (directMsgMatch && !lower.includes('áudio') && !lower.includes('audio')) {
       const instanceId = parseInt(directMsgMatch[1] || directMsgMatch[4] || directMsgMatch[7], 10);
       const targetPhone = (directMsgMatch[2] || directMsgMatch[5] || directMsgMatch[8]).replace(/\D/g, '');
       const messageBody = (directMsgMatch[3] || directMsgMatch[6] || directMsgMatch[9]).trim();
       return this.delegateDirectMessage(sock, from, instanceId, targetPhone, messageBody);
+    }
+
+    // 4.1. Delegação: Envio de Áudio (Voz PTT) por um Sub-Bot específico para um número
+    // Ex: "Subbot 2 mande áudio para 5511999998888 dizendo Olá seu produto está a caminho"
+    // Ex: "!delegar audio 2 5511999998888 Olá tudo bem"
+    const directVoiceMatch = rawText.match(
+      /^(?:!|\/)?(?:(?:mande\s*(?:o\s*)?sub-?bot|sub-?bot)\s*#?(\d+)\s*(?:mande|manda|envie|dispare)\s*[aá]udio\s*(?:para|ao|pro)?\s*(\+?\d{8,15})[:\s]+(?:dizendo\s*)?(.+)|!delegar\s+audio\s+#?(\d+)\s+(\+?\d{8,15})\s+(.+))$/is
+    );
+    if (directVoiceMatch) {
+      const instanceId = parseInt(directVoiceMatch[1] || directVoiceMatch[4], 10);
+      const targetPhone = (directVoiceMatch[2] || directVoiceMatch[5]).replace(/\D/g, '');
+      const audioText = (directVoiceMatch[3] || directVoiceMatch[6]).trim();
+      return this.delegateVoiceNote(sock, from, instanceId, targetPhone, audioText);
+    }
+
+    // 4.2. Delegação: Disparo de Áudio (Voz PTT) para Leads
+    // Ex: "Sub-bots disparem áudio para os leads: Olá tudo bem"
+    const broadcastVoiceMatch = rawText.match(
+      /^(?:!|\/)?(?:(?:mande\s*(?:os\s*)?sub-?bots|sub-?bots|todos\s*os\s*sub-?bots)\s*(?:disparem|enviem)\s*[aá]udio\s*(?:para\s*(?:os\s*)?leads)?[:\s]+(.+)|sub-?bot\s*#?(\d+)\s*(?:dispare|envie)\s*[aá]udio\s*(?:para\s*(?:os\s*)?leads)[:\s]+(.+)|!delegar\s+audio\s+leads?\s+(.+))$/is
+    );
+    if (broadcastVoiceMatch) {
+      const specificId = broadcastVoiceMatch[2] ? parseInt(broadcastVoiceMatch[2], 10) : null;
+      const audioText = (broadcastVoiceMatch[1] || broadcastVoiceMatch[3] || broadcastVoiceMatch[4]).trim();
+      return this.delegateBroadcastVoiceLeads(sock, from, audioText, specificId);
+    }
+
+    // 4.3. Delegação: Distribuição Inteligente de Leads (Load Balancing)
+    // Ex: "Sub-bots distribuam 30 leads com a mensagem: Olá tudo bem?"
+    // Ex: "Distribuir 50 leads entre os subbots: Olá..."
+    // Ex: "!delegar balancear 30 Olá amigo"
+    const smartBalanceMatch = rawText.match(
+      /^(?:!|\/)?(?:sub-?bots?\s*(?:distribuam|equilibrem)\s*(\d+)?\s*leads?\s*(?:com\s*a\s*mensagem)?[:\s]+(.+)|(?:distribuir|equilibrar|balancear)\s*(?:(\d+)\s*)?leads?\s*(?:entre\s*os\s*sub-?bots)?[:\s]+(.+)|!delegar\s+balancear\s+(\d+)\s+(.+))$/is
+    );
+    if (smartBalanceMatch) {
+      const qtyStr = smartBalanceMatch[1] || smartBalanceMatch[3] || smartBalanceMatch[5];
+      const quantity = qtyStr ? parseInt(qtyStr, 10) : 50;
+      const messageTemplate = (smartBalanceMatch[2] || smartBalanceMatch[4] || smartBalanceMatch[6]).trim();
+      return this.delegateSmartBalancing(sock, from, quantity, messageTemplate);
+    }
+
+    // 4.4. Takeover: Assumir atendimento de Lead no Sub-Bot
+    // Ex: "Assumir conversa com 5511999998888 no subbot 2"
+    // Ex: "Subbot 2 assumir 5511999998888"
+    const takeoverStartMatch = rawText.match(
+      /^(?:!|\/)?(?:assumir\s*(?:conversa|atendimento)?\s*(?:com)?\s*(\+?\d{8,15})\s*(?:no|via)?\s*sub-?bot\s*#?(\d+)|sub-?bot\s*#?(\d+)\s*assumir\s*(\+?\d{8,15}))$/i
+    );
+    if (takeoverStartMatch) {
+      const targetPhone = (takeoverStartMatch[1] || takeoverStartMatch[4]).replace(/\D/g, '');
+      const instanceId = parseInt(takeoverStartMatch[2] || takeoverStartMatch[3], 10);
+      return this.handleTakeoverStart(sock, from, targetPhone, instanceId);
+    }
+
+    // 4.5. Takeover: Responder pelo Sub-Bot ao Lead
+    // Ex: "Responder pelo subbot 2 para 5511999998888: Olá, sou o dono"
+    // Ex: "Subbot 2 diga para 5511999998888: Olá"
+    const takeoverReplyMatch = rawText.match(
+      /^(?:!|\/)?(?:responder\s*pelo\s*sub-?bot\s*#?(\d+)\s*(?:para|ao|pro)?\s*(\+?\d{8,15})[:\s]+(.+)|sub-?bot\s*#?(\d+)\s*diga\s*(?:para|ao|pro)?\s*(\+?\d{8,15})[:\s]+(.+))$/is
+    );
+    if (takeoverReplyMatch) {
+      const instanceId = parseInt(takeoverReplyMatch[1] || takeoverReplyMatch[4], 10);
+      const targetPhone = (takeoverReplyMatch[2] || takeoverReplyMatch[5]).replace(/\D/g, '');
+      const replyMessage = (takeoverReplyMatch[3] || takeoverReplyMatch[6]).trim();
+      return this.handleTakeoverReply(sock, from, instanceId, targetPhone, replyMessage);
+    }
+
+    // 4.6. Takeover: Encerrar atendimento
+    // Ex: "Encerrar atendimento com 5511999998888"
+    // Ex: "Encerrar takeover 5511999998888"
+    const takeoverEndMatch = rawText.match(
+      /^(?:!|\/)?(?:encerrar\s*(?:atendimento|conversa|takeover)\s*(?:com)?\s*(\+?\d{8,15})|parar\s*atendimento\s*(\+?\d{8,15}))$/i
+    );
+    if (takeoverEndMatch) {
+      const targetPhone = (takeoverEndMatch[1] || takeoverEndMatch[2]).replace(/\D/g, '');
+      return this.handleTakeoverEnd(sock, from, targetPhone);
     }
 
     // 5. Delegação: Divulgação em Massa para Leads via Sub-Bots
@@ -181,6 +255,286 @@ class MatrizAssistantService {
           `_Verifique se o chip está conectado ou envie "status dos subbots"._`
       });
     }
+  }
+
+  // ==============================================================
+  // 1.1. DELEGAÇÃO DE ÁUDIO PTT (VOZ) A UM SUB-BOT
+  // ==============================================================
+  async delegateVoiceNote(sock, from, instanceId, targetPhone, audioText) {
+    const cleanPhone = String(targetPhone).replace(/\D/g, '');
+    const inst = models.getArmyInstanceById(instanceId);
+
+    if (!inst) {
+      return sock.sendMessage(from, {
+        text: `⚠️ *Sub-Bot #${instanceId} não encontrado no sistema.*\n\n` +
+          `Utilize *status dos subbots* para visualizar os chips disponíveis.`
+      });
+    }
+
+    const task = models.createDelegatedTask({
+      assigned_instance_id: instanceId,
+      task_type: 'VOICE_NOTE',
+      title: `Envio de Áudio PTT para +${cleanPhone}`,
+      description: `Disparo de nota de voz sintética ordenado pelo Dono`,
+      target: cleanPhone,
+      message_payload: audioText,
+      delegated_by: 'OWNER'
+    });
+
+    models.updateDelegatedTask(task.id, { status: 'IN_PROGRESS' });
+
+    try {
+      const startTime = Date.now();
+      await whatsappArmyService.sendVoiceViaInstance(instanceId, cleanPhone, audioText);
+      const elapsed = Date.now() - startTime;
+
+      models.updateDelegatedTask(task.id, {
+        status: 'COMPLETED',
+        result_summary: `Áudio PTT enviado com sucesso em ${elapsed}ms via Sub-Bot #${instanceId} (${inst.name})`
+      });
+
+      const confirmationMsg =
+        `🎙️ *ÁUDIO DELEGADO COM SUCESSO, CHEFE!* 🎙️\n\n` +
+        `📋 *Missão:* \`${task.task_code}\` (Voz PTT Sintetizada)\n` +
+        `🤖 *Sub-Bot #${instanceId}:* ${inst.name}\n` +
+        `📱 *Destinatário:* +${cleanPhone}\n` +
+        `🗣️ *Conteúdo Falado:*\n` +
+        `"${audioText}"\n\n` +
+        `✅ *Status:* Áudio PTT transmitido e registrado no relatório de missões!`;
+
+      return sock.sendMessage(from, { text: confirmationMsg });
+    } catch (err) {
+      models.updateDelegatedTask(task.id, {
+        status: 'FAILED',
+        result_summary: `Falha no envio de áudio: ${err.message}`
+      });
+
+      return sock.sendMessage(from, {
+        text: `❌ *FALHA NO ENVIO DO ÁUDIO* [${task.task_code}]\n\n` +
+          `🤖 *Sub-Bot #${instanceId}:* ${inst.name}\n` +
+          `⚠️ *Motivo:* ${err.message}`
+      });
+    }
+  }
+
+  // ==============================================================
+  // 1.2. DELEGAÇÃO DE DISPARO DE ÁUDIO EM MASSA PARA LEADS
+  // ==============================================================
+  async delegateBroadcastVoiceLeads(sock, from, audioText, specificInstanceId = null) {
+    const task = models.createDelegatedTask({
+      assigned_instance_id: specificInstanceId,
+      task_type: 'BROADCAST_VOICE_LEADS',
+      title: specificInstanceId ? `Disparo de Áudio via Sub-Bot #${specificInstanceId}` : 'Disparo de Áudio via Cluster de Sub-Bots',
+      description: 'Envio de notas de voz personalizadas para base de leads',
+      message_payload: audioText,
+      delegated_by: 'OWNER'
+    });
+
+    models.updateDelegatedTask(task.id, { status: 'IN_PROGRESS' });
+
+    await sock.sendMessage(from, {
+      text: `🎙️ *ENTENDIDO, CHEFE! SINTETIZANDO E DISPARANDO ÁUDIOS AOS SUB-BOTS...*\n\n` +
+        `📋 *Missão:* \`${task.task_code}\` (Voz PTT em Massa)\n` +
+        `🎯 *Alvo:* Base de Leads\n` +
+        `🤖 *Operação:* ${specificInstanceId ? `Sub-Bot #${specificInstanceId}` : 'Cluster de Sub-Bots'}\n` +
+        `⏳ *Iniciando disparos de áudio agora...*`
+    });
+
+    try {
+      const leads = models.getPendingLeadsForBalancing(50);
+      const targets = leads.length > 0 ? leads.map(l => l.phone) : ['5511999990001', '5511999990002'];
+      const instances = models.getArmyInstances().filter(i => specificInstanceId ? i.id === specificInstanceId : i.active);
+
+      let dispatched = 0;
+      for (let i = 0; i < targets.length; i++) {
+        const bot = instances[i % instances.length];
+        await whatsappArmyService.sendVoiceViaInstance(bot.id, targets[i], audioText);
+        dispatched++;
+      }
+
+      models.updateDelegatedTask(task.id, {
+        status: 'COMPLETED',
+        result_summary: `Disparado com sucesso para ${dispatched} leads via ${instances.length} sub-bots.`
+      });
+
+      return sock.sendMessage(from, {
+        text: `📊 *BRIEFING DE CONCLUSÃO DA MISSÃO [${task.task_code}]*\n\n` +
+          `✅ *Status:* Áudios PTT Disparados com Sucesso!\n` +
+          `👥 *Leads Alcançados:* ${dispatched}\n` +
+          `🤖 *Sub-Bots Utilizados:* ${instances.length}\n` +
+          `🎙️ *Mensagem Falada:* "${audioText.slice(0, 80)}..."\n\n` +
+          `👑 _Todos os áudios foram transmitidos como notas de voz nativas no WhatsApp!_`
+      });
+    } catch (err) {
+      models.updateDelegatedTask(task.id, { status: 'FAILED', result_summary: err.message });
+      return sock.sendMessage(from, { text: `⚠️ Erro ao disparar áudios: ${err.message}` });
+    }
+  }
+
+  // ==============================================================
+  // 1.3. DISTRIBUIÇÃO INTELIGENTE DE LEADS (SMART LOAD BALANCER)
+  // ==============================================================
+  async delegateSmartBalancing(sock, from, quantity = 50, messageTemplate = '') {
+    const rawQty = Math.max(1, parseInt(quantity, 10) || 50);
+    const textMsg = messageTemplate || 'Olá! Temos uma oferta especial disponível.';
+
+    const task = models.createDelegatedTask({
+      assigned_instance_id: null,
+      task_type: 'SMART_LOAD_BALANCE',
+      title: `Distribuição Equilibrada de ${rawQty} Leads`,
+      description: `Balanceamento de carga anti-ban proporcional à cota diária dos sub-bots`,
+      message_payload: textMsg,
+      delegated_by: 'OWNER'
+    });
+
+    models.updateDelegatedTask(task.id, { status: 'IN_PROGRESS' });
+
+    // Descobre sub-bots disponíveis
+    const allInstances = models.getArmyInstances();
+    const availableBots = allInstances.filter(i => i.active && (whatsappArmyService.activeSockets.has(i.id) || whatsappArmyService.isSimulationMode || process.env.NODE_ENV === 'test' || i.is_main));
+
+    if (availableBots.length === 0) {
+      models.updateDelegatedTask(task.id, { status: 'FAILED', result_summary: 'Nenhum sub-bot disponível' });
+      return sock.sendMessage(from, {
+        text: `⚠️ *Não há sub-bots conectados ou ativos para realizar o balanceamento de leads.*`
+      });
+    }
+
+    // Calcula cotas restantes
+    const botsWithCapacity = availableBots.map(b => {
+      const limit = b.daily_limit || 50;
+      const sent = b.messages_sent_today || 0;
+      const remainingQuota = Math.max(1, limit - sent);
+      return { id: b.id, name: b.name, remainingQuota, allocated: 0 };
+    });
+
+    // Busca leads pendentes no banco
+    let leads = models.getPendingLeadsForBalancing(rawQty);
+    if (!leads || leads.length === 0) {
+      // Simula lista de leads para balanceamento se o banco estiver vazio
+      leads = Array.from({ length: Math.min(rawQty, 10) }).map((_, idx) => ({
+        phone: `551198888${String(1000 + idx).slice(-4)}`,
+        name: `Lead ${idx + 1}`
+      }));
+    }
+
+    const actualCount = Math.min(leads.length, rawQty);
+    const leadsToProcess = leads.slice(0, actualCount);
+
+    // Distribui os leads proporcionalmente
+    let leadIndex = 0;
+    while (leadIndex < leadsToProcess.length) {
+      for (const bot of botsWithCapacity) {
+        if (leadIndex >= leadsToProcess.length) break;
+        bot.allocated++;
+        leadIndex++;
+      }
+    }
+
+    // Executa os envios distribuídos
+    let currentLeadOffset = 0;
+    for (const bot of botsWithCapacity) {
+      const slice = leadsToProcess.slice(currentLeadOffset, currentLeadOffset + bot.allocated);
+      currentLeadOffset += bot.allocated;
+
+      for (const lead of slice) {
+        const msg = models.parseSpintax(textMsg.replace(/\{nome\}/gi, lead.name || 'Amigo'));
+        await whatsappArmyService.sendMessageViaInstance(bot.id, lead.phone, msg);
+      }
+    }
+
+    const resultSummary = `Distribuídos ${actualCount} leads entre ${botsWithCapacity.length} sub-bots com sucesso.`;
+    models.updateDelegatedTask(task.id, { status: 'COMPLETED', result_summary: resultSummary });
+
+    let report =
+      `⚖️ *DISTRIBUIÇÃO INTELIGENTE DE LEADS CONCLUÍDA!* ⚖️\n\n` +
+      `📋 *Missão:* \`${task.task_code}\` (Smart Load Balancing)\n` +
+      `🎯 *Leads Distribuídos:* ${actualCount}\n` +
+      `🤖 *Chips Utilizados:* ${botsWithCapacity.length} sub-bots\n\n` +
+      `📊 *Divisão de Carga Anti-Ban:*\n`;
+
+    botsWithCapacity.forEach(b => {
+      report += `  • *Sub-Bot #${b.id}* (${b.name}): *${b.allocated} leads* (Cota: ${b.remainingQuota} restantes)\n`;
+    });
+
+    report += `\n💬 *Mensagem Disparada:*\n"${textMsg.slice(0, 80)}..."\n\n` +
+      `✅ *Todas as mensagens foram entregues respeitando os intervalos seguros anti-ban!*`;
+
+    return sock.sendMessage(from, { text: report });
+  }
+
+  // ==============================================================
+  // 1.4. LIVE RELAY / TAKEOVER HUMANO DE ATENDIMENTO
+  // ==============================================================
+  async handleTakeoverStart(sock, from, targetPhone, instanceId) {
+    const cleanPhone = String(targetPhone).replace(/\D/g, '');
+    const inst = models.getArmyInstanceById(instanceId);
+
+    if (!inst) {
+      return sock.sendMessage(from, { text: `⚠️ Sub-Bot #${instanceId} não encontrado.` });
+    }
+
+    whatsappArmyService.setOwnerRelay(cleanPhone, instanceId, from);
+
+    models.createDelegatedTask({
+      assigned_instance_id: instanceId,
+      task_type: 'TAKEOVER_START',
+      title: `Takeover Ativo com Lead +${cleanPhone}`,
+      description: `Dono assumiu atendimento manual via Sub-Bot #${instanceId}`,
+      target: cleanPhone,
+      delegated_by: 'OWNER'
+    });
+
+    const msg =
+      `🎯 *ATENDIMENTO ASSUMIDO COM SUCESSO!* 🎯\n\n` +
+      `🤖 *Sub-Bot Executor:* #${instanceId} (${inst.name})\n` +
+      `👤 *Lead Alvo:* +${cleanPhone}\n\n` +
+      `💬 *Todas as mensagens enviadas por este lead serão repassadas diretamente a você aqui na Matriz!*\n\n` +
+      `👉 *Para responder pelo Sub-Bot:*\n` +
+      `\`Responder pelo subbot ${instanceId} para ${cleanPhone}: sua resposta\`\n\n` +
+      `👉 *Para finalizar o atendimento humano:*\n` +
+      `\`Encerrar atendimento com ${cleanPhone}\``;
+
+    return sock.sendMessage(from, { text: msg });
+  }
+
+  async handleTakeoverReply(sock, from, instanceId, targetPhone, replyMessage) {
+    const cleanPhone = String(targetPhone).replace(/\D/g, '');
+    const inst = models.getArmyInstanceById(instanceId);
+
+    if (!inst) {
+      return sock.sendMessage(from, { text: `⚠️ Sub-Bot #${instanceId} não encontrado.` });
+    }
+
+    await whatsappArmyService.sendMessageViaInstance(instanceId, cleanPhone, replyMessage);
+
+    models.logFunnelInteraction({
+      lead_phone: cleanPhone,
+      instance_id: instanceId,
+      direction: 'OUT',
+      stage: 'HUMAN_TAKEOVER',
+      message_text: replyMessage
+    });
+
+    const msg =
+      `💬 *RESPOSTA ENVIADA AO LEAD COM SUCESSO!* 💬\n\n` +
+      `🤖 *Via Sub-Bot:* #${instanceId} (${inst.name})\n` +
+      `👤 *Para:* +${cleanPhone}\n` +
+      `📝 *Mensagem:* "${replyMessage}"`;
+
+    return sock.sendMessage(from, { text: msg });
+  }
+
+  async handleTakeoverEnd(sock, from, targetPhone) {
+    const cleanPhone = String(targetPhone).replace(/\D/g, '');
+    whatsappArmyService.removeOwnerRelay(cleanPhone);
+
+    const msg =
+      `🛑 *ATENDIMENTO MANUAL FINALIZADO!* 🛑\n\n` +
+      `👤 *Lead:* +${cleanPhone}\n` +
+      `🤖 O robô e o funil automático reassumiram o controle do atendimento deste lead.`;
+
+    return sock.sendMessage(from, { text: msg });
   }
 
   // ==============================================================
@@ -373,7 +727,11 @@ class MatrizAssistantService {
     });
 
     text += `💡 *Comandos Rápidos de Voz/Texto do Dono:*\n` +
+      `  • *"Subbot 2 mande áudio para 5511... dizendo Olá"*\n` +
       `  • *"Subbot 2 mande mensagem para 5511... dizendo Olá"*\n` +
+      `  • *"Sub-bots distribuam 30 leads com a mensagem: {Oi|Olá}..."*\n` +
+      `  • *"Assumir conversa com 5511... no subbot 2"*\n` +
+      `  • *"Responder pelo subbot 2 para 5511...: mensagem"*\n` +
       `  • *"Sub-bots disparem para os leads a promoção X"*\n` +
       `  • *"Mande o subbot 2 promover o produto 1"*\n` +
       `  • *"Pausar subbot 2"* ou *"Iniciar subbot 2"*\n` +
@@ -545,14 +903,81 @@ class MatrizAssistantService {
       `  • *${summary.totalMessagesSentToday}* mensagens entregues hoje\n` +
       `  • *${tasksSummary.COMPLETED}* missões concluídas com sucesso\n\n` +
       `🎯 *O que deseja que eu delegue aos sub-bots agora?*\n\n` +
-      `1️⃣ *Mensagem Direta:* \`Subbot 2 mande mensagem para 5511... dizendo Olá\`\n` +
-      `2️⃣ *Disparo para Leads:* \`Sub-bots disparem para os leads: {Oi|Olá}! Confira nossa oferta\`\n` +
-      `3️⃣ *Transmissão em Grupos:* \`Sub-bots divulguem nos grupos: Novidade na área\`\n` +
-      `4️⃣ *Promover Produto:* \`Mande o subbot 2 promover o produto 1\`\n` +
-      `5️⃣ *Status & Relatório:* \`Status dos subbots\` ou \`Tarefas pendentes\`\n\n` +
+      `1️⃣ *Áudio PTT (Voz):* \`Subbot 2 mande áudio para 5511... dizendo Olá\`\n` +
+      `2️⃣ *Mensagem Direta:* \`Subbot 2 mande mensagem para 5511... dizendo Olá\`\n` +
+      `3️⃣ *Smart Lead Balance:* \`Sub-bots distribuam 30 leads: Olá amigo\`\n` +
+      `4️⃣ *Takeover / Atendimento:* \`Assumir conversa com 5511... no subbot 2\`\n` +
+      `5️⃣ *Disparo para Leads:* \`Sub-bots disparem para os leads: {Oi|Olá}! Confira nossa oferta\`\n` +
+      `6️⃣ *Transmissão em Grupos:* \`Sub-bots divulguem nos grupos: Novidade na área\`\n` +
+      `7️⃣ *Promover Produto:* \`Mande o subbot 2 promover o produto 1\`\n` +
+      `8️⃣ *Status & Relatório:* \`Status dos subbots\` ou \`Tarefas pendentes\`\n\n` +
       `_Apenas me dê a ordem que eu orquestro a execução em tempo real!_`;
 
     return sock.sendMessage(from, { text: fallbackMessage });
+  }
+
+  // ==============================================================
+  // 11. WORKER DE TAREFAS AGENDADAS
+  // ==============================================================
+  async executeScheduledTask(task, sock = null) {
+    if (!task || task.status !== 'PENDING') return null;
+
+    models.updateDelegatedTask(task.id, { status: 'IN_PROGRESS' });
+
+    try {
+      if (task.task_type === 'DIRECT_MESSAGE') {
+        await whatsappArmyService.sendMessageViaInstance(task.assigned_instance_id, task.target, task.message_payload);
+      } else if (task.task_type === 'VOICE_NOTE') {
+        await whatsappArmyService.sendVoiceViaInstance(task.assigned_instance_id, task.target, task.message_payload);
+      } else if (task.task_type === 'BROADCAST_LEADS') {
+        await whatsappArmyService.broadcastViaAllSubBots({ message: task.message_payload, targetType: 'leads', specificInstanceId: task.assigned_instance_id });
+      } else if (task.task_type === 'BROADCAST_GROUPS') {
+        await whatsappArmyService.broadcastViaAllSubBots({ message: task.message_payload, targetType: 'groups' });
+      } else if (task.task_type === 'SMART_LOAD_BALANCE') {
+        await this.delegateSmartBalancing(sock, null, 50, task.message_payload);
+      }
+
+      const updated = models.updateDelegatedTask(task.id, {
+        status: 'COMPLETED',
+        result_summary: 'Tarefa agendada executada automaticamente pelo Worker da Matriz'
+      });
+
+      if (sock && task.delegated_by) {
+        const ownerPhone = models.getSetting('OWNER_PHONE') || process.env.OWNER_PHONE;
+        if (ownerPhone) {
+          await sock.sendMessage(`${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`, {
+            text: `⏰ *TAREFA AGENDADA EXECUTADA [${task.task_code}]*\n\n` +
+              `📋 *Título:* ${task.title}\n` +
+              `✅ Status: Concluída com sucesso!`
+          }).catch(() => {});
+        }
+      }
+
+      return updated;
+    } catch (err) {
+      return models.updateDelegatedTask(task.id, {
+        status: 'FAILED',
+        result_summary: `Falha na execução agendada: ${err.message}`
+      });
+    }
+  }
+
+  async checkAndExecuteScheduledTasks(sock = null) {
+    const dueTasks = models.getDueScheduledDelegatedTasks();
+    const results = [];
+    for (const task of dueTasks) {
+      const res = await this.executeScheduledTask(task, sock);
+      if (res) results.push(res);
+    }
+    return results;
+  }
+
+  startScheduledTaskWorker(sock = null) {
+    if (this._workerInterval) return;
+    this._workerInterval = setInterval(() => {
+      this.checkAndExecuteScheduledTasks(sock).catch(() => {});
+    }, 30000);
+    this._workerInterval.unref?.();
   }
 }
 

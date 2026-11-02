@@ -2861,12 +2861,15 @@ function createServer() {
 
   app.post('/api/matriz/delegate', async (req, res) => {
     try {
-      const { type, instanceId, target, message, title } = req.body;
+      const { type, instanceId, target, message, title, scheduled_at } = req.body;
       const whatsappArmyService = require('../services/whatsappArmyService');
+      const matrizAssistantService = require('../services/matrizAssistantService');
 
       let taskType = type || 'DIRECT_MESSAGE';
       let taskTitle = title || `Tarefa Delegada via Painel Web`;
       let assignedInstanceId = instanceId ? Number(instanceId) : null;
+
+      const isScheduled = scheduled_at && new Date(scheduled_at) > new Date();
 
       const task = models.createDelegatedTask({
         assigned_instance_id: assignedInstanceId,
@@ -2875,8 +2878,14 @@ function createServer() {
         description: message || '',
         target: target || '',
         message_payload: message || '',
-        delegated_by: 'WEB_OWNER'
+        delegated_by: 'WEB_OWNER',
+        scheduled_at: scheduled_at || null
       });
+
+      // Se for agendado para o futuro, mantém PENDING para o worker executar
+      if (isScheduled) {
+        return res.json({ success: true, task: models.getDelegatedTaskById(task.id) });
+      }
 
       models.updateDelegatedTask(task.id, { status: 'IN_PROGRESS' });
 
@@ -2887,6 +2896,34 @@ function createServer() {
         models.updateDelegatedTask(task.id, {
           status: 'COMPLETED',
           result_summary: `Mensagem enviada com sucesso para +${cleanPhone} via Sub-Bot #${assignedInstanceId}`
+        });
+      } else if (taskType === 'VOICE_NOTE' && target && assignedInstanceId) {
+        const cleanPhone = String(target).replace(/\D/g, '');
+        await whatsappArmyService.sendVoiceViaInstance(assignedInstanceId, cleanPhone, message);
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Áudio PTT enviado com sucesso para +${cleanPhone} via Sub-Bot #${assignedInstanceId}`
+        });
+      } else if (taskType === 'SMART_LOAD_BALANCE') {
+        const qty = parseInt(target, 10) || 50;
+        await matrizAssistantService.delegateSmartBalancing({ sendMessage: async () => true }, null, qty, message);
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Balanceamento inteligente de ${qty} leads distribuído com sucesso.`
+        });
+      } else if (taskType === 'TAKEOVER_START' && target && assignedInstanceId) {
+        const cleanPhone = String(target).replace(/\D/g, '');
+        whatsappArmyService.setOwnerRelay(cleanPhone, assignedInstanceId, 'web_dashboard');
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Takeover iniciado para +${cleanPhone} no Sub-Bot #${assignedInstanceId}`
+        });
+      } else if (taskType === 'TAKEOVER_END' && target) {
+        const cleanPhone = String(target).replace(/\D/g, '');
+        whatsappArmyService.removeOwnerRelay(cleanPhone);
+        models.updateDelegatedTask(task.id, {
+          status: 'COMPLETED',
+          result_summary: `Takeover encerrado para +${cleanPhone}`
         });
       } else if (taskType === 'BROADCAST_LEADS') {
         const bRes = await whatsappArmyService.broadcastViaAllSubBots({

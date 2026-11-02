@@ -4994,6 +4994,235 @@ async function main() {
     assert.strictEqual(postDel.data.task.status, 'COMPLETED');
   });
 
+  // ----------------------------------------------------------------
+  // 23. TESTES AVANÇADOS DA MATRIZ: VOZ PTT, LOAD BALANCING, RELAY & AGENDAMENTO
+  // ----------------------------------------------------------------
+  console.log('\n🎙️ 23. Testes Avançados da Matriz: Voz PTT, Load Balancing, Relay & Agendamento:');
+
+  await runTest('Assistente Matriz: Delegação de Áudio PTT (Voz Sintética) para Sub-Bot', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    await matrizAssistant.handleOwnerConversation(
+      mockSock,
+      '5511999990000@s.whatsapp.net',
+      `Subbot ${testSubBot.id} mande áudio para 5511999994444 dizendo Olá, seu pedido está pronto para entrega!`,
+      'Dono Matriz',
+      '5511999990000',
+      false
+    );
+
+    assert(sent.length >= 1, 'Deve responder ao Dono confirmando a delegação do áudio');
+    const replyText = sent[0].text || '';
+    assert(replyText.includes('ÁUDIO DELEGADO COM SUCESSO'), 'Deve confirmar a transmissão de áudio');
+    assert(replyText.includes('5511999994444'), 'Deve constar o número do lead');
+    assert(replyText.includes('Voz PTT Sintetizada'), 'Deve especificar voz PTT');
+
+    // Confere no banco
+    const tasks = models.getDelegatedTasks({ limit: 5 });
+    const voiceTask = tasks.find(t => t.target === '5511999994444');
+    assert(voiceTask, 'A tarefa de voz deve estar registrada no banco');
+    assert.strictEqual(voiceTask.task_type, 'VOICE_NOTE');
+    assert.strictEqual(voiceTask.status, 'COMPLETED');
+  });
+
+  await runTest('Assistente Matriz: Distribuição Inteligente de Leads (Smart Load Balancing)', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push(payload);
+        return true;
+      }
+    };
+
+    await matrizAssistant.handleOwnerConversation(
+      mockSock,
+      '5511999990000@s.whatsapp.net',
+      'Sub-bots distribuam 20 leads com a mensagem: {Oi|Olá} amigo! Super oferta disponível agora!',
+      'Dono Matriz',
+      '5511999990000',
+      false
+    );
+
+    assert(sent.length >= 1, 'Deve entregar o relatório de distribuição de carga');
+    const reply = sent[0].text || '';
+    assert(reply.includes('DISTRIBUIÇÃO INTELIGENTE DE LEADS CONCLUÍDA'), 'Deve confirmar balanceamento');
+    assert(reply.includes('Smart Load Balancing'), 'Deve reportar algoritmo de balanceamento');
+    assert(reply.includes('Divisão de Carga Anti-Ban'), 'Deve exibir divisão por chip');
+
+    const tasks = models.getDelegatedTasks({ limit: 5 });
+    const balanceTask = tasks.find(t => t.task_type === 'SMART_LOAD_BALANCE');
+    assert(balanceTask, 'Tarefa de balanceamento deve estar gravada no banco');
+    assert.strictEqual(balanceTask.status, 'COMPLETED');
+  });
+
+  await runTest('Assistente Matriz: Live Relay & Human Takeover de Atendimento', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+    const whatsappArmy = require('./src/services/whatsappArmyService');
+    const whatsappBot = require('./src/bots/whatsappBot');
+    const targetLead = '5511988887654';
+    const ownerJid = '5511999990000@s.whatsapp.net';
+
+    const sent = [];
+    const mockSock = {
+      sendMessage: async (jid, payload) => {
+        sent.push({ jid, payload });
+        return true;
+      }
+    };
+
+    // 1. Dono assume o atendimento no sub-bot
+    await matrizAssistant.handleOwnerConversation(
+      mockSock,
+      ownerJid,
+      `Assumir conversa com ${targetLead} no subbot ${testSubBot.id}`,
+      'Dono Matriz',
+      '5511999990000',
+      false
+    );
+
+    assert(sent.length >= 1);
+    assert(sent[0].payload.text.includes('ATENDIMENTO ASSUMIDO COM SUCESSO'));
+    assert(whatsappArmy.getOwnerRelay(targetLead) !== null, 'Relay deve estar ativo');
+
+    // 2. Lead envia mensagem para o sub-bot: deve ser repassada ao Dono na Matriz
+    const origSock = whatsappBot.sock;
+    const relayedMessages = [];
+    whatsappBot.sock = {
+      sendMessage: async (jid, payload) => {
+        relayedMessages.push({ jid, payload });
+        return true;
+      }
+    };
+
+    try {
+      await whatsappArmy.handleIncomingLeadMessage(testSubBot.id, targetLead, 'Oi, quanto custa o bot completo?');
+      assert(relayedMessages.length >= 1, 'Mensagem do lead deve ser repassada ao dono');
+      assert(relayedMessages[0].payload.text.includes('RELAY / TAKEOVER'), 'Deve conter cabeçalho de relay');
+      assert(relayedMessages[0].payload.text.includes('Oi, quanto custa o bot completo?'), 'Deve conter mensagem do cliente');
+
+      // 3. Dono responde pelo Sub-bot
+      sent.length = 0;
+      await matrizAssistant.handleOwnerConversation(
+        mockSock,
+        ownerJid,
+        `Responder pelo subbot ${testSubBot.id} para ${targetLead}: O bot completo custa R$ 97 com entrega imediata!`,
+        'Dono Matriz',
+        '5511999990000',
+        false
+      );
+
+      assert(sent.length >= 1);
+      assert(sent[0].payload.text.includes('RESPOSTA ENVIADA AO LEAD COM SUCESSO'));
+
+      // 4. Dono encerra o takeover
+      sent.length = 0;
+      await matrizAssistant.handleOwnerConversation(
+        mockSock,
+        ownerJid,
+        `Encerrar atendimento com ${targetLead}`,
+        'Dono Matriz',
+        '5511999990000',
+        false
+      );
+
+      assert(sent.length >= 1);
+      assert(sent[0].payload.text.includes('ATENDIMENTO MANUAL FINALIZADO'));
+      assert(whatsappArmy.getOwnerRelay(targetLead) === null, 'Relay deve ser encerrado');
+    } finally {
+      whatsappBot.sock = origSock;
+    }
+  });
+
+  await runTest('Worker de Tarefas Agendadas (scheduled_at)', async () => {
+    const matrizAssistant = require('./src/services/matrizAssistantService');
+
+    // 1. Cria tarefa com scheduled_at no passado (já vencida)
+    const pastTime = new Date(Date.now() - 60000).toISOString();
+    const scheduledTask = models.createDelegatedTask({
+      assigned_instance_id: testSubBot.id,
+      task_type: 'DIRECT_MESSAGE',
+      title: 'Disparo Programado para Lead',
+      target: '5511977770011',
+      message_payload: 'Mensagem agendada entregue!',
+      scheduled_at: pastTime
+    });
+
+    assert.strictEqual(scheduledTask.status, 'PENDING');
+    assert(scheduledTask.scheduled_at !== null);
+
+    // 2. Busca tarefas vencidas
+    const due = models.getDueScheduledDelegatedTasks();
+    const found = due.find(t => t.id === scheduledTask.id);
+    assert(found, 'A tarefa agendada vencida deve ser encontrada pelo modelo');
+
+    // 3. Executa o worker
+    const executed = await matrizAssistant.checkAndExecuteScheduledTasks();
+    const executedTask = executed.find(t => t.id === scheduledTask.id);
+    assert(executedTask, 'O worker deve executar a tarefa');
+    assert.strictEqual(executedTask.status, 'COMPLETED');
+
+    const fresh = models.getDelegatedTaskById(scheduledTask.id);
+    assert.strictEqual(fresh.status, 'COMPLETED');
+  });
+
+  await runTest('API REST: Delegação de Áudio, Load Balance e Agendamento', async () => {
+    // 1. Delegação de Voz via API
+    const resVoice = await fetchApi('/api/matriz/delegate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'VOICE_NOTE',
+        instanceId: testSubBot.id,
+        target: '5511988882299',
+        message: 'Áudio sintético enviado via REST API'
+      })
+    });
+    assert.strictEqual(resVoice.status, 200);
+    assert.strictEqual(resVoice.data.success, true);
+    assert.strictEqual(resVoice.data.task.task_type, 'VOICE_NOTE');
+    assert.strictEqual(resVoice.data.task.status, 'COMPLETED');
+
+    // 2. Smart Load Balance via API
+    const resBalance = await fetchApi('/api/matriz/delegate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'SMART_LOAD_BALANCE',
+        target: '15',
+        message: 'Oferta Especial via API'
+      })
+    });
+    assert.strictEqual(resBalance.status, 200);
+    assert.strictEqual(resBalance.data.success, true);
+    assert.strictEqual(resBalance.data.task.status, 'COMPLETED');
+
+    // 3. Tarefa Agendada no Futuro via API
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    const resSched = await fetchApi('/api/matriz/delegate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'DIRECT_MESSAGE',
+        instanceId: testSubBot.id,
+        target: '5511966667788',
+        message: 'Mensagem futura',
+        scheduled_at: futureDate
+      })
+    });
+    assert.strictEqual(resSched.status, 200);
+    assert.strictEqual(resSched.data.success, true);
+    assert.strictEqual(resSched.data.task.status, 'PENDING', 'Tarefa futura deve permanecer PENDING');
+    assert(resSched.data.task.scheduled_at !== null);
+  });
+
   await new Promise(resolve => testServer.close(resolve));
 
   // ----------------------------------------------------------------

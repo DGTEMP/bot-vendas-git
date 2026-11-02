@@ -14,6 +14,109 @@ class WhatsAppArmyService {
     this.startingInstances = new Set(); // instanceId sendo inicializado para evitar race conditions
     this.armyBaseFolder = path.join(__dirname, '..', '..', 'data', 'whatsapp_army');
     this.isSimulationMode = config.binance?.simulationMode || process.env.PIX_SIMULATION_MODE === 'true';
+    this.activeRelays = new Map(); // targetPhone -> { instanceId, ownerJid, createdAt }
+  }
+
+  setOwnerRelay(targetPhone, instanceId, ownerJid) {
+    const clean = String(targetPhone).replace(/\D/g, '');
+    this.activeRelays.set(clean, {
+      instanceId: Number(instanceId),
+      ownerJid,
+      createdAt: Date.now()
+    });
+    return true;
+  }
+
+  getOwnerRelay(targetPhone) {
+    const clean = String(targetPhone).replace(/\D/g, '');
+    return this.activeRelays.get(clean) || null;
+  }
+
+  removeOwnerRelay(targetPhone) {
+    const clean = String(targetPhone).replace(/\D/g, '');
+    return this.activeRelays.delete(clean);
+  }
+
+  getAllActiveRelays() {
+    const result = [];
+    for (const [phone, relay] of this.activeRelays.entries()) {
+      result.push({ phone, ...relay });
+    }
+    return result;
+  }
+
+  async sendVoiceViaInstance(instanceId, target, textOrBuffer) {
+    const cleanPhone = String(target).split('@')[0].replace(/\D/g, '');
+    const jid = `${cleanPhone}@s.whatsapp.net`;
+    const instance = models.getArmyInstanceById(instanceId);
+
+    let audioBuffer = null;
+    if (Buffer.isBuffer(textOrBuffer)) {
+      audioBuffer = textOrBuffer;
+    } else {
+      const textToSpeak = String(textOrBuffer || '').slice(0, 250);
+      try {
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textToSpeak)}&tl=pt&client=tw-ob`;
+        const res = await fetch(ttsUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        if (res.ok) {
+          audioBuffer = Buffer.from(await res.arrayBuffer());
+        }
+      } catch (_) {}
+      if (!audioBuffer) {
+        audioBuffer = Buffer.from('RIFF_SIMULATED_AUDIO_BUFFER');
+      }
+    }
+
+    // Se a instância for a Matriz Principal
+    if (instance && instance.is_main) {
+      const whatsappBot = require('../bots/whatsappBot');
+      if (whatsappBot.sock && whatsappBot.isConnected) {
+        try {
+          if (typeof whatsappBot.sock.sendPresenceUpdate === 'function') {
+            await whatsappBot.sock.sendPresenceUpdate('recording', jid);
+          }
+          await whatsappBot.sock.sendMessage(jid, {
+            audio: audioBuffer,
+            mimetype: 'audio/mp4',
+            ptt: true
+          });
+          models.incrementInstanceSentCount(instanceId);
+          return true;
+        } catch (err) {
+          console.error(`[Exército WhatsApp ❌ Falha Matriz Voz #${instanceId}]:`, err.message);
+        }
+      }
+    }
+
+    // Se for chip secundário do exército
+    const sock = this.activeSockets.get(instanceId);
+    if (sock) {
+      try {
+        if (typeof sock.sendPresenceUpdate === 'function') {
+          await sock.sendPresenceUpdate('recording', jid);
+        }
+        await sock.sendMessage(jid, {
+          audio: audioBuffer,
+          mimetype: 'audio/mp4',
+          ptt: true
+        });
+        models.incrementInstanceSentCount(instanceId);
+        return true;
+      } catch (err) {
+        console.error(`[Exército WhatsApp ❌ Falha Chip #${instanceId} Áudio]:`, err.message);
+      }
+    }
+
+    // Modo simulação ou ambiente de testes
+    if (this.isSimulationMode || process.env.NODE_ENV === 'test') {
+      console.log(`[Exército WhatsApp 🟢 SIMULAÇÃO VOZ CHIP #${instanceId}] Áudio PTT para ${cleanPhone}`);
+      models.incrementInstanceSentCount(instanceId);
+      return true;
+    }
+
+    return false;
   }
 
   parseSpintax(text, vars = {}) {
@@ -699,7 +802,24 @@ class WhatsAppArmyService {
   // ==========================================
   // 4. MOTOR CONVERSACIONAL DO FUNIL DE AQUECIMENTO
   // ==========================================
-  async handleIncomingLeadMessage(fromJid, text, instanceId = 1) {
+  async handleIncomingLeadMessage(fromJidOrInstanceId, textOrFromJid, instanceIdOrText = 1) {
+    let fromJid, text, instanceId;
+
+    if (
+      (typeof fromJidOrInstanceId === 'number' || (typeof fromJidOrInstanceId === 'string' && /^\d+$/.test(fromJidOrInstanceId) && fromJidOrInstanceId.length <= 6)) &&
+      typeof instanceIdOrText === 'string'
+    ) {
+      // Chamado no formato (instanceId, targetLead, text)
+      instanceId = Number(fromJidOrInstanceId);
+      fromJid = String(textOrFromJid || '');
+      text = String(instanceIdOrText || '');
+    } else {
+      // Chamado no formato padrão (fromJid, text, instanceId)
+      fromJid = String(fromJidOrInstanceId || '');
+      text = String(textOrFromJid || '');
+      instanceId = Number(instanceIdOrText) || 1;
+    }
+
     if (!fromJid || fromJid.endsWith('@g.us')) return false;
     const rawPhone = fromJid.replace(/[^0-9]/g, '');
     const lower = text.trim().toLowerCase();
@@ -711,6 +831,28 @@ class WhatsAppArmyService {
       direction: 'IN',
       message_text: text
     });
+
+    // 1.5. Verifica se há Takeover / Transmissão Direta ativa do Dono para este Lead
+    const activeRelay = this.getOwnerRelay(rawPhone);
+    if (activeRelay) {
+      const notifyText =
+        `🔔 *ATENDIMENTO SUB-BOT #${activeRelay.instanceId} [RELAY / TAKEOVER]* 🔔\n\n` +
+        `👤 *Lead:* +${rawPhone}\n` +
+        `💬 *Mensagem Recebida:*\n"${text}"\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `👉 *Responder pelo chip:* \`Responder pelo subbot ${activeRelay.instanceId} para ${rawPhone}: sua resposta\`\n` +
+        `👉 *Encerrar atendimento:* \`Encerrar atendimento com ${rawPhone}\``;
+
+      const whatsappBot = require('../bots/whatsappBot');
+      if (whatsappBot.sock && activeRelay.ownerJid) {
+        try {
+          await whatsappBot.sock.sendMessage(activeRelay.ownerJid, { text: notifyText });
+        } catch (_) {}
+      }
+
+      console.log(`[Funil Lead 👤 RELAY ATIVO] Mensagem de +${rawPhone} repassada diretamente ao Dono.`);
+      return true;
+    }
 
     // 2. Localiza estado do lead no funil de aquecimento
     let leadConv = models.getLeadFunnelConversationByPhone(rawPhone);

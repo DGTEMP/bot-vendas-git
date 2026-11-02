@@ -6901,11 +6901,23 @@ function onDelegateTaskTypeChange() {
   const type = document.getElementById('delegateTaskType')?.value;
   const groupTarget = document.getElementById('groupDelegateTarget');
   const phoneInput = document.getElementById('delegateTargetPhone');
+  const lblTarget = document.getElementById('lblDelegateTarget');
   if (!groupTarget) return;
 
-  if (type === 'DIRECT_MESSAGE') {
+  if (type === 'DIRECT_MESSAGE' || type === 'VOICE_NOTE' || type === 'TAKEOVER_START' || type === 'TAKEOVER_END') {
     groupTarget.style.display = 'block';
-    if (phoneInput) phoneInput.required = true;
+    if (lblTarget) lblTarget.textContent = 'Telefone do Destinatário / Lead (com DDD) *';
+    if (phoneInput) {
+      phoneInput.required = true;
+      phoneInput.placeholder = 'Ex: 5511999998888';
+    }
+  } else if (type === 'SMART_LOAD_BALANCE') {
+    groupTarget.style.display = 'block';
+    if (lblTarget) lblTarget.textContent = 'Quantidade Máxima de Leads para Balancear (Ex: 50)';
+    if (phoneInput) {
+      phoneInput.required = false;
+      phoneInput.placeholder = 'Ex: 50';
+    }
   } else {
     groupTarget.style.display = 'none';
     if (phoneInput) phoneInput.required = false;
@@ -6926,11 +6938,12 @@ async function submitDelegateTask(e) {
     const target = document.getElementById('delegateTargetPhone')?.value || '';
     const title = document.getElementById('delegateTaskTitle')?.value || '';
     const message = document.getElementById('delegateTaskMessage')?.value || '';
+    const scheduled_at = document.getElementById('delegateScheduledAt')?.value || null;
 
     const res = await fetch('/api/matriz/delegate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, instanceId, target, title, message })
+      body: JSON.stringify({ type, instanceId, target, title, message, scheduled_at })
     });
 
     const data = await res.json();

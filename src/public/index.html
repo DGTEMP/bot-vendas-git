@@ -3783,19 +3783,28 @@
         <div class="form-group">
           <label>Tipo de Missão / Tarefa *</label>
           <select id="delegateTaskType" class="form-control" onchange="onDelegateTaskTypeChange()">
-            <option value="DIRECT_MESSAGE">Mensagem Direta para Contato / Lead</option>
-            <option value="BROADCAST_LEADS">Divulgação em Massa para Todos os Leads (Spintax)</option>
-            <option value="BROADCAST_GROUPS">Transmissão em Todos os Grupos</option>
-            <option value="CUSTOM_ORDER">Ordem Personalizada / Missão Interna</option>
+            <option value="DIRECT_MESSAGE">💬 Mensagem Direta para Contato / Lead</option>
+            <option value="VOICE_NOTE">🎙️ Áudio PTT (Voz Sintética no WhatsApp)</option>
+            <option value="SMART_LOAD_BALANCE">⚖️ Distribuição Inteligente de Leads (Load Balancing)</option>
+            <option value="BROADCAST_LEADS">📢 Divulgação em Massa para Todos os Leads (Spintax)</option>
+            <option value="BROADCAST_GROUPS">👥 Transmissão em Todos os Grupos</option>
+            <option value="TAKEOVER_START">🎯 Iniciar Takeover / Atendimento Manual do Lead</option>
+            <option value="TAKEOVER_END">🛑 Encerrar Takeover do Lead</option>
+            <option value="CUSTOM_ORDER">🎖️ Ordem Personalizada / Missão Interna</option>
           </select>
         </div>
         <div class="form-group" id="groupDelegateTarget">
-          <label>Telefone do Destinatário (apenas números com DDD) *</label>
+          <label id="lblDelegateTarget">Telefone do Destinatário (apenas números com DDD) *</label>
           <input type="text" id="delegateTargetPhone" class="form-control" placeholder="Ex: 5511999998888">
         </div>
         <div class="form-group">
           <label>Título ou Identificador da Missão *</label>
           <input type="text" id="delegateTaskTitle" class="form-control" required placeholder="Ex: Aviso de Liberação de Acesso ou Campanha VIP">
+        </div>
+        <div class="form-group">
+          <label>Agendamento (Opcional - deixe em branco para envio imediato)</label>
+          <input type="datetime-local" id="delegateScheduledAt" class="form-control">
+          <small class="hint">Se preenchido com data futura, a tarefa será executada pontualmente pelo Worker da Matriz.</small>
         </div>
         <div class="form-group">
           <label>Mensagem a ser Enviada / Conteúdo da Ordem *</label>
