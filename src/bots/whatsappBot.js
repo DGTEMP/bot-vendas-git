@@ -1978,8 +1978,11 @@ class WhatsAppBotService {
       return spyFeatures.handlePlayVideo(activeSock, from, text);
     }
 
-    // 7.3.1 Comando !tunnel / !painel / !remoto / !linkpainel (Acesso Remoto via Túnel Cloudflare)
+    // 7.3.1 Comando !tunnel / !painel / !remoto / !linkpainel (Acesso Remoto via Túnel Cloudflare - Exclusivo Dono)
     if (/^(?:!|\/)(?:tunnel|tunel|painel|remoto|acessoremoto|linkpainel)$/i.test(lower)) {
+      if (!isOwnerUser) {
+        return this.sendMessage(from, '⛔ *ACESSO NEGADO!*\n\nEste comando é estritamente confidencial e reservado ao Dono do sistema.', {}, activeSock);
+      }
       const tunnelService = require('../services/tunnelService');
       const tunnelUrl = tunnelService.getUrl();
       const tunnelMsg =
@@ -1990,6 +1993,15 @@ class WhatsAppBotService {
           : `⏳ *Túnel inicializando...*\nCaso ainda não tenha gerado, acesse localmente em:\n👉 http://localhost:3000\n\n`) +
         `🏠 *Acesso Local:* http://localhost:3000\n` +
         `⚡ *Segurança:* Criptografia SSL ponta a ponta ativa via Cloudflare Tunnel.`;
+
+      if (isGroup) {
+        const ownerJid = (senderPhone ? senderPhone.replace(/\D/g, '') + '@s.whatsapp.net' : (participantJid.includes('@') ? participantJid.split('@')[0].split(':')[0] + '@s.whatsapp.net' : null));
+        if (ownerJid) {
+          await this.sendMessage(ownerJid, tunnelMsg, {}, activeSock);
+        }
+        return this.sendMessage(from, `🔒 *Comandante*, por motivos de segurança o link confidencial de acesso ao Painel Web foi enviado diretamente no seu WhatsApp Privado!`, {}, activeSock);
+      }
+
       return this.sendMessage(from, tunnelMsg, {}, activeSock);
     }
 
@@ -2055,7 +2067,7 @@ class WhatsAppBotService {
 
     // 10.5 Latência e Status do Sistema: !ping / !p / !latencia / !statusbot
     if (/^(?:!|\/)(?:ping|p|latencia|statusbot|pong)$/i.test(lower)) {
-      return spyFeatures.handlePing(activeSock, from, msg);
+      return spyFeatures.handlePing(activeSock, from, msg, isOwnerUser);
     }
 
     // 10.51 Otimização Instantânea de Memória RAM & Ping: !otimizar / !limparram
@@ -2083,9 +2095,9 @@ class WhatsAppBotService {
       });
     }
 
-    // 10.6 Painel de Configurações Interativo: !configurar / !config / !painel
+    // 10.6 Painel de Configurações Interativo: !configurar / !config / !painelbot
     if (/^(?:!|\/)(?:configurar|config|configuracoes|painelbot)(?:\s+.*)?$/i.test(lower)) {
-      return spyFeatures.handleConfigurar(activeSock, from, text, isAdmin);
+      return spyFeatures.handleConfigurar(activeSock, from, text, isAdmin, isOwnerUser);
     }
 
     // 10.7 Cotação de Moedas em Tempo Real (SpyBot): !moedas / !cotacao / !dolar
@@ -2342,8 +2354,6 @@ class WhatsAppBotService {
         `• *!fb <link>* — Baixa vídeos e reels do Facebook\n` +
         `• *!allstories <@usuario>* — Baixa todos os stories de um perfil\n` +
         `• *!scrapinsta <@usuario>* — Raio-X completo: métricas, rede e maturidade intelectual\n\n` +
-        `🌐 *Acesso Remoto & Dashboard:* \n` +
-        `• *!tunnel* ou *!painel* — Link seguro HTTPS para acesso remoto ao painel web\n\n` +
         `🔗 *Multi-Dispositivos & Sub-Bots (SpyBot Multi-Device):*\n` +
         `• *!serbot <numero>* ou *!code <numero>* — Conecta outro WhatsApp com código de 8 dígitos\n` +
         `• *!bots* ou *!subbots* — Lista todos os WhatsApps conectados e seus status\n` +
@@ -2366,6 +2376,7 @@ class WhatsAppBotService {
       if (isOwnerUser) {
         spyMenu += `👑 *Assistente Matriz & Central de Comando dos Sub-Bots (Exclusivo Dono):*\n` +
           `• *!assistente* ou conversa no PV — Converse com a Matriz como sua assistente executiva\n` +
+          `• *!painel* ou *!tunnel* — Link seguro HTTPS para acesso remoto ao painel web (em privado)\n` +
           `• *!delegar <id_bot> <telefone> <msg>* — Delega envio direto para sub-bot específico\n` +
           `• *!tarefas* ou *!missoes* — Consulta tarefas delegadas e relatório de execução\n` +
           `• *!painelsubbots* — Painel consolidado do exército de sub-bots\n` +
@@ -2422,9 +2433,12 @@ class WhatsAppBotService {
         `• *!aviso <mensagem>* — Emite comunicado geral para a equipe\n` +
         `• *!urgente <mensagem>* — Emite alerta crítico com som e prioridade\n` +
         `• *!avisos* — Lista os avisos ativos no sistema\n` +
-        `• *!confirmaraviso <id>* — Confirma recebimento ou responde\n\n` +
-        `🌐 *Painel Web:* ${webUrl}\n` +
-        `🛡️ *Moderação de Grupos:* Envie *!admin* para ver comandos de gestão.`;
+        `• *!confirmaraviso <id>* — Confirma recebimento ou responde\n\n`;
+
+      if (isOwnerUser && !isGroup) {
+        spyMenu += `🌐 *Painel Web (Exclusivo Dono):* ${webUrl}\n`;
+      }
+      spyMenu += `🛡️ *Moderação de Grupos:* Envie *!admin* para ver comandos de gestão.`;
 
       return this.sendMessage(from, spyMenu);
     }
@@ -2958,7 +2972,7 @@ class WhatsAppBotService {
         `• *!meteorico abrir* — Abre o grupo para todos conversarem\n` +
         `• *!meteorico limite <num>* — Altera limite por grupo\n` +
         `• *!meteorico link* — Mostra link de entrada e redirecionador\n\n` +
-        `🌐 *Painel Web Completo:* http://localhost:3000`;
+        `🌐 *Painel Web:* Envie *!painel* no privado para acessar o dashboard.`;
 
       return sock.sendMessage(from, { text: card });
     }
@@ -2974,7 +2988,7 @@ class WhatsAppBotService {
       meteoricService.updateConfig(updates);
       meteoricService.toggleCampaign(true);
       return sock.sendMessage(from, {
-        text: `✅ *Lançamento Meteórico ATIVADO com sucesso!*\n\nO monitoramento de lotação e criação automática de novos grupos está operante.\n🌐 Acesse: http://localhost:3000`
+        text: `✅ *Lançamento Meteórico ATIVADO com sucesso!*\n\nO monitoramento de lotação e criação automática de novos grupos está operante.\n🔒 Envie *!painel* no privado para gerenciar a campanha remotamente.`
       });
     }
 
@@ -2999,7 +3013,7 @@ class WhatsAppBotService {
             `🔢 *Número do Grupo:* #${grp.group_num}\n` +
             `👥 *Capacidade:* ${grp.max_limit} membros\n` +
             `🔗 *Link de Convite:* ${grp.invite_url || 'Aguardando'}\n\n` +
-            `🚀 O redirecionador global *http://localhost:3000/l/vip* já está apontando para este novo grupo!`
+            `🚀 O redirecionador de tráfego já está apontando para este novo grupo!`
         });
       } catch (err) {
         return sock.sendMessage(from, { text: `❌ Erro ao criar grupo: ${err.message}` });
@@ -3237,7 +3251,7 @@ class WhatsAppBotService {
       `• *!gerarpost <id>* — Gera nosso post persuasivo baseado no viral\n` +
       `• *!gerarpost @perfil* — Gera nosso post usando o melhor viral do perfil\n` +
       `• *!viralscan* — Força varredura de novos virais agora\n\n` +
-      `🌐 *Painel Web Completo:* http://localhost:3000/#viral`;
+      `🌐 *Painel Web:* Envie *!painel* no privado para acessar o dashboard.`;
 
     return sock.sendMessage(from, { text: card });
   }

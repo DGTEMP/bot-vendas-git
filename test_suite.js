@@ -4743,7 +4743,7 @@ async function main() {
     };
 
     const mockMsg = {
-      key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+      key: { remoteJid: '554884702848@s.whatsapp.net', fromMe: false },
       message: { conversation: '!tunnel' }
     };
 
@@ -4754,6 +4754,14 @@ async function main() {
       assert(tunnelText.includes('PAINEL WEB & ACESSO REMOTO'), 'Deve identificar painel web');
       assert(tunnelText.includes('spybot-secure-test.trycloudflare.com'), 'Deve incluir a URL do túnel');
       assert(tunnelText.includes('Cloudflare Tunnel'), 'Deve citar Cloudflare Tunnel');
+
+      // Teste de segurança: terceiro comum tentando !tunnel é bloqueado
+      replies.length = 0;
+      await whatsappBot.handleIncomingMessage({
+        key: { remoteJid: '5511999998888@s.whatsapp.net', fromMe: false },
+        message: { conversation: '!tunnel' }
+      });
+      assert(replies.length > 0 && replies[0].text.includes('ACESSO NEGADO'), 'Terceiro deve ser bloqueado com ACESSO NEGADO');
     } finally {
       whatsappBot.sendMessage = origSend;
     }
