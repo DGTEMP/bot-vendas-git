@@ -1536,11 +1536,20 @@ const models = {
   formatCampaignMessage(template, lead = {}, campaign = {}) {
     let msg = template || '';
     const greeting = new Date().getHours() < 12 ? 'Bom dia' : (new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite');
-    msg = msg.replace(/\{nome\}/gi, lead.name || 'amigo(a)');
+    const rawName = (lead.name || '').trim();
+    const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente|undefined|null)$/i.test(rawName);
+    const firstName = isGeneric ? '' : rawName.split(' ')[0];
+
+    if (firstName) {
+      msg = msg.replace(/\{nome\}/gi, firstName);
+    } else {
+      msg = msg.replace(/\s*\{nome\}/gi, '');
+      msg = msg.replace(/\{nome\}\s*,?\s*/gi, '');
+    }
     msg = msg.replace(/\{saudacao\}/gi, greeting);
     msg = msg.replace(/\{produto\}/gi, campaign.product_name || 'Produto Especial');
     msg = msg.replace(/\{link\}/gi, campaign.affiliate_url || '');
-    return models.parseSpintax(msg);
+    return models.parseSpintax(msg).replace(/\s{2,}/g, ' ').replace(/\s+([.,!?])/g, '$1').trim();
   },
 
   getAffiliateCampaigns() {

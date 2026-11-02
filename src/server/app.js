@@ -4147,7 +4147,10 @@ function createServer() {
           let sent = 0;
           for (const ord of orders) {
             try {
-              const msg = `👋 Olá, ${ord.platform_user_name || 'Amigo'}! Seu pedido para *${ord.product_name || 'produto'}* ainda está reservado.\n\nFinalize seu pagamento com segurança via PIX ou Cripto!`;
+              const rawName = (ord.platform_user_name || '').trim();
+              const isGeneric = !rawName || /^(amigo\(a\)|amigo|cliente|lead)$/i.test(rawName);
+              const nameGreet = isGeneric ? 'Olá!' : `Olá, ${rawName.split(' ')[0]}!`;
+              const msg = `👋 ${nameGreet} Seu pedido para *${ord.product_name || 'produto'}* ainda está reservado.\n\nFinalize seu pagamento com segurança via PIX ou Cripto!`;
               if (whatsappBot.isConnected) {
                 await whatsappBot.sendMessage(ord.platform_user_id, msg);
               }

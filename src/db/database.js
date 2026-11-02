@@ -1268,8 +1268,8 @@ function initDatabase() {
       'STAGE_1_DESCOBERTA',
       '1. Descoberta & Abertura',
       1,
-      '{Olá|Oi|E aí} {nome}! {Tudo bem?|Como vai?} Vi seu contato na nossa lista VIP de interessados em {produto}. Você já atua nessa área ou está querendo começar do zero?',
-      '{Oi|E aí} {nome}! Conseguiu ver a mensagem anterior? Fiquei curioso pra saber sua experiência com {produto}.',
+      '{Olá|Oi}! Vi seu interesse no *{produto}*. Para eu te passar as informações certas, você já tem experiência nessa área ou está querendo começar do zero?',
+      '{Olá|Oi}! Conseguiu ver a mensagem sobre o *{produto}*? Se tiver qualquer dúvida sobre como funciona, estou por aqui.',
       120
     );
 
@@ -1277,8 +1277,8 @@ function initDatabase() {
       'STAGE_2_INTERESSE',
       '2. Diagnóstico & Interesse',
       2,
-      '{Entendi perfeitamente|Muito bom saber|Com certeza}! Hoje muita gente tem dificuldade de ter consistência e aplicar o método certo. O que mais tem te travado para ter resultados hoje?',
-      '{Fala|Olá} {nome}, se você pudesse destravar seus resultados ainda essa semana, isso faria diferença pra você?',
+      'Entendi! O principal objetivo do *{produto}* é justamente simplificar sua rotina e entregar consistência com metodologia prática e suporte dedicado. O que mais tem sido seu maior desafio hoje?',
+      '{Olá|Oi}! Se você pudesse resolver esse gargalo ainda esta semana, isso faria diferença para você?',
       120
     );
 
@@ -1286,8 +1286,8 @@ function initDatabase() {
       'STAGE_3_SOLUCAO',
       '3. Apresentação da Solução & Prova',
       3,
-      '{Sensacional|Excelente}! É exatamente para isso que serve o *{produto}*. Na última semana, mais de 340 pessoas conseguiram transformar seus resultados com essa mesma metodologia prática. Quer que eu te envie o link oficial para você ver os detalhes?',
-      '{Oi|Olá} {nome}! Posso te mandar o link de apresentação rápida de 3 minutos?',
+      'É exatamente esse o foco do *{produto}*. Desenvolvemos essa solução para rodar com eficiência máxima, com dezenas de membros tendo resultados consistentes logo nas primeiras semanas. Quer dar uma olhada rápida na página oficial com os detalhes e demonstração?',
+      '{Olá|Oi}! Posso te mandar o link de apresentação rápida para você ver como funciona na prática?',
       120
     );
 
@@ -1295,8 +1295,8 @@ function initDatabase() {
       'STAGE_4_OFERTA',
       '4. Oferta & Envio do Link',
       4,
-      '{Perfeito|Maravilha}! Aqui está seu link com a condição exclusiva de 50% de desconto: {link}\n\nDá uma olhada nos bônus inclusos e me diz se você conseguiu abrir!',
-      '{Oi|E aí} {nome}! Conseguiu acessar o link? Restam poucas vagas com esse desconto promocional.',
+      'Perfeito! Aqui está seu link com a condição exclusiva de 50% de desconto: {link}\n\nDá uma olhada nos bônus inclusos e na garantia. Assim que você abrir me dá um toque aqui!',
+      '{Olá|Oi}! Conseguiu acessar o link? Qualquer dúvida sobre a condição promocional, pode me chamar por aqui.',
       120
     );
 
@@ -1304,11 +1304,49 @@ function initDatabase() {
       'STAGE_5_FECHAMENTO',
       '5. Quebra de Objeções & Fechamento',
       5,
-      '{Sem problemas|Super compreensível}! O pagamento é 100% seguro via PIX ou USDT, e você tem garantia total incondicional de 7 dias: se não gostar, recebe todo o seu dinheiro de volta na hora. Quer ajuda para emitir seu acesso agora?',
-      '{Oi|Olá} {nome}! Posso gerar o código PIX ou link Binance Pay direto aqui pra você garantir antes do encerramento?',
+      'Fique tranquilo: a inscrição é 100% segura e você conta com garantia incondicional de 7 dias — se por qualquer motivo achar que não é para você, devolvemos 100% do valor. Quer que eu te ajude a emitir seu acesso agora pelo Pix ou Cripto?',
+      '{Olá|Oi}! Posso gerar o código Pix ou link Binance Pay direto aqui pra você garantir antes do encerramento?',
       120
     );
   }
+
+  // Atualiza templates antigos dos estágios do funil para versão conversacional inteligente e natural
+  try {
+    db.prepare(`
+      UPDATE funnel_stages 
+      SET message_template = '{Olá|Oi}! Vi seu interesse no *{produto}*. Para eu te passar as informações certas, você já tem experiência nessa área ou está querendo começar do zero?',
+          followup_template = '{Olá|Oi}! Conseguiu ver a mensagem sobre o *{produto}*? Se tiver qualquer dúvida sobre como funciona, estou por aqui.'
+      WHERE stage_key = 'STAGE_1_DESCOBERTA' AND (message_template LIKE '%Vi seu contato na nossa lista VIP%' OR message_template LIKE '%Vi seu contato%')
+    `).run();
+
+    db.prepare(`
+      UPDATE funnel_stages 
+      SET message_template = 'Entendi! O principal objetivo do *{produto}* é justamente simplificar sua rotina e entregar consistência com metodologia prática e suporte dedicado. O que mais tem sido seu maior desafio hoje?',
+          followup_template = '{Olá|Oi}! Se você pudesse resolver esse gargalo ainda esta semana, isso faria diferença para você?'
+      WHERE stage_key = 'STAGE_2_INTERESSE' AND (message_template LIKE '%Hoje muita gente tem dificuldade de ter consistência%' OR message_template LIKE '%Entendi perfeitamente%')
+    `).run();
+
+    db.prepare(`
+      UPDATE funnel_stages 
+      SET message_template = 'É exatamente esse o foco do *{produto}*. Desenvolvemos essa solução para rodar com eficiência máxima, com dezenas de membros tendo resultados consistentes logo nas primeiras semanas. Quer dar uma olhada rápida na página oficial com os detalhes e demonstração?',
+          followup_template = '{Olá|Oi}! Posso te mandar o link de apresentação rápida para você ver como funciona na prática?'
+      WHERE stage_key = 'STAGE_3_SOLUCAO' AND (message_template LIKE '%Sensacional%' OR message_template LIKE '%340 pessoas%')
+    `).run();
+
+    db.prepare(`
+      UPDATE funnel_stages 
+      SET message_template = 'Perfeito! Aqui está seu link com a condição exclusiva de 50% de desconto: {link}\n\nDá uma olhada nos bônus inclusos e na garantia. Assim que você abrir me dá um toque aqui!',
+          followup_template = '{Olá|Oi}! Conseguiu acessar o link? Qualquer dúvida sobre a condição promocional, pode me chamar por aqui.'
+      WHERE stage_key = 'STAGE_4_OFERTA' AND (message_template LIKE '%Maravilha%' OR message_template LIKE '%restam poucas vagas%')
+    `).run();
+
+    db.prepare(`
+      UPDATE funnel_stages 
+      SET message_template = 'Fique tranquilo: a inscrição é 100% segura e você conta com garantia incondicional de 7 dias — se por qualquer motivo achar que não é para você, devolvemos 100% do valor. Quer que eu te ajude a emitir seu acesso agora pelo Pix ou Cripto?',
+          followup_template = '{Olá|Oi}! Posso gerar o código Pix ou link Binance Pay direto aqui pra você garantir antes do encerramento?'
+      WHERE stage_key = 'STAGE_5_FECHAMENTO' AND (message_template LIKE '%Sem problemas%' OR message_template LIKE '%Super compreensível%')
+    `).run();
+  } catch (_) {}
 
   // Semeia contas de redes sociais de exemplo se vazias
   const socialCount = db.prepare('SELECT COUNT(*) as count FROM social_accounts').get().count;

@@ -165,13 +165,15 @@ class ProposalService {
    * Gera a mensagem do WhatsApp para enviar a proposta ao lead
    */
   generateWhatsAppShareMessage(proposal, baseUrl = '') {
-    const firstName = (proposal.lead_name || 'Amigo').split(' ')[0];
+    const rawName = (proposal.lead_name || '').trim();
+    const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName);
+    const nameGreet = isGeneric ? 'Olá!' : `Olá, *${rawName.split(' ')[0]}*!`;
     const proposalUrl = `${baseUrl.replace(/\/$/, '')}/proposta/${proposal.token}`;
     const valueFormatted = Number(proposal.investment_brl || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
 
     return (
       `📄 *PROPOSTA COMERCIAL & CRONOGRAMA TÉCNICO* 🚀\n\n` +
-      `Olá, *${firstName}*! Conforme alinhamos, montei o escopo técnico completo e cronograma para o seu projeto: *${proposal.project_title}*.\n\n` +
+      `${nameGreet} Conforme alinhamos, montei o escopo técnico completo e cronograma para o seu projeto: *${proposal.project_title}*.\n\n` +
       `📌 *Código:* \`${proposal.code}\`\n` +
       `⏱️ *Prazo de Entrega Estimado:* ${proposal.timeline_weeks} semanas\n` +
       `💰 *Investimento:* R$ ${valueFormatted}\n` +

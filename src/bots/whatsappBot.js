@@ -3344,6 +3344,9 @@ class WhatsAppBotService {
             }
           }
         }
+        if (nlp.intent === 'CONFIRM_PURCHASE') {
+          models.markLeadConverted(senderPhone);
+        }
         if (nlp.intent === 'SUPPORT_HUMAN') {
           models.createSupportTicket({
             platform: 'whatsapp',

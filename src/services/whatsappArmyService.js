@@ -934,8 +934,8 @@ class WhatsAppArmyService {
     }
 
     if (!leadConv) {
-      // Verifica se é uma mensagem com palavras-chave comerciais gerais
-      const intentRegex = /(quero|link|preço|preco|como funciona|comprar|tenho interesse|me manda|valor|qual o valor|desconto|chave|acesso)/i;
+      // Verifica se é uma mensagem com palavras-chave comerciais gerais ou interesse no produto
+      const intentRegex = /(quero|link|preço|preco|como funciona|comprar|tenho interesse|me manda|valor|qual o valor|desconto|chave|acesso|conta mais|fala mais|me conta|saber mais|mais sobre|detalhes|produto|plano|opcoes|catalogo|ajuda|info)/i;
       if (!intentRegex.test(lower)) return false;
 
       // Pega o primeiro link de afiliado disponível
@@ -959,6 +959,12 @@ class WhatsAppArmyService {
     const db = require('../db/database');
     db.prepare("UPDATE campaign_leads SET status = 'REPLIED' WHERE phone = ? OR phone = ?").run(rawPhone, rawPhone.slice(-8));
 
+    // Extração cognitiva do perfil e intenções do lead
+    try {
+      const cognitiveService = require('./cognitiveSalesService');
+      cognitiveService.analyzeAndExtractProfile(rawPhone, leadConv?.name, text);
+    } catch (_) {}
+
     // 4. Análise NLU / NLP em Português Brasileiro
     let nlp = null;
     try {
@@ -970,11 +976,32 @@ class WhatsAppArmyService {
       });
     } catch (_) {}
 
-    // Reconhece confirmação de compra / conversão
-    const isConfirmedPurchase = nlp?.intent === 'CONFIRM_PURCHASE' || /(já comprei|ja comprei|paguei|fiz a compra|comprei aqui|acabei de comprar|ta pago|ja fiz o pix)/i.test(lower);
+    // 4.1 Se o lead já é cliente convertido, trata com pós-venda dedicado e suporte (sem resetar funil ou vender de novo)
+    if (leadConv.current_stage === 'CONVERTED') {
+      if (/(comprovante|paguei|comprei|pix|mandei|ta pago|confirmar)/i.test(lower)) {
+        const reply = `Recebido! Já registramos seu aviso e nosso sistema está conferindo a transação. Em instantes você recebe os dados de acesso diretamente por aqui!`;
+        await this.sendArmyMessage(instanceId, rawPhone, reply);
+        models.logFunnelInteraction({ lead_phone: rawPhone, instance_id: instanceId, direction: 'OUT', stage: 'CONVERTED', message_text: reply });
+        return true;
+      }
+      const rawName = (leadConv.name || '').trim();
+      const cleanName = (!rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName)) ? '' : ` ${rawName.split(' ')[0]}`;
+      const reply = `Olá${cleanName}! Seus acessos continuam ativos. Se você precisar de qualquer suporte, dúvidas de configuração ou ajuda com o produto, pode me chamar por aqui que estou à disposição!`;
+      await this.sendArmyMessage(instanceId, rawPhone, reply);
+      models.logFunnelInteraction({ lead_phone: rawPhone, instance_id: instanceId, direction: 'OUT', stage: 'CONVERTED', message_text: reply });
+      return true;
+    }
+
+    // 4.2 Reconhece confirmação de compra / conversão
+    const isConfirmedPurchase = nlp?.intent === 'CONFIRM_PURCHASE' || /(já comprei|ja comprei|paguei|fiz a compra|comprei aqui|acabei de comprar|ta pago|ja fiz o pix|comprei pelo link|paguei pelo link|consegui comprar|pronto.*compr|pronto.*pagu)/i.test(lower);
     if (isConfirmedPurchase) {
       models.markLeadConverted(rawPhone);
-      const thankYouMsg = (nlp && nlp.replyText) ? nlp.replyText : `🎉 *PARABÉNS PELA SUA DECISÃO!* 🚀\n\nFicamos muito felizes em ter você conosco! Seu acesso está liberado. Se precisar de qualquer suporte, basta chamar por aqui!`;
+      const rawName = (leadConv.name || '').trim();
+      const cleanName = (!rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName)) ? '' : ` ${rawName.split(' ')[0]}`;
+      const thankYouMsg = (nlp?.intent === 'CONFIRM_PURCHASE' && nlp?.replyText)
+        ? nlp.replyText
+        : `Perfeito${cleanName}! Já registrei sua confirmação por aqui. 🚀\n\nNosso sistema faz a conferência automática do pagamento em instantes. Assim que compensar, seus dados e acessos chegam direto nesta conversa.\n\nSe tiver o comprovante e quiser mandar aqui, agiliza ainda mais a liberação! Qualquer dúvida, conte comigo.`;
+      
       await this.sendArmyMessage(instanceId, rawPhone, thankYouMsg);
       models.logFunnelInteraction({
         lead_phone: rawPhone,
@@ -988,7 +1015,7 @@ class WhatsAppArmyService {
     }
 
     // 5. Intenção direta de compra / pedido de link (Fast-forward para Oferta)
-    const directOfferRegex = /(quero o link|manda o link|me passa o link|qual o link|onde compro|quero comprar|passa o link|como faço pra comprar)/i;
+    const directOfferRegex = /(quero o link|manda o link|me passa o link|qual o link|onde compro|quero comprar|passa o link|como faço pra comprar|link para comprar|link pra comprar)/i;
     let nextStageKey = null;
 
     if (nlp?.intent === 'BUY_INTENT' || nlp?.intent === 'PAYMENT_PIX' || nlp?.intent === 'PAYMENT_CRYPTO' || directOfferRegex.test(lower)) {
@@ -1010,10 +1037,16 @@ class WhatsAppArmyService {
     const template = stageObj ? stageObj.message_template : '{Olá|Oi} {nome}! {produto} com desconto aqui: {link}';
 
     // Formata a mensagem persuasiva da etapa
-    const replyText = models.formatCampaignMessage(template, leadConv, {
+    let replyText = models.formatCampaignMessage(template, leadConv, {
       product_name: leadConv.product_name,
       affiliate_url: leadConv.affiliate_url
     });
+
+    // Humanização anti-robô
+    try {
+      const cognitiveService = require('./cognitiveSalesService');
+      replyText = cognitiveService.humanizeResponse(replyText);
+    } catch (_) {}
 
     // Avança o lead para a nova etapa no banco de dados
     models.advanceLeadFunnelStage(rawPhone, nextStageKey);

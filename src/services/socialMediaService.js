@@ -85,7 +85,9 @@ class SocialMediaService {
   // 2. MOTOR DE RESPOSTA CONVERSACIONAL DE AQUECIMENTO SOCIAL (NLU PT-BR)
   // ==============================================================
   async generateConversationalReply(text, senderName) {
-    const name = senderName ? senderName.split(' ')[0] : 'amigo(a)';
+    const rawName = (senderName || '').trim();
+    const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName);
+    const name = isGeneric ? '' : rawName.split(' ')[0];
     let nlp = null;
     try {
       const nlpService = require('./nlpService');

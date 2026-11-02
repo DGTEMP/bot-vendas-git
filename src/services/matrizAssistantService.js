@@ -438,7 +438,10 @@ class MatrizAssistantService {
       currentLeadOffset += bot.allocated;
 
       for (const lead of slice) {
-        const msg = models.parseSpintax(textMsg.replace(/\{nome\}/gi, lead.name || 'Amigo'));
+        const rawName = (lead.name || '').trim();
+        const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName);
+        const cleanName = isGeneric ? '' : rawName.split(' ')[0];
+        const msg = models.parseSpintax(cleanName ? textMsg.replace(/\{nome\}/gi, cleanName) : textMsg.replace(/\s*\{nome\}/gi, ''));
         await whatsappArmyService.sendMessageViaInstance(bot.id, lead.phone, msg);
       }
     }

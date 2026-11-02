@@ -207,7 +207,7 @@ class CognitiveSalesService {
     let stage = profile.buying_stage || 'DESCOBERTA';
     let readiness = profile.readiness_score || 30;
 
-    if (/(?:ja fiz o pix|acabei de pagar|ja paguei|comprovante|pagamento feito)/i.test(lower)) {
+    if (/(?:ja fiz o pix|acabei de pagar|ja paguei|comprovante|pagamento feito|acabei de comprar|ja comprei|comprei pelo link|paguei pelo link|fiz a compra|consegui comprar|pronto.*compr)/i.test(lower)) {
       stage = 'CONVERTIDO';
       readiness = 100;
       memoriesToAdd.push({ type: 'AGREEMENT', summary: 'Pagamento confirmado e projeto iniciado', excerpt: text, importance: 5 });
@@ -255,8 +255,9 @@ class CognitiveSalesService {
   // ==============================================================
   async generateConsultativeReply({ phone, name, text, nlpResult, matchedProduct }) {
     const cleanPhone = String(phone).replace(/\D/g, '');
+    const cleanName = (name && typeof name === 'string' && !/^(amigo\(a\)|amigo|lead|cliente)$/i.test(name)) ? name.trim() : '';
     const profile = models.getLeadCognitiveProfile(cleanPhone) || {
-      name: name || 'Amigo',
+      name: cleanName,
       company_niche: 'Geral',
       project_scope: 'Software & Soluções Tech',
       budget_tier: 'MEDIO',
@@ -267,7 +268,8 @@ class CognitiveSalesService {
 
     const beliefs = models.getLeadBeliefs(cleanPhone);
     const memories = models.getLeadEpisodicMemories(cleanPhone, 5);
-    const firstName = (profile.name || name || 'amigo').split(' ')[0];
+    const profName = (profile.name || cleanName || '').trim();
+    const firstName = (!profName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(profName)) ? '' : profName.split(' ')[0];
 
     // Tenta enriquecer com IA (Gemini / OpenAI API) mantendo persona de Consultor Sênior Tech
     try {
@@ -339,26 +341,43 @@ class CognitiveSalesService {
   // 4. MOTOR HEURÍSTICO CONSULTIVO OFFLINE (RESILIENTE A FALHAS DE REDE)
   // ==============================================================
   generateHeuristicConsultativeReply({ profile, firstName, text, matchedProduct, nlpResult }) {
-    const cleanPhone = profile.phone;
-    const stage = profile.buying_stage || 'DESCOBERTA';
-    const objection = profile.main_objection || 'NENHUMA';
-    const scope = profile.project_scope || 'software sob medida';
+    const rawName = (firstName || '').trim();
+    const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName);
+    const cleanFirstName = isGeneric ? '' : `${rawName}, `;
+    const cleanFirstNameGreet = isGeneric ? '' : ` ${rawName}`;
+    const cleanPhone = profile?.phone;
+    const stage = profile?.buying_stage || 'DESCOBERTA';
+    const objection = profile?.main_objection || 'NENHUMA';
+    const scope = profile?.project_scope || 'software sob medida';
+
+    // 0. Confirmação de Compra / Pagamento
+    if (stage === 'CONVERTIDO' || nlpResult?.intent === 'CONFIRM_PURCHASE' || /(?:acabei de comprar|ja comprei|comprei pelo link|paguei pelo link|ja fiz o pix|ta pago|comprovante|pronto.*compr)/i.test(text)) {
+      const reply = `Perfeito${cleanFirstNameGreet}! Já registrei seu aviso por aqui. Nosso sistema confere a compensação do pagamento automaticamente. Assim que liberar, seus dados de acesso chegam direto nesta conversa. Se tiver o comprovante da transação e quiser mandar aqui, agiliza ainda mais a prioridade!`;
+      return this.humanizeResponse(reply);
+    }
+
+    // 0.5 Pedido de mais informações / Me conta mais / Como funciona
+    if (nlpResult?.intent === 'HOW_IT_WORKS' || /(?:me conta mais|fala mais|como funciona|quero saber mais|explica mais|do que se trata)/i.test(text)) {
+      const prodName = matchedProduct ? matchedProduct.name : 'nossa solução';
+      const reply = `${cleanFirstName}o *${prodName}* foi desenvolvido para entregar resultados consistentes na prática, sem complicação técnica. Você recebe acesso imediato, metodologia passo a passo validada e nosso suporte dedicado para tirar qualquer dúvida. Quer que eu te envie o link oficial com todos os detalhes e bônus inclusos?`;
+      return this.humanizeResponse(reply);
+    }
 
     // 1. Resolução de Objeção de Preço
     if (objection === 'PRECO' || nlpResult?.intent === 'DISCOUNT_QUERY') {
-      const reply = `${firstName}, entendo a questão de orçamento. Em projetos de ${scope}, costumamos modular a entrega: podemos focar primeiro no MVP com as funções centrais que geram retorno financeiro imediato para sua operação, diluindo o investimento. Qual funcionalidade é mais urgente para você rodar na primeira fase?`;
+      const reply = `${cleanFirstName}entendo a questão de orçamento. Em projetos de ${scope}, costumamos modular a entrega: podemos focar primeiro no MVP com as funções centrais que geram retorno financeiro imediato para sua operação, diluindo o investimento. Qual funcionalidade é mais urgente para você rodar na primeira fase?`;
       return this.humanizeResponse(reply);
     }
 
     // 2. Resolução de Objeção de Prazo
     if (objection === 'PRAZO') {
-      const reply = `${firstName}, sobre o cronograma: conseguimos trabalhar em sprint dedicado para colocar a primeira versão funcional no ar em menos de 10 dias úteis, garantindo que sua operação não fique travada. Para quando exatamente você precisa da primeira entrega homologada?`;
+      const reply = `${cleanFirstName}sobre o cronograma: conseguimos trabalhar em sprint dedicado para colocar a primeira versão funcional no ar em menos de 10 dias úteis, garantindo que sua operação não fique travada. Para quando exatamente você precisa da primeira entrega homologada?`;
       return this.humanizeResponse(reply);
     }
 
     // 3. Resolução de Objeção de Garantia & Contrato
     if (objection === 'CONFIANCA_GARANTIA' || nlpResult?.intent === 'TRUST_AND_GUARANTEE') {
-      const reply = `${firstName}, todo o desenvolvimento é feito sob contrato formal de prestação de serviços com SLA de suporte garantido e entrega integral do código-fonte e documentação técnica. O risco operacional é zero para sua empresa. Quer que eu te envie nosso modelo de contrato e escopo?`;
+      const reply = `${cleanFirstName}todo o desenvolvimento é feito sob contrato formal de prestação de serviços com SLA de suporte garantido e entrega integral do código-fonte e documentação técnica. O risco operacional é zero para sua empresa. Quer que eu te envie nosso modelo de contrato e escopo?`;
       return this.humanizeResponse(reply);
     }
 
@@ -366,7 +385,7 @@ class CognitiveSalesService {
     if (stage === 'FECHAMENTO' || nlpResult?.intent === 'PAYMENT_PIX') {
       const prodName = matchedProduct ? matchedProduct.name : 'seu projeto de software personalizado';
       const prodPrice = matchedProduct ? `R$ ${Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2)}` : 'da entrada acordada';
-      const reply = `Perfeito, ${firstName}. O valor para ${prodName} fica fechado em ${prodPrice}. Vou gerar a chave Pix oficial do Banco Central para iniciarmos o setup e sprint técnico hoje mesmo. Posso emitir agora?`;
+      const reply = `Perfeito${cleanFirstNameGreet}. O valor para ${prodName} fica fechado em ${prodPrice}. Vou gerar a chave Pix oficial do Banco Central para iniciarmos o setup e sprint técnico hoje mesmo. Posso emitir agora?`;
       return this.humanizeResponse(reply);
     }
 
@@ -374,21 +393,21 @@ class CognitiveSalesService {
     if (stage === 'PROPOSTA' || nlpResult?.intent === 'PRICE_QUERY') {
       if (matchedProduct) {
         const valBrl = Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2);
-        const reply = `${firstName}, o investimento para o *${matchedProduct.name}* é de *R$ ${valBrl}* com implantação técnica, suporte e entrega completa. Esse formato se encaixa no planejamento atual da sua empresa ou prefere ver opções modulares?`;
+        const reply = `${cleanFirstName}o investimento para o *${matchedProduct.name}* é de *R$ ${valBrl}* com implantação técnica, suporte e entrega completa. Esse formato se encaixa no planejamento atual da sua empresa ou prefere ver opções modulares?`;
         return this.humanizeResponse(reply);
       }
-      const reply = `${firstName}, nossos projetos sob medida variam conforme o escopo e integrações necessárias, geralmente iniciando entre R$ 1.500 e R$ 4.800 com entrega em 15 dias. Se você puder me detalhar quais integrações você precisa (ex: Pix, painel web ou WhatsApp), eu te passo a estimativa exata.`;
+      const reply = `${cleanFirstName}nossos projetos sob medida variam conforme o escopo e integrações necessárias, geralmente iniciando entre R$ 1.500 e R$ 4.800 com entrega em 15 dias. Se você puder me detalhar quais integrações você precisa (ex: Pix, painel web ou WhatsApp), eu te passo a estimativa exata.`;
       return this.humanizeResponse(reply);
     }
 
     // 6. Qualificação / Diagnóstico Técnico
-    if (stage === 'QUALIFICACAO' || nlpResult?.intent === 'HOW_IT_WORKS') {
-      const reply = `${firstName}, desenvolvemos soluções completas sob medida — incluindo softwares de gestão, aplicativos Android/iOS, agentes de IA integrados ao WhatsApp e sistemas web com painel em tempo real. O que sua empresa precisa automatizar com maior prioridade hoje?`;
+    if (stage === 'QUALIFICACAO') {
+      const reply = `${cleanFirstName}desenvolvemos soluções completas sob medida — incluindo softwares de gestão, aplicativos Android/iOS, agentes de IA integrados ao WhatsApp e sistemas web com painel em tempo real. O que sua empresa precisa automatizar com maior prioridade hoje?`;
       return this.humanizeResponse(reply);
     }
 
     // 7. Saudação Inicial
-    const reply = `Olá, ${firstName}. Sou o especialista técnico em desenvolvimento de softwares sob medida, inteligência artificial, aplicativos e otimizações. Como posso apoiar seu projeto ou negócio hoje?`;
+    const reply = `Olá${cleanFirstNameGreet}. Sou o especialista técnico em desenvolvimento de softwares sob medida, inteligência artificial, aplicativos e otimizações. Como posso apoiar seu projeto ou negócio hoje?`;
     return this.humanizeResponse(reply);
   }
 

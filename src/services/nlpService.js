@@ -76,8 +76,8 @@ class NaturalLanguageService {
       return { intent: 'DEACTIVATE_BOT', confidence: 0.98 };
     }
 
-    // 1. Confirmação de Pagamento / Já paguei
-    if (/(ja fiz o pix|acabei de pagar|ja paguei|fiz o pagamento|mandei o comprovante|olha o comprovante|ja transferi|dinheiro enviado|paguei aqui|caiu ai|ta pago|comprovante|pagamento feito|pagamento realizado|fiz a transferencia)/i.test(normalized)) {
+    // 1. Confirmação de Pagamento / Já paguei / Já comprei
+    if (/(ja fiz o pix|acabei de pagar|ja paguei|fiz o pagamento|mandei o comprovante|olha o comprovante|ja transferi|dinheiro enviado|paguei aqui|caiu ai|ta pago|comprovante|pagamento feito|pagamento realizado|fiz a transferencia|acabei de comprar|ja comprei|comprei pelo link|paguei pelo link|comprei aqui|fiz a compra|consegui comprar|deu certo a compra|comprei agora|ja garanti|pronto.*compr|pronto.*pagu|pagamento concluido|pagamento efetuado|pix enviado|pix realizado|consegui fechar)/i.test(normalized)) {
       return { intent: 'CONFIRM_PURCHASE', confidence: 0.98 };
     }
 
@@ -106,8 +106,8 @@ class NaturalLanguageService {
       return { intent: 'TRUST_AND_GUARANTEE', confidence: 0.95 };
     }
 
-    // 7. Intenção Direta de Compra / Link
-    if (/(quero comprar|como compro|onde compro|quero o link|manda o link|passa o link|vou querer|quero assinar|como faco pra adquirir|vou levar|quero o produto|libera o acesso|comprar agora|quero fechar|tenho interesse|manda pra mim|como faco pra ter|quero assinar agora)/i.test(normalized)) {
+    // 7. Intenção Direta de Compra / Link / Fechamento
+    if (/(quero comprar|como compro|onde compro|quero o link|manda o link|passa o link|me passa o link|me manda o link|vou querer|quero assinar|como faco pra adquirir|como faco pra comprar|vou levar|quero o produto|libera o acesso|comprar agora|quero fechar|tenho interesse|manda pra mim|como faco pra ter|quero assinar agora|link para comprar|link pra comprar|passa o link para comprar|manda o link para comprar|link de compra|onde pago)/i.test(normalized)) {
       return { intent: 'BUY_INTENT', confidence: 0.95 };
     }
 
@@ -116,8 +116,8 @@ class NaturalLanguageService {
       return { intent: 'PRICE_QUERY', confidence: 0.93 };
     }
 
-    // 9. Como Funciona / Explicação do Produto
-    if (/(como funciona|o que vem|como recebo|e imediato|entrega na hora|como e feita a entrega|funciona no celular|funciona no iphone|explica como funciona|detalhes do produto|o que inclui|como recebo os acessos)/i.test(normalized)) {
+    // 9. Como Funciona / Explicação do Produto / Me conta mais
+    if (/(como funciona|o que vem|como recebo|e imediato|entrega na hora|como e feita a entrega|funciona no celular|funciona no iphone|explica como funciona|detalhes do produto|o que inclui|como recebo os acessos|me conta mais|me fala mais|conta mais sobre|fala mais sobre|quero saber mais|me explica mais|explica mais|do que se trata|o que e isso|como e esse|como e essa)/i.test(normalized)) {
       return { intent: 'HOW_IT_WORKS', confidence: 0.92 };
     }
 
@@ -206,12 +206,16 @@ class NaturalLanguageService {
   // ==============================================================
   // 4. PROCESSAMENTO INTEGRAL E GERAÇÃO DA RESPOSTA EM PT-BR
   // ==============================================================
-  async processMessage({ text, customerName = 'Amigo(a)', platform = 'whatsapp' }) {
+  async processMessage({ text, customerName = '', platform = 'whatsapp' }) {
     if (!text || typeof text !== 'string') {
       return { intent: 'EMPTY', replyText: 'Olá! Como posso te ajudar hoje?', confidence: 0 };
     }
 
-    const firstName = customerName ? customerName.split(' ')[0] : 'amigo(a)';
+    const rawName = (customerName || '').trim();
+    const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente|undefined|null)$/i.test(rawName);
+    const firstName = isGeneric ? '' : rawName.split(' ')[0];
+    const nameGreeting = firstName ? ` ${firstName}` : '';
+
     const normalized = this.normalizeText(text);
     const { intent, confidence } = this.classifyIntent(normalized);
     const { matchedProduct, extractedNumber, couponCode, refCode } = this.extractEntities(normalized, text);
@@ -231,7 +235,7 @@ class NaturalLanguageService {
     const customTrigger = models.findMatchingTrigger(text, platform);
     if (customTrigger) {
       const trigReply = customTrigger.response_text
-        .replace(/\{nome\}/gi, firstName)
+        .replace(/\{nome\}/gi, firstName || '')
         .replace(/\{produto\}/gi, defaultProduct.name)
         .replace(/\{preco_brl\}/gi, Number(defaultProduct.price_brl || defaultProduct.price).toFixed(2))
         .replace(/\{preco_usdt\}/gi, Number(defaultProduct.price_usdt || (defaultProduct.price / 5.5)).toFixed(2));
@@ -239,7 +243,7 @@ class NaturalLanguageService {
       return {
         intent: 'CUSTOM_TRIGGER',
         confidence: 0.99,
-        replyText: trigReply,
+        replyText: trigReply.replace(/\s{2,}/g, ' ').replace(/\s+([.,!?])/g, '$1').trim(),
         matchedProduct,
         couponCode,
         refCode,
@@ -251,22 +255,22 @@ class NaturalLanguageService {
     switch (intent) {
       case 'DEACTIVATE_BOT':
         directAction = 'DEACTIVATE_BOT';
-        replyText = `🛑 *ATENDIMENTO AUTOMÁTICO PAUSADO!*\n\nRespeitamos sua decisão, ${firstName}! Pausamos as respostas automáticas para esta conversa. Se quiser reativar a qualquer momento, basta enviar *!ativar*. Tenha um ótimo dia!`;
+        replyText = `🛑 *ATENDIMENTO AUTOMÁTICO PAUSADO!*\n\nRespeitamos sua decisão${nameGreeting}! Pausamos as respostas automáticas para esta conversa. Se quiser reativar a qualquer momento, basta enviar *!ativar*. Tenha um ótimo dia!`;
         break;
 
       case 'CONFIRM_PURCHASE':
-        replyText = `🎉 *PARABÉNS PELA COMPRA, ${firstName.toUpperCase()}!* 🚀\n\nIdentificamos sua confirmação! O nosso sistema faz a validação automática em segundos. Assim que o pagamento for compensado, você receberá seus dados de acesso diretamente por aqui!\n\nSe precisar de qualquer auxílio imediato, pode chamar nossa equipe!`;
+        replyText = `🎉 *PARABÉNS PELA COMPRA${firstName ? ', ' + firstName : ''}!* 🚀\n\nIdentificamos sua confirmação! O nosso sistema faz a conferência automática do pagamento em segundos. Assim que o pagamento for compensado, você receberá seus dados de acesso diretamente por aqui!\n\nSe tiver o comprovante e quiser mandar aqui, agiliza ainda mais a liberação! Qualquer dúvida, conte comigo.`;
         break;
 
       case 'UPSELL_ACCEPT':
         directAction = 'TRIGGER_UPSELL';
-        replyText = `Sensacional, ${firstName}! Vamos adicionar essa oferta especial ao seu pedido com o desconto exclusivo garantido! 🚀`;
+        replyText = `Sensacional${nameGreeting}! Vamos adicionar essa oferta especial ao seu pedido com o desconto exclusivo garantido! 🚀`;
         break;
 
       case 'PAYMENT_PIX':
         directAction = 'TRIGGER_PIX';
         if (matchedProduct) {
-          replyText = `Perfeito, ${firstName}! O pagamento via *PIX* para *${matchedProduct.name}* custa apenas *R$ ${Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2)}* com liberação instantânea. Gerando sua chave e QR Code agora...`;
+          replyText = `Perfeito${nameGreeting}! O pagamento via *PIX* para *${matchedProduct.name}* custa apenas *R$ ${Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2)}* com liberação instantânea. Gerando sua chave e QR Code agora...`;
         } else {
           replyText = `Com certeza! Aceitamos *PIX com entrega automática na hora*. Para qual dos nossos produtos você deseja gerar o código PIX? Digite o número correspondente ou o nome do produto!`;
         }
@@ -275,7 +279,7 @@ class NaturalLanguageService {
       case 'PAYMENT_CRYPTO':
         directAction = 'TRIGGER_BINANCE';
         if (matchedProduct) {
-          replyText = `Excelente escolha, ${firstName}! Aceitamos pagamento em cripto via *Binance Pay (USDT)* sem taxas de rede! O valor para *${matchedProduct.name}* é de *${Number(matchedProduct.price_usdt || (matchedProduct.price / 5.5)).toFixed(2)} USDT*. Gerando sua cobrança agora...`;
+          replyText = `Excelente escolha${nameGreeting}! Aceitamos pagamento em cripto via *Binance Pay (USDT)* sem taxas de rede! O valor para *${matchedProduct.name}* é de *${Number(matchedProduct.price_usdt || (matchedProduct.price / 5.5)).toFixed(2)} USDT*. Gerando sua cobrança agora...`;
         } else {
           replyText = `Sim! Aceitamos *USDT via Binance Pay* com confirmação imediata. Qual dos produtos você deseja adquirir com USDT?`;
         }
@@ -284,22 +288,22 @@ class NaturalLanguageService {
       case 'DISCOUNT_QUERY':
         const activeCoupon = models.getCoupons ? models.getCoupons(true)[0] : null;
         if (activeCoupon) {
-          replyText = `Hoje é o seu dia de sorte, ${firstName}! 🎁 Temos um cupom promocional ativo: use o código *${activeCoupon.code}* para garantir *${activeCoupon.discount_percent || 15}% de desconto* na sua compra!`;
+          replyText = `Temos um cupom promocional ativo hoje${nameGreeting}! Use o código *${activeCoupon.code}* para garantir *${activeCoupon.discount_percent || 15}% de desconto* na sua compra!`;
         } else {
-          replyText = `Olá ${firstName}! Os nossos valores já estão com a melhor condição especial de lançamento ativada! Mas se você fechar via PIX agora, a ativação é imediata com bônus exclusivos inclusos.`;
+          replyText = `Nossos valores já estão na melhor condição especial de lançamento${nameGreeting}! Mas se você fechar via PIX agora, a ativação é imediata com bônus exclusivos inclusos.`;
         }
         break;
 
       case 'TRUST_AND_GUARANTEE':
-        replyText = `Pode ficar 100% tranquilo(a), ${firstName}! 🛡️\n\nNossa plataforma é auditada e opera com tecnologia segura via *PIX oficial do Banco Central* e *Binance Pay*.\n\nAlém disso, você tem *GARANTIA INCONDICIONAL DE 7 DIAS*: se por qualquer razão você não gostar, nós devolvemos 100% do seu dinheiro sem burocracia nenhuma. O risco é todo nosso!`;
+        replyText = `Pode ter certeza absoluta${nameGreeting}! 🛡️\n\nNossa plataforma é auditada e opera com tecnologia segura via *PIX oficial do Banco Central* e *Binance Pay*.\n\nAlém disso, você tem *GARANTIA INCONDICIONAL DE 7 DIAS*: se por qualquer razão você não gostar, nós devolvemos 100% do seu dinheiro sem burocracia nenhuma. O risco é todo nosso!`;
         break;
 
       case 'BUY_INTENT':
         if (matchedProduct) {
-          replyText = `Maravilha, ${firstName}! O *${matchedProduct.name}* está disponível por *R$ ${Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2)}* (ou *${Number(matchedProduct.price_usdt || (matchedProduct.price / 5.5)).toFixed(2)} USDT*).\n\nComo você prefere realizar o pagamento? Digite *PIX* para gerar a chave copia e cola ou *CRIPTO* para Binance Pay!`;
+          replyText = `Perfeito${nameGreeting}! O *${matchedProduct.name}* está disponível por *R$ ${Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2)}* (ou *${Number(matchedProduct.price_usdt || (matchedProduct.price / 5.5)).toFixed(2)} USDT*).\n\nComo você prefere realizar o pagamento? Digite *PIX* para gerar a chave copia e cola ou *CRIPTO* para Binance Pay!`;
         } else {
           directAction = 'SHOW_MENU';
-          replyText = `Excelente decisão, ${firstName}! 🚀 Veja abaixo nossos produtos disponíveis e me diga qual deles você deseja garantir agora:`;
+          replyText = `Excelente decisão${nameGreeting}! 🚀 Veja abaixo nossos produtos disponíveis e me diga qual deles você deseja garantir agora:`;
         }
         break;
 
@@ -315,28 +319,33 @@ class NaturalLanguageService {
         break;
 
       case 'HOW_IT_WORKS':
-        replyText = `É muito simples e 100% automático, ${firstName}! ⚡\n\n1. Você escolhe o produto ou assinatura que deseja.\n2. Efetua o pagamento seguro via PIX ou USDT.\n3. O nosso bot identifica a transação na hora e entrega seus acessos, chave de licença ou convite do canal VIP diretamente aqui na conversa!\n\nSem espera humana e com suporte disponível. Gostaria de ver o catálogo?`;
+        if (matchedProduct) {
+          replyText = `O *${matchedProduct.name}* foi desenvolvido para entregar resultados consistentes na prática, sem complicação técnica. Você recebe acesso imediato, metodologia passo a passo e suporte dedicado para qualquer dúvida.\n\nQuer que eu te mostre como funciona na prática ou prefere receber o link oficial de apresentação?`;
+        } else {
+          replyText = `É muito simples e 100% automático${nameGreeting}! ⚡\n\n1. Você escolhe o produto ou assinatura que deseja.\n2. Efetua o pagamento seguro via PIX ou USDT.\n3. O nosso sistema identifica a transação na hora e entrega seus acessos, chave de licença ou convite do canal VIP diretamente aqui na conversa!\n\nSem espera humana e com suporte disponível. Gostaria de ver o catálogo?`;
+        }
         break;
 
       case 'CATALOG_QUERY':
         directAction = 'SHOW_MENU';
-        replyText = `Com certeza, ${firstName}! Aqui está nosso catálogo oficial de produtos e planos disponíveis para você:`;
+        replyText = `Com certeza${nameGreeting}! Aqui está nosso catálogo oficial de produtos e planos disponíveis para você:`;
         break;
 
       case 'SUPPORT_HUMAN':
-        replyText = `Compreendo perfeitamente, ${firstName}! Notifiquei nossa equipe de suporte para te atender com prioridade. Se puder detalhar sua dúvida ou problema aqui abaixo, já adiantamos seu atendimento!`;
+        replyText = `Compreendo perfeitamente${nameGreeting}! Notifiquei nossa equipe de suporte para te atender com prioridade. Se puder detalhar sua dúvida ou problema aqui abaixo, já adiantamos seu atendimento!`;
         break;
 
       case 'GREETING':
-        replyText = `Olá, ${firstName}! Tudo bem? Seja muito bem-vindo(a)! 😊\n\nComo posso te ajudar hoje? Você pode digitar *PRODUTOS* para ver nosso catálogo ou me dizer o que está procurando!`;
+        replyText = `Olá${nameGreeting}! Tudo bem? Seja muito bem-vindo! 😊\n\nComo posso te ajudar hoje? Você pode digitar *PRODUTOS* para ver nosso catálogo ou me dizer o que está procurando!`;
         break;
 
       default:
-        // Se houver menção comercial geral
-        if (matchedProduct) {
-          replyText = `Olá ${firstName}! Vi que você tem interesse no *${matchedProduct.name}*. Posso te passar todos os detalhes e o código PIX promocional?`;
+        if (matchedProduct && /(comprar|preco|valor|link|oferta|adquirir|quanto|custa)/i.test(normalized)) {
+          replyText = `Olá${nameGreeting}! Vi que você tem interesse no *${matchedProduct.name}*. Posso te passar os detalhes e a melhor condição hoje?`;
+        } else if (matchedProduct) {
+          replyText = `Entendido${nameGreeting}! O *${matchedProduct.name}* está disponível para ativação imediata. Quer tirar alguma dúvida técnica, ver os detalhes ou prefere receber o link de acesso?`;
         } else {
-          replyText = `Olá ${firstName}! Entendi o que você procura. Digite *PRODUTOS* para ver nossos planos disponíveis ou me diga se prefere pagar via PIX ou Cripto!`;
+          replyText = `Entendi o que você procura${nameGreeting}! Digite *PRODUTOS* para ver nossos planos disponíveis ou me diga se prefere pagar via PIX ou Cripto!`;
         }
         break;
     }

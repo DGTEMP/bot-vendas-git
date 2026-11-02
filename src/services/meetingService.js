@@ -82,7 +82,9 @@ class MeetingService {
    */
   async handleMeetingInteraction(phone, name, text) {
     const cleanPhone = String(phone).replace(/\D/g, '');
-    const firstName = (name || 'Amigo').split(' ')[0];
+    const rawName = (name || '').trim();
+    const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName);
+    const firstName = isGeneric ? '' : rawName.split(' ')[0];
     const { targetDate, targetTime } = this.parseDateTimeFromText(text) || {};
 
     const profile = models.getLeadCognitiveProfile(cleanPhone);
@@ -162,11 +164,13 @@ class MeetingService {
     for (const m of pendingMeetings) {
       try {
         const jid = `${m.lead_phone}@s.whatsapp.net`;
-        const firstName = (m.lead_name || 'Amigo').split(' ')[0];
+        const rawName = (m.lead_name || '').trim();
+        const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName);
+        const nameGreet = isGeneric ? 'Olá!' : `Olá, ${rawName.split(' ')[0]}!`;
 
         const reminderMsg =
           `⏰ *LEMBRETE: NOSSA CALL TÉCNICA COMEÇA EM BREVE!*\n\n` +
-          `Olá, ${firstName}! Passando para lembrar que nossa call sobre *${m.topic_scope || 'o projeto de software'}* está confirmada para hoje às *${m.meeting_time}*.\n\n` +
+          `${nameGreet} Passando para lembrar que nossa call sobre *${m.topic_scope || 'o projeto de software'}* está confirmada para hoje às *${m.meeting_time}*.\n\n` +
           `🔗 *Acesse a sala aqui:* ${m.meet_url}\n\n` +
           `Se precisar reagendar ou adiantar, é só me avisar aqui! Nos falamos em instantes.`;
 
