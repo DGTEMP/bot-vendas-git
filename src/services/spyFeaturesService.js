@@ -3765,7 +3765,8 @@ sys.stdout.buffer.write(out.getvalue())
       const subBotProds = isSubBot ? models.getSubBotProducts(instanceId, sock?.user?.id) : [];
 
       let products;
-      const host = 'http://localhost:3000';
+      const tunnelService = require('./tunnelService');
+      const host = tunnelService.getStoreUrl() || 'http://localhost:3001';
       let storeUrl = `${host}/loja`;
 
       if (isBusiness || subBotProds.length > 0) {

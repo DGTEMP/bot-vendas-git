@@ -3,7 +3,9 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const config = {
   port: parseInt(process.env.PORT || '3000', 10),
+  storePort: parseInt(process.env.STORE_PORT || '3001', 10),
   publicUrl: process.env.PUBLIC_URL || 'http://localhost:3000',
+  storePublicUrl: process.env.STORE_PUBLIC_URL || 'http://localhost:3001',
   
   // Binance Pay API Credentials
   binance: {

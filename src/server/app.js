@@ -4123,4 +4123,352 @@ function createServer() {
   return app;
 }
 
-module.exports = { createServer };
+/**
+ * Cria o servidor HTTP da Loja Pública e Vitrine (Porta 3001)
+ * Isolado fisicamente do painel administrativo e exposto via Store Tunnel
+ */
+function createStoreServer() {
+  const app = express();
+
+  app.use(cors());
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Bloqueio rigoroso do painel administrativo no túnel da loja pública
+  const blockedAdminPrefixes = [
+    '/index.html', '/app.js', '/api/settings', '/api/botdeck',
+    '/api/cognitive', '/api/army', '/api/sellers', '/api/affiliates',
+    '/api/export', '/api/metrics', '/api/system', '/api/moderation',
+    '/api/orders', '/api/companies'
+  ];
+  app.use((req, res, next) => {
+    const p = req.path.toLowerCase();
+    if (blockedAdminPrefixes.some(prefix => p === prefix || p.startsWith(prefix + '/') || p.startsWith(prefix + '?'))) {
+      return res.status(403).send('<h1>403 Forbidden - Área Administrativa Restrita ao Dono</h1>');
+    }
+    next();
+  });
+
+  // Assets estáticos públicos (CSS, imagens, etc.) SEM servir index.html na raiz
+  app.use(express.static(path.join(__dirname, '..', 'public'), {
+    index: false,
+    maxAge: 3600000,
+    etag: true
+  }));
+
+  // Raiz e rotas da vitrine e catálogo: exibe a loja store.html
+  app.get(['/', '/loja', '/catalogo', '/vitrine', '/store'], (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'store.html'));
+  });
+
+  // Produtos e categorias da loja pública
+  app.get('/api/store/products', (req, res) => {
+    try {
+      const { category, search, subbot } = req.query;
+      let products;
+      let categories = ['Todos'];
+
+      if (subbot) {
+        const subBotProds = models.getSubBotProducts(subbot);
+        if (subBotProds && subBotProds.length > 0) {
+          products = subBotProds;
+        } else {
+          products = models.getStoreProducts();
+        }
+      } else {
+        products = models.getStoreProducts();
+      }
+
+      categories = [...new Set(products.map(p => p.category || 'Geral'))];
+
+      if (category && category !== 'Todos') {
+        products = products.filter(p => (p.category || 'Geral').toLowerCase() === category.toLowerCase());
+      }
+
+      if (search) {
+        const s = search.toLowerCase();
+        products = products.filter(p =>
+          (p.name && p.name.toLowerCase().includes(s)) ||
+          (p.description && p.description.toLowerCase().includes(s))
+        );
+      }
+
+      res.json({ success: true, products, categories });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Validação de Cupom
+  app.post('/api/store/coupon', (req, res) => {
+    try {
+      const { code, amount } = req.body;
+      if (!code) return res.status(400).json({ error: 'Código de cupom obrigatório.' });
+
+      const coupon = models.getCouponByCode(code);
+      if (!coupon) return res.status(404).json({ error: 'Cupom inválido ou não encontrado.' });
+      if (!coupon.active) return res.status(400).json({ error: 'Este cupom está inativo.' });
+      if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
+        return res.status(400).json({ error: 'Este cupom atingiu o limite de usos.' });
+      }
+      if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
+        return res.status(400).json({ error: 'Este cupom expirou.' });
+      }
+
+      let discount = 0;
+      const numAmount = parseFloat(amount || 0);
+      if (coupon.discount_percent) {
+        discount = (numAmount * coupon.discount_percent) / 100;
+      } else if (coupon.discount_amount) {
+        discount = Math.min(numAmount, coupon.discount_amount);
+      }
+
+      res.json({
+        success: true,
+        coupon: {
+          code: coupon.code,
+          discount_amount: discount,
+          final_amount: Math.max(0, numAmount - discount)
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Checkout da Loja Pública
+  app.post('/api/store/checkout', async (req, res) => {
+    try {
+      const { items = [], customer = {}, gateway = 'pix', couponCode = null, subbot = null } = req.body;
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'O carrinho está vazio.' });
+      }
+
+      const customerName = customer.name ? customer.name.trim() : 'Cliente Web';
+      const customerPhone = customer.phone ? customer.phone.replace(/\D/g, '') : '';
+      const customerAddress = customer.address || '';
+      const notes = customer.notes || '';
+
+      let subtotalBRL = 0;
+      let subtotalUSDT = 0;
+      const verifiedItems = [];
+
+      for (const it of items) {
+        const prod = models.getProductById(it.id);
+        if (!prod) continue;
+        const qty = Math.max(1, Number(it.quantity || 1));
+        const priceBRL = Number(prod.price_brl || prod.price);
+        const priceUSDT = Number(prod.price_usdt || (priceBRL / 5.5).toFixed(2));
+        subtotalBRL += priceBRL * qty;
+        subtotalUSDT += priceUSDT * qty;
+        verifiedItems.push({
+          id: prod.id,
+          name: prod.name,
+          category: prod.category || 'Geral',
+          quantity: qty,
+          unitPriceBRL: priceBRL,
+          unitPriceUSDT: priceUSDT,
+          totalBRL: priceBRL * qty,
+          totalUSDT: priceUSDT * qty
+        });
+      }
+
+      if (verifiedItems.length === 0) {
+        return res.status(400).json({ error: 'Nenhum produto válido encontrado no carrinho.' });
+      }
+
+      let discountBRL = 0;
+      if (couponCode) {
+        const coupon = models.getCouponByCode(couponCode);
+        if (coupon && coupon.active && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses)) {
+          const isPercent = Boolean((coupon.discount_percent && coupon.discount_percent > 0) || coupon.discount_type === 'percent');
+          const discountVal = Number(coupon.discount_percent || coupon.discount_amount || coupon.discount_value || 0);
+          if (isPercent) {
+            discountBRL = subtotalBRL * (discountVal / 100);
+          } else {
+            discountBRL = Math.min(subtotalBRL, discountVal);
+          }
+          if (typeof models.useCoupon === 'function') {
+            models.useCoupon(coupon.code);
+          }
+        }
+      }
+
+      const finalBRL = Math.max(0.50, Math.round((subtotalBRL - discountBRL) * 100) / 100);
+      const finalUSDT = Math.max(0.10, Math.round((finalBRL / 5.5) * 100) / 100);
+
+      const tradeNo = `ORD_WEB_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const mainProd = verifiedItems[0];
+
+      let pixCode = null;
+      let qrContent = null;
+      let checkoutUrl = null;
+
+      if (gateway === 'pix') {
+        const pixRes = await pixPayment.createPixCharge({
+          merchantTradeNo: tradeNo,
+          amount: finalBRL,
+          goodsName: `Pedido Loja Web: ${verifiedItems.map(i => i.name).join(', ').slice(0, 80)}`,
+          payerName: customerName
+        });
+        pixCode = pixRes.data?.pixCode || pixRes.pixCode || pixRes.data?.emv || pixRes.emv;
+        qrContent = pixRes.data?.qrCodeBase64 || pixRes.data?.checkoutUrl || pixRes.qrContent;
+        checkoutUrl = pixRes.data?.checkoutUrl || pixRes.checkoutUrl;
+      } else if (gateway === 'binancepay') {
+        const binRes = await binancePay.createOrder({
+          merchantTradeNo: tradeNo,
+          amount: finalUSDT,
+          currency: 'USDT',
+          goodsName: `Pedido Loja Web (${verifiedItems.length} itens)`,
+          goodsDetail: verifiedItems.map(i => `${i.quantity}x ${i.name}`).join(', ').slice(0, 200)
+        });
+        checkoutUrl = binRes.data?.checkoutUrl || binRes.data?.universalUrl || binRes.checkoutUrl || binRes.universalUrl;
+        qrContent = binRes.data?.qrContent || binRes.data?.qrcodeLink || binRes.qrContent;
+      }
+
+      let sellerId = mainProd.seller_id || null;
+      let targetPhone = models.getSetting('BOT_PHONE', '') || models.getSetting('OWNER_PHONE', '5511988887777');
+      if (subbot) {
+        const subInstance = models.getArmyInstanceById(Number(subbot));
+        if (subInstance) {
+          sellerId = subInstance.id;
+          if (subInstance.phone) {
+            targetPhone = subInstance.phone;
+          }
+        }
+      }
+
+      const order = models.createOrder({
+        merchant_trade_no: tradeNo,
+        product_id: mainProd.id,
+        platform: 'whatsapp',
+        platform_user_id: customerPhone || 'web_guest',
+        platform_user_name: customerName,
+        gateway,
+        amount: gateway === 'pix' ? finalBRL : finalUSDT,
+        currency: gateway === 'pix' ? 'BRL' : 'USDT',
+        status: 'PENDING',
+        pix_code: pixCode,
+        qr_content: qrContent,
+        checkout_url: checkoutUrl,
+        coupon_code: couponCode,
+        discount_amount: discountBRL,
+        seller_id: sellerId
+      });
+
+      let itemsListText = verifiedItems.map(i => `• ${i.quantity}x *${i.name}* (R$ ${i.totalBRL.toFixed(2)})`).join('\n');
+      let waMessage = 
+        `🛒 *NOVO PEDIDO DA VITRINE WEB (#${tradeNo})*\n\n` +
+        `👤 *Cliente:* ${customerName}\n` +
+        `📱 *WhatsApp:* +${customerPhone || 'Não informado'}\n` +
+        (customerAddress ? `📍 *Entrega:* ${customerAddress}\n` : '') +
+        (notes ? `📝 *Observação:* ${notes}\n` : '') +
+        `\n📦 *Itens do Pedido:*\n${itemsListText}\n\n` +
+        `💰 *Subtotal:* R$ ${subtotalBRL.toFixed(2)}\n` +
+        (discountBRL > 0 ? `🎟️ *Desconto Cupom (${couponCode}):* -R$ ${discountBRL.toFixed(2)}\n` : '') +
+        `💳 *Total a Pagar:* *R$ ${finalBRL.toFixed(2)}* (${finalUSDT.toFixed(2)} USDT)\n` +
+        `⚡ *Forma de Pagamento:* ${gateway.toUpperCase()}\n\n` +
+        (pixCode ? `🔑 *PIX Copia e Cola:* \`${pixCode}\`\n\n` : '') +
+        `_Aguardando confirmação do pagamento pelo sistema automático._`;
+
+      const botPhone = String(targetPhone).replace(/\D/g, '');
+      const waUrl = `https://wa.me/${botPhone}?text=${encodeURIComponent(waMessage)}`;
+
+      res.json({
+        success: true,
+        tradeNo,
+        amountBRL: finalBRL,
+        amountUSDT: finalUSDT,
+        gateway,
+        pixCode,
+        qrContent,
+        checkoutUrl,
+        whatsappCheckoutUrl: waUrl,
+        order
+      });
+    } catch (err) {
+      console.error('[Store Checkout Error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Visualização Pública Interativa da Proposta (/proposta/:token)
+  app.get('/proposta/:token', (req, res) => {
+    try {
+      const token = req.params.token;
+      const proposal = models.getProposalByToken(token);
+      if (!proposal) {
+        return res.status(404).send('<h1>Proposta não encontrada ou link expirado.</h1>');
+      }
+      models.incrementProposalViews(token, req.ip);
+      const proposalService = require('../services/proposalService');
+      const tunnelService = require('../services/tunnelService');
+      const baseUrl = tunnelService.getStoreUrl() || `http://localhost:${config.storePort || 3001}`;
+      const html = proposalService.renderProposalHtml(proposal, baseUrl);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch (err) {
+      res.status(500).send(`Erro ao carregar proposta: ${err.message}`);
+    }
+  });
+
+  // Aceite Digital da Proposta
+  app.post('/api/proposals/:token/accept', (req, res) => {
+    try {
+      const token = req.params.token;
+      const { name } = req.body || {};
+      const accepted = models.acceptProposal(token, { ip: req.ip, name });
+      res.json({ success: true, proposal: accepted });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Webhooks de Pagamento (acessíveis externamente pelo túnel da loja)
+  app.post('/api/binance/webhook', async (req, res) => {
+    try {
+      const result = await binancePay.handleWebhook(req.body);
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/pix/webhook', async (req, res) => {
+    try {
+      const result = await pixPayment.handleWebhook(req.body);
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Slots de Reunião para agendamento
+  app.get('/api/meetings/slots', (req, res) => {
+    try {
+      const { date } = req.query;
+      const slots = models.getAvailableMeetingSlots(date);
+      res.json({ success: true, ...slots });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Redirecionamento do Lançamento Meteórico
+  app.get(['/l/vip', '/meteoro', '/vip', '/api/meteoric/redirect'], (req, res) => {
+    try {
+      models.incrementMeteoricLeads();
+      const activeGroup = models.getActiveMeteoricGroup();
+      if (activeGroup && activeGroup.invite_url) {
+        return res.redirect(activeGroup.invite_url);
+      }
+      res.send('<h2>Grupo VIP de Lançamento</h2><p>As inscrições abrirão em breve.</p>');
+    } catch (err) {
+      res.status(500).send('Erro');
+    }
+  });
+
+  return app;
+}
+
+module.exports = { createServer, createStoreServer };

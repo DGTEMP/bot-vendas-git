@@ -12,7 +12,8 @@ async function bootstrap() {
   console.log('🚀 PAYBOT - VENDAS AUTOMATIZADAS & ASSINATURAS VIP (USDT/BINANCE)');
   console.log('================================================================');
 
-  // 1. Inicializa Servidor HTTP & Painel Web
+  // 1. Inicializa Servidor HTTP do Painel Admin (Porta 3000)
+  const { createServer, createStoreServer } = require('./server/app');
   const app = createServer();
   const server = http.createServer(app);
 
@@ -28,13 +29,33 @@ async function bootstrap() {
   });
 
   server.listen(config.port, () => {
-    console.log(`🌐 [Painel Web & API] Rodando em: http://localhost:${config.port}`);
+    console.log(`🔒 [Painel Admin & Backoffice] Rodando em: http://localhost:${config.port}`);
     console.log(`🔔 [Webhook Binance] Endpoint: http://localhost:${config.port}/api/binance/webhook`);
+  });
 
-    // Inicia Túnel Remoto Cloudflare para acesso externo seguro (HTTPS)
+  // 1.1 Inicializa Servidor HTTP da Loja Pública (Porta 3001)
+  const storeApp = createStoreServer();
+  const storeServer = http.createServer(storeApp);
+
+  storeServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`⚠️ [Porta Loja ${config.storePort} Ocupada] Tentando porta alternativa ${config.storePort + 10}...`);
+      storeServer.listen(config.storePort + 10);
+    } else {
+      console.warn('⚠️ Erro no servidor da Loja Pública:', err.message);
+    }
+  });
+
+  storeServer.listen(config.storePort, () => {
+    console.log(`🛍️ [Loja Pública & Vitrine] Rodando em: http://localhost:${config.storePort}`);
+
+    // Inicia os DOIS Túneis Cloudflare Independentes (Admin Tunnel + Store Tunnel)
     const tunnelService = require('./services/tunnelService');
-    tunnelService.start(config.port).catch(err => {
-      console.warn('⚠️ [Tunnel] Falha ao iniciar túnel:', err.message);
+    tunnelService.startBoth({
+      adminPort: config.port,
+      storePort: config.storePort
+    }).catch(err => {
+      console.warn('⚠️ [Tunnel] Falha ao iniciar túneis:', err.message);
     });
   });
 
@@ -90,6 +111,7 @@ async function bootstrap() {
     await telegramBot.stop();
     await whatsappBot.stop();
     await whatsappArmyService.stopAllInstances();
+    try { storeServer.close(); } catch (_) {}
     server.close(() => {
       console.log('👋 Servidor finalizado com segurança.');
       process.exit(0);
