@@ -43,7 +43,7 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 260px;
+  width: 275px;
   background-color: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -115,6 +115,122 @@ body {
   background-color: #f0b90b15;
   color: var(--primary-gold);
   font-weight: 600;
+}
+
+.nav-section-header {
+  padding: 14px 14px 6px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: 6px;
+}
+.nav-section-header:first-of-type {
+  border-top: none;
+  margin-top: 0;
+}
+.nav-section-header span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar .nav-menu {
+  overflow-y: auto;
+  max-height: calc(100vh - 145px);
+  padding-right: 6px;
+}
+.sidebar .nav-menu::-webkit-scrollbar {
+  width: 5px;
+}
+.sidebar .nav-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+/* ==========================================
+   CARDS DE HUBS DO ECOSSISTEMA TOTAL
+========================================== */
+.ecosystem-hubs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.ecosystem-hub-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+.ecosystem-hub-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+.ecosystem-hub-card.hub-bots { border-top: 3px solid #38bdf8; }
+.ecosystem-hub-card.hub-sales { border-top: 3px solid #10b981; }
+.ecosystem-hub-card.hub-ai { border-top: 3px solid #c084fc; }
+.ecosystem-hub-card.hub-growth { border-top: 3px solid #f59e0b; }
+.ecosystem-hub-card.hub-admin { border-top: 3px solid #64748b; }
+
+.ecosystem-hub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ecosystem-hub-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ecosystem-hub-body {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+.ecosystem-hub-metrics {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.ecosystem-hub-metrics .metric-item {
+  display: flex;
+  flex-direction: column;
+}
+.ecosystem-hub-metrics .metric-item span {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.ecosystem-hub-metrics .metric-item strong {
+  font-size: 13px;
+  color: #fff;
+}
+.ecosystem-hub-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  flex-wrap: wrap;
 }
 
 .sidebar-footer {
