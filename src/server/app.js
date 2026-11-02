@@ -273,6 +273,160 @@ function createServer() {
   });
 
   // ==========================================
+  // FILA DE TAREFAS, AUTOMAÇÕES & EDIÇÃO DE PEDIDOS
+  // ==========================================
+  app.get('/api/tasks/queue', (req, res) => {
+    try {
+      const isAbandonedEnabled = models.getSetting('ABANDONED_CART_ENABLED', 'true') === 'true';
+      const pendingOrders = models.getPendingRecoveryTasks(50);
+      const delegatedTasks = models.getDelegatedTasks({ limit: 50 });
+      const wppStatus = whatsappBot.getConnectionStatus ? whatsappBot.getConnectionStatus() : { connected: false };
+      
+      let armySummary = { connected: 0, total: 0 };
+      try {
+        const whatsappArmyService = require('../services/whatsappArmyService');
+        armySummary = whatsappArmyService.getSubBotsStatusSummary ? whatsappArmyService.getSubBotsStatusSummary() : armySummary;
+      } catch (_) {}
+
+      res.json({
+        success: true,
+        abandonedCartEnabled: isAbandonedEnabled,
+        pendingOrders,
+        delegatedTasks,
+        botStatus: {
+          whatsapp: wppStatus,
+          army: armySummary
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tasks/queue/toggle', (req, res) => {
+    try {
+      const current = models.getSetting('ABANDONED_CART_ENABLED', 'true') === 'true';
+      const next = !current;
+      models.setSetting('ABANDONED_CART_ENABLED', String(next));
+      res.json({ success: true, enabled: next });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/orders/:tradeNo/edit', (req, res) => {
+    try {
+      const tradeNo = req.params.tradeNo;
+      const updated = models.updateOrderDetails(tradeNo, req.body);
+      if (!updated) return res.status(404).json({ error: 'Pedido não encontrado.' });
+      res.json({ success: true, order: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/orders/:tradeNo/skip', (req, res) => {
+    try {
+      const tradeNo = req.params.tradeNo;
+      models.skipOrderRecovery(tradeNo);
+      res.json({ success: true, message: 'Lembrete do pedido pulado com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/orders/:tradeNo/pause', (req, res) => {
+    try {
+      const tradeNo = req.params.tradeNo;
+      models.pauseOrderRecovery(tradeNo);
+      res.json({ success: true, message: 'Lembrete do pedido pausado.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/orders/:tradeNo/resume', (req, res) => {
+    try {
+      const tradeNo = req.params.tradeNo;
+      models.resumeOrderRecovery(tradeNo);
+      res.json({ success: true, message: 'Lembrete do pedido reativado na fila.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/orders/:tradeNo/send-recovery-now', async (req, res) => {
+    try {
+      const tradeNo = req.params.tradeNo;
+      const order = models.getOrderByTradeNo(tradeNo);
+      if (!order) return res.status(404).json({ error: 'Pedido não encontrado.' });
+
+      const template = models.getSetting(
+        'ABANDONED_CART_MESSAGE',
+        '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no link abaixo para pagar e receber seu acesso imediatamente:'
+      );
+      const customerName = order.platform_user_name || 'Cliente';
+      const valorStr = order.currency === 'BRL' ? `R$ ${order.amount.toFixed(2)}` : `${order.amount.toFixed(2)} USDT`;
+
+      let message = template
+        .replace(/{name}/g, customerName)
+        .replace(/{product}/g, order.product_name)
+        .replace(/{amount}/g, valorStr)
+        .replace(/{order}/g, order.merchant_trade_no);
+
+      if (order.pix_code) {
+        message += `\n\n📋 *Código Pix Copia e Cola:*\n\`${order.pix_code}\``;
+      } else if (order.checkout_url) {
+        message += `\n\n🔗 *Link Direto de Pagamento:*\n${order.checkout_url}`;
+      }
+
+      let sent = false;
+      if (order.platform === 'telegram' && fulfillment.sendTelegramMessage) {
+        sent = await fulfillment.sendTelegramMessage(order.platform_user_id, message);
+      } else if (order.platform === 'whatsapp' && fulfillment.sendWhatsAppMessage) {
+        const cleanPhone = String(order.platform_user_id || '').replace(/\D/g, '');
+        sent = await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, message);
+      }
+
+      if (sent !== false) {
+        models.markOrderRecoverySent(order.id);
+        res.json({ success: true, message: 'Lembrete enviado com sucesso ao cliente!' });
+      } else {
+        res.status(400).json({ error: 'Falha no envio. Verifique se o bot está conectado ao WhatsApp.' });
+      }
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tasks/:id/skip', (req, res) => {
+    try {
+      const updated = models.updateDelegatedTask(Number(req.params.id), { status: 'SKIPPED', result_summary: 'Tarefa pulada pelo administrador' });
+      res.json({ success: true, task: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tasks/:id/pause', (req, res) => {
+    try {
+      const updated = models.updateDelegatedTask(Number(req.params.id), { status: 'PAUSED', result_summary: 'Tarefa pausada pelo administrador' });
+      res.json({ success: true, task: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tasks/:id/resume', (req, res) => {
+    try {
+      const updated = models.updateDelegatedTask(Number(req.params.id), { status: 'PENDING', result_summary: null });
+      res.json({ success: true, task: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // 5. APIS DE GESTÃO DO PAINEL ADMIN
   // ==========================================
 

@@ -3594,6 +3594,47 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
 
         <!-- TAB 8: HISTÓRICO DE PEDIDOS -->
         <section id="tab-orders" class="tab-pane">
+
+          <!-- FILA DE TAREFAS & AUTOMAÇÕES PENDENTES (TASK QUEUE) -->
+          <div class="card" style="margin-bottom: 24px; border-left: 4px solid #f59e0b;">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <h3 style="display: flex; align-items: center; gap: 8px; margin: 0; color: #fbbf24;">
+                  <i class="fa-solid fa-list-check"></i> Fila de Tarefas &amp; Lembretes de Carrinho
+                </h3>
+                <p style="color: var(--text-muted); font-size: 12px; margin: 4px 0 0 0;">
+                  Acompanhe e controle os disparos automáticos. Pause a fila, pule lembretes, troque número ou edite dados antes do envio.
+                </p>
+              </div>
+              <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <span id="badgeQueueStatus" class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: bold; border: 1px solid #10b981;">
+                  <i class="fa-solid fa-play"></i> Fila: Ativa
+                </span>
+                <button class="btn btn-sm" id="btnToggleQueueGlobal" onclick="toggleTaskQueueGlobal()" style="background: rgba(245, 158, 11, 0.2); border: 1px solid #f59e0b; color: #fbbf24; font-weight: 600;">
+                  <i class="fa-solid fa-pause"></i> Pausar Fila Global
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="loadTaskQueue()">
+                  <i class="fa-solid fa-rotate"></i> Atualizar Fila
+                </button>
+              </div>
+            </div>
+            <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+              <table class="table" style="font-size: 12px; width: 100%;">
+                <thead>
+                  <tr>
+                    <th>Ref / Pedido</th>
+                    <th>Cliente / Destinatário</th>
+                    <th>Produto / Valor</th>
+                    <th>Status na Fila</th>
+                    <th style="text-align: right;">Ações na Tarefa</th>
+                  </tr>
+                </thead>
+                <tbody id="tableRecoveryTasksBody">
+                  <tr><td colspan="5" class="text-center" style="padding: 16px; color: var(--text-muted);">Carregando fila de tarefas pendentes...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
           <div class="card">
             <div class="card-header">
               <h3>Histórico de Pedidos & Faturas</h3>
@@ -6672,5 +6713,69 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
     </div>
   </div>
 
+
+  <!-- MODAL DE EDIÇÃO COMPLETA DE PEDIDO & CLIENTE -->
+  <div id="modalEditOrder" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="modalEditOrderTitle"><i class="fa-solid fa-pen-to-square" style="color: #38bdf8;"></i> Editar Pedido &amp; Dados do Cliente</h3>
+        <button type="button" class="btn-close" onclick="closeEditOrderModal()">&times;</button>
+      </div>
+      <form id="formEditOrder" onsubmit="saveEditedOrder(event)">
+        <input type="hidden" id="editOrderTradeNo">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Nome do Cliente *</label>
+              <input type="text" id="editOrderCustomerName" class="form-control" required placeholder="Ex: Roberto Silva">
+            </div>
+            <div class="form-group flex-1">
+              <label>Telefone / WhatsApp (com DDD) *</label>
+              <input type="text" id="editOrderCustomerPhone" class="form-control" required placeholder="Ex: 5548984702848">
+              <small style="color: var(--text-muted); font-size: 11px;">Altere aqui o número para onde o bot enviará as mensagens.</small>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Produto Associado *</label>
+              <select id="editOrderProductId" class="form-control" required></select>
+            </div>
+            <div class="form-group flex-1">
+              <label>Valor do Pedido (R$ / USDT) *</label>
+              <input type="number" step="0.01" id="editOrderAmount" class="form-control" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Status do Pedido *</label>
+              <select id="editOrderStatus" class="form-control">
+                <option value="PENDING">PENDING (Pendente)</option>
+                <option value="PAID">PAID (Pago &amp; Entregue)</option>
+                <option value="CANCELED">CANCELED (Cancelado)</option>
+                <option value="EXPIRED">EXPIRED (Expirado)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label>Fila de Lembrete / Automação *</label>
+              <select id="editOrderRecovery" class="form-control">
+                <option value="0">🟢 Na Fila (Disparar Automático)</option>
+                <option value="1">✅ Já Enviado / Concluído</option>
+                <option value="2">⏭️ Pulado / Não Enviar Lembrete</option>
+                <option value="3">⏸️ Pausado Temporariamente</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeEditOrderModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700;">
+            <i class="fa-solid fa-floppy-disk"></i> Salvar Alterações
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </body>
 </html>

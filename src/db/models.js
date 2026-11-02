@@ -667,6 +667,92 @@ const models = {
     `).run(Number(orderId));
   },
 
+  skipOrderRecovery(tradeNoOrId) {
+    db.prepare(`
+      UPDATE orders 
+      SET recovery_sent = 2, recovery_sent_at = datetime('now')
+      WHERE id = ? OR merchant_trade_no = ?
+    `).run(Number(tradeNoOrId) || 0, String(tradeNoOrId));
+    return true;
+  },
+
+  pauseOrderRecovery(tradeNoOrId) {
+    db.prepare(`
+      UPDATE orders 
+      SET recovery_sent = 3, recovery_sent_at = datetime('now')
+      WHERE id = ? OR merchant_trade_no = ?
+    `).run(Number(tradeNoOrId) || 0, String(tradeNoOrId));
+    return true;
+  },
+
+  resumeOrderRecovery(tradeNoOrId) {
+    db.prepare(`
+      UPDATE orders 
+      SET recovery_sent = 0
+      WHERE id = ? OR merchant_trade_no = ?
+    `).run(Number(tradeNoOrId) || 0, String(tradeNoOrId));
+    return true;
+  },
+
+  getPendingRecoveryTasks(limit = 50) {
+    return db.prepare(`
+      SELECT o.*, p.name as product_name, p.price_brl, p.price_usdt
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      WHERE o.status = 'PENDING'
+      ORDER BY o.id DESC
+      LIMIT ?
+    `).all(Number(limit));
+  },
+
+  updateOrderDetails(tradeNo, patch = {}) {
+    const order = this.getOrderByTradeNo(tradeNo);
+    if (!order) return null;
+
+    const updates = [];
+    const params = [];
+
+    if (patch.platform_user_name !== undefined) {
+      updates.push('platform_user_name = ?');
+      params.push(String(patch.platform_user_name).trim());
+    }
+    if (patch.platform_user_id !== undefined) {
+      updates.push('platform_user_id = ?');
+      params.push(String(patch.platform_user_id).trim());
+    }
+    if (patch.product_id !== undefined) {
+      updates.push('product_id = ?');
+      params.push(Number(patch.product_id));
+    }
+    if (patch.amount !== undefined) {
+      updates.push('amount = ?');
+      params.push(Number(patch.amount));
+    }
+    if (patch.currency !== undefined) {
+      updates.push('currency = ?');
+      params.push(String(patch.currency).toUpperCase());
+    }
+    if (patch.status !== undefined) {
+      updates.push('status = ?');
+      params.push(String(patch.status).toUpperCase());
+    }
+    if (patch.gateway !== undefined) {
+      updates.push('gateway = ?');
+      params.push(String(patch.gateway).toLowerCase());
+    }
+    if (patch.recovery_sent !== undefined) {
+      updates.push('recovery_sent = ?');
+      params.push(Number(patch.recovery_sent));
+    }
+
+    if (updates.length > 0) {
+      params.push(tradeNo);
+      db.prepare(`UPDATE orders SET ${updates.join(', ')} WHERE merchant_trade_no = ?`).run(...params);
+    }
+
+    return this.getOrderByTradeNo(tradeNo);
+  },
+
   getAllOrders(limit = 100) {
     return db.prepare(`
       SELECT o.*, p.name as product_name, p.type as product_type,

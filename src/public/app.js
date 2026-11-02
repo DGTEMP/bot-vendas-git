@@ -1547,14 +1547,18 @@ async function submitKeys() {
 // ==========================================
 // 10. PEDIDOS / VENDAS
 // ==========================================
+let currentOrders = [];
+
 async function loadOrders() {
   try {
     const res = await fetch('/api/orders');
     const data = await res.json();
     const orders = Array.isArray(data) ? data : (data.orders || []);
+    currentOrders = orders;
 
     renderOrdersTable('tableOrders', orders);
     renderOrdersTable('tableOverviewOrders', orders.slice(0, 5));
+    loadTaskQueue();
   } catch (err) {
     console.error('Erro ao carregar pedidos:', err);
   }
@@ -1596,6 +1600,8 @@ function renderOrdersTable(tableId, list) {
       ? `<button class="btn btn-sm btn-primary" onclick="simulatePayment('${o.merchant_trade_no}')"><i class="fa-solid fa-check"></i> Simular Pago</button>`
       : `<span style="font-size:12px; color:var(--text-muted)">Concluído</span>`;
 
+    const editBtn = `<button class="btn btn-sm btn-outline" onclick="openEditOrderModal('${o.merchant_trade_no}')" title="Editar Pedido, Cliente e Produto" style="margin-left: 6px;"><i class="fa-solid fa-pen-to-square"></i> Editar</button>`;
+
     if (tableId === 'tableOverviewOrders') {
       return `
         <tr>
@@ -1606,7 +1612,7 @@ function renderOrdersTable(tableId, list) {
           <td>${afilStr} / ${sellerStr}</td>
           <td><b>${valorStr}</b></td>
           <td>${statusBadge}</td>
-          <td>${actionBtn}</td>
+          <td>${actionBtn}${editBtn}</td>
         </tr>
       `;
     }
@@ -1622,7 +1628,7 @@ function renderOrdersTable(tableId, list) {
         <td>${sellerStr}</td>
         <td><b>${valorStr}</b></td>
         <td>${statusBadge}</td>
-        <td>${actionBtn}</td>
+        <td>${actionBtn}${editBtn}</td>
       </tr>
     `;
   }).join('');
@@ -9855,4 +9861,256 @@ function loadFreeSlotsForDate(dateStr) {
   const timeSelect = document.getElementById('meetTime');
   if (!timeSelect) return;
   console.log('Data selecionada para agendamento:', dateStr);
+}
+
+// ==========================================
+// FILA DE TAREFAS, AUTOMAÇÕES & EDIÇÃO DE PEDIDOS
+// ==========================================
+let currentTaskQueueData = null;
+
+async function loadTaskQueue() {
+  const tbody = document.getElementById('tableRecoveryTasksBody');
+  if (!tbody) return;
+
+  try {
+    const res = await fetch('/api/tasks/queue');
+    if (!res.ok) return;
+    const data = await res.json();
+    currentTaskQueueData = data;
+
+    const badgeStatus = document.getElementById('badgeQueueStatus');
+    const btnToggle = document.getElementById('btnToggleQueueGlobal');
+
+    if (badgeStatus) {
+      if (data.abandonedCartEnabled) {
+        badgeStatus.innerHTML = '<i class="fa-solid fa-play"></i> Fila: Ativa';
+        badgeStatus.style.background = 'rgba(16, 185, 129, 0.2)';
+        badgeStatus.style.color = '#10b981';
+        badgeStatus.style.borderColor = '#10b981';
+      } else {
+        badgeStatus.innerHTML = '<i class="fa-solid fa-pause"></i> Fila: Pausada';
+        badgeStatus.style.background = 'rgba(245, 158, 11, 0.2)';
+        badgeStatus.style.color = '#fbbf24';
+        badgeStatus.style.borderColor = '#fbbf24';
+      }
+    }
+
+    if (btnToggle) {
+      btnToggle.innerHTML = data.abandonedCartEnabled
+        ? '<i class="fa-solid fa-pause"></i> Pausar Fila Global'
+        : '<i class="fa-solid fa-play"></i> Retomar Fila Global';
+      btnToggle.style.color = data.abandonedCartEnabled ? '#fbbf24' : '#10b981';
+      btnToggle.style.borderColor = data.abandonedCartEnabled ? '#f59e0b' : '#10b981';
+    }
+
+    const orders = data.pendingOrders || [];
+    if (orders.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding: 20px; color: var(--text-muted);"><i class="fa-solid fa-check-circle" style="color: #10b981;"></i> Nenhum pedido pendente na fila no momento.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = orders.map(o => {
+      const rec = Number(o.recovery_sent || 0);
+      let statusBadge = '';
+      if (rec === 0) {
+        statusBadge = '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;"><i class="fa-solid fa-clock"></i> Na Fila (Auto)</span>';
+      } else if (rec === 1) {
+        statusBadge = '<span class="badge" style="background: rgba(100, 116, 139, 0.2); color: #94a3b8;"><i class="fa-solid fa-check"></i> Enviado</span>';
+      } else if (rec === 2) {
+        statusBadge = '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;"><i class="fa-solid fa-forward"></i> Pulado / Ignorado</span>';
+      } else if (rec === 3) {
+        statusBadge = '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fa-solid fa-pause"></i> Pausado</span>';
+      }
+
+      let actionsHtml = '';
+      if (rec === 0) {
+        actionsHtml = `
+          <button class="btn btn-xs btn-outline" onclick="skipOrderRecovery('${o.merchant_trade_no}')" title="Pular Tarefa (Não enviar)"><i class="fa-solid fa-forward"></i> Pular</button>
+          <button class="btn btn-xs btn-outline" onclick="pauseOrderRecovery('${o.merchant_trade_no}')" title="Pausar Lembrete"><i class="fa-solid fa-pause"></i> Pausar</button>
+          <button class="btn btn-xs btn-primary" onclick="sendOrderRecoveryNow('${o.merchant_trade_no}')" title="Disparar Lembrete Agora" style="background: #10b981; border-color: #10b981;"><i class="fa-solid fa-paper-plane"></i> Enviar</button>
+        `;
+      } else if (rec === 2 || rec === 3) {
+        actionsHtml = `
+          <button class="btn btn-xs btn-outline" onclick="resumeOrderRecovery('${o.merchant_trade_no}')" title="Reativar na Fila"><i class="fa-solid fa-play"></i> Reativar</button>
+        `;
+      }
+
+      actionsHtml += `
+        <button class="btn btn-xs btn-secondary" onclick="openEditOrderModal('${o.merchant_trade_no}')" title="Editar Cliente, Número ou Produto"><i class="fa-solid fa-pen-to-square"></i> Editar</button>
+      `;
+
+      const platformIcon = o.platform === 'whatsapp'
+        ? '<i class="fa-brands fa-whatsapp" style="color: #25d366;"></i>'
+        : '<i class="fa-brands fa-telegram" style="color: #229ed9;"></i>';
+
+      const valorStr = o.currency === 'BRL' ? `R$ ${Number(o.amount).toFixed(2)}` : `${Number(o.amount).toFixed(2)} USDT`;
+
+      return `<tr>
+        <td><code>${o.merchant_trade_no}</code><br><small style="color: var(--text-muted);">${platformIcon} ${o.platform || 'whatsapp'}</small></td>
+        <td><strong>${o.platform_user_name || 'Cliente'}</strong><br><small style="color: #38bdf8; font-family: monospace;">${o.platform_user_id ? '+' + o.platform_user_id : 'Sem número'}</small></td>
+        <td><b>${o.product_name}</b><br><small style="color: #10b981; font-weight: bold;">${valorStr}</small></td>
+        <td>${statusBadge}</td>
+        <td style="text-align: right; white-space: nowrap;">${actionsHtml}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar fila de tarefas:', err);
+  }
+}
+
+async function toggleTaskQueueGlobal() {
+  try {
+    const res = await fetch('/api/tasks/queue/toggle', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.enabled ? 'Fila de Lembretes Automáticos ATIVADA!' : 'Fila de Lembretes Automáticos PAUSADA!');
+      loadTaskQueue();
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function skipOrderRecovery(tradeNo) {
+  try {
+    const res = await fetch(`/api/orders/${tradeNo}/skip`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Tarefa pulada. Nenhum lembrete será enviado para este pedido.');
+      loadTaskQueue();
+      loadOrders();
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function pauseOrderRecovery(tradeNo) {
+  try {
+    const res = await fetch(`/api/orders/${tradeNo}/pause`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Lembrete do pedido pausado.');
+      loadTaskQueue();
+      loadOrders();
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function resumeOrderRecovery(tradeNo) {
+  try {
+    const res = await fetch(`/api/orders/${tradeNo}/resume`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Lembrete do pedido reativado na fila.');
+      loadTaskQueue();
+      loadOrders();
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function sendOrderRecoveryNow(tradeNo) {
+  if (!confirm(`Deseja disparar o lembrete de carrinho do pedido ${tradeNo} agora?`)) return;
+  try {
+    const res = await fetch(`/api/orders/${tradeNo}/send-recovery-now`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Lembrete enviado com sucesso!');
+      loadTaskQueue();
+      loadOrders();
+    } else {
+      showToast(data.error || 'Falha ao enviar lembrete.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+async function openEditOrderModal(tradeNo) {
+  let order = (currentOrders || []).find(o => o.merchant_trade_no === tradeNo);
+  if (!order) {
+    try {
+      const res = await fetch('/api/orders');
+      const data = await res.json();
+      currentOrders = Array.isArray(data) ? data : (data.orders || []);
+      order = currentOrders.find(o => o.merchant_trade_no === tradeNo);
+    } catch (_) {}
+  }
+
+  if (!order) {
+    alert('Pedido não encontrado.');
+    return;
+  }
+
+  document.getElementById('editOrderTradeNo').value = order.merchant_trade_no;
+  document.getElementById('editOrderCustomerName').value = order.platform_user_name || '';
+  document.getElementById('editOrderCustomerPhone').value = order.platform_user_id || '';
+  document.getElementById('editOrderAmount').value = Number(order.amount || 0).toFixed(2);
+  document.getElementById('editOrderStatus').value = order.status || 'PENDING';
+  document.getElementById('editOrderRecovery').value = (order.recovery_sent !== undefined && order.recovery_sent !== null) ? order.recovery_sent : 0;
+
+  // Popula seletor de produtos
+  const prodSel = document.getElementById('editOrderProductId');
+  if (prodSel) {
+    let prods = currentProducts || [];
+    if (prods.length === 0) {
+      try {
+        const pRes = await fetch('/api/products');
+        const pData = await pRes.json();
+        prods = Array.isArray(pData) ? pData : (pData.products || []);
+        currentProducts = prods;
+      } catch (_) {}
+    }
+    prodSel.innerHTML = prods.map(p => {
+      const isSel = p.id === order.product_id ? 'selected' : '';
+      return `<option value="${p.id}" ${isSel}>${p.name} (R$ ${Number(p.price_brl || p.price).toFixed(2)})</option>`;
+    }).join('');
+  }
+
+  document.getElementById('modalEditOrder').classList.add('active');
+}
+
+function closeEditOrderModal() {
+  document.getElementById('modalEditOrder').classList.remove('active');
+}
+
+async function saveEditedOrder(e) {
+  e.preventDefault();
+  const tradeNo = document.getElementById('editOrderTradeNo').value;
+  const name = document.getElementById('editOrderCustomerName').value.trim();
+  const phone = document.getElementById('editOrderCustomerPhone').value.trim();
+  const productId = Number(document.getElementById('editOrderProductId').value);
+  const amount = parseFloat(document.getElementById('editOrderAmount').value);
+  const status = document.getElementById('editOrderStatus').value;
+  const recoverySent = parseInt(document.getElementById('editOrderRecovery').value, 10);
+
+  try {
+    const res = await fetch(`/api/orders/${tradeNo}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        platform_user_name: name,
+        platform_user_id: phone,
+        product_id: productId,
+        amount: amount,
+        status: status,
+        recovery_sent: recoverySent
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Dados do pedido e cliente atualizados com sucesso!');
+      closeEditOrderModal();
+      loadOrders();
+      loadTaskQueue();
+    } else {
+      showToast(data.error || 'Erro ao salvar alterações.', 'error');
+    }
+  } catch (err) {
+    showToast('Erro de conexão: ' + err.message, 'error');
+  }
 }

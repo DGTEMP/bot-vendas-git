@@ -162,7 +162,11 @@ class SubscriptionCronService {
           } else if (order.checkout_url) {
             message += `\n\n🔗 *Link de Pagamento:* ${order.checkout_url}`;
           }
-          await fulfillment.sendTelegramMessage(order.platform_user_id, message);
+          const sentTg = await fulfillment.sendTelegramMessage(order.platform_user_id, message);
+          if (sentTg !== false) {
+            models.markOrderRecoverySent(order.id);
+            console.log(`[Carrinho Abandonado 🛒] Lembrete enviado com sucesso para ${order.platform_user_id} (${order.platform}) ref. #${order.merchant_trade_no}`);
+          }
         } else if (order.platform === 'whatsapp' && fulfillment.sendWhatsAppMessage) {
           const cleanPhone = String(order.platform_user_id || '').replace(/\D/g, '');
           if (cleanPhone.length >= 8) {
@@ -171,12 +175,15 @@ class SubscriptionCronService {
             } else if (order.checkout_url) {
               message += `\n\n🔗 *Link Direto de Pagamento:*\n${order.checkout_url}`;
             }
-            await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, message);
+            const sentWpp = await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, message);
+            if (sentWpp !== false) {
+              models.markOrderRecoverySent(order.id);
+              console.log(`[Carrinho Abandonado 🛒] Lembrete enviado com sucesso para ${order.platform_user_id} (${order.platform}) ref. #${order.merchant_trade_no}`);
+            } else {
+              console.log(`[Carrinho Abandonado ⏸️] WhatsApp não conectado. Lembrete para ${order.platform_user_id} mantido na fila para envio automático.`);
+            }
           }
         }
-
-        models.markOrderRecoverySent(order.id);
-        console.log(`[Carrinho Abandonado 🛒] Lembrete enviado com sucesso para ${order.platform_user_id} (${order.platform}) ref. #${order.merchant_trade_no}`);
       } catch (err) {
         console.error(`[Carrinho Abandonado ⚠️ Erro ao enviar para ${order.platform_user_id}]:`, err.message);
       }
