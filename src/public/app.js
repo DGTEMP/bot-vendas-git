@@ -90,6 +90,7 @@ function switchTab(tabName) {
   if (tabName === 'social') loadSocialData();
   if (tabName === 'nlp') loadNlpData();
   if (tabName === 'cognitive') loadCognitiveOverview();
+  if (tabName === 'rentals') loadRentalsOverview();
   if (tabName === 'notices') loadNotices();
 }
 
@@ -99,6 +100,7 @@ async function loadAllData() {
     loadMetrics(),
     loadWhatsAppStatus(),
     loadCognitiveOverview(),
+    loadRentalsOverview(),
     loadCompanies(),
     loadProducts(),
     loadOrders(),

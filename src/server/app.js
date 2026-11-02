@@ -4097,6 +4097,47 @@ function createServer() {
           break;
         }
 
+        case 'GENERATE_RENTAL_CODE': {
+          const { durationDays, targetGroup } = payload;
+          const dur = (durationDays === 'permanent' || durationDays === -1) ? -1 : (Number(durationDays) || 30);
+          const resCode = models.generateRentalActivationCode(dur, targetGroup || null, 'WEB_PANEL');
+          resultMsg = `Código de ativação gerado: ${resCode.code} (${dur === -1 ? 'Permanente' : `${dur} dias`})`;
+          break;
+        }
+
+        case 'SET_GROUP_RENTAL': {
+          const { groupJid, durationDays } = payload;
+          if (!groupJid) throw new Error('ID do grupo é obrigatório.');
+          const dur = (durationDays === 'permanent' || durationDays === -1) ? 'permanent' : (Number(durationDays) || 30);
+          const rental = models.setGroupRental(groupJid, dur, { payer_name: 'Painel Web (Manual)' });
+          resultMsg = `Aluguel ativado para o grupo ${groupJid} (${rental.permanent ? 'Permanente' : `${rental.days_left} dias`})!`;
+          break;
+        }
+
+        case 'REVOKE_GROUP_RENTAL': {
+          const { groupJid } = payload;
+          if (!groupJid) throw new Error('ID do grupo é obrigatório.');
+          models.removeGroupRental(groupJid);
+          resultMsg = `Aluguel do grupo ${groupJid} revogado com sucesso!`;
+          break;
+        }
+
+        case 'TOGGLE_RENTAL_MODE': {
+          const { enabled } = payload;
+          const isAct = !!enabled;
+          models.setRentalModeGlobal(isAct);
+          resultMsg = `Modo Aluguel Global ${isAct ? 'ATIVADO (Exige chave nos grupos)' : 'DESATIVADO (Livre)'}!`;
+          break;
+        }
+
+        case 'UPDATE_GROUP_PROTECTION': {
+          const { groupJid, settings } = payload;
+          if (!groupJid) throw new Error('ID do grupo é obrigatório.');
+          const updated = models.updateGroupProtection(groupJid, settings || {});
+          resultMsg = `Proteções do grupo ${groupJid} atualizadas com sucesso!`;
+          break;
+        }
+
         default:
           throw new Error(`Ação desconhecida: "${action}"`);
       }
@@ -4120,6 +4161,105 @@ function createServer() {
     }
   });
 
+  // ==========================================
+  // ROTAS REST: ALUGUÉIS DE GRUPOS & ESTATÍSTICAS NAZUNA
+  // ==========================================
+  app.get('/api/rentals/groups', (req, res) => {
+    try {
+      const rentals = models.listGroupRentals();
+      const globalMode = models.isRentalModeGlobal();
+      res.json({ success: true, rentals, globalMode });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/rentals/groups', (req, res) => {
+    try {
+      const { groupJid, durationDays, groupName } = req.body;
+      if (!groupJid) return res.status(400).json({ error: 'groupJid é obrigatório.' });
+      const rental = models.setGroupRental(groupJid, durationDays, { group_name: groupName, payer_name: 'API Admin' });
+      res.json({ success: true, rental });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/rentals/groups/:groupJid', (req, res) => {
+    try {
+      models.removeGroupRental(req.params.groupJid);
+      res.json({ success: true, message: 'Aluguel revogado com sucesso.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/rentals/codes', (req, res) => {
+    try {
+      const unusedOnly = req.query.unused === 'true';
+      const codes = models.listRentalActivationCodes(unusedOnly);
+      res.json({ success: true, codes });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/rentals/codes', (req, res) => {
+    try {
+      const { durationDays, targetGroup } = req.body;
+      const result = models.generateRentalActivationCode(durationDays, targetGroup, 'API_ADMIN');
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/rentals/mode', (req, res) => {
+    try {
+      res.json({ success: true, globalMode: models.isRentalModeGlobal() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/rentals/mode', (req, res) => {
+    try {
+      const { enabled } = req.body;
+      models.setRentalModeGlobal(!!enabled);
+      res.json({ success: true, globalMode: models.isRentalModeGlobal() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/groups/:groupJid/protection', (req, res) => {
+    try {
+      const prot = models.getGroupProtection(req.params.groupJid);
+      res.json({ success: true, protection: prot });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/groups/:groupJid/protection', (req, res) => {
+    try {
+      const updated = models.updateGroupProtection(req.params.groupJid, req.body);
+      res.json({ success: true, protection: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/stats/commands', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit, 10) || 15;
+      const stats = models.getTopCommands(limit);
+      res.json({ success: true, ...stats });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return app;
 }
 
@@ -4139,7 +4279,7 @@ function createStoreServer() {
     '/index.html', '/app.js', '/api/settings', '/api/botdeck',
     '/api/cognitive', '/api/army', '/api/sellers', '/api/affiliates',
     '/api/export', '/api/metrics', '/api/system', '/api/moderation',
-    '/api/orders', '/api/companies'
+    '/api/orders', '/api/companies', '/api/rentals', '/api/stats'
   ];
   app.use((req, res, next) => {
     const p = req.path.toLowerCase();

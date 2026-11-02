@@ -105,6 +105,25 @@ class FulfillmentService {
         `Ao expirar o prazo, o sistema removerá o acesso automaticamente caso não haja renovação.`;
     }
 
+    // 4. ATIVAÇÃO DE ALUGUEL DE BOT PARA GRUPO (NAZUNA GROUP RENTAL)
+    else if (product.type === 'group_rental' || product.category === 'Aluguel') {
+      const durationDays = product.duration_days || (product.name.toLowerCase().includes('vitalícia') || product.name.toLowerCase().includes('permanente') ? -1 : 30);
+      const codeRes = models.generateRentalActivationCode(durationDays, null, `order:${order.id}`);
+      const durText = durationDays === -1 ? 'Permanente / Vitalício ✨' : `${durationDays} dias ⏳`;
+
+      deliveredContent = `🎉 *PAGAMENTO CONFIRMADO! SEU BOT ESTÁ LIBERADO!* 🤖\n\n` +
+        `📦 *Plano:* ${product.name}\n` +
+        `💰 *Valor:* ${order.amount} ${order.currency}\n\n` +
+        `🔑 *Seu Código Exclusivo de Ativação do Grupo:*\n` +
+        `*${codeRes.code}*\n\n` +
+        `⏳ *Duração Liberada:* ${durText}\n\n` +
+        `📲 *Como Ativar no Grupo:*\n` +
+        `1. Adicione o bot ao seu grupo do WhatsApp;\n` +
+        `2. Envie o código *${codeRes.code}* no grupo (ou digite: *!usarcodigo ${codeRes.code}*);\n` +
+        `3. O bot confirmará o aluguel e todas as funções serão desbloqueadas instantaneamente!\n\n` +
+        `Guarde seu código. Para verificar a validade do aluguel, use *!tempoaluguel* no grupo.`;
+    }
+
     // Atualiza o pedido no banco
     const updatedOrder = models.updateOrderStatus(merchantTradeNo, 'PAID', deliveredContent);
 

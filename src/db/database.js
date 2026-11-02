@@ -814,6 +814,58 @@ function initDatabase() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 37. Tabela de Aluguel de Bot para Grupos (Group Rental System)
+    CREATE TABLE IF NOT EXISTS group_rentals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_jid TEXT UNIQUE NOT NULL,
+      group_name TEXT,
+      expires_at TEXT, -- ISO string ou 'permanent'
+      status TEXT DEFAULT 'active', -- 'active', 'expired', 'permanent'
+      rental_code TEXT,
+      payer_phone TEXT,
+      payer_name TEXT,
+      notified_24h INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 38. Tabela de Códigos de Ativação de Aluguel (Activation Keys)
+    CREATE TABLE IF NOT EXISTS rental_activation_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL, -- ex: 8 caracteres hexadecimais A1B2C3D4
+      duration_days INTEGER NOT NULL, -- -1 para permanente, ou 7, 15, 30, 90, 365
+      target_group_jid TEXT, -- grupo específico ou nulo para genérico
+      used INTEGER DEFAULT 0,
+      used_by TEXT,
+      activated_group TEXT,
+      used_at DATETIME,
+      created_by TEXT DEFAULT 'admin',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 39. Tabela de Configurações de Proteção de Grupo (Antiflood, Antitrava, Antifake, Welcome/Goodbye)
+    CREATE TABLE IF NOT EXISTS group_protection_settings (
+      group_jid TEXT PRIMARY KEY,
+      antiflood_enabled INTEGER DEFAULT 0,
+      antiflood_interval INTEGER DEFAULT 3, -- segundos mínimos entre mensagens
+      antiflood_action TEXT DEFAULT 'warn', -- 'warn', 'mute', 'kick'
+      antitrava_enabled INTEGER DEFAULT 1,
+      antifake_enabled INTEGER DEFAULT 0,
+      welcome_enabled INTEGER DEFAULT 1,
+      welcome_text TEXT DEFAULT 'Bem-vindo(a) #nome# ao grupo *#grupo#*! 🎉 Agora somos #membros# membros. Leia a descrição: #desc#',
+      goodbye_enabled INTEGER DEFAULT 1,
+      goodbye_text TEXT DEFAULT 'Até mais, #nome#! Sentiremos sua falta no grupo *#grupo#*. 👋',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 40. Tabela de Estatísticas de Execução de Comandos (Top Comandos)
+    CREATE TABLE IF NOT EXISTS command_execution_stats (
+      command_name TEXT PRIMARY KEY,
+      execution_count INTEGER DEFAULT 0,
+      last_executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
 
   // Migrações seguras
@@ -896,7 +948,11 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_meetings_datetime ON scheduled_meetings(meeting_datetime, status);',
     'CREATE INDEX IF NOT EXISTS idx_proposals_phone ON commercial_proposals(lead_phone);',
     'CREATE INDEX IF NOT EXISTS idx_proposals_token ON commercial_proposals(token);',
-    'CREATE INDEX IF NOT EXISTS idx_proposals_code ON commercial_proposals(code);'
+    'CREATE INDEX IF NOT EXISTS idx_proposals_code ON commercial_proposals(code);',
+    'CREATE INDEX IF NOT EXISTS idx_group_rentals_jid ON group_rentals(group_jid, status);',
+    'CREATE INDEX IF NOT EXISTS idx_group_rentals_exp ON group_rentals(expires_at);',
+    'CREATE INDEX IF NOT EXISTS idx_rental_codes_cd ON rental_activation_codes(code, used);',
+    'CREATE INDEX IF NOT EXISTS idx_cmd_stats_cnt ON command_execution_stats(execution_count DESC);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
@@ -924,6 +980,7 @@ function initDatabase() {
     ['ABANDONED_CART_DELAY_MIN', '15'],
     ['ABANDONED_CART_MESSAGE', '👋 Olá, {name}! Notamos que seu pedido para *{product}* ainda está reservado.\n\nFicou com alguma dúvida para concluir seu pagamento? Garanta o seu antes que o link expire!\n\nClique no botão abaixo para pagar e receber seu acesso imediatamente:'],
     ['UPSELL_ENABLED', 'true'],
+    ['RENTAL_MODE_GLOBAL', 'false'],
     ['AFFILIATION_MIN_SALES', '2'],
     ['AFFILIATION_MIN_REVENUE_BRL', '50.0'],
     ['AFFILIATION_REQUIRE_PAYMENT_INFO', 'true'],
@@ -1553,6 +1610,48 @@ function initDatabase() {
       specs: 'Simulação humanizada com delays orgânicos, múltiplos chips coordenados pela Matriz e disparo de links secretos com desconto.',
       image_url: 'https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&auto=format&fit=crop&q=80',
       stock_qty: 25
+    },
+    {
+      name: 'Aluguel Mensal PayBot (Grupos WhatsApp)',
+      description: '30 dias de acesso completo aos recursos do bot no seu grupo: moderação avançada, antiflood, antitrava, stickers, downloads e inteligência artificial.',
+      price: 49.90,
+      price_brl: 49.90,
+      price_usdt: 10.00,
+      currency: 'BRL',
+      type: 'group_rental',
+      duration_days: 30,
+      category: 'Aluguel',
+      specs: 'Liberação instantânea por chave de 8 dígitos de ativação. Válido por 30 dias contados após a ativação.',
+      image_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 999
+    },
+    {
+      name: 'Aluguel Trimestral PayBot (Grupos WhatsApp)',
+      description: '90 dias de proteção de grupo, moderação, downloads, IA e engajamento automatizado com desconto especial.',
+      price: 129.90,
+      price_brl: 129.90,
+      price_usdt: 25.00,
+      currency: 'BRL',
+      type: 'group_rental',
+      duration_days: 90,
+      category: 'Aluguel',
+      specs: 'Chave exclusiva de ativação por 90 dias com suporte prioritário e renovação simplificada.',
+      image_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 999
+    },
+    {
+      name: 'Licença Vitalícia PayBot (Grupos WhatsApp)',
+      description: 'Acesso permanente e vitalício para 1 grupo: proteção, diversão, IA, áudio FX e automação sem mensalidades.',
+      price: 299.00,
+      price_brl: 299.00,
+      price_usdt: 60.00,
+      currency: 'BRL',
+      type: 'group_rental',
+      duration_days: -1,
+      category: 'Aluguel',
+      specs: 'Ativação definitiva permanente para o grupo cadastrado. Sem cobranças recorrentes.',
+      image_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80',
+      stock_qty: 999
     }
   ];
 

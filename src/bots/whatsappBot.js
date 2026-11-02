@@ -248,7 +248,7 @@ class WhatsAppBotService {
         // Anti-Fake / Anti-Estrangeiro (Spy Security)
         await spyFeatures.checkAntiFakeEntry(sock, id, normalizedParticipants);
 
-        const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true';
+        const isWelcomeActive = models.getSetting(`WELCOME_${id}`, 'false') === 'true' || (models.getGroupProtection(id)?.welcome_enabled === 1 && models.getSetting(`WELCOME_${id}`, null) === 'true');
         if (!isWelcomeActive) return;
 
         let groupName = 'nosso grupo';
@@ -259,18 +259,18 @@ class WhatsAppBotService {
           }
         } catch (_) {}
 
-        const welcomeTpl = models.getSetting(
-          `WELCOME_MSG_${id}`,
-          '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
-        );
+        const prot = models.getGroupProtection(id);
+        const welcomeTpl = models.getSetting(`WELCOME_MSG_${id}`, null) || (prot?.welcome_text) || '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.';
 
         for (const pJid of normalizedParticipants) {
           const phone = safeExtractPhone(pJid);
           const formattedName = phone ? `@${phone}` : 'novo membro';
           const welcomeText = welcomeTpl
-            .replace(/\{nome\}/gi, formattedName)
-            .replace(/\{numero\}/gi, phone || 'membro')
-            .replace(/\{grupo\}/gi, groupName);
+            .replace(/\{nome\}|#nome#/gi, formattedName)
+            .replace(/\{numero\}|#numero#/gi, phone || 'membro')
+            .replace(/\{grupo\}|#grupo#/gi, groupName)
+            .replace(/#membros#/gi, String(normalizedParticipants.length))
+            .replace(/#desc#/gi, 'Regras do grupo');
 
           const mentionJid = safeExtractJid(pJid);
           const mentions = mentionJid ? [mentionJid] : [];
@@ -281,7 +281,7 @@ class WhatsAppBotService {
           }
         }
       } else if (action === 'remove') {
-        const isByeActive = models.getSetting(`BYE_${id}`, 'false') === 'true';
+        const isByeActive = models.getSetting(`BYE_${id}`, 'false') === 'true' || (models.getGroupProtection(id)?.goodbye_enabled === 1 && models.getSetting(`BYE_${id}`, null) === 'true');
         if (!isByeActive) return;
 
         let groupName = 'nosso grupo';
@@ -292,18 +292,17 @@ class WhatsAppBotService {
           }
         } catch (_) {}
 
-        const byeTpl = models.getSetting(
-          `BYE_MSG_${id}`,
-          '👋 @{numero} saiu ou foi removido do grupo *{grupo}*.'
-        );
+        const prot = models.getGroupProtection(id);
+        const byeTpl = models.getSetting(`BYE_MSG_${id}`, null) || (prot?.goodbye_text) || '👋 @{numero} saiu ou foi removido do grupo *{grupo}*.';
 
         for (const pJid of normalizedParticipants) {
           const phone = safeExtractPhone(pJid);
           const formattedName = phone ? `@${phone}` : 'membro';
           const byeText = byeTpl
-            .replace(/\{nome\}/gi, formattedName)
-            .replace(/\{numero\}/gi, phone || 'membro')
-            .replace(/\{grupo\}/gi, groupName);
+            .replace(/\{nome\}|#nome#/gi, formattedName)
+            .replace(/\{numero\}|#numero#/gi, phone || 'membro')
+            .replace(/\{grupo\}|#grupo#/gi, groupName)
+            .replace(/#membros#/gi, String(normalizedParticipants.length));
 
           const mentionJid = safeExtractJid(pJid);
           const mentions = mentionJid ? [mentionJid] : [];
@@ -837,6 +836,57 @@ class WhatsAppBotService {
       try {
         await spyFeatures.checkAFK(activeSock, from, msg, text, senderPhone, senderName);
       } catch (_) {}
+    }
+
+    // 0.27 Interceptador Anti-Trava (Nazuna Trava-Zap Protection)
+    if (isGroup && !isFromMe) {
+      try {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        const isTrava = await spyFeatures.checkAntiTrava(activeSock, from, msg, text, senderPhone, adminStatus.isBotAdmin);
+        if (isTrava) return;
+      } catch (_) {}
+    }
+
+    // 0.28 Interceptador Anti-Flood (Nazuna Message Flood Protection)
+    if (isGroup && !isFromMe) {
+      try {
+        const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+        const isFlooding = await spyFeatures.checkAntiFlood(activeSock, from, msg, senderPhone, isGroup, adminStatus.isRequesterAdmin);
+        if (isFlooding) return;
+      } catch (_) {}
+    }
+
+    // 0.29 Detecção Automática de Chave de Aluguel de 8 Dígitos (Nazuna Code Auto-Activation)
+    if (isGroup && !isFromMe && !lower.startsWith('!') && !lower.startsWith('/') && /\b[A-F0-9]{8}\b/.test(text.toUpperCase())) {
+      try {
+        const matchedCode = text.toUpperCase().match(/\b[A-F0-9]{8}\b/)[0];
+        const val = models.validateRentalActivationCode(matchedCode);
+        if (val.valid) {
+          const act = models.useRentalActivationCode(matchedCode, from, senderPhone);
+          if (act.success) {
+            return activeSock.sendMessage(from, { text: act.message });
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 0.30 Verificação do Modo Aluguel de Grupo (Nazuna Rental Authorization)
+    const isCmdMessage = lower.startsWith('!') || lower.startsWith('/');
+    if (isCmdMessage) {
+      const cleanCmd = lower.slice(1).trim().split(/\s+/)[0];
+      if (cleanCmd) models.recordCommandExecution(cleanCmd);
+
+      if (isGroup) {
+        const groupRentalService = require('../services/groupRentalService');
+        const auth = groupRentalService.isGroupAuthorized(from, senderPhone, isOwnerUser);
+        const bypassCmds = [
+          'modoaluguel', 'gerarcodigo', 'usarcodigo', 'tempoaluguel', 'statusaluguel',
+          'aluguel', 'loja', 'ajuda', 'help', 'ping', 'painel', 'admin', 'menu'
+        ];
+        if (!auth.authorized && !bypassCmds.includes(cleanCmd)) {
+          return activeSock.sendMessage(from, { text: auth.message });
+        }
+      }
     }
 
     // ==========================================
@@ -2443,6 +2493,96 @@ class WhatsAppBotService {
       }
     }
 
+    // ==========================================
+    // 14.14 MÓDULO DE ÁUDIO FX & VÍDEO FX (NAZUNA v4.0)
+    // ==========================================
+    if (/^(?:!|\/)(?:bass|bass2|bass3|grave|vozgrave|slow|audiolento|vozlenta|fast|audiorapido|vozrapida|reverso|audioreverso|reverse|robot|vozrobot|eco|vozeco|reverb|cave|cavevoice|vozcaverna|volume|volumeboost|aumentarvolume|pitch|equalizer|equalizar|drive|flanger|chorus|phaser|tremolo|vibrato|lowpass|speedup|vozmenino|vozmulher|vozhomem|vozcrianca)$/i.test(lower)) {
+      const effectName = lower.slice(1).trim().split(/\s+/)[0];
+      return spyFeatures.handleAudioEffect(activeSock, from, msg, effectName);
+    }
+
+    if (/^(?:!|\/)(?:videorapido|fastvid|videoslow|videolento|videoreverso|reversevid|videobw|pretoebranco|espelhar|rotacionar)$/i.test(lower)) {
+      const effectName = lower.slice(1).trim().split(/\s+/)[0];
+      return spyFeatures.handleVideoEffect(activeSock, from, msg, effectName);
+    }
+
+    // ==========================================
+    // 14.15 SISTEMA DE ALUGUEL DE BOT POR GRUPOS (NAZUNA v4.0)
+    // ==========================================
+    if (/^(?:!|\/)(?:modoaluguel)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleModoAluguel(activeSock, from, text, isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:gerarcodigo)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleGerarCodigo(activeSock, from, text, isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:usarcodigo)(?:\s+.*)?$/i.test(lower)) {
+      return spyFeatures.handleUsarCodigo(activeSock, from, text, senderPhone);
+    }
+
+    if (/^(?:!|\/)(?:tempoaluguel|statusaluguel|aluguel)$/i.test(lower)) {
+      return spyFeatures.handleTempoAluguel(activeSock, from);
+    }
+
+    if (/^(?:!|\/)(?:addaluguel)(?:\s+.*)?$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleAddAluguel(activeSock, from, text, isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:listaluguel|listalugueis)$/i.test(lower)) {
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleListAluguel(activeSock, from, isOwnerUser);
+    }
+
+    // ==========================================
+    // 14.16 PROTEÇÃO AVANÇADA DE GRUPO (NAZUNA v4.0)
+    // ==========================================
+    if (/^(?:!|\/)(?:antiflood)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleAntiFloodCommand(activeSock, from, text, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:antitrava)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleAntiTravaCommand(activeSock, from, text, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:bemvindo|welcome|boasvindas)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleWelcomeCommand(activeSock, from, text, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:saida|goodbye|adeus)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleGoodbyeCommand(activeSock, from, text, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:legendabv|textbv|welcomemsg)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleLegendaBV(activeSock, from, text, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    if (/^(?:!|\/)(?:legendasaiu|textsaiu|exitmsg)(?:\s+.*)?$/i.test(lower)) {
+      const adminStatus = await this.getGroupAdminStatus(from, participantJid, isFromMe);
+      const isOwnerUser = this.isOwner(senderPhone, isFromMe);
+      return spyFeatures.handleLegendaSaiu(activeSock, from, text, adminStatus.isRequesterAdmin || isOwnerUser);
+    }
+
+    // ==========================================
+    // 14.17 ESTATÍSTICAS DE COMANDOS (TOP COMANDOS NAZUNA)
+    // ==========================================
+    if (/^(?:!|\/)(?:topcmd|topcmds|comandosmaisusados)$/i.test(lower)) {
+      return spyFeatures.handleTopCmd(activeSock, from);
+    }
+
     // 15. Menu Geral de Comandos Spy Bot + Loja: !help / !bot / !comandos / !menu2 / !spy / !spybot / !ajudatudo
     if (/^(?:!|\/)?(?:help|bot|comandos|menu2|spy|spybot|ajudatudo|allmenu|menucompleto)$/i.test(lower)) {
       const isOwnerUser = this.isOwner(senderPhone, isFromMe);
@@ -2495,7 +2635,22 @@ class WhatsAppBotService {
         `• *!viralscan* — Faz varredura de virais em todos os perfis agora\n\n` +
         `💼 *Consultoria Tech, Orçamentos & Calls:*\n` +
         `• *!orcamento [tipo]* — Simula escopo e investimento (software, app, ia, iot, site, seo)\n` +
-        `• *!reuniao* ou *!meet* — Consulta agenda e marca call técnica no Google Meet\n\n`;
+        `• *!reuniao* ou *!meet* — Consulta agenda e marca call técnica no Google Meet\n\n` +
+        `🎧 *Efeitos de Áudio & Modulação de Voz (Nazuna v4.0):*\n` +
+        `• *!bass* / *!bass2* / *!grave* — Aumenta graves profundos no áudio\n` +
+        `• *!slow* / *!fast* — Deixa o áudio mais lento ou acelerado\n` +
+        `• *!reverso* — Inverte a reprodução do áudio de trás para frente\n` +
+        `• *!robot* / *!eco* / *!cave* — Aplica filtro robô, eco espacial ou caverna\n` +
+        `• *!volume* / *!pitch* / *!equalizer* — Boost de volume e equalização\n` +
+        `• *!videorapido* / *!videoslow* / *!videoreverso* / *!videobw* — Efeitos em vídeo\n\n` +
+        `🛡️ *Aluguel de Bot por Grupo & Proteção (Nazuna v4.0):*\n` +
+        `• *!tempoaluguel* ou *!aluguel* — Consulta a validade do aluguel neste grupo\n` +
+        `• *!usarcodigo <chave>* — Ativa aluguel com código de 8 dígitos\n` +
+        `• *!antiflood <segundos|off>* — Proteção contra spam consecutivo de mensagens\n` +
+        `• *!antitrava on/off* — Apaga mensagens trava-zap e expulsa o remetente\n` +
+        `• *!bemvindo on/off* e *!legendabv <texto>* — Boas-vindas com tags dinâmicas\n` +
+        `• *!saida on/off* e *!legendasaiu <texto>* — Despedida com tags dinâmicas\n` +
+        `• *!topcmd* — Ranking dos comandos mais utilizados do bot\n\n`;
 
       if (isOwnerUser) {
         spyMenu += `👑 *Assistente Matriz & Central de Comando dos Sub-Bots (Exclusivo Dono):*\n` +

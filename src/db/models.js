@@ -4250,6 +4250,310 @@ const models = {
     if (!id) return false;
     db.prepare('DELETE FROM commercial_proposals WHERE id = ?').run(Number(id));
     return true;
+  },
+
+  // ==========================================
+  // 37. SISTEMA DE ALUGUEL DE BOT POR GRUPO (NAZUNA GROUP RENTAL)
+  // ==========================================
+  isRentalModeGlobal() {
+    return models.getSetting('RENTAL_MODE_GLOBAL') === 'true';
+  },
+
+  setRentalModeGlobal(enabled) {
+    return models.setSetting('RENTAL_MODE_GLOBAL', enabled ? 'true' : 'false');
+  },
+
+  getGroupRental(groupId) {
+    if (!groupId) return { active: false, expires_at: null, status: 'none', permanent: false, days_left: 0 };
+    const row = db.prepare('SELECT * FROM group_rentals WHERE group_jid = ?').get(groupId);
+    if (!row) {
+      return { group_jid: groupId, active: false, expires_at: null, status: 'none', permanent: false, days_left: 0 };
+    }
+
+    if (row.expires_at === 'permanent' || row.status === 'permanent') {
+      return { ...row, active: true, permanent: true, status: 'permanent', days_left: 9999 };
+    }
+
+    if (row.expires_at) {
+      const expDate = new Date(row.expires_at);
+      const now = new Date();
+      const diffMs = expDate.getTime() - now.getTime();
+      const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      const active = diffMs > 0;
+      return {
+        ...row,
+        active,
+        permanent: false,
+        status: active ? 'active' : 'expired',
+        days_left: Math.max(0, daysLeft)
+      };
+    }
+
+    return { ...row, active: false, permanent: false, status: 'expired', days_left: 0 };
+  },
+
+  setGroupRental(groupId, durationDays, info = {}) {
+    if (!groupId) throw new Error('ID de grupo obrigatório.');
+    let expiresAt = 'permanent';
+    let status = 'permanent';
+
+    if (durationDays !== 'permanent' && Number(durationDays) > 0) {
+      const exp = new Date();
+      exp.setDate(exp.getDate() + Number(durationDays));
+      expiresAt = exp.toISOString();
+      status = 'active';
+    } else if (durationDays === -1 || durationDays === 'permanent') {
+      expiresAt = 'permanent';
+      status = 'permanent';
+    } else {
+      throw new Error('Duração de aluguel inválida.');
+    }
+
+    db.prepare(`
+      INSERT INTO group_rentals (group_jid, group_name, expires_at, status, rental_code, payer_phone, payer_name, notified_24h, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+      ON CONFLICT(group_jid) DO UPDATE SET
+        expires_at = excluded.expires_at,
+        status = excluded.status,
+        rental_code = COALESCE(excluded.rental_code, group_rentals.rental_code),
+        payer_phone = COALESCE(excluded.payer_phone, group_rentals.payer_phone),
+        payer_name = COALESCE(excluded.payer_name, group_rentals.payer_name),
+        group_name = COALESCE(excluded.group_name, group_rentals.group_name),
+        notified_24h = 0,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(
+      groupId,
+      info.group_name || null,
+      expiresAt,
+      status,
+      info.rental_code || null,
+      info.payer_phone || null,
+      info.payer_name || null
+    );
+
+    return models.getGroupRental(groupId);
+  },
+
+  removeGroupRental(groupId) {
+    if (!groupId) return false;
+    db.prepare(`
+      UPDATE group_rentals SET status = 'expired', expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE group_jid = ?
+    `).run(groupId);
+    return true;
+  },
+
+  listGroupRentals() {
+    const rows = db.prepare('SELECT * FROM group_rentals ORDER BY created_at DESC').all();
+    return rows.map(r => {
+      if (r.expires_at === 'permanent' || r.status === 'permanent') {
+        return { ...r, active: true, permanent: true, days_left: 9999, expiration_formatted: 'Permanente ✨' };
+      }
+      if (r.expires_at) {
+        const exp = new Date(r.expires_at);
+        const diffMs = exp.getTime() - Date.now();
+        const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        const active = diffMs > 0;
+        return {
+          ...r,
+          active,
+          permanent: false,
+          days_left: Math.max(0, daysLeft),
+          expiration_formatted: exp.toLocaleDateString('pt-BR')
+        };
+      }
+      return { ...r, active: false, permanent: false, days_left: 0, expiration_formatted: 'Expirado' };
+    });
+  },
+
+  generateRentalActivationCode(durationDays, targetGroupId = null, createdBy = 'admin') {
+    const crypto = require('crypto');
+    let code = '';
+    let exists = null;
+    let attempts = 0;
+    do {
+      code = crypto.randomBytes(4).toString('hex').toUpperCase();
+      exists = db.prepare('SELECT id FROM rental_activation_codes WHERE code = ?').get(code);
+      attempts++;
+    } while (exists && attempts < 10);
+
+    const dur = (durationDays === 'permanent' || durationDays === -1) ? -1 : (Number(durationDays) || 30);
+    const targetGroup = targetGroupId && targetGroupId.endsWith('@g.us') ? targetGroupId : null;
+
+    db.prepare(`
+      INSERT INTO rental_activation_codes (code, duration_days, target_group_jid, used, created_by)
+      VALUES (?, ?, ?, 0, ?)
+    `).run(code, dur, targetGroup, createdBy);
+
+    return {
+      success: true,
+      code,
+      duration_days: dur,
+      target_group_jid: targetGroup,
+      message: `🔑 Código de ativação gerado com sucesso: *${code}* (${dur === -1 ? 'Permanente' : `${dur} dias`})`
+    };
+  },
+
+  validateRentalActivationCode(code) {
+    if (!code) return { valid: false, message: 'Código não informado.' };
+    const clean = String(code).trim().toUpperCase();
+    const row = db.prepare('SELECT * FROM rental_activation_codes WHERE code = ?').get(clean);
+    if (!row) {
+      return { valid: false, message: 'Código de ativação inválido ou inexistente.' };
+    }
+    if (row.used) {
+      return { valid: false, message: `Este código já foi utilizado em ${row.used_at || 'data anterior'}.` };
+    }
+    return { valid: true, codeInfo: row };
+  },
+
+  useRentalActivationCode(code, groupId, userId) {
+    const validation = models.validateRentalActivationCode(code);
+    if (!validation.valid) {
+      return { success: false, message: validation.message };
+    }
+    const { codeInfo } = validation;
+    if (codeInfo.target_group_jid && codeInfo.target_group_jid !== groupId) {
+      return { success: false, message: 'Este código é reservado exclusivamente para outro grupo.' };
+    }
+
+    const dur = codeInfo.duration_days === -1 ? 'permanent' : codeInfo.duration_days;
+    models.setGroupRental(groupId, dur, {
+      rental_code: codeInfo.code,
+      payer_phone: userId
+    });
+
+    db.prepare(`
+      UPDATE rental_activation_codes SET
+        used = 1,
+        used_by = ?,
+        activated_group = ?,
+        used_at = CURRENT_TIMESTAMP
+      WHERE code = ?
+    `).run(userId || 'usuario', groupId, codeInfo.code);
+
+    const durText = codeInfo.duration_days === -1 ? 'Permanente ✨' : `${codeInfo.duration_days} dias ⏳`;
+    return {
+      success: true,
+      code: codeInfo.code,
+      duration_days: codeInfo.duration_days,
+      message: `🎉 Código *${codeInfo.code}* ativado com sucesso!\n\n` +
+        `✅ Aluguel do bot liberado para este grupo!\n` +
+        `⏳ Duração: *${durText}*`
+    };
+  },
+
+  listRentalActivationCodes(unusedOnly = false) {
+    const sql = unusedOnly
+      ? 'SELECT * FROM rental_activation_codes WHERE used = 0 ORDER BY created_at DESC'
+      : 'SELECT * FROM rental_activation_codes ORDER BY created_at DESC';
+    return db.prepare(sql).all();
+  },
+
+  // ==========================================
+  // 38. CONFIGURAÇÕES DE PROTEÇÃO DE GRUPO (ANTIFLOOD, ANTITRAVA, BEMVINDO)
+  // ==========================================
+  getGroupProtection(groupId) {
+    if (!groupId) return null;
+    let row = db.prepare('SELECT * FROM group_protection_settings WHERE group_jid = ?').get(groupId);
+    if (!row) {
+      db.prepare(`
+        INSERT OR IGNORE INTO group_protection_settings (group_jid)
+        VALUES (?)
+      `).run(groupId);
+      row = db.prepare('SELECT * FROM group_protection_settings WHERE group_jid = ?').get(groupId);
+    }
+    return row;
+  },
+
+  updateGroupProtection(groupId, patch = {}) {
+    if (!groupId) return null;
+    models.getGroupProtection(groupId); // Garante que exista
+
+    const fields = [];
+    const values = [];
+
+    if (patch.antiflood_enabled !== undefined) {
+      fields.push('antiflood_enabled = ?');
+      values.push(patch.antiflood_enabled ? 1 : 0);
+    }
+    if (patch.antiflood_interval !== undefined) {
+      fields.push('antiflood_interval = ?');
+      values.push(Math.max(1, Number(patch.antiflood_interval) || 3));
+    }
+    if (patch.antiflood_action !== undefined) {
+      fields.push('antiflood_action = ?');
+      values.push(patch.antiflood_action);
+    }
+    if (patch.antitrava_enabled !== undefined) {
+      fields.push('antitrava_enabled = ?');
+      values.push(patch.antitrava_enabled ? 1 : 0);
+    }
+    if (patch.antifake_enabled !== undefined) {
+      fields.push('antifake_enabled = ?');
+      values.push(patch.antifake_enabled ? 1 : 0);
+    }
+    if (patch.welcome_enabled !== undefined) {
+      fields.push('welcome_enabled = ?');
+      values.push(patch.welcome_enabled ? 1 : 0);
+    }
+    if (patch.welcome_text !== undefined) {
+      fields.push('welcome_text = ?');
+      values.push(String(patch.welcome_text));
+    }
+    if (patch.goodbye_enabled !== undefined) {
+      fields.push('goodbye_enabled = ?');
+      values.push(patch.goodbye_enabled ? 1 : 0);
+    }
+    if (patch.goodbye_text !== undefined) {
+      fields.push('goodbye_text = ?');
+      values.push(String(patch.goodbye_text));
+    }
+
+    if (fields.length > 0) {
+      fields.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(groupId);
+      db.prepare(`UPDATE group_protection_settings SET ${fields.join(', ')} WHERE group_jid = ?`).run(...values);
+    }
+
+    return models.getGroupProtection(groupId);
+  },
+
+  // ==========================================
+  // 39. ESTATÍSTICAS DE COMANDOS (TOP COMANDOS)
+  // ==========================================
+  recordCommandExecution(cmdName) {
+    if (!cmdName) return;
+    const clean = String(cmdName).trim().toLowerCase().replace(/^[!/#]/, '');
+    db.prepare(`
+      INSERT INTO command_execution_stats (command_name, execution_count, last_executed_at)
+      VALUES (?, 1, CURRENT_TIMESTAMP)
+      ON CONFLICT(command_name) DO UPDATE SET
+        execution_count = execution_count + 1,
+        last_executed_at = CURRENT_TIMESTAMP
+    `).run(clean);
+  },
+
+  getTopCommands(limit = 10) {
+    const totalRow = db.prepare('SELECT SUM(execution_count) as total FROM command_execution_stats').get();
+    const total = (totalRow && totalRow.total) ? Number(totalRow.total) : 0;
+    const rows = db.prepare(`
+      SELECT command_name, execution_count, last_executed_at
+      FROM command_execution_stats
+      ORDER BY execution_count DESC
+      LIMIT ?
+    `).all(limit);
+
+    return {
+      total_executions: total,
+      commands: rows.map((r, idx) => ({
+        rank: idx + 1,
+        command: r.command_name,
+        count: r.execution_count,
+        percentage: total > 0 ? Number(((r.execution_count / total) * 100).toFixed(1)) : 0,
+        last_executed_at: r.last_executed_at
+      }))
+    };
   }
 
 };

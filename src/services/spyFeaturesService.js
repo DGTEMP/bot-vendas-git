@@ -6,6 +6,8 @@ const models = require('../db/models');
 const stickerConverter = require('../utils/stickerConverter');
 const instagramScraperService = require('./instagramScraperService');
 const fancyFonts = require('../utils/fancyFonts');
+const audioFxService = require('./audioFxService');
+const groupRentalService = require('./groupRentalService');
 const { CONSELHOS_BIBLICOS, CONSELHOS_GERAIS, DDD_MAP, METADINHAS_CATALOG } = require('../utils/spybotData');
 
 class SpyFeaturesService {
@@ -20,6 +22,7 @@ class SpyFeaturesService {
     this.workCooldowns = new Map(); // senderPhone -> timestamp
     this.crimeCooldowns = new Map(); // senderPhone -> timestamp
     this.afkAlertThrottles = new Map(); // targetPhone -> timestamp
+    this.floodTracker = new Map(); // key: "${from}:${senderPhone}" -> [timestamps]
   }
 
   // Registra atividade para rastreamento de fantasmas
@@ -3907,6 +3910,596 @@ sys.stdout.buffer.write(out.getvalue())
     } catch (err) {
       console.error('[SpyFeatures ⚠️ handleResponderAviso]:', err.message);
       return sock.sendMessage(from, { text: `❌ Erro ao responder aviso.` });
+    }
+  }
+
+  // ==========================================
+  // 37. MÓDULO DE ÁUDIO FX & VÍDEO FX (NAZUNA v4.0)
+  // ==========================================
+  async handleAudioEffect(sock, from, msg, effectName) {
+    try {
+      const cleanEffect = String(effectName || 'bass').toLowerCase().replace(/^[!/#]/, '');
+      const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+      const quoted = contextInfo?.quotedMessage;
+      const targetMsg = (quoted?.audioMessage) ? { message: quoted } : msg;
+      const isAudio = !!(targetMsg.message?.audioMessage);
+
+      if (!isAudio) {
+        return sock.sendMessage(from, {
+          text: `🎶 *MODIFICADOR DE ÁUDIO (!${cleanEffect})* 🎶\n\n` +
+            `Aplique distorções e efeitos especiais profissionais da Nazuna em qualquer áudio ou mensagem de voz!\n\n` +
+            `📌 *Como usar:*\n` +
+            `  Responda a uma mensagem de áudio com *!${cleanEffect}*\n` +
+            `  Ou envie um áudio com a legenda *!${cleanEffect}*\n\n` +
+            `🎧 *Outros efeitos disponíveis:* !bass, !grave, !slow, !fast, !reverso, !robot, !eco, !cave, !volume, !pitch, !equalizer`
+        });
+      }
+
+      await sock.sendMessage(from, { text: `🎧 *Aplicando efeito ${cleanEffect} no áudio...* Aguarde um instante! ☀️` });
+
+      let audioBuffer = null;
+      if (process.env.NODE_ENV === 'test') {
+        audioBuffer = Buffer.from('ID3_TEST_AUDIO_BUFFER');
+      } else {
+        audioBuffer = await this.extractMediaBuffer(targetMsg);
+      }
+
+      if (!audioBuffer) {
+        return sock.sendMessage(from, { text: `❌ Não foi possível baixar o áudio para aplicar o efeito.` });
+      }
+
+      const result = await audioFxService.applyAudioEffect(audioBuffer, cleanEffect);
+      if (!result.success || !result.buffer) {
+        return sock.sendMessage(from, { text: `❌ Falha ao processar efeito de áudio: ${result.error || 'Erro interno'}` });
+      }
+
+      return sock.sendMessage(from, {
+        audio: result.buffer,
+        mimetype: 'audio/mp4',
+        ptt: true
+      }, { quoted: msg });
+    } catch (err) {
+      console.error(`[SpyFeatures ⚠️ handleAudioEffect ${effectName}]:`, err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao aplicar efeito de áudio: ${err.message}` });
+    }
+  }
+
+  async handleVideoEffect(sock, from, msg, effectName) {
+    try {
+      const cleanEffect = String(effectName || 'videorapido').toLowerCase().replace(/^[!/#]/, '');
+      const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+      const quoted = contextInfo?.quotedMessage;
+      const targetMsg = (quoted?.videoMessage) ? { message: quoted } : msg;
+      const isVideo = !!(targetMsg.message?.videoMessage);
+
+      if (!isVideo) {
+        return sock.sendMessage(from, {
+          text: `🎬 *MODIFICADOR DE VÍDEO (!${cleanEffect})* 🎬\n\n` +
+            `Responda a um vídeo com *!${cleanEffect}* para acelerar, inverter, deixar em preto e branco ou espelhar!\n\n` +
+            `🎞️ *Efeitos de vídeo:* !videorapido, !videoslow, !videoreverso, !videobw, !espelhar, !rotacionar`
+        });
+      }
+
+      await sock.sendMessage(from, { text: `🎬 *Processando efeito ${cleanEffect} no vídeo...* Aguarde!` });
+
+      let videoBuffer = null;
+      if (process.env.NODE_ENV === 'test') {
+        videoBuffer = Buffer.from('MP4_TEST_VIDEO_BUFFER');
+      } else {
+        videoBuffer = await this.extractMediaBuffer(targetMsg);
+      }
+
+      if (!videoBuffer) {
+        return sock.sendMessage(from, { text: `❌ Não foi possível baixar o vídeo para aplicar o efeito.` });
+      }
+
+      const result = await audioFxService.applyVideoEffect(videoBuffer, cleanEffect);
+      if (!result.success || !result.buffer) {
+        return sock.sendMessage(from, { text: `❌ Falha ao processar efeito de vídeo: ${result.error || 'Erro interno'}` });
+      }
+
+      return sock.sendMessage(from, {
+        video: result.buffer,
+        mimetype: 'video/mp4'
+      }, { quoted: msg });
+    } catch (err) {
+      console.error(`[SpyFeatures ⚠️ handleVideoEffect ${effectName}]:`, err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao processar vídeo: ${err.message}` });
+    }
+  }
+
+  // ==========================================
+  // 38. PROTEÇÃO AVANÇADA DE GRUPO: ANTIFLOOD & ANTITRAVA (NAZUNA)
+  // ==========================================
+  async checkAntiTrava(sock, from, msg, text, senderPhone, isBotAdmin) {
+    try {
+      const isGroup = from.endsWith('@g.us');
+      if (!isGroup) return false;
+
+      const prot = models.getGroupProtection(from);
+      if (!prot || !prot.antitrava_enabled) return false;
+
+      const rawText = String(text || '');
+      const contactsCount = msg.message?.contactsArrayMessage?.contacts?.length || 0;
+      const hasManyContacts = contactsCount >= 5;
+
+      // Trava de Texto: mais de 3500 caracteres com repetição massiva de caracteres invisíveis ou unicode crash
+      const invisibleChars = (rawText.match(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u180E]/g) || []).length;
+      const isTravaPayload = rawText.length > 3500 || invisibleChars > 100 || hasManyContacts;
+
+      if (isTravaPayload) {
+        console.warn(`[AntiTrava 🛡️] Trava detectada no grupo ${from} enviada por ${senderPhone}!`);
+        try {
+          await sock.sendMessage(from, { delete: msg.key });
+        } catch (_) {}
+
+        if (isBotAdmin) {
+          const cleanPhone = String(senderPhone || '').replace(/\D/g, '');
+          const kickJid = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@s.whatsapp.net`;
+          try {
+            await sock.groupParticipantsUpdate(from, [kickJid], 'remove');
+          } catch (_) {}
+        }
+
+        await sock.sendMessage(from, {
+          text: `🛡️ *[ANTI-TRAVA NAZUNA]* 🛡️\n\n` +
+            `Uma mensagem com payload de trava-zap foi interceptada e eliminada instantaneamente!\n` +
+            `⚠️ O remetente @${senderPhone} foi penalizado para segurança de todos os membros do grupo.`,
+          mentions: [senderPhone.includes('@') ? senderPhone : `${senderPhone}@s.whatsapp.net`]
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[SpyFeatures ⚠️ checkAntiTrava]:', err.message);
+      return false;
+    }
+  }
+
+  async checkAntiFlood(sock, from, msg, senderPhone, isGroup, isAdmin) {
+    try {
+      if (!isGroup || isAdmin) return false;
+
+      const prot = models.getGroupProtection(from);
+      if (!prot || !prot.antiflood_enabled) return false;
+
+      const intervalSec = prot.antiflood_interval || 3;
+      const key = `${from}:${senderPhone}`;
+      const now = Date.now();
+
+      let timestamps = this.floodTracker.get(key) || [];
+      // Mantém registros dos últimos 6 segundos
+      timestamps = timestamps.filter(ts => (now - ts) < 6000);
+      timestamps.push(now);
+      this.floodTracker.set(key, timestamps);
+
+      // Se enviou 3 ou mais mensagens em menos de (intervalSec * 1000) ms
+      if (timestamps.length >= 3) {
+        const timeDiff = timestamps[timestamps.length - 1] - timestamps[0];
+        if (timeDiff < (intervalSec * 1000)) {
+          this.floodTracker.delete(key);
+          const cleanPhone = String(senderPhone || '').replace(/\D/g, '');
+          const mentionJid = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@s.whatsapp.net`;
+
+          if (prot.antiflood_action === 'kick') {
+            try {
+              await sock.groupParticipantsUpdate(from, [mentionJid], 'remove');
+              await sock.sendMessage(from, {
+                text: `🚫 *[ANTI-FLOOD]* @${cleanPhone} foi removido do grupo por enviar mensagens excessivamente rápidas (flood)!`,
+                mentions: [mentionJid]
+              });
+            } catch (_) {}
+          } else {
+            // Aplica advertência no sistema
+            models.addWarn(from, cleanPhone, 'Anti-Flood: Envio rápido de mensagens consecutivas');
+            const warnCount = models.getWarnCount(from, cleanPhone);
+            await sock.sendMessage(from, {
+              text: `⚠️ *[ANTI-FLOOD]* Atenção @${cleanPhone}!\n\n` +
+                `Por favor, respeite o intervalo mínimo de ${intervalSec} segundos entre as mensagens.\n` +
+                `📌 *Advertência aplicada:* (${warnCount}/3). Ao atingir 3 advertências você será expulso.`,
+              mentions: [mentionJid]
+            });
+          }
+          return true;
+        }
+      }
+      return false;
+    } catch (err) {
+      console.error('[SpyFeatures ⚠️ checkAntiFlood]:', err.message);
+      return false;
+    }
+  }
+
+  // ==========================================
+  // 39. BOAS-VINDAS E SAÍDA DINÂMICA (NAZUNA BEMVINDO & SAIDA)
+  // ==========================================
+  async handleWelcomeGoodbye(sock, groupId, participants = [], action = 'add') {
+    try {
+      const prot = models.getGroupProtection(groupId);
+      if (!prot) return;
+
+      let groupMeta = null;
+      try {
+        groupMeta = await sock.groupMetadata(groupId);
+      } catch (_) {
+        groupMeta = { subject: 'Nosso Grupo', desc: '', participants: [] };
+      }
+
+      const groupName = groupMeta.subject || 'Nosso Grupo';
+      const groupDesc = groupMeta.desc || 'Bem-vindo ao grupo!';
+      const totalMembers = groupMeta.participants?.length || participants.length || 1;
+
+      for (const p of participants) {
+        const phone = (typeof p === 'string' ? p : (p?.id || '')).replace(/\D/g, '');
+        if (!phone) continue;
+        const mentionJid = `${phone}@s.whatsapp.net`;
+
+        if (action === 'add' && prot.welcome_enabled) {
+          const rawTemplate = prot.welcome_text || 'Bem-vindo(a) #nome# ao grupo *#grupo#*! 🎉 Agora somos #membros# membros. Leia a descrição: #desc#';
+          const rendered = rawTemplate
+            .replace(/#nome#/gi, `@${phone}`)
+            .replace(/#numero#/gi, `+${phone}`)
+            .replace(/#grupo#/gi, groupName)
+            .replace(/#membros#/gi, String(totalMembers))
+            .replace(/#desc#/gi, groupDesc);
+
+          await sock.sendMessage(groupId, { text: rendered, mentions: [mentionJid] });
+        } else if (action === 'remove' && prot.goodbye_enabled) {
+          const rawTemplate = prot.goodbye_text || 'Até mais, #nome#! Sentiremos sua falta no grupo *#grupo#*. 👋';
+          const rendered = rawTemplate
+            .replace(/#nome#/gi, `@${phone}`)
+            .replace(/#numero#/gi, `+${phone}`)
+            .replace(/#grupo#/gi, groupName)
+            .replace(/#membros#/gi, String(totalMembers));
+
+          await sock.sendMessage(groupId, { text: rendered, mentions: [mentionJid] });
+        }
+      }
+    } catch (err) {
+      console.error('[SpyFeatures ⚠️ handleWelcomeGoodbye]:', err.message);
+    }
+  }
+
+  // ==========================================
+  // 40. COMANDOS DE ALUGUEL DE GRUPO (NAZUNA RENTALS)
+  // ==========================================
+  async handleModoAluguel(sock, from, text, isOwner) {
+    if (!isOwner) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas o Dono principal pode alterar o modo de aluguel global.*' });
+    }
+    const clean = (text || '').trim().toLowerCase();
+    let current = groupRentalService.isGlobalModeActive();
+
+    if (clean.includes('on') || clean.includes('ativar') || clean.includes('1')) {
+      groupRentalService.setGlobalMode(true);
+      return sock.sendMessage(from, {
+        text: '🔒 *MODO ALUGUEL GLOBAL ATIVADO!* 🔒\n\n' +
+          'A partir de agora, apenas grupos com aluguel ativo (ou chave válida) poderão utilizar os comandos do bot.\n' +
+          '🔑 Para gerar códigos para clientes, use: *!gerarcodigo <dias> [grupo_id]*'
+      });
+    } else if (clean.includes('off') || clean.includes('desativar') || clean.includes('0')) {
+      groupRentalService.setGlobalMode(false);
+      return sock.sendMessage(from, {
+        text: '🔓 *MODO ALUGUEL GLOBAL DESATIVADO!* 🔓\n\n' +
+          'O bot agora responderá a comandos em todos os grupos livremente sem exigência de chave.'
+      });
+    }
+
+    return sock.sendMessage(from, {
+      text: `📋 *CONFIGURAÇÃO DO MODO ALUGUEL*\n\n` +
+        `Status atual: *${current ? '🔒 ATIVADO (Exige Aluguel)' : '🔓 DESATIVADO (Livre)'}*\n\n` +
+        `Para alterar use:\n` +
+        `  *!modoaluguel on* - Ativa exigência de aluguel\n` +
+        `  *!modoaluguel off* - Libera o bot para todos os grupos`
+    });
+  }
+
+  async handleGerarCodigo(sock, from, text, isOwner) {
+    if (!isOwner) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas o Dono principal pode gerar códigos de ativação de aluguel.*' });
+    }
+
+    const parts = (text || '').trim().split(/\s+/);
+    const durationArg = parts[1]?.toLowerCase();
+    const targetGroup = parts[2] || null;
+
+    if (!durationArg) {
+      return sock.sendMessage(from, {
+        text: `🔑 *GERADOR DE CÓDIGO DE ALUGUEL (NAZUNA)* 🔑\n\n` +
+          `Gere códigos de ativação de 8 dígitos para clientes liberarem o bot em seus grupos.\n\n` +
+          `📌 *Como usar:*\n` +
+          `  *!gerarcodigo 7* - Gera código para 7 dias\n` +
+          `  *!gerarcodigo 30* - Gera código para 30 dias\n` +
+          `  *!gerarcodigo permanente* - Gera licença permanente/vitalícia\n` +
+          `  *!gerarcodigo 30 120363023471360215@g.us* - Específico para um grupo`
+      });
+    }
+
+    const duration = (durationArg === 'permanente' || durationArg === 'vitalicio' || durationArg === '-1')
+      ? 'permanent'
+      : parseInt(durationArg, 10);
+
+    if (duration !== 'permanent' && (isNaN(duration) || duration <= 0)) {
+      return sock.sendMessage(from, { text: '❌ Duração inválida. Use um número de dias (ex: 30) ou "permanente".' });
+    }
+
+    const res = groupRentalService.generateCode(duration, targetGroup, 'whatsapp-owner');
+    return sock.sendMessage(from, {
+      text: `🎉 *CÓDIGO DE ATIVAÇÃO GERADO COM SUCESSO!* 🎉\n\n` +
+        `🔑 *Chave de Ativação:* *${res.code}*\n` +
+        `⏳ *Validade:* ${res.duration_days === -1 ? 'Permanente ✨' : `${res.duration_days} dias`}\n` +
+        `${res.target_group_jid ? `🎯 *Grupo Alvo:* ${res.target_group_jid}\n` : ''}\n` +
+        `📲 *Como o cliente ativa:*\n` +
+        `Basta enviar *${res.code}* diretamente no grupo onde o bot está presente!`
+    });
+  }
+
+  async handleUsarCodigo(sock, from, text, senderPhone) {
+    const isGroup = from.endsWith('@g.us');
+    if (!isGroup) {
+      return sock.sendMessage(from, { text: '❌ *Este comando deve ser utilizado dentro do grupo que receberá o aluguel!*' });
+    }
+
+    const parts = (text || '').trim().split(/\s+/);
+    let code = parts[1]?.toUpperCase();
+
+    // Se o usuário apenas digitou o código de 8 caracteres
+    if (!code && /\b[A-F0-9]{8}\b/.test(text.toUpperCase())) {
+      code = text.toUpperCase().match(/\b[A-F0-9]{8}\b/)[0];
+    }
+
+    if (!code) {
+      return sock.sendMessage(from, {
+        text: '🔑 Digite o código de 8 caracteres para ativar o aluguel do bot neste grupo.\nExemplo: *!usarcodigo A1B2C3D4*'
+      });
+    }
+
+    const res = groupRentalService.useCode(code, from, senderPhone);
+    return sock.sendMessage(from, { text: res.message });
+  }
+
+  async handleTempoAluguel(sock, from) {
+    const isGroup = from.endsWith('@g.us');
+    if (!isGroup) {
+      return sock.sendMessage(from, { text: '❌ *Este comando deve ser utilizado dentro de um grupo.*' });
+    }
+    const infoText = groupRentalService.formatRentalInfo(from);
+    return sock.sendMessage(from, { text: infoText });
+  }
+
+  async handleAddAluguel(sock, from, text, isOwner) {
+    if (!isOwner) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas o Dono principal pode adicionar aluguéis diretamente.*' });
+    }
+
+    const parts = (text || '').trim().split(/\s+/);
+    const durationArg = parts[1]?.toLowerCase();
+    const groupArg = parts[2] || from;
+
+    if (!durationArg || !groupArg.endsWith('@g.us')) {
+      return sock.sendMessage(from, {
+        text: 'Uso: *!addaluguel <dias|permanente> <id_do_grupo@g.us>*\nExemplo: *!addaluguel 30 120363023471360215@g.us*'
+      });
+    }
+
+    const dur = (durationArg === 'permanente' || durationArg === 'vitalicio') ? 'permanent' : parseInt(durationArg, 10);
+    const rental = groupRentalService.setGroupRental(groupArg, dur, { payer_name: 'Dono (Manual)' });
+
+    return sock.sendMessage(from, {
+      text: `✅ *Aluguel ativado com sucesso para o grupo ${groupArg}!*\n\n` +
+        `⏳ *Status:* ${rental.permanent ? 'Permanente ✨' : `${rental.days_left} dias liberados (Expira em: ${rental.expiration_formatted || rental.expires_at})`}`
+    });
+  }
+
+  async handleListAluguel(sock, from, isOwner) {
+    if (!isOwner) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas o Dono principal pode listar todos os aluguéis.*' });
+    }
+
+    const rentals = groupRentalService.listRentals();
+    const isGlobal = groupRentalService.isGlobalModeActive();
+
+    if (!rentals.length) {
+      return sock.sendMessage(from, {
+        text: `📋 *LISTA DE ALUGUÉIS DE GRUPOS*\n\nNenhum grupo cadastrado com aluguel no momento.\nModo Aluguel Global: *${isGlobal ? '🔒 ATIVADO' : '🔓 DESATIVADO'}*`
+      });
+    }
+
+    let msgText = `╭┈⊰ 🤖 『 *ALUGUÉIS DE GRUPOS CADASTRADOS* 』\n` +
+      `┊📡 *Modo Global:* ${isGlobal ? '🔒 Ativado (Exigido)' : '🔓 Desativado (Livre)'}\n` +
+      `┊📊 *Total de Grupos:* ${rentals.length}\n` +
+      `╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯\n\n`;
+
+    rentals.slice(0, 15).forEach((r, idx) => {
+      const statusIcon = r.permanent ? '✨' : (r.active ? '🟢' : '🔴');
+      msgText += `*${idx + 1}.* ${statusIcon} \`${r.group_jid}\`\n` +
+        `   └─ Validade: *${r.permanent ? 'Permanente' : (r.active ? `${r.days_left}d restantes` : 'Expirado')}* (${r.expiration_formatted})\n`;
+    });
+
+    return sock.sendMessage(from, { text: msgText });
+  }
+
+  // ==========================================
+  // 41. COMANDOS DE CONFIGURAÇÃO DE GRUPO (ANTIFLOOD, ANTITRAVA, BEMVINDO)
+  // ==========================================
+  async handleAntiFloodCommand(sock, from, text, isAdmin) {
+    if (!isAdmin) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas administradores do grupo podem configurar o Anti-Flood.*' });
+    }
+    const clean = (text || '').trim().toLowerCase();
+    const parts = clean.split(/\s+/);
+    const arg = parts[1];
+
+    if (!arg) {
+      const prot = models.getGroupProtection(from);
+      return sock.sendMessage(from, {
+        text: `🌊 *CONFIGURAÇÃO DO ANTI-FLOOD (NAZUNA)*\n\n` +
+          `Status atual: *${prot?.antiflood_enabled ? `✅ Ativado (Mínimo ${prot.antiflood_interval}s)` : '❌ Desativado'}*\n\n` +
+          `📌 *Como configurar:*\n` +
+          `  *!antiflood 3* - Ativa com intervalo de 3 segundos entre mensagens\n` +
+          `  *!antiflood 5* - Ativa com intervalo de 5 segundos\n` +
+          `  *!antiflood off* - Desativa o Anti-Flood`
+      });
+    }
+
+    if (arg === 'off' || arg === 'desativar') {
+      models.updateGroupProtection(from, { antiflood_enabled: false });
+      return sock.sendMessage(from, { text: '✅ *Anti-Flood desativado neste grupo com sucesso!*' });
+    }
+
+    const interval = parseInt(arg, 10);
+    if (isNaN(interval) || interval < 1 || interval > 60) {
+      return sock.sendMessage(from, { text: '❌ Intervalo inválido! Informe um número de 1 a 60 segundos ou "off".' });
+    }
+
+    models.updateGroupProtection(from, { antiflood_enabled: true, antiflood_interval: interval });
+    return sock.sendMessage(from, {
+      text: `✅ *Anti-Flood ativado com sucesso!* Membros devem respeitar o intervalo mínimo de *${interval} segundos* entre as mensagens.`
+    });
+  }
+
+  async handleAntiTravaCommand(sock, from, text, isAdmin) {
+    if (!isAdmin) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas administradores do grupo podem configurar o Anti-Trava.*' });
+    }
+    const clean = (text || '').trim().toLowerCase();
+    const prot = models.getGroupProtection(from);
+
+    if (clean.includes('off') || clean.includes('desativar')) {
+      models.updateGroupProtection(from, { antitrava_enabled: false });
+      return sock.sendMessage(from, { text: '⚠️ *Anti-Trava desativado neste grupo.*' });
+    } else if (clean.includes('on') || clean.includes('ativar')) {
+      models.updateGroupProtection(from, { antitrava_enabled: true });
+      return sock.sendMessage(from, { text: '🛡️ *Anti-Trava ativado! Mensagens de trava-zap e spams pesados serão apagados e os remetentes banidos.*' });
+    }
+
+    const isEnabled = prot?.antitrava_enabled !== 0;
+    return sock.sendMessage(from, {
+      text: `🛡️ *STATUS DO ANTI-TRAVA:* *${isEnabled ? '✅ ATIVADO' : '❌ DESATIVADO'}*\n\n` +
+        `Para alterar use: *!antitrava on* ou *!antitrava off*`
+    });
+  }
+
+  async handleWelcomeCommand(sock, from, text, isAdmin) {
+    if (!isAdmin) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas administradores podem configurar as boas-vindas.*' });
+    }
+    const clean = (text || '').trim().toLowerCase();
+    const prot = models.getGroupProtection(from);
+
+    if (clean.includes('off') || clean.includes('desativar')) {
+      models.updateGroupProtection(from, { welcome_enabled: false });
+      return sock.sendMessage(from, { text: '⚠️ *Boas-vindas desativadas neste grupo.*' });
+    } else if (clean.includes('on') || clean.includes('ativar')) {
+      models.updateGroupProtection(from, { welcome_enabled: true });
+      return sock.sendMessage(from, { text: '🎉 *Boas-vindas ativadas! Novos membros serão recebidos com a mensagem configurada.*' });
+    }
+
+    const isEnabled = prot?.welcome_enabled !== 0;
+    return sock.sendMessage(from, {
+      text: `🎉 *BOAS-VINDAS DO GRUPO:* *${isEnabled ? '✅ ATIVADAS' : '❌ DESATIVADAS'}*\n\n` +
+        `Para alterar use: *!bemvindo on* ou *!bemvindo off*\n` +
+        `Para personalizar a legenda use: *!legendabv <texto>*`
+    });
+  }
+
+  async handleGoodbyeCommand(sock, from, text, isAdmin) {
+    if (!isAdmin) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas administradores podem configurar a mensagem de saída.*' });
+    }
+    const clean = (text || '').trim().toLowerCase();
+    const prot = models.getGroupProtection(from);
+
+    if (clean.includes('off') || clean.includes('desativar')) {
+      models.updateGroupProtection(from, { goodbye_enabled: false });
+      return sock.sendMessage(from, { text: '⚠️ *Mensagem de saída desativada neste grupo.*' });
+    } else if (clean.includes('on') || clean.includes('ativar')) {
+      models.updateGroupProtection(from, { goodbye_enabled: true });
+      return sock.sendMessage(from, { text: '👋 *Mensagem de saída ativada!*' });
+    }
+
+    const isEnabled = prot?.goodbye_enabled !== 0;
+    return sock.sendMessage(from, {
+      text: `👋 *MENSAGEM DE SAÍDA:* *${isEnabled ? '✅ ATIVADA' : '❌ DESATIVADA'}*\n\n` +
+        `Para alterar use: *!saida on* ou *!saida off*\n` +
+        `Para personalizar use: *!legendasaiu <texto>*`
+    });
+  }
+
+  async handleLegendaBV(sock, from, text, isAdmin) {
+    if (!isAdmin) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas administradores podem personalizar as boas-vindas.*' });
+    }
+    const clean = (text || '').replace(/^(?:!|\/)(?:legendabv|textbv|welcomemsg)\s*/i, '').trim();
+    if (!clean) {
+      const prot = models.getGroupProtection(from);
+      return sock.sendMessage(from, {
+        text: `📝 *CONFIGURAÇÃO DA LEGENDA DE BOAS-VINDAS*\n\n` +
+          `Defina a mensagem exibida quando alguém entrar no grupo usando as variáveis:\n` +
+          `- *#nome#* : Menciona o novo membro\n` +
+          `- *#numero#* : Número de telefone do membro\n` +
+          `- *#grupo#* : Nome deste grupo\n` +
+          `- *#membros#* : Total de membros no grupo\n` +
+          `- *#desc#* : Descrição oficial do grupo\n\n` +
+          `📌 *Exemplo:*\n` +
+          `*!legendabv Bem-vindo(a) #nome# ao grupo *#grupo#*! Somos #membros# membros. Leia as regras: #desc#*\n\n` +
+          `Mensagem atual:\n"${prot?.welcome_text || 'Padrão'}"`
+      });
+    }
+
+    models.updateGroupProtection(from, { welcome_text: clean, welcome_enabled: true });
+    return sock.sendMessage(from, {
+      text: `✅ *Mensagem de boas-vindas atualizada com sucesso!*\n\nNova legenda configurada:\n"${clean}"`
+    });
+  }
+
+  async handleLegendaSaiu(sock, from, text, isAdmin) {
+    if (!isAdmin) {
+      return sock.sendMessage(from, { text: '⛔ *Apenas administradores podem personalizar a mensagem de saída.*' });
+    }
+    const clean = (text || '').replace(/^(?:!|\/)(?:legendasaiu|textsaiu|exitmsg)\s*/i, '').trim();
+    if (!clean) {
+      const prot = models.getGroupProtection(from);
+      return sock.sendMessage(from, {
+        text: `📝 *CONFIGURAÇÃO DA LEGENDA DE SAÍDA*\n\n` +
+          `Variáveis disponíveis: *#nome#*, *#numero#*, *#grupo#*, *#membros#*\n\n` +
+          `📌 *Exemplo:* *!legendasaiu Adeus #nome#! O grupo *#grupo#* agora tem #membros# membros.*\n\n` +
+          `Mensagem atual:\n"${prot?.goodbye_text || 'Padrão'}"`
+      });
+    }
+
+    models.updateGroupProtection(from, { goodbye_text: clean, goodbye_enabled: true });
+    return sock.sendMessage(from, {
+      text: `✅ *Mensagem de saída atualizada com sucesso!*\n\nNova legenda:\n"${clean}"`
+    });
+  }
+
+  // ==========================================
+  // 42. ESTATÍSTICAS DE COMANDOS (TOP COMANDOS NAZUNA)
+  // ==========================================
+  async handleTopCmd(sock, from) {
+    try {
+      const stats = models.getTopCommands(10);
+      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+
+      let msgText = `╭┈⊰ 📊 『 *TOP COMANDOS MAIS UTILIZADOS* 』\n` +
+        `┊📈 *Total de Execuções Auditadas:* ${stats.total_executions}\n` +
+        `╰─┈┈┈┈┈◜❁◞┈┈┈┈┈─╯\n\n`;
+
+      if (!stats.commands || stats.commands.length === 0) {
+        msgText += `_Nenhum comando registrado ainda. Comece a usar os comandos do bot!_\n`;
+      } else {
+        stats.commands.forEach((c, idx) => {
+          const medal = medals[idx] || `*${idx + 1}.*`;
+          msgText += `${medal} *!${c.command}* ── *${c.count} usos* (${c.percentage}%)\n`;
+        });
+      }
+
+      msgText += `\n💡 Dados auditados em tempo real pelo banco de dados do PayBot/SpyBot.`;
+      return sock.sendMessage(from, { text: msgText });
+    } catch (err) {
+      console.error('[SpyFeatures ⚠️ handleTopCmd]:', err.message);
+      return sock.sendMessage(from, { text: `❌ Erro ao consultar top comandos.` });
     }
   }
 }
