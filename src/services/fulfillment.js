@@ -265,6 +265,22 @@ class FulfillmentService {
     }
 
     // ==========================================
+    // 3.9 SPLIT DE PAGAMENTO AUTOMÁTICO & PLATAFORMA TAKE-RATE
+    // ==========================================
+    try {
+      const paymentSplitService = require('./paymentSplitService');
+      paymentSplitService.recordOrderSplit({
+        orderId: order.id,
+        merchantTradeNo: order.merchant_trade_no,
+        tenantId: order.tenant_id || null,
+        grossAmount: order.amount,
+        splitMode: 'AUTOMATIC'
+      });
+    } catch (sErr) {
+      console.warn('[Fulfillment ⚠️ Erro ao registrar split de taxa]:', sErr.message);
+    }
+
+    // ==========================================
     // 4. ATRIBUIÇÃO E CRÉDITO DE COMISSÃO DE AFILIADO
     // ==========================================
     let affiliateNotice = null;

@@ -1358,6 +1358,17 @@ class WhatsAppBotService {
         const prevDispatchSock = this.currentDispatchSock;
         this.currentDispatchSock = sockToUse;
         try {
+          // 🛡️ LICENSE GUARD: Bloqueia atendimento caso a cópia não possua licença ativa
+          const licenseGuardService = require('../services/licenseGuardService');
+          if (licenseGuardService.isExecutionLocked() && !dispatchedMsg.key?.fromMe) {
+            const warning = licenseGuardService.interceptMessageIfLocked();
+            const jid = dispatchedMsg.key?.remoteJid;
+            if (warning && sockToUse && jid && !jid.endsWith('@g.us')) {
+              try { await sockToUse.sendMessage(jid, { text: warning }); } catch (_) {}
+            }
+            return;
+          }
+
           const handler = require('../handler');
           return await handler.handleMessage(this, dispatchedMsg, sockToUse);
         } finally {

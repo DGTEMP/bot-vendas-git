@@ -204,11 +204,20 @@
 
       <div class="kpi-card warning">
         <div class="kpi-header">
-          <span class="kpi-label">Receita Total Coletada</span>
+          <span class="kpi-label">Receita Total de Assinaturas</span>
           <div class="kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fa-solid fa-vault"></i></div>
         </div>
         <div class="kpi-value" id="kpiTotalRevenue">R$ 0,00</div>
         <div class="kpi-sub">Faturamento Total em Assinaturas</div>
+      </div>
+
+      <div class="kpi-card green">
+        <div class="kpi-header">
+          <span class="kpi-label">Taxas Coletadas (Take-Rate)</span>
+          <div class="kpi-icon" style="background: rgba(16, 185, 129, 0.15); color: #34d399;"><i class="fa-solid fa-hand-holding-dollar"></i></div>
+        </div>
+        <div class="kpi-value" id="kpiSplitRevenue">R$ 0,00</div>
+        <div class="kpi-sub positive"><i class="fa-solid fa-percent"></i> <span id="kpiGmvTotal">R$ 0,00</span> GMV Transacionado</div>
       </div>
     </div>
 
@@ -216,7 +225,9 @@
     <div class="nav-tabs">
       <button class="nav-tab-btn active" onclick="switchTab('tenants')"><i class="fa-solid fa-building-user"></i> Inquilinos &amp; Assinantes</button>
       <button class="nav-tab-btn" onclick="switchTab('orders')"><i class="fa-solid fa-receipt"></i> Pedidos de Assinatura</button>
+      <button class="nav-tab-btn" onclick="switchTab('splits')"><i class="fa-solid fa-coins"></i> Split &amp; Take-Rate</button>
       <button class="nav-tab-btn" onclick="switchTab('affiliates')"><i class="fa-solid fa-handshake-angle"></i> Afiliados Recorrentes (30%)</button>
+      <button class="nav-tab-btn" onclick="switchTab('drm')"><i class="fa-solid fa-shield-halved"></i> Guardião de Licenças (DRM)</button>
       <button class="nav-tab-btn" onclick="switchTab('plans')"><i class="fa-solid fa-layer-group"></i> Estrutura de Planos</button>
     </div>
 
@@ -274,6 +285,36 @@
       </div>
     </div>
 
+    <!-- Tab 2.5: Split de Pagamentos & Take-Rate -->
+    <div id="tab_splits" class="section-card" style="display:none;">
+      <div class="section-title">
+        <span><i class="fa-solid fa-coins" style="color: var(--accent);"></i> Split Automático de Vendas &amp; Taxas Coletadas</span>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">
+        A cada venda que qualquer inquilino realiza pelo bot, uma taxa (Take-Rate de 1.2% a 4.5%) é retida e creditada para a sua carteira/chave Pix.
+      </p>
+
+      <div style="overflow-x: auto;">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>ID / Pedido</th>
+              <th>Inquilino</th>
+              <th>Valor Bruto (R$)</th>
+              <th>Taxa (%)</th>
+              <th>Sua Comissão (R$)</th>
+              <th>Líquido do Lojista (R$)</th>
+              <th>Status</th>
+              <th>Data</th>
+            </tr>
+          </thead>
+          <tbody id="splitsTableBody">
+            <tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Carregando histórico de splits...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Tab 3: Afiliados Recorrentes -->
     <div id="tab_affiliates" class="section-card" style="display:none;">
       <div class="section-title">
@@ -303,6 +344,30 @@
       </div>
     </div>
 
+    <!-- Tab 3.5: DRM & Guardião de Licenças -->
+    <div id="tab_drm" class="section-card" style="display:none;">
+      <div class="section-title">
+        <span><i class="fa-solid fa-shield-halved" style="color: var(--primary);"></i> Guardião de Licenças Remotas (DRM Anti-Clonagem)</span>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">
+        Proteção ativa de código-fonte: Instâncias locais ou clonadas do repositório necessitam de autenticação criptográfica HMAC contra o seu servidor para operar. Cópias não autorizadas entram em modo Lockdown.
+      </p>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:18px; margin-bottom:24px;">
+        <div style="background:rgba(255,255,255,0.03); border:1px solid var(--card-border); border-radius:12px; padding:18px;">
+          <div style="font-size:12px; color:var(--text-muted); font-weight:700;">Status do Servidor Mestre DRM</div>
+          <div style="font-size:18px; font-weight:800; color:var(--accent); margin:6px 0;">ATIVO &amp; PROTEGENDO</div>
+          <div style="font-size:12px; color:var(--text-muted);">Assinatura: <strong>HMAC-SHA256</strong></div>
+        </div>
+
+        <div style="background:rgba(255,255,255,0.03); border:1px solid var(--card-border); border-radius:12px; padding:18px;">
+          <div style="font-size:12px; color:var(--text-muted); font-weight:700;">Endpoint Remoto de Validação</div>
+          <div style="font-size:13px; font-weight:700; font-family:monospace; color:#38bdf8; margin:6px 0;">POST /api/v1/license/verify</div>
+          <div style="font-size:12px; color:var(--text-muted);">Responde com assinatura digital anti-spoofing</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab 4: Estrutura de Planos -->
     <div id="tab_plans" class="section-card" style="display:none;">
       <div class="section-title">
@@ -321,15 +386,19 @@
 
     async function loadData() {
       try {
-        const [finRes, ordersRes, affRes] = await Promise.all([
+        const [finRes, ordersRes, affRes, splitFinRes, splitLedgerRes] = await Promise.all([
           fetch('/api/saas/master/financials'),
           fetch('/api/saas/master/orders'),
-          fetch('/api/saas/affiliates/list')
+          fetch('/api/saas/affiliates/list'),
+          fetch('/api/saas/master/split-financials'),
+          fetch('/api/saas/master/split-ledger')
         ]);
 
         const finData = await finRes.json();
         const ordersData = await ordersRes.json();
         const affData = await affRes.json();
+        const splitFinData = await splitFinRes.json();
+        const splitLedgerData = await splitLedgerRes.json();
 
         if (finData.success) {
           rawFinancials = finData;
@@ -342,6 +411,15 @@
 
         if (affData.success) {
           renderAffiliates(affData.affiliates || []);
+        }
+
+        if (splitFinData.success) {
+          document.getElementById('kpiSplitRevenue').textContent = `R$ ${splitFinData.total_platform_revenue_brl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+          document.getElementById('kpiGmvTotal').textContent = `R$ ${splitFinData.total_gmv_brl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+        }
+
+        if (splitLedgerData.success) {
+          renderSplits(splitLedgerData.records || []);
         }
 
         // Carrega inquilinos
@@ -478,6 +556,27 @@
           <td><strong>R$ ${(a.total_earned_brl || 0).toFixed(2)}</strong></td>
           <td><strong style="color:var(--accent);">R$ ${(a.available_balance_brl || 0).toFixed(2)}</strong></td>
           <td>${a.pix_key || '-'} (${a.pix_key_type})</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderSplits(splits) {
+      const tbody = document.getElementById('splitsTableBody');
+      if (!splits || splits.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Nenhuma venda com split registrada ainda.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = splits.map(s => `
+        <tr>
+          <td><strong style="font-family:monospace;">${s.merchant_trade_no}</strong></td>
+          <td><strong>${s.tenant_name || 'Vendedor Matriz'}</strong> <span style="font-size:11px; color:var(--text-muted);">(${s.tenant_plan || 'pro'})</span></td>
+          <td>R$ ${Number(s.gross_amount).toFixed(2)}</td>
+          <td><strong style="color:var(--accent);">${s.take_rate_percent}%</strong></td>
+          <td><strong style="color:var(--accent);">R$ ${Number(s.platform_fee_amount).toFixed(2)}</strong></td>
+          <td>R$ ${Number(s.merchant_net_amount).toFixed(2)}</td>
+          <td><span class="status-badge status-active">${s.status}</span></td>
+          <td style="font-size:11px; color:var(--text-muted);">${s.created_at}</td>
         </tr>
       `).join('');
     }

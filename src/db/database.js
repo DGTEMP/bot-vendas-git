@@ -1138,6 +1138,35 @@ function initDatabase() {
     );
 
     -- =========================================================================
+    -- 44.2 SPLIT DE PAGAMENTOS (TAKE-RATE) & VALIDADOR REMOTO DE LICENÇAS (DRM)
+    -- =========================================================================
+    CREATE TABLE IF NOT EXISTS platform_fee_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER,
+      merchant_trade_no TEXT NOT NULL,
+      tenant_id INTEGER,
+      gross_amount REAL NOT NULL,
+      take_rate_percent REAL NOT NULL,
+      platform_fee_amount REAL NOT NULL,
+      merchant_net_amount REAL NOT NULL,
+      split_mode TEXT DEFAULT 'AUTOMATIC', -- 'AUTOMATIC_SPLIT' | 'LEDGER_INVOICE'
+      status TEXT DEFAULT 'COLLECTED', -- 'COLLECTED' | 'PENDING_INVOICE' | 'INVOICE_PAID'
+      platform_pix_key TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS license_guard_heartbeats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      license_key TEXT NOT NULL,
+      hwid TEXT NOT NULL,
+      ip_address TEXT,
+      version TEXT,
+      status TEXT NOT NULL, -- 'AUTHORIZED' | 'REVOKED' | 'EXPIRED' | 'UNREGISTERED'
+      last_check_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      payload_signature TEXT
+    );
+
+    -- =========================================================================
     -- 45. NÚCLEO DE INTELIGÊNCIA COGNITIVA & APRENDIZADO COLETIVO MULTI-NICHO
     -- =========================================================================
     CREATE TABLE IF NOT EXISTS intelligence_core_learnings (
@@ -1486,7 +1515,10 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_saas_sub_orders_phone ON saas_subscription_orders(customer_phone);',
     'CREATE INDEX IF NOT EXISTS idx_saas_affiliates_code ON saas_affiliates(affiliate_code);',
     'CREATE INDEX IF NOT EXISTS idx_saas_aff_comm_aff ON saas_affiliate_commissions(affiliate_id, status);',
-    'CREATE INDEX IF NOT EXISTS idx_saas_retention_tenant ON saas_retention_metrics(tenant_id, week_year);'
+    'CREATE INDEX IF NOT EXISTS idx_saas_retention_tenant ON saas_retention_metrics(tenant_id, week_year);',
+    'CREATE INDEX IF NOT EXISTS idx_platform_fee_order ON platform_fee_ledger(order_id);',
+    'CREATE INDEX IF NOT EXISTS idx_platform_fee_tenant ON platform_fee_ledger(tenant_id);',
+    'CREATE INDEX IF NOT EXISTS idx_license_guard_key ON license_guard_heartbeats(license_key, hwid);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
@@ -1536,6 +1568,12 @@ function initDatabase() {
     ['VERIFICADO_TITLE', 'PayBot Oficial ✓'],
     ['VERIFICADO_BODY', 'Canal Oficial Verificado 🟢'],
     ['VERIFICADO_SHOW_AD', 'true'],
+    ['PLATFORM_TAKE_RATE_ENABLED', 'true'],
+    ['PLATFORM_DEFAULT_TAKE_RATE', '3.5'],
+    ['PLATFORM_SPLIT_PIX_KEY', ''],
+    ['LICENSE_GUARD_ENABLED', 'true'],
+    ['LICENSE_GUARD_SERVER_URL', 'http://localhost:3000'],
+    ['LICENSE_GUARD_MASTER_SECRET', 'sk-master-guard-dgt-secret-key-2026'],
     ['AFFILIATION_MIN_SALES', '2'],
     ['AFFILIATION_MIN_REVENUE_BRL', '50.0'],
     ['AFFILIATION_REQUIRE_PAYMENT_INFO', 'true'],

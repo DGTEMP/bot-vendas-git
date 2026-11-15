@@ -31,6 +31,14 @@ async function bootstrap() {
   console.log('🚀 PAYBOT - VENDAS AUTOMATIZADAS & ASSINATURAS VIP (USDT/BINANCE)');
   console.log('================================================================');
 
+  // 0. Validador Remoto de Licença & Proteção DRM Anti-Tamper
+  const licenseGuardService = require('./services/licenseGuardService');
+  try {
+    await licenseGuardService.validateCurrentInstallation();
+  } catch (licErr) {
+    console.warn('[LicenseGuard ⚠️ Aviso na validação]:', licErr.message);
+  }
+
   // 1. Inicializa Servidor HTTP do Painel Admin (Porta 3000)
   const { createServer, createStoreServer } = require('./server/app');
   const app = createServer();

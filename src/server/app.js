@@ -8642,6 +8642,75 @@ function createServer() {
     }
   });
 
+  // ==============================================================
+  // 🛡️ VALIDADOR REMOTO DE LICENÇAS (DRM ANTI-CLONAGEM)
+  // ==============================================================
+  const licenseGuardService = require('../services/licenseGuardService');
+
+  // Endpoint Mestre de Validação de Licenças Remotas
+  app.post('/api/v1/license/verify', (req, res) => {
+    try {
+      const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+      const result = licenseGuardService.verifyRemoteClientLicense({
+        license_key: req.body.license_key,
+        hwid: req.body.hwid,
+        version: req.body.version || '1.0.0',
+        ip_address: ip
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ authorized: false, lockdown: true, error: err.message });
+    }
+  });
+
+  // Status da Licença Local Desta Instalação
+  app.get('/api/v1/license/status', async (req, res) => {
+    try {
+      const status = await licenseGuardService.validateCurrentInstallation(true);
+      res.json({ success: true, ...status });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Ativar Nova Chave de Licença Nesta Instalação
+  app.post('/api/v1/license/activate', async (req, res) => {
+    try {
+      const { license_key } = req.body;
+      if (!license_key) return res.status(400).json({ success: false, error: 'Chave de licença obrigatória.' });
+      const result = await licenseGuardService.setLocalLicenseKey(license_key);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==============================================================
+  // 💸 SPLIT DE PAGAMENTOS & TAKE-RATE (RECEITA PASSIVA POR VENDA)
+  // ==============================================================
+  const paymentSplitService = require('../services/paymentSplitService');
+
+  // Métricas Consolidadas de Split / Take-Rate para o Dono do SaaS
+  app.get('/api/saas/master/split-financials', (req, res) => {
+    try {
+      const stats = paymentSplitService.getSplitFinancialStats();
+      res.json({ success: true, ...stats });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Histórico de Transações e Taxas da Plataforma (Ledger)
+  app.get('/api/saas/master/split-ledger', (req, res) => {
+    try {
+      const limit = Number(req.query.limit) || 50;
+      const records = paymentSplitService.listLedgerRecords(limit);
+      res.json({ success: true, records });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Portal Público e Geração de Código do Sub-Bot Free
   app.get(['/subbot', '/subbots'], (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'subbot.html'));
