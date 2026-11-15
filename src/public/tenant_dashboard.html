@@ -123,7 +123,80 @@
     .badge { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; display: inline-block; }
     .badge-paid { background: rgba(16, 185, 129, 0.15); color: #10b981; }
     .badge-pending { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
-    .badge-bot-online { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    .badge-bot-online { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-bot-qr { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-bot-pair { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-bot-connecting { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-bot-offline { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+
+    .btn-sm {
+      padding: 6px 12px; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px; border: none; transition: all 0.2s;
+    }
+    .btn-connect {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff;
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    }
+    .btn-connect:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08); color: #e2e8f0; border: 1px solid var(--card-border);
+    }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.14); }
+    .btn-danger-sm {
+      background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+    .btn-danger-sm:hover { background: rgba(239, 68, 68, 0.22); }
+
+    .connect-nav-tabs {
+      display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 12px;
+    }
+    .connect-tab-btn {
+      flex: 1; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+      background: transparent; color: var(--text-muted); border: 1px solid var(--card-border);
+      display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;
+    }
+    .connect-tab-btn:hover { background: rgba(255, 255, 255, 0.04); color: #fff; }
+    .connect-tab-btn.active {
+      background: var(--primary); border-color: var(--primary); color: #fff;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .pairing-code-box {
+      background: #090d16; border: 2px dashed #3b82f6; border-radius: 12px;
+      padding: 18px; text-align: center; margin: 16px 0;
+    }
+    .pairing-code-display {
+      font-size: 32px; font-weight: 800; font-family: monospace; letter-spacing: 5px; color: #38bdf8;
+      text-shadow: 0 0 15px rgba(56, 189, 248, 0.4); margin: 8px 0;
+    }
+
+    .qr-frame {
+      background: #fff; padding: 14px; border-radius: 12px; display: inline-block;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); margin-bottom: 14px;
+    }
+    .qr-frame img { display: block; width: 220px; height: 220px; border-radius: 6px; }
+
+    .instruction-step {
+      background: rgba(255, 255, 255, 0.03); border: 1px solid var(--card-border);
+      border-radius: 10px; padding: 12px 14px; font-size: 12px; color: var(--text-muted);
+      text-align: left; margin-top: 14px; line-height: 1.6;
+    }
+    .instruction-step b { color: #fff; }
+
+    .switch {
+      position: relative; display: inline-block; width: 44px; height: 24px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background-color: #334155; transition: .3s; border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+      background: white; border-radius: 50%; transition: 0.3s;
+    }
+    input:checked + .slider { background: #10b981 !important; }
+    input:checked + .slider:before { transform: translateX(20px); }
 
     /* Modal */
     .modal-overlay {
@@ -154,6 +227,115 @@
     .lock-icon { font-size: 54px; color: var(--danger); margin-bottom: 16px; }
     .lock-box h2 { font-size: 22px; font-weight: 800; margin-bottom: 10px; }
     .lock-box p { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; }
+
+    /* Niche & Tone Grid */
+    .niche-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .niche-card {
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .niche-card:hover {
+      border-color: rgba(168, 85, 247, 0.5);
+      transform: translateY(-2px);
+    }
+    .niche-card.selected {
+      border-color: #a855f7;
+      background: rgba(168, 85, 247, 0.12);
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.25);
+    }
+    .niche-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .niche-card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+    }
+    .niche-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .niche-card-cat {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .tone-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .tone-card {
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .tone-card:hover {
+      border-color: rgba(59, 130, 246, 0.5);
+      transform: translateY(-2px);
+    }
+    .tone-card.selected {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.12);
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.25);
+    }
+    .tone-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .tone-badge {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .tone-badge-formal { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .tone-badge-consultivo { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .tone-badge-comercial { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+
+    /* Wizard Modal */
+    .wizard-step { display: none; }
+    .wizard-step.active { display: block; }
+    .wizard-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .wizard-dot {
+      flex: 1;
+      height: 4px;
+      border-radius: 2px;
+      background: #1e293b;
+      transition: background 0.3s ease;
+    }
+    .wizard-dot.active { background: #a855f7; }
+
   </style>
 </head>
 <body>
@@ -210,10 +392,33 @@
     <!-- Tabs Navigation -->
     <div class="nav-tabs">
       <button class="nav-tab-btn active" onclick="switchTab('overview')"><i class="fa-solid fa-chart-pie"></i> Visão Geral</button>
+      <button class="nav-tab-btn" onclick="switchTab('nicheSetup')"><i class="fa-solid fa-shapes" style="color: #a855f7;"></i> Nicho &amp; IA Modular</button>
       <button class="nav-tab-btn" onclick="switchTab('bots')"><i class="fa-brands fa-whatsapp"></i> Meus Bots</button>
       <button class="nav-tab-btn" onclick="switchTab('catalog')"><i class="fa-solid fa-bag-shopping"></i> Catálogo &amp; Produtos</button>
+      <button class="nav-tab-btn" onclick="switchTab('achadinhos')"><i class="fa-solid fa-bullhorn" style="color: #fb923c;"></i> Achadinhos &amp; Afiliados</button>
       <button class="nav-tab-btn" onclick="switchTab('orders')"><i class="fa-solid fa-receipt"></i> Pedidos &amp; Vendas</button>
+      <button class="nav-tab-btn" onclick="switchTab('quickSettings')"><i class="fa-solid fa-sliders"></i> Configurações Rápidas</button>
+      <button class="nav-tab-btn" onclick="switchTab('integrations')"><i class="fa-solid fa-plug" style="color: #38bdf8;"></i> Integrações &amp; E-commerce</button>
       <button class="nav-tab-btn" onclick="switchTab('license')"><i class="fa-solid fa-key"></i> Minha Licença SaaS</button>
+    </div>
+
+
+    <!-- ONBOARDING BANNER (SE NÃO CONCLUÍDO) -->
+    <div id="onboardingBanner" style="display: none; background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(59, 130, 246, 0.15)); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 12px; padding: 18px 24px; margin-bottom: 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(168, 85, 247, 0.25); display: flex; align-items: center; justify-content: center; font-size: 20px; color: #c084fc;">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+        </div>
+        <div>
+          <h3 style="font-size: 15px; font-weight: 800; color: #fff;">Onboarding Inicial do Negócio Pendente</h3>
+          <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Selecione o nicho da sua empresa e o tom de voz da IA para ativar seu catálogo modelo e visual da loja.</p>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn-action" onclick="openOnboardingWizard()" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; font-weight: 700; padding: 10px 20px;">
+          <i class="fa-solid fa-rocket"></i> Configurar Meu Negócio Agora
+        </button>
+      </div>
     </div>
 
     <!-- TAB 1: VISÃO GERAL -->
@@ -275,25 +480,230 @@
       </div>
     </div>
 
+
+    <!-- TAB: NICHO & IA MODULAR -->
+    <div id="tabNicheSetup" style="display: none;">
+      <!-- Header do Nicho Ativo -->
+      <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(59, 130, 246, 0.1)); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 16px; padding: 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+            <span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase;">
+              <i class="fa-solid fa-shapes"></i> Módulo Vertical SaaS
+            </span>
+            <span id="badgeOnboardingStatus" style="padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 800;"></span>
+          </div>
+          <h2 style="font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 4px;" id="currentNicheTitle">
+            Configuração de Nicho &amp; IA Cognitiva
+          </h2>
+          <p style="font-size: 13px; color: var(--text-muted); max-width: 750px;">
+            Ajuste a identidade visual da sua loja pública, o catálogo padrão e a persona de vendas da IA para 15 ramos comerciais com 3 níveis de interação.
+          </p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn-action" onclick="openOnboardingWizard()" style="background: #1e293b; border: 1px solid var(--card-border); color: #fff;">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Assistente de Onboarding
+          </button>
+          <button class="btn-action" onclick="previewCurrentStore()" style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir Loja Pública
+          </button>
+        </div>
+      </div>
+
+      <!-- SEÇÃO 1: SELEÇÃO DE NICHO -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h3><i class="fa-solid fa-layer-group" style="color: #a855f7;"></i> 1. Escolha o Nicho de Atuação (15 Verticais Disponíveis)</h3>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Ao selecionar um nicho, os prompts neurais, cores da loja e catálogo modelo são adaptados instantaneamente.</p>
+          </div>
+        </div>
+        <div class="niche-grid" id="nicheGridContainer">
+          <!-- Renderizado dinamicamente via JS -->
+        </div>
+      </div>
+
+      <!-- SEÇÃO 2: SELEÇÃO DE TOM DE VOZ -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h3><i class="fa-solid fa-comments" style="color: #3b82f6;"></i> 2. Nível de Interação &amp; Tom de Voz da IA</h3>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Defina o comportamento comportamental que o robô adota nos atendimentos de WhatsApp.</p>
+          </div>
+        </div>
+        <div class="tone-grid" id="toneGridContainer">
+          <!-- Renderizado dinamicamente via JS -->
+        </div>
+      </div>
+
+      <!-- SEÇÃO 3: PREVIEW DA PERSONA & TEMAS -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h3><i class="fa-solid fa-eye" style="color: #10b981;"></i> 3. Pré-visualização da Inteligência &amp; Loja Web</h3>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Veja como o robô responderá e como a loja ficará para seus clientes finais.</p>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px;">
+          <!-- Card de Prompt e Boas-Vindas -->
+          <div style="background: #0f172a; padding: 18px; border-radius: 12px; border: 1px solid var(--card-border);">
+            <h4 style="font-size: 13px; font-weight: 700; color: #38bdf8; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+              <i class="fa-brands fa-whatsapp"></i> Atendimento &amp; Boas-Vindas no WhatsApp
+            </h4>
+            <div style="margin-bottom: 12px;">
+              <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Mensagem de Boas-Vindas Automática:</label>
+              <div id="previewWelcomeMsg" style="background: #1e293b; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #f8fafc; margin-top: 4px; line-height: 1.5; font-style: italic;"></div>
+            </div>
+            <div style="margin-bottom: 12px;">
+              <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Pergunta de Qualificação Cognitiva:</label>
+              <div id="previewQualQuestion" style="background: #1e293b; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #f8fafc; margin-top: 4px; line-height: 1.5;"></div>
+            </div>
+            <div>
+              <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Tratamento de Objeção / Dúvida Comum:</label>
+              <div id="previewObjection" style="background: #1e293b; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #f8fafc; margin-top: 4px; line-height: 1.5;"></div>
+            </div>
+          </div>
+
+          <!-- Card de Roteiro de Áudio ZapVoice & Loja -->
+          <div style="background: #0f172a; padding: 18px; border-radius: 12px; border: 1px solid var(--card-border);">
+            <h4 style="font-size: 13px; font-weight: 700; color: #a855f7; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-microphone-lines"></i> Roteiro de Áudio PTT (ZapVoice) &amp; Loja
+            </h4>
+            <div style="margin-bottom: 12px;">
+              <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Script Recomendado para Áudio Gravado:</label>
+              <div id="previewVoiceScript" style="background: #1e293b; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #f8fafc; margin-top: 4px; line-height: 1.5; font-style: italic;"></div>
+              
+              <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <select id="tenantSelectPersona" class="form-control" style="max-width: 280px; font-size: 12px;">
+                  <optgroup label="👨 Vozes Masculinas">
+                    <option value="marcos" selected>👨‍💼 Marcos (Executivo &amp; Firme)</option>
+                    <option value="lucas">⚡ Lucas (Vendedor Dinâmico)</option>
+                    <option value="rodrigo">🤝 Rodrigo (Caloroso &amp; Empático)</option>
+                    <option value="duarte">🏛️ Duarte (Consultor Internacional PT)</option>
+                  </optgroup>
+                  <optgroup label="👩 Vozes Femininas">
+                    <option value="camila">🌸 Camila (Doce &amp; Acolhedora)</option>
+                    <option value="juliana">👩‍💼 Juliana (Especialista Persuasiva)</option>
+                    <option value="thalita">🚀 Thalita (Jovem &amp; Espontânea)</option>
+                    <option value="larissa">✨ Larissa (Expressiva &amp; Comercial)</option>
+                    <option value="raquel">👑 Raquel (Executiva Internacional PT)</option>
+                  </optgroup>
+                </select>
+                <button type="button" class="btn btn-sm btn-info" id="btnTenantPreviewVoice" onclick="playTenantVoiceSample()" style="background: linear-gradient(135deg, #a855f7, #9333ea); border: none; font-size: 12px; font-weight: 600;">
+                  <i class="fa-solid fa-volume-high"></i> Ouvir Amostra com Esta Voz
+                </button>
+              </div>
+              <audio id="tenantVoiceAudioPlayer" controls style="display: none; width: 100%; margin-top: 8px; height: 32px;"></audio>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+              <div>
+                <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Cor Primária da Loja:</label>
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                  <span id="previewColorPrimaryBox" style="width: 22px; height: 22px; border-radius: 6px; display: inline-block;"></span>
+                  <span id="previewColorPrimaryText" style="font-family: monospace; font-size: 12px;"></span>
+                </div>
+              </div>
+              <div>
+                <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Cor de Destaque:</label>
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                  <span id="previewColorAccentBox" style="width: 22px; height: 22px; border-radius: 6px; display: inline-block;"></span>
+                  <span id="previewColorAccentText" style="font-family: monospace; font-size: 12px;"></span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Headline &amp; Selo do Hero:</label>
+              <div id="previewHeadline" style="font-size: 12px; color: #fff; font-weight: 700; margin-top: 4px;"></div>
+              <div id="previewBadge" style="font-size: 11px; color: #34d399; margin-top: 2px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Opção de Catalog Populate & Salvar -->
+        <div style="margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--card-border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px;">
+            <input type="checkbox" id="chkNichePopulateCatalog" style="width: 18px; height: 18px; accent-color: #a855f7;">
+            <span><strong>Preencher Catálogo:</strong> Criar automaticamente os produtos e serviços modelo deste nicho (se o catálogo estiver vazio)</span>
+          </label>
+          <button class="btn-action" onclick="saveNicheSetup()" id="btnSaveNicheSetup" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; font-weight: 700; padding: 12px 28px;">
+            <i class="fa-solid fa-floppy-disk"></i> Salvar e Aplicar Configuração
+          </button>
+        </div>
+      </div>
+
+      <!-- SEÇÃO 4: NÚCLEO DE INTELIGÊNCIA VIVO & APRENDIZADO COLETIVO -->
+      <div class="panel-card" style="margin-top: 24px; border: 1px solid rgba(59, 130, 246, 0.35); background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.8));">
+        <div class="panel-header">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(59, 130, 246, 0.2); display: flex; align-items: center; justify-content: center; font-size: 18px; color: #60a5fa;">
+              <i class="fa-solid fa-brain"></i>
+            </div>
+            <div>
+              <h3 style="color: #fff;"><i class="fa-solid fa-microchip" style="color: #38bdf8;"></i> 4. Núcleo de Inteligência Coletivo (Uso &amp; Alimentação Ativa)</h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                Este nicho está consumindo e alimentando o cérebro central em tempo real. Cada atendimento e venda aprimora a assertividade da rede.
+              </p>
+            </div>
+          </div>
+          <span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 800;">
+            <i class="fa-solid fa-bolt"></i> Rede Neural Sincronizada
+          </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px;">
+          <div style="background: #0f172a; padding: 14px; border-radius: 10px; border: 1px solid var(--card-border);">
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Aprendizados no Nicho</div>
+            <div id="intelNicheLearningsCount" style="font-size: 22px; font-weight: 800; color: #a855f7; margin-top: 4px;">0</div>
+          </div>
+          <div style="background: #0f172a; padding: 14px; border-radius: 10px; border: 1px solid var(--card-border);">
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Padrões de Alta Conversão</div>
+            <div id="intelNichePatternsCount" style="font-size: 22px; font-weight: 800; color: #34d399; margin-top: 4px;">0</div>
+          </div>
+          <div style="background: #0f172a; padding: 14px; border-radius: 10px; border: 1px solid var(--card-border);">
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Modelos Ativos Alimentando</div>
+            <div id="intelActiveModelsText" style="font-size: 13px; font-weight: 700; color: #38bdf8; margin-top: 8px;">Gemini, Groq, OpenAI</div>
+          </div>
+        </div>
+
+        <div style="background: #0f172a; padding: 14px; border-radius: 10px; border: 1px solid var(--card-border);">
+          <div style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 8px;">
+            <i class="fa-solid fa-sparkles"></i> Padrões de Objeção e Fechamento Aprendidos pelo Cérebro:
+          </div>
+          <div id="intelPatternsList" style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            Conectando ao núcleo cognitivo...
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- TAB 2: MEUS BOTS -->
     <div id="tabBots" style="display: none;">
       <div class="panel-card">
         <div class="panel-header">
-          <h3><i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Meus Bots WhatsApp</h3>
-          <span id="botLimitBadge" class="plan-badge">0 / 5 Conectados</span>
+          <div>
+            <h3><i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Meus Bots WhatsApp</h3>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Conecte seus números via QR Code ou Código de Pareamento de 8 dígitos para responder clientes automaticamente.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span id="botLimitBadge" class="plan-badge">0 / 2 Conectados</span>
+            <button class="btn-action" onclick="openCreateBotModal()" id="btnOpenCreateBot">
+              <i class="fa-solid fa-plus"></i> Conectar Novo WhatsApp
+            </button>
+          </div>
         </div>
         <table>
           <thead>
             <tr>
-              <th>ID Instância</th>
+              <th>ID</th>
               <th>Nome do Chip / Bot</th>
               <th>WhatsApp</th>
               <th>Status</th>
               <th>Modo Operação</th>
+              <th style="text-align: right;">Ações de Conexão</th>
             </tr>
           </thead>
           <tbody id="botsTbody">
-            <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 30px;">Nenhum bot conectado ao seu tenant.</td></tr>
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">Carregando bots do tenant...</td></tr>
           </tbody>
         </table>
       </div>
@@ -301,6 +711,34 @@
 
     <!-- TAB 3: CATÁLOGO -->
     <div id="tabCatalog" style="display: none;">
+      <!-- Banner Loja Web Exclusiva do Tenant & Upsell -->
+      <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(147, 51, 234, 0.12) 100%); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 14px; padding: 18px 22px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 22px; color: #fff; flex-shrink: 0;">
+            <i class="fa-solid fa-store"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <h4 style="font-size: 15px; font-weight: 800;">Minha Loja Web Integrada ao WhatsApp</h4>
+              <span class="plan-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">Vitrine Exclusiva Ativa</span>
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">Seus produtos abaixo são exibidos na sua loja online exclusiva, com checkout Pix e upsell automático via WhatsApp.</p>
+            <div style="margin-top: 6px; font-family: monospace; font-size: 12px; color: #38bdf8;" id="tenantStoreUrlDisplay">Carregando link da loja...</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <button class="btn-sm btn-secondary" onclick="copyTenantStoreLink()" id="btnCopyStoreLink">
+            <i class="fa-solid fa-copy"></i> Copiar Link da Loja
+          </button>
+          <button class="btn-sm btn-secondary" onclick="copyTenantUpsellLink()" id="btnCopyUpsellLink" title="Link especial para clientes pós-compra com desconto VIP">
+            <i class="fa-solid fa-gift" style="color: #f59e0b;"></i> Link de Upsell VIP
+          </button>
+          <a id="btnOpenTenantStore" href="#" target="_blank" class="btn-sm btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir Loja
+          </a>
+        </div>
+      </div>
+
       <div class="panel-card">
         <div class="panel-header">
           <h3><i class="fa-solid fa-box-open" style="color: var(--primary);"></i> Catálogo de Produtos do Tenant</h3>
@@ -326,6 +764,342 @@
       </div>
     </div>
 
+    <!-- TAB ACHADINHOS & AFILIADOS (WHATSAPP @g.us & @newsletter) -->
+    <div id="tabAchadinhos" style="display: none;">
+      <!-- Banner Premium: Caso o Módulo NÃO esteja contratado na licença do Tenant -->
+      <div id="tenantAchadinhosNotHiredBanner" style="display: none;" class="panel-card">
+        <div style="text-align: center; padding: 40px 20px;">
+          <div style="font-size: 54px; margin-bottom: 16px;">🔒</div>
+          <h2 style="font-size: 22px; color: #fb923c; margin: 0 0 10px 0;">Módulo de Achadinhos &amp; Grupos VIP</h2>
+          <span style="display: inline-block; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 16px;">
+            Função Não Contratada na Licença Atual
+          </span>
+          <p style="max-width: 650px; margin: 0 auto 24px auto; font-size: 14px; line-height: 1.6; color: var(--text-muted);">
+            Esta funcionalidade exclusiva permite automatizar suas vendas como afiliado: poste automaticamente ofertas da <strong>Shopee, Mercado Livre, Shein, Braip e Hotmart</strong> nos seus grupos (<code>@g.us</code>) e canais do WhatsApp (<code>@newsletter</code>), com foto, preço riscado, cálculo de desconto e <strong>notificação inteligente de todos os membros</strong> (@everyone).
+          </p>
+          <div style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
+            <button class="btn-action" onclick="contactAdminToHireAchadinhos()" style="background: linear-gradient(135deg, #fb923c, #ea580c); font-weight: 700; padding: 12px 24px; font-size: 14px; color: #fff;">
+              <i class="fa-brands fa-whatsapp"></i> Solicitar Ativação do Módulo com o Suporte
+            </button>
+            <button class="btn-action" onclick="switchTab('overview')" style="background: transparent; border: 1px solid var(--card-border); color: #fff;">
+              Voltar ao Início
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Conteúdo Operacional Liberado: Quando a Função estiver Contratada -->
+      <div id="tenantAchadinhosHiredContent">
+      <!-- Cabeçalho de Boas-Vindas da Aba -->
+      <div class="panel-card" style="margin-bottom: 24px; background: linear-gradient(135deg, rgba(249, 115, 22, 0.1), rgba(234, 88, 12, 0.03)); border: 1px solid rgba(249, 115, 22, 0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <h2 style="margin: 0 0 6px 0; font-size: 20px; display: flex; align-items: center; gap: 10px; color: #fb923c;">
+              <i class="fa-solid fa-bullhorn"></i> Postagem em Grupos &amp; Canais de Achadinhos
+            </h2>
+            <p style="margin: 0; font-size: 13.5px; color: var(--text-muted);">
+              Configure seus grupos (<code>...@g.us</code>) e canais oficiais do WhatsApp (<code>...@newsletter</code>) para publicar automaticamente suas ofertas e links de afiliado com fotos e copies persuasivas.
+            </p>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn-action" onclick="showTenantAutoAffModal()" style="border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700;">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Afiliar Novo Produto
+            </button>
+            <button class="btn-action" onclick="toggleTenantAchadinhosConfigCard()" style="border: 1px solid rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-weight: 700;">
+              <i class="fa-solid fa-sliders"></i> Minhas Configurações
+            </button>
+            <button class="btn-action" onclick="showTenantAddChannelForm()" style="background: #fb923c; border-color: #ea580c; font-weight: 700; color: #fff;">
+              <i class="fa-solid fa-plus"></i> Conectar Canal / Grupo
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Formulário Retrátil: Adicionar/Editar Canal do Tenant -->
+      <div class="panel-card" id="cardTenantChannelForm" style="display: none; margin-bottom: 24px; border: 1px solid rgba(249, 115, 22, 0.4); background: rgba(0, 0, 0, 0.35);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 id="tenantChannelFormTitle" style="margin: 0; font-size: 16px; color: #fb923c;">
+            <i class="fa-solid fa-plus-circle"></i> Cadastrar Canal / Grupo do WhatsApp
+          </h3>
+          <button type="button" class="btn-sm" onclick="hideTenantAddChannelForm()" style="background: transparent; border: 1px solid var(--card-border); color: var(--text-muted); cursor: pointer;">&times; Fechar</button>
+        </div>
+
+        <form id="formTenantAchadinhoChannel" onsubmit="saveTenantAchadinhoChannel(event)">
+          <input type="hidden" id="tenantChannelId">
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Nome Amigável do Canal / Grupo *</label>
+              <input type="text" id="tenantChannelName" required placeholder="Ex: Achadinhos & Cupons VIP">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">JID de Destino do WhatsApp *</label>
+              <input type="text" id="tenantChannelJid" required placeholder="Ex: 120363xxxxxx@g.us ou 120363xxxxxx@newsletter">
+              <small style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px;">
+                Termine com <code>@g.us</code> para grupos ou <code>@newsletter</code> para canais oficiais.
+              </small>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Tipo de Destino</label>
+              <select id="tenantChannelType">
+                <option value="group">Grupo do WhatsApp (@g.us)</option>
+                <option value="channel">Canal Oficial (@newsletter)</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Estilo da Copy (Template)</label>
+              <select id="tenantChannelStyle">
+                <option value="fire_sale">🔥 Achadinho do Dia (Alta Conversão)</option>
+                <option value="flash_deal">⚡ Oferta Relâmpago (Urgência)</option>
+                <option value="minimal">🎯 Direto ao Ponto (Clean)</option>
+                <option value="exclusive">💎 VIP Exclusivo (Gourmet)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Regras Inteligentes de Menção Geral (@everyone / @todos) -->
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(249, 115, 22, 0.25); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+            <div style="font-size: 12.5px; font-weight: 700; color: #fb923c; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <i class="fa-solid fa-users-viewfinder"></i> Marcar Todos os Membros (@todos / Notificação Geral em Grupos):
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="tenantChannelMentionFirstPost" checked>
+                <span>Marcar todos na <strong>primeira postagem</strong> de um produto</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="tenantChannelMentionLaunch" checked>
+                <span>Marcar todos quando for <strong>lançamento oficial</strong></span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="tenantChannelMentionGoodDeals" checked>
+                <span>Marcar todos em <strong>ofertas muito boas</strong> (&ge; 40% OFF)</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 24px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
+              <input type="checkbox" id="tenantChannelAutoPost" checked>
+              <span><strong>Auto-Post:</strong> Publicar novos links criados automaticamente neste canal</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
+              <input type="checkbox" id="tenantChannelActive" checked>
+              <span><strong>Canal Ativo</strong></span>
+            </label>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button type="button" class="btn-action" onclick="hideTenantAddChannelForm()" style="background: transparent; border: 1px solid var(--card-border); color: #fff;">Cancelar</button>
+            <button type="submit" class="btn-action" style="background: #fb923c; border-color: #ea580c; font-weight: 700;">
+              <i class="fa-solid fa-save"></i> Salvar Canal
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Card Retrátil: Minhas Configurações do Módulo de Achadinhos (Tenant) -->
+      <div class="panel-card" id="cardTenantAchadinhosConfig" style="display: none; margin-bottom: 24px; border: 1px solid rgba(56, 189, 248, 0.4); background: rgba(15, 23, 42, 0.65);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 10px;">
+          <h3 style="margin: 0; font-size: 16px; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-sliders"></i> Configurações do Meu Módulo de Achadinhos
+          </h3>
+          <button type="button" onclick="toggleTenantAchadinhosConfigCard()" style="background: transparent; border: 1px solid var(--card-border); color: var(--text-muted); cursor: pointer;">&times; Fechar</button>
+        </div>
+
+        <form id="formTenantAchadinhosGlobalConfig" onsubmit="saveTenantAchadinhosConfig(event)">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Desconto Mínimo para Super Oferta (%)</label>
+              <input type="number" id="tenantCfgMinDiscount" value="40" min="10" max="95">
+              <small style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 3px;">
+                Porcentagem mínima para marcar todos os membros (@everyone) automaticamente.
+              </small>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Intervalo Anti-Flood (Segundos)</label>
+              <input type="number" id="tenantCfgDelaySeconds" value="15" min="5" max="300">
+              <small style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 3px;">
+                Intervalo de segurança entre postagens sequenciais.
+              </small>
+            </div>
+          </div>
+
+          <!-- Horário de Silêncio do Tenant -->
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; margin: 0;">
+                <input type="checkbox" id="tenantCfgQuietHoursEnabled" onchange="toggleTenantQuietInputs(this.checked)">
+                <strong style="color: #fb923c;"><i class="fa-solid fa-moon"></i> Ativar Horário de Silêncio Noturno</strong>
+              </label>
+              <span style="font-size: 11.5px; color: var(--text-muted);">Não disparar mensagens automáticas durante a noite</span>
+            </div>
+            <div id="boxTenantQuietInputs" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px;">
+              <div class="form-group" style="margin: 0;">
+                <label style="font-size: 12px;">Início do Silêncio</label>
+                <input type="time" id="tenantCfgQuietStart" value="22:00">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label style="font-size: 12px;">Fim do Silêncio</label>
+                <input type="time" id="tenantCfgQuietEnd" value="08:00">
+              </div>
+            </div>
+          </div>
+
+          <!-- Regras de Chamada Geral (@todos) -->
+          <div style="background: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.25); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+            <div style="font-size: 12.5px; font-weight: 700; color: #fb923c; margin-bottom: 8px;">
+              <i class="fa-solid fa-bell"></i> Regras de Chamada Geral (@todos / Mentions):
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="tenantCfgMentionFirstPost" checked>
+                <span>Marcar todos na <strong>1ª postagem</strong> de um produto novo</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="tenantCfgMentionLaunch" checked>
+                <span>Marcar todos quando for <strong>lançamento oficial</strong></span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="tenantCfgMentionGoodDeals" checked>
+                <span>Marcar todos em <strong>ofertas muito boas</strong></span>
+              </label>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+            <div class="form-group" style="margin: 0;">
+              <label style="font-size: 12px;">Cabeçalho Padrão da sua Loja (Opcional)</label>
+              <input type="text" id="tenantCfgHeader" placeholder="Ex: 🔥 ACHADINHOS DA TECH STORE! 🛍️">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label style="font-size: 12px;">Rodapé Padrão da sua Loja (Opcional)</label>
+              <input type="text" id="tenantCfgFooter" placeholder="Ex: ⚠️ Estoque limitado! Corre para aproveitar.">
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button type="button" class="btn-action" onclick="toggleTenantAchadinhosConfigCard()" style="background: transparent; border: 1px solid var(--card-border); color: #fff;">Cancelar</button>
+            <button type="submit" class="btn-action" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700;">
+              <i class="fa-solid fa-save"></i> Salvar Minhas Configurações
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tabela de Canais Cadastrados do Tenant -->
+      <div class="panel-card" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <h3 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-brands fa-whatsapp" style="color: #22c55e;"></i> Seus Grupos e Canais Configurados
+          </h3>
+          <button class="btn-action" onclick="loadTenantAchadinhos()" style="padding: 6px 12px; font-size: 12px;">
+            <i class="fa-solid fa-arrows-rotate"></i> Atualizar
+          </button>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;" id="tableTenantChannels">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--card-border); text-align: left; color: var(--text-muted); font-size: 12px;">
+                <th style="padding: 10px 8px;">Canal / Grupo</th>
+                <th style="padding: 10px 8px;">Tipo &amp; JID</th>
+                <th style="padding: 10px 8px;">Estilo da Copy</th>
+                <th style="padding: 10px 8px;">Auto-Post</th>
+                <th style="padding: 10px 8px;">Status</th>
+                <th style="padding: 10px 8px; text-align: right;">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="6" style="padding: 24px; text-align: center; color: var(--text-muted);">Carregando seus canais de achadinhos...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Formulário Retrátil: Auto-Afiliar Novo Produto do Tenant -->
+      <div class="panel-card" id="cardTenantAutoAffForm" style="display: none; margin-bottom: 24px; border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(0, 0, 0, 0.35);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="margin: 0; font-size: 16px; color: #10b981;">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Afiliar Produto &amp; Postar nos Canais
+          </h3>
+          <button type="button" onclick="hideTenantAutoAffModal()" style="background: transparent; border: 1px solid var(--card-border); color: var(--text-muted); cursor: pointer;">&times; Fechar</button>
+        </div>
+
+        <form id="formTenantAutoAff" onsubmit="submitTenantAutoAffiliate(event)">
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label style="font-weight: 700; font-size: 13px;">URL do Produto (Shopee, Mercado Livre, Shein, Braip, Hotmart...) *</label>
+            <input type="url" id="tenantAutoAffUrl" required placeholder="Cole o link do produto na loja externa">
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 14px;">
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Título (Opcional - extraído do link se vazio)</label>
+              <input type="text" id="tenantAutoAffTitle" placeholder="Ex: Fone Bluetooth Sem Fio">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Preço Promocional (R$)</label>
+              <input type="number" step="0.01" min="0" id="tenantAutoAffPrice" placeholder="49.90">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 13px;">Preço Original Riscado (R$)</label>
+              <input type="number" step="0.01" min="0" id="tenantAutoAffOriginalPrice" placeholder="129.90">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label style="font-weight: 600; font-size: 13px;">URL da Foto do Produto (Opcional)</label>
+            <input type="url" id="tenantAutoAffImageUrl" placeholder="https://... link público da foto">
+          </div>
+
+          <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 16px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
+              <input type="checkbox" id="tenantAutoAffIsLaunch">
+              <span><strong>🚀 Lançamento Oficial:</strong> Marcar todos os membros do grupo</span>
+            </label>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button type="button" class="btn-action" onclick="hideTenantAutoAffModal()" style="background: transparent; border: 1px solid var(--card-border); color: #fff;">Cancelar</button>
+            <button type="submit" class="btn-action" id="btnTenantSubmitAutoAff" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-weight: 700;">
+              <i class="fa-solid fa-paper-plane"></i> Gerar Link &amp; Publicar nos Canais
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Histórico Recente de Postagens de Achadinhos -->
+      <div class="panel-card">
+        <h3 style="margin: 0 0 14px 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-clock-rotate-left" style="color: #fb923c;"></i> Últimas Postagens nos seus Canais
+        </h3>
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;" id="tableTenantLogs">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--card-border); text-align: left; color: var(--text-muted); font-size: 12px;">
+                <th style="padding: 10px 8px;">Data</th>
+                <th style="padding: 10px 8px;">Produto</th>
+                <th style="padding: 10px 8px;">Canal de Destino</th>
+                <th style="padding: 10px 8px;">Status</th>
+                <th style="padding: 10px 8px;">Menção</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="5" style="padding: 20px; text-align: center; color: var(--text-muted);">Nenhuma postagem recente encontrada.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    
     <!-- TAB 4: PEDIDOS -->
     <div id="tabOrders" style="display: none;">
       <div class="panel-card">
@@ -390,6 +1164,568 @@
       </div>
     </div>
 
+    <!-- TAB 6: CONFIGURAÇÕES RÁPIDAS -->
+    <div id="tabQuickSettings" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <h2 style="font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-sliders" style="color: var(--primary);"></i> Configurações Rápidas do Tenant
+          </h2>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Ajuste em um só lugar as regras da sua loja, dados de Pix, mensagens de atendimento, recuperação de vendas e IA padrão.</p>
+        </div>
+        <button class="btn-action" onclick="saveQuickSettings()" id="btnSaveQuickSettingsTop" style="padding: 10px 20px;">
+          <i class="fa-solid fa-floppy-disk"></i> Salvar Todas as Configurações
+        </button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; margin-bottom: 24px;">
+        
+        <!-- CARD 1: Perfil & Identidade da Loja -->
+        <div class="panel-card" style="margin-bottom: 0;">
+          <div class="panel-header">
+            <h3><i class="fa-solid fa-store" style="color: #38bdf8;"></i> Perfil &amp; Identidade da Loja</h3>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div class="form-group" style="margin: 0;">
+              <label><i class="fa-solid fa-building"></i> Nome da Loja / Tenant:</label>
+              <input type="text" id="cfgStoreName" placeholder="Ex: Tech Prime Soluções">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-user"></i> Nome do Responsável:</label>
+                <input type="text" id="cfgOwnerName" placeholder="Ex: Evandro">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-brands fa-whatsapp"></i> WhatsApp do Dono:</label>
+                <input type="text" id="cfgOwnerPhone" placeholder="Ex: 5548991646799">
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-envelope"></i> E-mail de Contato:</label>
+                <input type="email" id="cfgOwnerEmail" placeholder="contato@minhaloja.com">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-globe"></i> Domínio / Link Personalizado:</label>
+                <input type="text" id="cfgCustomDomain" placeholder="loja.meusite.com">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 2: Atendimento no WhatsApp & Boas-Vindas -->
+        <div class="panel-card" style="margin-bottom: 0;">
+          <div class="panel-header">
+            <h3><i class="fa-brands fa-whatsapp" style="color: #22c55e;"></i> Atendimento &amp; Boas-Vindas</h3>
+            <label class="switch">
+              <input type="checkbox" id="cfgAutoReplyEnabled" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-robot"></i> Nome do Atendente Virtual:</label>
+                <input type="text" id="cfgBotName" placeholder="Ex: Carol | Atendimento Prime">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-headset"></i> Contato para Suporte Humano:</label>
+                <input type="text" id="cfgSupportContact" placeholder="Ex: 5548991646799 ou @suporte">
+              </div>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label><i class="fa-solid fa-comment-dots"></i> Mensagem Padrão de Boas-Vindas:</label>
+              <textarea id="cfgWelcomeMsg" rows="3" placeholder="👋 Olá! Seja muito bem-vindo à {empresa}. Como posso te ajudar hoje?"></textarea>
+              <small style="color: var(--text-muted); font-size: 11px;">Variáveis suportadas: <code>{nome}</code>, <code>{empresa}</code></small>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 3: Recebimento Pix & Alertas de Venda -->
+        <div class="panel-card" style="margin-bottom: 0;">
+          <div class="panel-header">
+            <h3><i class="fa-brands fa-pix" style="color: #06b6d4;"></i> Pagamentos Pix &amp; Notificações</h3>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-key"></i> Chave Pix de Recebimento:</label>
+                <input type="text" id="cfgPixKey" placeholder="Ex: 48991646799 ou financeiro@loja.com">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label>Tipo da Chave:</label>
+                <select id="cfgPixKeyType">
+                  <option value="phone">Telefone</option>
+                  <option value="cpf">CPF</option>
+                  <option value="cnpj">CNPJ</option>
+                  <option value="email">E-mail</option>
+                  <option value="random">Aleatória (EVP)</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-id-card"></i> Nome do Titular da Conta:</label>
+                <input type="text" id="cfgPixHolder" placeholder="Ex: Evandro Silva">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-hourglass-half"></i> Validade (min):</label>
+                <input type="number" id="cfgPixExpiry" value="15" min="5" max="120">
+              </div>
+            
+            <div style="background: rgba(168,85,247,0.06); border: 1px solid rgba(168,85,247,0.25); border-radius: 10px; padding: 12px; margin-top: 12px;">
+              <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; align-items: center;">
+                <div class="form-group" style="margin: 0;">
+                  <label><i class="fa-solid fa-heart" style="color: #a855f7;"></i> Nome de Usuário LivePix (@seu_usuario):</label>
+                  <input type="text" id="cfgLivepixUsername" placeholder="Ex: seunome (receba direto no seu LivePix)">
+                </div>
+                <div style="display: flex; flex-direction: column; justify-content: center; padding-top: 14px;">
+                  <label class="switch" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="cfgLivepixDefault" checked>
+                    <span class="slider round"></span>
+                    <span style="font-size: 12px; font-weight: 700; color: #e9d5ff;">Padrão LivePix</span>
+                  </label>
+                </div>
+              </div>
+              <small style="color: #cbd5e1; font-size: 11px; display: block; margin-top: 6px;">
+                Se ativo, as compras da sua loja e do PayBot serão geradas direto pelo LivePix (com link oficial e QR Code).
+              </small>
+            </div></div>
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <strong style="font-size: 13px; display: block;"><i class="fa-solid fa-bell"></i> Notificar Nova Venda no WhatsApp</strong>
+                <small style="color: var(--text-muted); font-size: 11px;">Receba um alerta detalhado a cada Pix aprovado.</small>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfgNotifySale" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 4: Recuperação de Carrinho & Upsell -->
+        <div class="panel-card" style="margin-bottom: 0;">
+          <div class="panel-header">
+            <h3><i class="fa-solid fa-cart-shopping" style="color: #f59e0b;"></i> Recuperação de Vendas (Carrinho)</h3>
+            <label class="switch">
+              <input type="checkbox" id="cfgCartRecoveryEnabled" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div class="form-group" style="margin: 0;">
+              <label><i class="fa-solid fa-clock"></i> Tempo de Espera antes de Cobrar (Minutos):</label>
+              <select id="cfgCartDelay">
+                <option value="5">5 minutos após gerar o Pix</option>
+                <option value="15" selected>15 minutos (Recomendado)</option>
+                <option value="30">30 minutos</option>
+                <option value="60">1 hora</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label><i class="fa-solid fa-paper-plane"></i> Mensagem de Recuperação de Venda:</label>
+              <textarea id="cfgCartMsg" rows="3" placeholder="👋 Olá, {nome}! Notamos que seu pedido para *{produto}* ainda está reservado. Ficou com alguma dúvida para concluir?"></textarea>
+              <small style="color: var(--text-muted); font-size: 11px;">Variáveis suportadas: <code>{nome}</code>, <code>{produto}</code>, <code>{link}</code></small>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 5: Minha Loja Web & Upsell no WhatsApp -->
+        <div class="panel-card" style="margin-bottom: 0;">
+          <div class="panel-header">
+            <h3><i class="fa-solid fa-store" style="color: #a855f7;"></i> Loja Web &amp; Upsell WhatsApp</h3>
+            <label class="switch">
+              <input type="checkbox" id="cfgStoreEnabled" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-bullhorn"></i> Subtítulo / Destaque da Loja:</label>
+                <input type="text" id="cfgStoreBannerText" placeholder="Ex: Vitrine Oficial & Descontos Exclusivos">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label><i class="fa-solid fa-percent"></i> Desconto Upsell (%):</label>
+                <input type="number" id="cfgUpsellDiscount" value="15" min="0" max="90">
+              </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <strong style="font-size: 13px; display: block;"><i class="fa-brands fa-whatsapp" style="color: #22c55e;"></i> Disparar Upsell da Loja no WhatsApp</strong>
+                <small style="color: var(--text-muted); font-size: 11px;">Envia automaticamente o link da loja com cupom após venda aprovada no WhatsApp.</small>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfgStoreUpsellWhatsapp" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label><i class="fa-solid fa-comment-dollar"></i> Mensagem de Upsell pós-compra:</label>
+              <textarea id="cfgUpsellMsg" rows="3" placeholder="🎁 Parabéns pela compra, {nome}! Você desbloqueou {desconto} de desconto na nossa vitrine online: {link_loja}"></textarea>
+              <small style="color: var(--text-muted); font-size: 11px;">Variáveis suportadas: <code>{nome}</code>, <code>{link_loja}</code>, <code>{desconto}</code></small>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 6: Padrões Globais de Inteligência Artificial -->
+        <div class="panel-card" style="margin-bottom: 0; grid-column: 1 / -1;">
+          <div class="panel-header">
+            <div>
+              <h3><i class="fa-solid fa-brain" style="color: #a855f7;"></i> Padrões Globais de Inteligência Artificial do Tenant</h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Essas instruções e modelo serão aplicados como padrão para todas as novas conexões e bots do seu tenant.</p>
+            </div>
+            <button type="button" class="btn-sm btn-secondary" onclick="syncAiToAllBots()" title="Replica estas configurações em todos os seus bots agora">
+              <i class="fa-solid fa-rotate"></i> Aplicar em Todos os Bots Existentes
+            </button>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 14px;">
+            <div class="form-group" style="margin: 0;">
+              <label><i class="fa-solid fa-microchip"></i> Provedor de IA Padrão:</label>
+              <select id="cfgDefaultAiProvider">
+                <option value="auto">Automático (Multi-Failover do Sistema)</option>
+                <option value="gemini">Google Gemini (Alta Velocidade)</option>
+                <option value="openai">OpenAI (ChatGPT Oficial)</option>
+                <option value="groq">Groq (Meta Llama 3.3 Ultra-Rápido)</option>
+                <option value="deepseek">DeepSeek AI</option>
+                <option value="openrouter">OpenRouter Multi-Modelos</option>
+                <option value="local">Local / Antigravity / Ollama</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label><i class="fa-solid fa-cube"></i> Modelo Padrão Sugerido:</label>
+              <input type="text" id="cfgDefaultAiModel" placeholder="Ex: gemini-2.0-flash ou gpt-4o-mini">
+            </div>
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label><i class="fa-solid fa-terminal"></i> Instrução / Persona Global Padrão:</label>
+            <textarea id="cfgDefaultAiInstruction" rows="4" placeholder="Ex: Você é o atendente comercial consultivo da Prime. Seu objetivo é atender com cordialidade e conduzir o cliente ao fechamento com rapidez e objetividade."></textarea>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Barra de Ação Inferior -->
+      <div style="background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 40px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <i class="fa-solid fa-circle-check" style="color: #10b981; font-size: 18px;"></i>
+          <span style="font-size: 13px; color: var(--text-muted);">As alterações salvas entram em vigor imediatamente para todos os clientes e atendimentos.</span>
+        </div>
+        <button class="btn-action" onclick="saveQuickSettings()" id="btnSaveQuickSettingsBottom" style="padding: 12px 28px; font-size: 14px;">
+          <i class="fa-solid fa-floppy-disk"></i> Salvar Todas as Configurações
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 7: INTEGRAÇÕES & E-COMMERCE (MÓDULO ADICIONAL) -->
+    <div id="tabIntegrations" style="display: none;">
+      <!-- ESTADO 1: UPSELL DO MÓDULO ADICIONAL (SE NÃO ADQUIRIDO) -->
+      <div id="integrationsUpsellView" style="display: none;">
+        <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.85)); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 16px; padding: 32px; margin-bottom: 24px; position: relative; overflow: hidden;">
+          <div style="position: absolute; right: -40px; top: -40px; width: 220px; height: 220px; background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 70%); pointer-events: none;"></div>
+          
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 6px 14px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid rgba(56, 189, 248, 0.4); text-transform: uppercase; letter-spacing: 0.5px;">
+                <i class="fa-solid fa-sparkles"></i> Módulo Adicional Disponível
+              </span>
+              <span style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 6px 14px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid rgba(16, 185, 129, 0.3);">
+                <i class="fa-solid fa-bolt"></i> Plug-and-Play
+              </span>
+            </div>
+            <div style="font-size: 13px; color: var(--text-muted);">
+              Compatível com: <strong style="color: #fff;">Nuvemshop</strong> (ex: <em>smrodrigues.com.br</em>), <strong style="color: #fff;">WooCommerce</strong> &amp; <strong style="color: #fff;">Shopify</strong>
+            </div>
+          </div>
+
+          <h2 style="font-size: 24px; font-weight: 800; margin-bottom: 10px; color: #fff;">
+            Conecte sua Loja Virtual Existente ao seu Bot de WhatsApp
+          </h2>
+          <p style="font-size: 14px; color: var(--text-muted); line-height: 1.6; max-width: 850px; margin-bottom: 28px;">
+            Já possui um site ou e-commerce rodando (como uma papelaria, loja de suprimentos ou varejo)? Com o <strong>Módulo Adicional E-commerce</strong>, seu bot se conecta à estrutura atual da sua loja para importar produtos, responder cotações no Zap e recuperar carrinhos abandonados de forma 100% automática.
+          </p>
+
+          <!-- Grid de Benefícios -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px;">
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); padding: 18px; border-radius: 12px;">
+              <div style="font-size: 22px; color: #38bdf8; margin-bottom: 8px;"><i class="fa-solid fa-arrows-rotate"></i></div>
+              <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px;">Catálogo em Tempo Real</h4>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">Sincroniza fotos em alta resolução, descrições, preços e links diretos da sua loja para o bot atender no Zap.</p>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); padding: 18px; border-radius: 12px;">
+              <div style="font-size: 22px; color: #f59e0b; margin-bottom: 8px;"><i class="fa-solid fa-cart-shopping"></i></div>
+              <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px;">Recuperação de Carrinho</h4>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">Clientes que abandonarem o checkout no site recebem uma mensagem consultiva humanizada no WhatsApp com link para fechar.</p>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); padding: 18px; border-radius: 12px;">
+              <div style="font-size: 22px; color: #10b981; margin-bottom: 8px;"><i class="fa-solid fa-truck-fast"></i></div>
+              <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px;">Notificações &amp; Rastreio</h4>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">Avisa o cliente quando o pedido for aprovado e envia o código de rastreamento dos Correios/transportadora no Zap.</p>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); padding: 18px; border-radius: 12px;">
+              <div style="font-size: 22px; color: #a855f7; margin-bottom: 8px;"><i class="fa-solid fa-robot"></i></div>
+              <h4 style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px;">IA Consultiva Especializada</h4>
+              <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">O bot compreende todo o mix de produtos da sua loja física/online e recomenda os itens certos para pedidos de orçamento.</p>
+            </div>
+          </div>
+
+          <!-- Card de Preço & Aquisição -->
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; background: rgba(56, 189, 248, 0.06); border: 1px solid rgba(56, 189, 248, 0.2); padding: 24px; border-radius: 14px;">
+            <div>
+              <div style="font-size: 12px; font-weight: 700; color: #38bdf8; text-transform: uppercase;">Investimento do Módulo Adicional</div>
+              <div style="font-size: 28px; font-weight: 900; color: #fff; margin: 4px 0;">
+                R$ 49,90 <span style="font-size: 14px; font-weight: 600; color: var(--text-muted);">/ mês</span>
+                <span style="font-size: 13px; font-weight: 700; color: #10b981; margin-left: 12px; background: rgba(16, 185, 129, 0.15); padding: 3px 8px; border-radius: 6px;">ou R$ 299,00 vitalício</span>
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted);">Liberação imediata via Pix automático • Pode ser cancelado a qualquer momento</div>
+            </div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <button class="btn-action" onclick="openPurchaseModuleModal('monthly')" style="padding: 12px 24px; font-size: 14px;">
+                <i class="fa-solid fa-qrcode"></i> Ativar com Pix Mensal (R$ 49,90)
+              </button>
+              <button class="btn-action" onclick="openPurchaseModuleModal('lifetime')" style="background: #10b981; border-color: #10b981; padding: 12px 24px; font-size: 14px;">
+                <i class="fa-solid fa-crown"></i> Acesso Vitalício (R$ 299,00)
+              </button>
+              <button class="btn-action" onclick="contactSupportForModule()" style="background: transparent; border-color: var(--card-border); color: #fff; padding: 12px 20px; font-size: 14px;">
+                <i class="fa-brands fa-whatsapp"></i> Falar com Suporte
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ESTADO 2: PAINEL DE CONTROLE DA INTEGRAÇÃO (SE ADQUIRIDO) -->
+      <div id="integrationsActiveView" style="display: none;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h2 style="font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-plug" style="color: #38bdf8;"></i> Conexão E-commerce &amp; Nuvemshop
+            </h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+              Módulo Ativo ✅ Sincronize o catálogo do seu site e configure webhooks de pedidos e carrinhos.
+            </p>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn-action" onclick="testStoreConnection()" id="btnTestStore" style="background: #334155; border-color: #475569; padding: 9px 16px;">
+              <i class="fa-solid fa-network-wired"></i> Testar Conexão
+            </button>
+            <button class="btn-action" onclick="syncStoreProducts()" id="btnSyncStore" style="background: #38bdf8; border-color: #38bdf8; color: #000; font-weight: 700; padding: 9px 18px;">
+              <i class="fa-solid fa-rotate"></i> Sincronizar Catálogo Agora
+            </button>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; margin-bottom: 24px;">
+          <!-- Card de Configuração da Loja -->
+          <div class="panel-card" style="margin-bottom: 0;">
+            <div class="panel-header">
+              <h3 style="font-size: 15px;"><i class="fa-solid fa-store" style="color: #38bdf8;"></i> Dados da Sua Loja Virtual</h3>
+            </div>
+            <form onsubmit="handleSaveStoreConfig(event)">
+              <div class="form-group">
+                <label>Plataforma de E-commerce:</label>
+                <select id="ecomPlatform" class="form-control" style="background: #0f172a; color: #fff; border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px; width: 100%;">
+                  <option value="nuvemshop" selected>Nuvemshop (Tienda Nube) - Recomendado</option>
+                  <option value="woocommerce">WooCommerce (WordPress)</option>
+                  <option value="shopify">Shopify</option>
+                  <option value="custom">Catálogo Aberto / Outra Plataforma</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>Endereço / URL Completa da sua Loja Virtual:</label>
+                <input type="url" id="ecomStoreUrl" required placeholder="Ex: https://smrodrigues.com.br" style="background: #0f172a; color: #fff; border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px; width: 100%;">
+                <small style="color: var(--text-muted); display: block; margin-top: 4px;">Insira o endereço oficial do seu site (com https://).</small>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                  <label>ID da Loja Nuvemshop (User ID):</label>
+                  <input type="text" id="ecomStoreId" placeholder="Ex: 2530012" style="background: #0f172a; color: #fff; border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px; width: 100%;">
+                </div>
+                <div class="form-group">
+                  <label>Token de Acesso da API (Opcional):</label>
+                  <input type="password" id="ecomAccessToken" placeholder="Bearer Token Nuvemshop" style="background: #0f172a; color: #fff; border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 8px; width: 100%;">
+                </div>
+              </div>
+              <small style="color: #94a3b8; display: block; margin-bottom: 16px;">
+                💡 <em>Dica: Mesmo sem Token de API, nosso sistema já consegue sincronizar os produtos pelo catálogo aberto do seu site!</em>
+              </small>
+
+              <h4 style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 12px; font-weight: 700;">Automações no WhatsApp</h4>
+              <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px;">
+                  <input type="checkbox" id="ecomAutoSync" checked style="width: 16px; height: 16px;">
+                  <span>Sincronização periódica de produtos e estoque ativa</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px;">
+                  <input type="checkbox" id="ecomCartRecovery" checked style="width: 16px; height: 16px;">
+                  <span>Recuperação automática de carrinho abandonado no WhatsApp</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px;">
+                  <input type="checkbox" id="ecomOrderNotifs" checked style="width: 16px; height: 16px;">
+                  <span>Notificar clientes sobre pedidos pagos e envio com código de rastreamento</span>
+                </label>
+              </div>
+
+              <button type="submit" class="btn-action" id="btnSaveStoreConfig" style="width: 100%; padding: 10px; font-size: 14px;">
+                <i class="fa-solid fa-floppy-disk"></i> Salvar Configurações da Loja
+              </button>
+            </form>
+          </div>
+
+          <!-- Card de Webhooks & Status -->
+          <div class="panel-card" style="margin-bottom: 0;">
+            <div class="panel-header">
+              <h3 style="font-size: 15px;"><i class="fa-solid fa-link" style="color: #10b981;"></i> Webhooks &amp; Status do Catálogo</h3>
+            </div>
+            
+            <div style="background: #0f172a; padding: 16px; border-radius: 12px; border: 1px solid var(--card-border); margin-bottom: 16px;">
+              <label style="font-size: 12px; font-weight: 700; color: #38bdf8; display: block; margin-bottom: 6px;">URL de Webhook da sua Loja (Nuvemshop):</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="ecomWebhookUrl" readonly style="background: #1e293b; color: #94a3b8; font-family: monospace; font-size: 12px; border: 1px solid var(--card-border); padding: 8px 10px; border-radius: 8px; flex: 1;">
+                <button type="button" class="btn-action" onclick="copyWebhookUrl()" style="padding: 8px 14px; font-size: 12px;">
+                  <i class="fa-solid fa-copy"></i> Copiar
+                </button>
+              </div>
+              <small style="color: var(--text-muted); display: block; margin-top: 6px;">
+                Cole este link no painel da Nuvemshop (<em>Configurações &gt; Notificações / Webhooks</em>) para os eventos de <code>order/created</code>, <code>order/paid</code>, <code>order/fulfilled</code> e <code>cart/abandoned</code>.
+              </small>
+            </div>
+
+            <!-- Resumo Métricas -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+              <div style="background: #0f172a; padding: 14px; border-radius: 10px; border: 1px solid var(--card-border);">
+                <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Produtos Sincronizados</div>
+                <div id="valEcomTotalSynced" style="font-size: 24px; font-weight: 800; color: #fff; margin-top: 4px;">0</div>
+              </div>
+              <div style="background: #0f172a; padding: 14px; border-radius: 10px; border: 1px solid var(--card-border);">
+                <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Última Sincronização</div>
+                <div id="valEcomLastSync" style="font-size: 12px; font-weight: 700; color: #38bdf8; margin-top: 8px;">Nunca</div>
+              </div>
+            </div>
+
+            <div id="ecomStatusAlert" style="display: none; padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 12px;"></div>
+
+            <h4 style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; font-weight: 700;"><i class="fa-solid fa-list-check"></i> Histórico Recente de Sincronizações</h4>
+            <div style="max-height: 180px; overflow-y: auto;">
+              <table style="font-size: 12px;">
+                <thead>
+                  <tr>
+                    <th>Evento</th>
+                    <th>Status</th>
+                    <th>Itens</th>
+                    <th>Data/Hora</th>
+                  </tr>
+                </thead>
+                <tbody id="ecomLogsTbody">
+                  <tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">Nenhum log registrado ainda.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+
+  <!-- Modal Onboarding Inicial do Tenant -->
+  <div class="modal-overlay" id="modalOnboardingWizard" style="z-index: 2000;">
+    <div class="modal-content" style="max-width: 720px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <div>
+          <span style="font-size: 11px; font-weight: 800; color: #c084fc; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i class="fa-solid fa-sparkles"></i> Assistente de Implantação Rápida
+          </span>
+          <h3 style="font-size: 18px; font-weight: 800; margin-top: 2px;">Configuração Inicial do seu Negócio</h3>
+        </div>
+        <button onclick="closeModal('modalOnboardingWizard')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Barra de Progresso do Wizard -->
+      <div class="wizard-progress">
+        <div class="wizard-dot active" id="wzDot1"></div>
+        <div class="wizard-dot" id="wzDot2"></div>
+        <div class="wizard-dot" id="wzDot3"></div>
+      </div>
+
+      <!-- ETAPA 1: ESCOLHER NICHO -->
+      <div class="wizard-step active" id="wzStep1">
+        <div style="margin-bottom: 14px;">
+          <h4 style="font-size: 15px; font-weight: 700; color: #fff;">1. Qual é o ramo ou nicho do seu negócio?</h4>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Selecione uma das 15 opções verticais para receber layout e produtos prontos.</p>
+        </div>
+        <div class="niche-grid" id="wzNicheGrid" style="max-height: 340px; overflow-y: auto; padding-right: 6px;">
+          <!-- Carregado via JS -->
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+          <button type="button" class="btn-action" onclick="wizardNext()" style="padding: 10px 24px;">
+            Avançar para Tom de Voz &rarr;
+          </button>
+        </div>
+      </div>
+
+      <!-- ETAPA 2: ESCOLHER TOM DE VOZ -->
+      <div class="wizard-step" id="wzStep2">
+        <div style="margin-bottom: 14px;">
+          <h4 style="font-size: 15px; font-weight: 700; color: #fff;">2. Como seu atendente de IA deve se comunicar?</h4>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Escolha o nível comportamental de fechamento e cordialidade.</p>
+        </div>
+        <div class="tone-grid" id="wzToneGrid">
+          <!-- Carregado via JS -->
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 20px;">
+          <button type="button" class="btn-action" onclick="wizardPrev()" style="background: transparent; border: 1px solid var(--card-border); color: #fff;">
+            &larr; Voltar
+          </button>
+          <button type="button" class="btn-action" onclick="wizardNext()" style="padding: 10px 24px;">
+            Avançar para Finalização &rarr;
+          </button>
+        </div>
+      </div>
+
+      <!-- ETAPA 3: CONFIRMAÇÃO & ATIVAÇÃO -->
+      <div class="wizard-step" id="wzStep3">
+        <div style="margin-bottom: 14px;">
+          <h4 style="font-size: 15px; font-weight: 700; color: #fff;">3. Revisão &amp; Ativação da Conta</h4>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Confirme os dados selecionados para finalizar o onboarding.</p>
+        </div>
+
+        <div style="background: #0f172a; padding: 18px; border-radius: 12px; border: 1px solid var(--card-border); margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 12px; color: var(--text-muted);">Nicho Selecionado:</span>
+            <strong id="wzSummaryNiche" style="color: #c084fc; font-size: 14px;"></strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 12px; color: var(--text-muted);">Tom de Interação:</span>
+            <strong id="wzSummaryTone" style="color: #60a5fa; font-size: 14px;"></strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; color: var(--text-muted);">Layout da Loja:</span>
+            <strong id="wzSummaryLayout" style="color: #34d399; font-size: 13px;">Tema Customizado Ativo</strong>
+          </div>
+        </div>
+
+        <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 12px; padding: 14px; margin-bottom: 20px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px;">
+            <input type="checkbox" id="wzChkPopulateCatalog" checked style="width: 18px; height: 18px; accent-color: #a855f7;">
+            <span><strong>Criar Catálogo Automático:</strong> Inserir produtos e serviços modelo de exemplo com preços sugeridos no catálogo da sua loja.</span>
+          </label>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; margin-top: 20px;">
+          <button type="button" class="btn-action" onclick="wizardPrev()" style="background: transparent; border: 1px solid var(--card-border); color: #fff;">
+            &larr; Voltar
+          </button>
+          <button type="button" class="btn-action" onclick="submitOnboardingWizard()" id="btnSubmitWizard" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; font-weight: 800; padding: 12px 24px;">
+            <i class="fa-solid fa-rocket"></i> Concluir Onboarding &amp; Ativar Sistema
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Modal Novo Produto -->
@@ -429,6 +1765,284 @@
     </div>
   </div>
 
+  <!-- Modal Criar WhatsApp -->
+  <div class="modal-overlay" id="modalCreateBot">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 style="font-size: 16px; font-weight: 800;"><i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Conectar Novo Bot WhatsApp</h3>
+        <button onclick="closeModal('modalCreateBot')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer;">&times;</button>
+      </div>
+      <form onsubmit="handleCreateBot(event)">
+        <div class="form-group">
+          <label>Nome ou Identificação do Chip / Bot:</label>
+          <input type="text" id="newBotName" required placeholder="Ex: WhatsApp Vendas Prime, Suporte SAC...">
+        </div>
+        <div class="form-group">
+          <label>Número do Telefone (Opcional - com DDI e DDD):</label>
+          <input type="tel" id="newBotPhone" placeholder="Ex: 5548991646799 ou 48991646799">
+          <small style="color: var(--text-muted); font-size: 11px; display: block; margin-top: 4px;">Ao criar, você poderá conectar lendo o QR Code ou digitando o Código de Pareamento de 8 dígitos.</small>
+        </div>
+        <button type="submit" class="btn-action" style="width: 100%; justify-content: center; padding: 12px; margin-top: 8px;">
+          <i class="fa-solid fa-bolt"></i> Criar &amp; Abrir Conexão
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Conectar WhatsApp (QR Code & Pair Code) -->
+  <div class="modal-overlay" id="modalTenantConnect">
+    <div class="modal-content" style="max-width: 500px; text-align: center;">
+      <div class="modal-header" style="text-align: left;">
+        <div>
+          <h3 style="font-size: 16px; font-weight: 800;"><i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Conectar WhatsApp</h3>
+          <p id="tenantConnectBotTitle" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Instância #...</p>
+        </div>
+        <button onclick="closeTenantConnectModal()" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Abas de Conexão: QR Code vs Pair Code -->
+      <div class="connect-nav-tabs">
+        <button type="button" id="tabBtnTenantQr" class="connect-tab-btn active" onclick="switchTenantConnectTab('qr')">
+          <i class="fa-solid fa-qrcode"></i> Escanear QR Code
+        </button>
+        <button type="button" id="tabBtnTenantPairing" class="connect-tab-btn" onclick="switchTenantConnectTab('pairing')">
+          <i class="fa-solid fa-key"></i> Código de 8 Dígitos (Pair Code)
+        </button>
+      </div>
+
+      <!-- ABA 1: QR CODE -->
+      <div id="tenantTabQr">
+        <div id="tenantQrContainer" style="min-height: 250px; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+          <div class="qr-frame" id="tenantQrImgWrap" style="display: none;">
+            <img id="tenantQrImg" alt="QR Code WhatsApp" src="" />
+          </div>
+          <div id="tenantQrLoading" style="padding: 30px; color: var(--text-muted);">
+            <i class="fa-solid fa-spinner fa-spin fa-2x" style="color: var(--primary); margin-bottom: 12px;"></i>
+            <p style="font-size: 13px; font-weight: 600;">Gerando QR Code de conexão segura...</p>
+          </div>
+          <div id="tenantQrConnectedWrap" style="display: none; padding: 25px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; margin-bottom: 10px; width: 100%;">
+            <i class="fa-solid fa-circle-check" style="font-size: 42px; color: #10b981; margin-bottom: 10px;"></i>
+            <h4 style="font-size: 16px; font-weight: 800; color: #10b981;">WhatsApp Conectado com Sucesso!</h4>
+            <p id="tenantConnectedPhone" style="font-size: 13px; color: #cbd5e1; margin-top: 4px;">+55...</p>
+          </div>
+        </div>
+
+        <p id="tenantQrStatusText" style="font-size: 12px; color: var(--text-muted); margin: 6px 0 12px;">
+          Abra o WhatsApp no celular &gt; Aparelhos Conectados &gt; Conectar um Aparelho e aponte para a tela.
+        </p>
+
+        <button type="button" class="btn-sm btn-secondary" onclick="refreshTenantQr()" style="margin: 0 auto 10px; display: inline-flex;">
+          <i class="fa-solid fa-arrows-rotate"></i> Atualizar QR Code
+        </button>
+
+        <div class="instruction-step">
+          <b>Passo a passo com câmera:</b><br>
+          1. Abra o WhatsApp no smartphone.<br>
+          2. Toque nos <b>3 pontinhos</b> (Android) ou <b>Ajustes</b> (iPhone).<br>
+          3. Selecione <b>Aparelhos Conectados</b> e toque em <b>Conectar um aparelho</b>.<br>
+          4. Aponte a câmera para o QR Code acima.
+        </div>
+      </div>
+
+      <!-- ABA 2: PAIR CODE (CÓDIGO DE 8 DÍGITOS) -->
+      <div id="tenantTabPairing" style="display: none;">
+        <p style="font-size: 13px; color: var(--text-muted); text-align: left; margin-bottom: 12px;">
+          Conecte sem precisar ler a câmera! Digite o número do WhatsApp com DDI e DDD (ex: <b>5548991646799</b>):
+        </p>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <input type="tel" id="tenantPairPhoneInput" placeholder="Ex: 5548991646799 ou 48991646799"
+                 style="flex: 1; text-align: center; font-weight: 800; font-size: 14px; letter-spacing: 1px;">
+          <button type="button" class="btn-action" id="btnTenantPairCode" onclick="requestTenantPairingCode(this)" style="white-space: nowrap;">
+            <i class="fa-solid fa-bolt"></i> Gerar Código
+          </button>
+        </div>
+
+        <div id="tenantPairingCodeBox" class="pairing-code-box" style="display: none;">
+          <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block;">Digite este código no seu WhatsApp:</span>
+          <div id="tenantPairingCodeText" class="pairing-code-display">----</div>
+          <button type="button" class="btn-sm btn-secondary" onclick="copyTenantPairingCode()" style="margin-top: 6px;">
+            <i class="fa-solid fa-copy"></i> <span id="copyBtnText">Copiar Código</span>
+          </button>
+        </div>
+
+        <div class="instruction-step">
+          <b>Passo a passo no celular:</b><br>
+          1. Abra o WhatsApp e vá em <b>Aparelhos Conectados</b>.<br>
+          2. Toque no botão <b>Conectar um aparelho</b>.<br>
+          3. Na tela da câmera, toque na opção abaixo: <b>"Conectar com número de telefone"</b>.<br>
+          4. Digite o código de 8 dígitos gerado acima!
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--card-border);">
+        <button type="button" class="btn-sm btn-danger-sm" onclick="resetCurrentTenantSession()" title="Limpa arquivos de sessão e reinicia o socket">
+          <i class="fa-solid fa-trash-can"></i> Limpar Sessão &amp; Resetar
+        </button>
+        <button type="button" class="btn-sm btn-secondary" onclick="closeTenantConnectModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Configuração de IA da Conexão / Bot -->
+  <div class="modal-overlay" id="modalTenantBotAi">
+    <div class="modal-content" style="max-width: 620px; max-height: calc(100vh - 40px); overflow-y: auto;">
+      <div class="modal-header">
+        <div>
+          <h3 style="font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-brain" style="color: #a855f7;"></i> Inteligência Artificial &amp; Instruções
+          </h3>
+          <p id="tenantAiBotTitle" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Instância #...</p>
+        </div>
+        <button onclick="closeModal('modalTenantBotAi')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer;">&times;</button>
+      </div>
+
+      <form onsubmit="handleSaveBotAi(event)">
+        <!-- Ativar IA -->
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <strong style="font-size: 13px; display: block;">Atendimento Automático com IA</strong>
+            <small style="color: var(--text-muted); font-size: 11px;">Responde perguntas dos clientes, dúvidas e vendas usando IA nesta conexão.</small>
+          </div>
+          <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;">
+            <input type="checkbox" id="botAiEnabled" style="opacity: 0; width: 0; height: 0;">
+            <span class="slider" style="position: absolute; inset: 0; background: #334155; border-radius: 24px; transition: 0.3s;" id="botAiSlider"></span>
+          </label>
+        </div>
+
+        <!-- Seleção de API de IA -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label><i class="fa-solid fa-microchip" style="color: var(--primary);"></i> Qual API de IA Usar:</label>
+            <select id="botAiProvider" onchange="onAiProviderChange()">
+              <option value="auto">⚡ Automático (Multi-Failover)</option>
+              <option value="gemini">Google Gemini (Recomendado)</option>
+              <option value="openai">OpenAI (ChatGPT Oficial)</option>
+              <option value="groq">Groq (Meta Llama 3.3 Ultra-Rápido)</option>
+              <option value="deepseek">DeepSeek AI</option>
+              <option value="openrouter">OpenRouter Multi-Modelos</option>
+              <option value="local">Local / Antigravity / Ollama</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label><i class="fa-solid fa-layer-group" style="color: #10b981;"></i> Modelo de IA:</label>
+            <input type="text" id="botAiModel" list="botAiModelList" placeholder="Ex: gemini-2.0-flash">
+            <datalist id="botAiModelList"></datalist>
+          </div>
+        </div>
+
+        <!-- Chave de API Própria (Opcional) -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="margin-bottom: 0;"><i class="fa-solid fa-key" style="color: var(--warning);"></i> Chave de API Própria (Opcional):</label>
+            <span id="customKeyBadge" style="font-size: 11px; color: var(--text-muted);"></span>
+          </div>
+          <div style="position: relative;">
+            <input type="password" id="botAiApiKey" placeholder="Deixe em branco para usar o pool de IA padrão do plano">
+            <button type="button" onclick="toggleApiKeyVisibility()" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer;">
+              <i class="fa-solid fa-eye" id="eyeIcon"></i>
+            </button>
+          </div>
+          <small style="color: var(--text-muted); font-size: 11px; display: block; margin-top: 4px;">
+            Se você possuir uma chave própria (ex: OpenAI, Gemini, Groq), insira-a aqui para controle total de quota.
+          </small>
+        </div>
+
+        <!-- Instrução / System Prompt que o bot vai seguir -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="margin-bottom: 0;"><i class="fa-solid fa-file-signature" style="color: #38bdf8;"></i> Instrução que a IA vai seguir (System Prompt):</label>
+            <span style="font-size: 11px; color: var(--text-muted);">Personalidade &amp; Regras</span>
+          </div>
+
+          <!-- Botões de Templates Prontos -->
+          <div style="display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;">
+            <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Modelos rápidos:</span>
+            <button type="button" class="btn-sm btn-secondary" onclick="applyAiPromptTemplate('sales')" style="font-size: 11px; padding: 4px 8px;">
+              🛍️ Vendas Diretas
+            </button>
+            <button type="button" class="btn-sm btn-secondary" onclick="applyAiPromptTemplate('consultative')" style="font-size: 11px; padding: 4px 8px;">
+              🎯 Consultor Sênior
+            </button>
+            <button type="button" class="btn-sm btn-secondary" onclick="applyAiPromptTemplate('support')" style="font-size: 11px; padding: 4px 8px;">
+              🛠️ Suporte &amp; SAC
+            </button>
+            <button type="button" class="btn-sm btn-secondary" onclick="applyAiPromptTemplate('minimal')" style="font-size: 11px; padding: 4px 8px;">
+              💬 Chill / WhatsApp Real
+            </button>
+          </div>
+
+          <textarea id="botAiInstruction" rows="7" placeholder="Ex: Você é o atendente oficial da Prime. Seja atencioso, responda em 1 a 2 frases no WhatsApp, tire dúvidas sobre nossos produtos e direcione para o checkout enviando o link quando o cliente demonstrar interesse..."></textarea>
+          <small style="color: var(--text-muted); font-size: 11px; display: block; margin-top: 4px;">
+            Defina o tom de voz, regras do que responder, limites e como conduzir o cliente até o fechamento.
+          </small>
+        </div>
+
+        <!-- Área de Teste Rápido de IA -->
+        <div style="background: #090d16; border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; margin-bottom: 18px;">
+          <strong style="font-size: 12px; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #cbd5e1;">
+            <i class="fa-solid fa-flask" style="color: #ec4899;"></i> Testar Resposta da IA em Tempo Real:
+          </strong>
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <input type="text" id="aiTestInput" placeholder="Digite uma pergunta de teste (Ex: Olá, como funciona?)" style="flex: 1; font-size: 12px; padding: 8px 12px;">
+            <button type="button" id="btnRunAiTest" onclick="runAiPromptTest()" class="btn-sm btn-secondary" style="white-space: nowrap; padding: 8px 12px;">
+              <i class="fa-solid fa-play"></i> Testar
+            </button>
+          </div>
+          <div id="aiTestResultWrap" style="display: none; background: rgba(255, 255, 255, 0.03); border-radius: 8px; padding: 10px; font-size: 12px; border-left: 3px solid #10b981;">
+            <p id="aiTestOutput" style="color: #f1f5f9; line-height: 1.5; white-space: pre-wrap;"></p>
+            <div id="aiTestMeta" style="font-size: 10px; color: var(--text-muted); margin-top: 6px;"></div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-action" style="width: 100%; justify-content: center; padding: 12px; font-size: 14px;">
+          <i class="fa-solid fa-floppy-disk"></i> Salvar Configurações de IA
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Aquisição Módulo Adicional Pix -->
+  <div class="modal-overlay" id="modalPurchaseAddon">
+    <div class="modal-content" style="max-width: 480px; text-align: center;">
+      <div class="modal-header" style="text-align: left;">
+        <h3 style="font-size: 16px; font-weight: 800;"><i class="fa-solid fa-plug" style="color: #38bdf8;"></i> Adquirir Módulo Adicional</h3>
+        <button onclick="closeModal('modalPurchaseAddon')" style="background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer;">&times;</button>
+      </div>
+      <div style="padding: 16px 0;">
+        <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 8px;">Módulo: <strong style="color: #fff;" id="addonModalName">Integração E-commerce & Nuvemshop</strong></p>
+        <div style="font-size: 26px; font-weight: 900; color: #38bdf8; margin-bottom: 16px;" id="addonModalPrice">R$ 49,90</div>
+
+        <div id="addonQrContainer" style="display: none; margin-bottom: 16px;">
+          <img id="addonQrImage" src="" alt="QR Code Pix" style="max-width: 180px; border-radius: 8px; margin: 0 auto; display: block; border: 1px solid var(--card-border);">
+        </div>
+
+        <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid var(--card-border); margin-bottom: 16px; text-align: left;">
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Código Pix Copia e Cola:</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="addonPixCode" readonly style="background: #1e293b; color: #fff; font-size: 12px; font-family: monospace; border: 1px solid var(--card-border); padding: 6px 8px; border-radius: 6px; flex: 1;">
+            <button class="btn-action" onclick="copyAddonPixCode()" style="padding: 6px 12px; font-size: 12px;">
+              <i class="fa-solid fa-copy"></i> Copiar
+            </button>
+          </div>
+        </div>
+
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
+          Após realizar o pagamento via Pix no app do seu banco, o módulo é liberado automaticamente para o seu painel!
+        </p>
+
+        <div style="display: flex; gap: 10px; justify-content: center;">
+          <button class="btn-action" onclick="checkAddonPaymentStatus()" id="btnCheckAddonStatus" style="padding: 10px 20px;">
+            <i class="fa-solid fa-arrows-rotate"></i> Já paguei, verificar ativação
+          </button>
+          <button class="btn-action" onclick="closeModal('modalPurchaseAddon')" style="background: #334155; border-color: #475569; padding: 10px 16px;">
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     let token = localStorage.getItem('tenant_token') || new URLSearchParams(window.location.search).get('token');
     let tenantData = null;
@@ -447,22 +2061,36 @@
       if (res.status === 401) {
         localStorage.removeItem('tenant_token');
         window.location.href = '/tenant/login';
-        throw new Error('Sessão expirada.');
+        throw new Error('Sessão expirada. Faça login novamente.');
       }
-      return res.json();
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Servidor não retornou JSON (${res.status}). O servidor pode estar reiniciando ou a rota não foi encontrada.`);
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Erro ${res.status}: Operação não concluída`);
+      }
+      return data;
     }
 
     function switchTab(tab) {
-      ['overview', 'bots', 'catalog', 'orders', 'license'].forEach(t => {
+      const allTabs = ['overview', 'nicheSetup', 'bots', 'catalog', 'achadinhos', 'orders', 'quickSettings', 'integrations', 'license'];
+      allTabs.forEach(t => {
         const el = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
         if (el) el.style.display = t === tab ? 'block' : 'none';
       });
       document.querySelectorAll('.nav-tab-btn').forEach((btn, idx) => {
-        const tabs = ['overview', 'bots', 'catalog', 'orders', 'license'];
-        btn.classList.toggle('active', tabs[idx] === tab);
+        btn.classList.toggle('active', allTabs[idx] === tab);
       });
+      if (tab === 'nicheSetup') loadNicheSetup();
+      if (tab === 'bots') loadBots();
       if (tab === 'catalog') loadProducts();
+      if (tab === 'achadinhos') loadTenantAchadinhos();
       if (tab === 'orders') loadOrders();
+      if (tab === 'quickSettings') loadQuickSettings();
+      if (tab === 'integrations') loadIntegrations();
       if (tab === 'license') loadLicenseDetails();
     }
 
@@ -502,12 +2130,21 @@
         document.getElementById('valPaidOrders').textContent = m.orders?.paid || 0;
         document.getElementById('valActiveProds').textContent = m.catalog?.active_products || 0;
         document.getElementById('valProdsLimit').textContent = `Limite: ${m.catalog?.max_products || 50} produtos`;
-        document.getElementById('valActiveBots').textContent = m.bots?.total_bots || 0;
-        document.getElementById('valBotsLimit').textContent = `Limite: ${m.bots?.max_bots || 5} bots WhatsApp`;
+        document.getElementById('valActiveBots').textContent = m.bots?.active_bots !== undefined ? m.bots.active_bots : (m.bots?.total_bots || 0);
+        document.getElementById('valBotsLimit').textContent = `Limite: ${m.bots?.max_bots || tenantData.max_bots || 5} bots WhatsApp`;
 
         // Pedidos Recentes
         renderRecentOrders(data.recentOrders || []);
-        renderBots(data.bots || [], m.bots?.max_bots || 5);
+        renderBots(data.bots || [], m.bots?.max_bots || tenantData.max_bots || 5);
+
+        // Verifica Onboarding Inicial
+        const banner = document.getElementById('onboardingBanner');
+        if (!tenantData.onboarding_completed) {
+          if (banner) banner.style.display = 'flex';
+          setTimeout(() => { openOnboardingWizard(); }, 800);
+        } else {
+          if (banner) banner.style.display = 'none';
+        }
       } catch (err) {
         console.error(err);
       }
@@ -540,25 +2177,572 @@
       `).join('');
     }
 
+    let currentConnectBotId = null;
+    let connectPollingInterval = null;
+
+    async function loadBots() {
+      try {
+        const data = await apiFetch('/api/tenant/bots');
+        if (data.success) {
+          renderBots(data.bots || [], data.max_bots || tenantData?.max_bots || 5);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar bots do tenant:', err);
+      }
+    }
+
     function renderBots(bots, maxBots) {
-      document.getElementById('botLimitBadge').textContent = `${bots.length} / ${maxBots} Conectados`;
+      const activeCount = bots.filter(b => b.status === 'CONNECTED').length;
+      document.getElementById('botLimitBadge').textContent = `${activeCount} / ${maxBots} Conectados (${bots.length} Chips)`;
       const tbody = document.getElementById('botsTbody');
       if (!bots || bots.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Nenhum chip WhatsApp conectado a este tenant.</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 36px;">
+          <i class="fa-brands fa-whatsapp" style="font-size: 36px; color: #25d366; opacity: 0.5; margin-bottom: 10px; display: block;"></i>
+          Nenhum bot conectado ao seu tenant.<br>
+          <button class="btn-action" onclick="openCreateBotModal()" style="margin: 12px auto 0; font-size: 12px; padding: 8px 14px;">
+            <i class="fa-solid fa-plus"></i> Conectar Primeiro WhatsApp
+          </button>
+        </td></tr>`;
         return;
       }
-      tbody.innerHTML = bots.map(b => `
-        <tr>
-          <td><strong>#${b.id}</strong></td>
-          <td>${escapeHtml(b.custom_name || 'Bot WhatsApp')}</td>
-          <td>${b.phone ? '+' + b.phone : 'Não pareado'}</td>
-          <td><span class="badge badge-bot-online">${b.status}</span></td>
-          <td>${b.is_business ? 'WhatsApp Business' : 'Padrão'}</td>
-        </tr>
-      `).join('');
+
+      tbody.innerHTML = bots.map(b => {
+        let badgeHtml = '';
+        if (b.status === 'CONNECTED') {
+          badgeHtml = '<span class="badge badge-bot-online"><i class="fa-solid fa-circle-check"></i> Conectado</span>';
+        } else if (b.status === 'WAITING_QR') {
+          badgeHtml = '<span class="badge badge-bot-qr"><i class="fa-solid fa-qrcode"></i> Aguardando QR</span>';
+        } else if (b.status === 'WAITING_PAIRING') {
+          badgeHtml = '<span class="badge badge-bot-pair"><i class="fa-solid fa-key"></i> Pareamento</span>';
+        } else if (b.status === 'CONNECTING') {
+          badgeHtml = '<span class="badge badge-bot-connecting"><i class="fa-solid fa-spinner fa-spin"></i> Conectando...</span>';
+        } else {
+          badgeHtml = '<span class="badge badge-bot-offline"><i class="fa-solid fa-circle-xmark"></i> Desconectado</span>';
+        }
+
+        const isOnline = b.status === 'CONNECTED';
+        const phoneFormatted = b.phone ? (b.phone.startsWith('+') ? b.phone : '+' + b.phone) : '<span style="color: var(--text-muted); font-style: italic;">Não pareado</span>';
+        const botNameEscaped = escapeHtml(b.name || b.custom_name || 'Bot WhatsApp');
+
+        return `
+          <tr>
+            <td><strong style="color: #38bdf8;">#${b.id}</strong></td>
+            <td>
+              <strong>${botNameEscaped}</strong>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 6px;">
+                <span style="color: #c084fc; font-weight: 700;"><i class="fa-solid fa-brain"></i> ${(b.ai_provider || 'AUTO').toUpperCase()}</span>
+                ${b.ai_instruction ? '<span style="color: #10b981; font-weight: 600;">• Prompt Ativo</span>' : '<span style="color: var(--text-muted);">• Prompt Padrão</span>'}
+                ${b.ai_enabled === 0 ? '<span style="color: #ef4444; font-weight: 700;">(IA Desligada)</span>' : ''}
+              </div>
+            </td>
+            <td>${phoneFormatted}</td>
+            <td>${badgeHtml}</td>
+            <td>${b.is_business ? 'WhatsApp Business' : 'Padrão / SAC'}</td>
+            <td style="text-align: right;">
+              <div style="display: inline-flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap;">
+                <button class="btn-sm btn-secondary" onclick="openTenantAiModal(${b.id}, '${botNameEscaped}')" title="Configurar IA, Provedor e Instrução (Prompt) desta Conexão" style="color: #c084fc; border-color: rgba(192, 132, 252, 0.35); background: rgba(168, 85, 247, 0.08);">
+                  <i class="fa-solid fa-brain"></i> IA &amp; Prompt
+                </button>
+                <button class="btn-sm btn-connect" onclick="openTenantConnectModal(${b.id}, '${botNameEscaped}', '${b.phone || ''}')" title="Conectar por QR Code ou Código de Pareamento (Pair Code)">
+                  <i class="fa-solid fa-qrcode"></i> <i class="fa-solid fa-key"></i> ${isOnline ? 'Ver Conexão' : 'Conectar'}
+                </button>
+                ${isOnline ? `
+                  <button class="btn-sm btn-secondary" onclick="disconnectTenantBot(${b.id})" title="Desconectar">
+                    <i class="fa-solid fa-pause"></i>
+                  </button>
+                ` : `
+                  <button class="btn-sm btn-secondary" onclick="connectTenantBot(${b.id})" title="Iniciar Conexão">
+                    <i class="fa-solid fa-play"></i>
+                  </button>
+                `}
+                <button class="btn-sm btn-secondary" onclick="resetTenantBot(${b.id})" title="Resetar Sessão">
+                  <i class="fa-solid fa-arrows-rotate"></i>
+                </button>
+                <button class="btn-sm btn-danger-sm" onclick="deleteTenantBot(${b.id})" title="Excluir Bot">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function openCreateBotModal() {
+      document.getElementById('newBotName').value = `WhatsApp Vendas ${tenantData?.name || 'Prime'}`;
+      document.getElementById('newBotPhone').value = '';
+      document.getElementById('modalCreateBot').style.display = 'flex';
+    }
+
+    async function handleCreateBot(e) {
+      e.preventDefault();
+      try {
+        const payload = {
+          name: document.getElementById('newBotName').value.trim(),
+          phone: document.getElementById('newBotPhone').value.trim()
+        };
+        const res = await apiFetch('/api/tenant/bots', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        if (!res.success) throw new Error(res.error || 'Erro ao criar bot');
+        closeModal('modalCreateBot');
+        await loadBots();
+        if (res.bot && res.bot.id) {
+          openTenantConnectModal(res.bot.id, res.bot.name, res.bot.phone);
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function openTenantConnectModal(botId, botName, botPhone) {
+      currentConnectBotId = botId;
+      document.getElementById('tenantConnectBotTitle').textContent = `Instância #${botId} • ${botName || 'Bot WhatsApp'}`;
+      const phoneInput = document.getElementById('tenantPairPhoneInput');
+      if (phoneInput && botPhone) {
+        phoneInput.value = botPhone;
+      }
+
+      // Reset visual state
+      document.getElementById('tenantQrImgWrap').style.display = 'none';
+      document.getElementById('tenantQrLoading').style.display = 'block';
+      document.getElementById('tenantQrConnectedWrap').style.display = 'none';
+      document.getElementById('tenantPairingCodeBox').style.display = 'none';
+      document.getElementById('tenantQrStatusText').textContent = 'Gerando QR Code de conexão...';
+
+      document.getElementById('modalTenantConnect').style.display = 'flex';
+      switchTenantConnectTab('qr');
+
+      // Trigger immediate check & start polling
+      checkTenantQrStatus();
+      if (connectPollingInterval) clearInterval(connectPollingInterval);
+      connectPollingInterval = setInterval(checkTenantQrStatus, 2500);
+    }
+
+    function closeTenantConnectModal() {
+      if (connectPollingInterval) {
+        clearInterval(connectPollingInterval);
+        connectPollingInterval = null;
+      }
+      document.getElementById('modalTenantConnect').style.display = 'none';
+      loadBots();
+    }
+
+    function switchTenantConnectTab(tab) {
+      const btnQr = document.getElementById('tabBtnTenantQr');
+      const btnPair = document.getElementById('tabBtnTenantPairing');
+      const tabQr = document.getElementById('tenantTabQr');
+      const tabPair = document.getElementById('tenantTabPairing');
+
+      if (tab === 'qr') {
+        btnQr.classList.add('active');
+        btnPair.classList.remove('active');
+        tabQr.style.display = 'block';
+        tabPair.style.display = 'none';
+      } else {
+        btnQr.classList.remove('active');
+        btnPair.classList.add('active');
+        tabQr.style.display = 'none';
+        tabPair.style.display = 'block';
+      }
+    }
+
+    async function checkTenantQrStatus() {
+      if (!currentConnectBotId) return;
+      try {
+        const data = await apiFetch(`/api/tenant/bots/${currentConnectBotId}/qr`);
+        if (!data || !data.success) return;
+
+        const qrWrap = document.getElementById('tenantQrImgWrap');
+        const qrImg = document.getElementById('tenantQrImg');
+        const loading = document.getElementById('tenantQrLoading');
+        const connectedWrap = document.getElementById('tenantQrConnectedWrap');
+        const statusText = document.getElementById('tenantQrStatusText');
+        const phoneText = document.getElementById('tenantConnectedPhone');
+        const pairBox = document.getElementById('tenantPairingCodeBox');
+        const pairCodeText = document.getElementById('tenantPairingCodeText');
+
+        if (data.status === 'CONNECTED' || data.connected) {
+          loading.style.display = 'none';
+          qrWrap.style.display = 'none';
+          connectedWrap.style.display = 'block';
+          if (phoneText && data.phone) {
+            phoneText.textContent = `Número Conectado: +${data.phone}`;
+          }
+          statusText.innerHTML = '<span style="color: #10b981; font-weight: 700;">✅ Chip Online e pronto para responder clientes!</span>';
+        } else if (data.hasQr && data.qrDataUrl) {
+          loading.style.display = 'none';
+          connectedWrap.style.display = 'none';
+          qrImg.src = data.qrDataUrl;
+          qrWrap.style.display = 'inline-block';
+          statusText.textContent = 'Aponte a câmera do WhatsApp para escanear o QR Code acima.';
+        } else {
+          loading.style.display = 'block';
+          qrWrap.style.display = 'none';
+          connectedWrap.style.display = 'none';
+          statusText.textContent = 'Aguardando inicialização do WhatsApp...';
+        }
+
+        if (data.pairingCode && pairBox) {
+          pairCodeText.textContent = data.pairingCode;
+          pairBox.style.display = 'block';
+        }
+      } catch (err) {
+        console.warn('Polling QR err:', err);
+      }
+    }
+
+    async function refreshTenantQr() {
+      if (!currentConnectBotId) return;
+      try {
+        await apiFetch(`/api/tenant/bots/${currentConnectBotId}/connect`, { method: 'POST' });
+        checkTenantQrStatus();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function requestTenantPairingCode(btnEl) {
+      if (!currentConnectBotId) return;
+      const phoneInput = document.getElementById('tenantPairPhoneInput');
+      const rawPhone = phoneInput ? phoneInput.value.trim() : '';
+      const cleanPhone = rawPhone.replace(/\D/g, '');
+
+      if (!cleanPhone || cleanPhone.length < 10) {
+        alert('Por favor, informe o telefone completo com DDI e DDD (ex: 5548991646799 ou 48991646799).');
+        if (phoneInput) phoneInput.focus();
+        return;
+      }
+
+      let oldHtml = '';
+      if (btnEl) {
+        oldHtml = btnEl.innerHTML;
+        btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando...';
+        btnEl.disabled = true;
+      }
+
+      try {
+        const res = await apiFetch(`/api/tenant/bots/${currentConnectBotId}/pairing-code`, {
+          method: 'POST',
+          body: JSON.stringify({ phone: cleanPhone })
+        });
+
+        if (res.success && res.pairingCode) {
+          const pairBox = document.getElementById('tenantPairingCodeBox');
+          const pairCodeText = document.getElementById('tenantPairingCodeText');
+          if (pairCodeText) pairCodeText.textContent = res.pairingCode;
+          if (pairBox) pairBox.style.display = 'block';
+        } else {
+          throw new Error(res.error || 'Falha ao gerar código');
+        }
+      } catch (err) {
+        alert('Erro ao gerar código de pareamento: ' + err.message);
+      } finally {
+        if (btnEl) {
+          btnEl.innerHTML = oldHtml;
+          btnEl.disabled = false;
+        }
+      }
+    }
+
+    function copyTenantPairingCode() {
+      const codeEl = document.getElementById('tenantPairingCodeText');
+      const code = codeEl ? codeEl.textContent.trim() : '';
+      if (!code || code === '----') return;
+
+      navigator.clipboard.writeText(code).then(() => {
+        const copyBtnText = document.getElementById('copyBtnText');
+        if (copyBtnText) copyBtnText.textContent = 'Copiado!';
+        setTimeout(() => {
+          if (copyBtnText) copyBtnText.textContent = 'Copiar Código';
+        }, 2000);
+      });
+    }
+
+    async function resetCurrentTenantSession() {
+      if (!currentConnectBotId) return;
+      if (!confirm('Deseja realmente limpar os arquivos de sessão deste WhatsApp? Isso desconectará o aparelho e permitirá iniciar um novo pareamento limpo.')) return;
+      try {
+        await apiFetch(`/api/tenant/bots/${currentConnectBotId}/reset`, { method: 'POST' });
+        alert('Sessão resetada com sucesso! Você pode conectar agora.');
+        checkTenantQrStatus();
+      } catch (err) {
+        alert('Erro ao resetar: ' + err.message);
+      }
+    }
+
+    async function connectTenantBot(id) {
+      try {
+        await apiFetch(`/api/tenant/bots/${id}/connect`, { method: 'POST' });
+        loadBots();
+        openTenantConnectModal(id);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function disconnectTenantBot(id) {
+      if (!confirm('Deseja desconectar este bot do WhatsApp?')) return;
+      try {
+        await apiFetch(`/api/tenant/bots/${id}/disconnect`, { method: 'POST' });
+        loadBots();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function resetTenantBot(id) {
+      if (!confirm('Deseja resetar a sessão deste bot?')) return;
+      try {
+        await apiFetch(`/api/tenant/bots/${id}/reset`, { method: 'POST' });
+        alert('Sessão resetada!');
+        loadBots();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function deleteTenantBot(id) {
+      if (!confirm('Deseja realmente excluir este bot do seu painel?')) return;
+      try {
+        await apiFetch(`/api/tenant/bots/${id}`, { method: 'DELETE' });
+        loadBots();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    let currentAiBotId = null;
+    let aiProvidersCache = [];
+
+    const AI_PROMPT_TEMPLATES = {
+      sales: `Você é o atendente de vendas oficial da Prime no WhatsApp.
+Sua missão é atender clientes interessados em nossos produtos digitais e assinaturas.
+Regras:
+1. Responda em no máximo 1 a 2 frases curtas, no estilo dinâmico e direto do WhatsApp.
+2. Tire dúvidas sobre catálogo, valores, formas de pagamento via Pix ou Cripto (USDT) e entrega imediata.
+3. Quando o cliente demonstrar intenção de compra, forneça o link oficial de checkout e instruções claras.
+4. Mantenha um tom amigável, confiável e profissional.`,
+
+      consultative: `Você é um consultor sênior de negócios e vendas no WhatsApp.
+Seu objetivo é conduzir um atendimento consultivo de alto nível, entendendo a real necessidade do cliente antes de recomendar a melhor solução.
+Regras:
+1. Respostas concisas de 1 a 2 frases.
+2. Faça perguntas inteligentes para entender a operação atual do cliente e qual seu maior gargalo ou dor.
+3. Demonstre autoridade técnica, segurança e conduza com naturalidade para o fechamento comercial.`,
+
+      support: `Você é o atendente de suporte técnico e pós-venda da Prime.
+Seu objetivo é ajudar clientes com dúvidas de ativação, renovação, status de pedidos e suporte operacional.
+Regras:
+1. Responda com clareza, empatia e extrema objetividade.
+2. Peça o ID do pedido ou comprovante caso seja verificação de transação.
+3. Forneça o passo a passo simplificado para o cliente resolver o problema sem complicação.`,
+
+      minimal: `Você é um atendente no WhatsApp conversando de forma totalmente humana, relaxada e natural ("postura chill"), sem afobação e sem bajulação.
+Regras:
+1. Mensagens ultra curtas (1 a 2 frases no máximo).
+2. NUNCA use clichês robóticos como "Com certeza!", "Hoje é seu dia de sorte!", "Que bom falar contigo!".
+3. Direto ao ponto: se pedir preço ou link, passe na lata. Se tiver dúvida, responda sem rodeios.`
+    };
+
+    async function openTenantAiModal(botId, botName) {
+      currentAiBotId = botId;
+      document.getElementById('tenantAiBotTitle').textContent = `Instância #${botId} • ${botName || 'Bot WhatsApp'}`;
+      document.getElementById('aiTestResultWrap').style.display = 'none';
+      document.getElementById('aiTestInput').value = '';
+
+      try {
+        const res = await apiFetch(`/api/tenant/bots/${botId}/ai`);
+        if (!res.success) throw new Error(res.error || 'Erro ao carregar IA');
+
+        const ai = res.ai || {};
+        aiProvidersCache = res.availableProviders || [];
+
+        // Preenche campos
+        document.getElementById('botAiEnabled').checked = ai.ai_enabled !== false;
+        document.getElementById('botAiProvider').value = ai.ai_provider || 'auto';
+        document.getElementById('botAiModel').value = ai.ai_model || '';
+        document.getElementById('botAiInstruction').value = ai.ai_instruction || '';
+        document.getElementById('botAiApiKey').value = ai.has_custom_key ? (ai.ai_api_key_masked || '••••••••••••') : '';
+
+        const badge = document.getElementById('customKeyBadge');
+        if (ai.has_custom_key) {
+          badge.innerHTML = '<span style="color: #10b981; font-weight: 700;">🟢 Chave Própria Ativa</span>';
+        } else {
+          badge.innerHTML = '<span style="color: #60a5fa; font-weight: 600;">🔵 Usando Pool SaaS</span>';
+        }
+
+        populateModelDatalist(ai.ai_provider || 'auto');
+        document.getElementById('modalTenantBotAi').style.display = 'flex';
+      } catch (err) {
+        alert('Erro ao carregar configurações de IA: ' + err.message);
+      }
+    }
+
+    function onAiProviderChange() {
+      const prov = document.getElementById('botAiProvider').value;
+      populateModelDatalist(prov);
+      const provObj = aiProvidersCache.find(p => p.id === prov);
+      if (provObj && provObj.models && provObj.models.length > 0 && prov !== 'auto') {
+        document.getElementById('botAiModel').value = provObj.models[0];
+      } else if (prov === 'auto') {
+        document.getElementById('botAiModel').value = '';
+      }
+    }
+
+    function populateModelDatalist(provId) {
+      const datalist = document.getElementById('botAiModelList');
+      datalist.innerHTML = '';
+      const provObj = aiProvidersCache.find(p => p.id === provId);
+      if (provObj && provObj.models) {
+        provObj.models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m;
+          datalist.appendChild(opt);
+        });
+      }
+    }
+
+    function applyAiPromptTemplate(templateKey) {
+      const tpl = AI_PROMPT_TEMPLATES[templateKey];
+      if (tpl) {
+        document.getElementById('botAiInstruction').value = tpl;
+      }
+    }
+
+    function toggleApiKeyVisibility() {
+      const input = document.getElementById('botAiApiKey');
+      const icon = document.getElementById('eyeIcon');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fa-solid fa-eye-slash';
+      } else {
+        input.type = 'password';
+        icon.className = 'fa-solid fa-eye';
+      }
+    }
+
+    async function handleSaveBotAi(e) {
+      e.preventDefault();
+      if (!currentAiBotId) return;
+
+      try {
+        const rawKey = document.getElementById('botAiApiKey').value.trim();
+        const payload = {
+          ai_enabled: document.getElementById('botAiEnabled').checked,
+          ai_provider: document.getElementById('botAiProvider').value,
+          ai_model: document.getElementById('botAiModel').value.trim() || null,
+          ai_instruction: document.getElementById('botAiInstruction').value.trim() || null
+        };
+
+        if (rawKey && !rawKey.includes('•••')) {
+          payload.ai_api_key = rawKey;
+        } else if (rawKey === '') {
+          payload.ai_api_key = '';
+        }
+
+        const res = await apiFetch(`/api/tenant/bots/${currentAiBotId}/ai`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.success) throw new Error(res.error || 'Erro ao salvar');
+        closeModal('modalTenantBotAi');
+        await loadBots();
+        alert('Configurações de IA salvas com sucesso para esta conexão!');
+      } catch (err) {
+        alert('Erro ao salvar IA: ' + err.message);
+      }
+    }
+
+    async function runAiPromptTest() {
+      if (!currentAiBotId) return;
+      const testMsg = document.getElementById('aiTestInput').value.trim();
+      if (!testMsg) {
+        alert('Digite uma mensagem ou pergunta para testar a IA.');
+        document.getElementById('aiTestInput').focus();
+        return;
+      }
+
+      const btn = document.getElementById('btnRunAiTest');
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+      btn.disabled = true;
+
+      const resultWrap = document.getElementById('aiTestResultWrap');
+      const output = document.getElementById('aiTestOutput');
+      const meta = document.getElementById('aiTestMeta');
+
+      try {
+        const payload = {
+          message: testMsg,
+          ai_provider: document.getElementById('botAiProvider').value,
+          ai_model: document.getElementById('botAiModel').value.trim() || null,
+          ai_instruction: document.getElementById('botAiInstruction').value.trim() || null
+        };
+
+        const res = await apiFetch(`/api/tenant/bots/${currentAiBotId}/ai/test`, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.success) throw new Error(res.error || 'Falha no teste');
+
+        output.textContent = res.reply;
+        meta.innerHTML = `<i class="fa-solid fa-check"></i> Provedor: <b>${res.provider ? res.provider.toUpperCase() : 'IA'}</b> • Modelo: <b>${res.model || 'Padrão'}</b> • Latência: <b>${res.latencyMs || 0}ms</b>`;
+        resultWrap.style.display = 'block';
+      } catch (err) {
+        alert('Erro no teste de IA: ' + err.message);
+      } finally {
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+      }
+    }
+
+    function getTenantStoreUrl(upsell = false) {
+      const slug = tenantData?.slug || 'prime-8';
+      const port = window.location.port === '3000' ? '3001' : (window.location.port || '3001');
+      const host = window.location.hostname;
+      const proto = window.location.protocol;
+      const base = `${proto}//${host}${port ? `:${port}` : ''}/loja/${slug}`;
+      return upsell ? `${base}?ref=upsell_whatsapp&upsell=1` : base;
+    }
+
+    function updateTenantStoreLinks() {
+      const url = getTenantStoreUrl(false);
+      const displayEl = document.getElementById('tenantStoreUrlDisplay');
+      if (displayEl) displayEl.textContent = url;
+      const openBtn = document.getElementById('btnOpenTenantStore');
+      if (openBtn) openBtn.href = url;
+    }
+
+    function copyTenantStoreLink() {
+      const url = getTenantStoreUrl(false);
+      navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('btnCopyStoreLink');
+        if (btn) {
+          const old = btn.innerHTML;
+          btn.innerHTML = '<i class="fa-solid fa-check"></i> Copiado!';
+          setTimeout(() => { btn.innerHTML = old; }, 2000);
+        }
+      });
+    }
+
+    function copyTenantUpsellLink() {
+      const url = getTenantStoreUrl(true);
+      navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('btnCopyUpsellLink');
+        if (btn) {
+          const old = btn.innerHTML;
+          btn.innerHTML = '<i class="fa-solid fa-check"></i> Link Upsell Copiado!';
+          setTimeout(() => { btn.innerHTML = old; }, 2000);
+        }
+      });
     }
 
     async function loadProducts() {
+      updateTenantStoreLinks();
       const data = await apiFetch('/api/tenant/products');
       const tbody = document.getElementById('productsTbody');
       const list = data.products || [];
@@ -672,6 +2856,740 @@
       localStorage.removeItem('tenant_token');
       localStorage.removeItem('tenant_info');
       window.location.href = '/tenant/login';
+    }
+
+    async function loadQuickSettings() {
+      try {
+        const res = await apiFetch('/api/tenant/settings');
+        if (!res.success) throw new Error(res.error || 'Erro ao carregar configurações');
+
+        const prof = res.profile || {};
+        const s = res.settings || {};
+
+        // Card 1: Perfil
+        document.getElementById('cfgStoreName').value = prof.name || '';
+        document.getElementById('cfgOwnerName').value = prof.owner_name || '';
+        document.getElementById('cfgOwnerPhone').value = prof.owner_phone || '';
+        document.getElementById('cfgOwnerEmail').value = prof.owner_email || '';
+        document.getElementById('cfgCustomDomain').value = prof.custom_domain || '';
+
+        // Card 2: Atendimento
+        document.getElementById('cfgAutoReplyEnabled').checked = s.auto_reply_enabled !== false;
+        document.getElementById('cfgBotName').value = s.bot_name || '';
+        document.getElementById('cfgSupportContact').value = s.support_contact || '';
+        document.getElementById('cfgWelcomeMsg').value = s.welcome_message || '';
+
+        // Card 3: Pix & Alertas
+        document.getElementById('cfgPixKey').value = s.pix_key || '';
+        document.getElementById('cfgPixKeyType').value = s.pix_key_type || 'phone';
+        document.getElementById('cfgPixHolder').value = s.pix_holder_name || '';
+        document.getElementById('cfgPixExpiry').value = s.pix_expiration_min || 15;
+        document.getElementById('cfgLivepixUsername').value = s.livepix_username || '';
+        document.getElementById('cfgLivepixDefault').checked = s.livepix_default !== false;
+        document.getElementById('cfgNotifySale').checked = s.notify_on_sale !== false;
+
+        // Card 4: Carrinho
+        document.getElementById('cfgCartRecoveryEnabled').checked = s.abandoned_cart_enabled !== false;
+        document.getElementById('cfgCartDelay').value = String(s.abandoned_cart_delay_min || '15');
+        document.getElementById('cfgCartMsg').value = s.abandoned_cart_msg || '';
+
+        // Card 5: Loja Web & Upsell WhatsApp
+        document.getElementById('cfgStoreEnabled').checked = s.store_enabled !== false;
+        document.getElementById('cfgStoreBannerText').value = s.store_banner_text || '';
+        document.getElementById('cfgUpsellDiscount').value = s.upsell_discount_percent || 15;
+        document.getElementById('cfgStoreUpsellWhatsapp').checked = s.store_upsell_whatsapp !== false;
+        document.getElementById('cfgUpsellMsg').value = s.upsell_message || '';
+
+        // Card 6: IA Padrão
+        document.getElementById('cfgDefaultAiProvider').value = s.default_ai_provider || 'auto';
+        document.getElementById('cfgDefaultAiModel').value = s.default_ai_model || '';
+        document.getElementById('cfgDefaultAiInstruction').value = s.default_ai_instruction || '';
+
+      } catch (err) {
+        alert('Erro ao carregar Configurações Rápidas: ' + err.message);
+      }
+    }
+
+    async function saveQuickSettings(syncBots = false) {
+      const btnTop = document.getElementById('btnSaveQuickSettingsTop');
+      const btnBtm = document.getElementById('btnSaveQuickSettingsBottom');
+      const originalTop = btnTop ? btnTop.innerHTML : '';
+      const originalBtm = btnBtm ? btnBtm.innerHTML : '';
+
+      if (btnTop) { btnTop.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; btnTop.disabled = true; }
+      if (btnBtm) { btnBtm.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; btnBtm.disabled = true; }
+
+      try {
+        const payload = {
+          profile: {
+            name: document.getElementById('cfgStoreName').value.trim(),
+            owner_name: document.getElementById('cfgOwnerName').value.trim(),
+            owner_phone: document.getElementById('cfgOwnerPhone').value.trim(),
+            owner_email: document.getElementById('cfgOwnerEmail').value.trim(),
+            custom_domain: document.getElementById('cfgCustomDomain').value.trim()
+          },
+          settings: {
+            auto_reply_enabled: document.getElementById('cfgAutoReplyEnabled').checked,
+            bot_name: document.getElementById('cfgBotName').value.trim(),
+            support_contact: document.getElementById('cfgSupportContact').value.trim(),
+            welcome_message: document.getElementById('cfgWelcomeMsg').value.trim(),
+            pix_key: document.getElementById('cfgPixKey').value.trim(),
+            pix_key_type: document.getElementById('cfgPixKeyType').value,
+            pix_holder_name: document.getElementById('cfgPixHolder').value.trim(),
+            pix_expiration_min: parseInt(document.getElementById('cfgPixExpiry').value, 10) || 15,
+            livepix_username: (document.getElementById('cfgLivepixUsername')?.value || '').trim().replace(/^@/, ''),
+            livepix_default: document.getElementById('cfgLivepixDefault')?.checked !== false,
+            notify_on_sale: document.getElementById('cfgNotifySale').checked,
+            abandoned_cart_enabled: document.getElementById('cfgCartRecoveryEnabled').checked,
+            abandoned_cart_delay_min: parseInt(document.getElementById('cfgCartDelay').value, 10) || 15,
+            abandoned_cart_msg: document.getElementById('cfgCartMsg').value.trim(),
+            store_enabled: document.getElementById('cfgStoreEnabled').checked,
+            store_banner_text: document.getElementById('cfgStoreBannerText').value.trim(),
+            upsell_discount_percent: parseInt(document.getElementById('cfgUpsellDiscount').value, 10) || 15,
+            store_upsell_whatsapp: document.getElementById('cfgStoreUpsellWhatsapp').checked,
+            upsell_message: document.getElementById('cfgUpsellMsg').value.trim(),
+            default_ai_provider: document.getElementById('cfgDefaultAiProvider').value,
+            default_ai_model: document.getElementById('cfgDefaultAiModel').value.trim(),
+            default_ai_instruction: document.getElementById('cfgDefaultAiInstruction').value.trim()
+          },
+          sync_bots_ai: Boolean(syncBots)
+        };
+
+        const res = await apiFetch('/api/tenant/settings', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.success) throw new Error(res.error || 'Erro ao salvar');
+
+        if (payload.profile.name) {
+          document.getElementById('tenantName').textContent = payload.profile.name;
+        }
+
+        alert(syncBots 
+          ? '✅ Configurações salvas e IA sincronizada com todos os seus bots de WhatsApp!' 
+          : '✅ Configurações rápidas salvas com sucesso!');
+
+      } catch (err) {
+        alert('Erro ao salvar configurações: ' + err.message);
+      } finally {
+        if (btnTop) { btnTop.innerHTML = originalTop; btnTop.disabled = false; }
+        if (btnBtm) { btnBtm.innerHTML = originalBtm; btnBtm.disabled = false; }
+      }
+    }
+
+    async function syncAiToAllBots() {
+      if (!confirm('Deseja realmente aplicar o provedor de IA e a instrução padrão configurada a todos os seus bots de WhatsApp agora?')) {
+        return;
+      }
+      await saveQuickSettings(true);
+    }
+
+    // ==========================================
+    // INTEGRAÇÕES & E-COMMERCE (NUVEMSHOP / WOOCOMMERCE / SHOPIFY)
+    // ==========================================
+    let currentIntegrationData = null;
+    let currentModuleData = null;
+
+    async function loadIntegrations() {
+      try {
+        const res = await apiFetch('/api/tenant/integration/ecommerce');
+        if (!res.success) throw new Error(res.error || 'Erro ao carregar dados de integração');
+
+        currentIntegrationData = res;
+        const isModuleActive = Boolean(res.module_enabled);
+
+        const upsellView = document.getElementById('integrationsUpsellView');
+        const activeView = document.getElementById('integrationsActiveView');
+
+        if (!isModuleActive) {
+          if (upsellView) upsellView.style.display = 'block';
+          if (activeView) activeView.style.display = 'none';
+          return;
+        }
+
+        if (upsellView) upsellView.style.display = 'none';
+        if (activeView) activeView.style.display = 'block';
+
+        const cfg = res.config || {};
+        const platformEl = document.getElementById('ecomPlatform');
+        if (platformEl) platformEl.value = cfg.platform || 'nuvemshop';
+
+        const storeUrlEl = document.getElementById('ecomStoreUrl');
+        if (storeUrlEl) storeUrlEl.value = cfg.store_url || '';
+
+        const storeIdEl = document.getElementById('ecomStoreId');
+        if (storeIdEl) storeIdEl.value = cfg.store_id || '';
+
+        const tokenEl = document.getElementById('ecomAccessToken');
+        if (tokenEl) tokenEl.value = cfg.access_token || '';
+
+        const autoSyncEl = document.getElementById('ecomAutoSync');
+        if (autoSyncEl) autoSyncEl.checked = cfg.auto_sync !== 0;
+
+        const cartRecoveryEl = document.getElementById('ecomCartRecovery');
+        if (cartRecoveryEl) cartRecoveryEl.checked = cfg.abandoned_cart_recovery !== 0;
+
+        const orderNotifsEl = document.getElementById('ecomOrderNotifs');
+        if (orderNotifsEl) orderNotifsEl.checked = cfg.order_notifications !== 0;
+
+        const webhookEl = document.getElementById('ecomWebhookUrl');
+        if (webhookEl) webhookEl.value = res.webhook_url || '';
+
+        const totalSyncedEl = document.getElementById('valEcomTotalSynced');
+        if (totalSyncedEl) totalSyncedEl.textContent = cfg.total_products_synced || 0;
+
+        const lastSyncEl = document.getElementById('valEcomLastSync');
+        if (lastSyncEl) {
+          if (cfg.last_sync_at) {
+            const dt = new Date(cfg.last_sync_at);
+            lastSyncEl.textContent = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          } else {
+            lastSyncEl.textContent = 'Nunca';
+          }
+        }
+
+        // Carrega logs recentes
+        loadIntegrationLogs();
+      } catch (err) {
+        showEcomAlert(err.message, 'error');
+      }
+    }
+
+    async function loadIntegrationLogs() {
+      try {
+        const res = await apiFetch('/api/tenant/integration/ecommerce/logs?limit=10');
+        const tbody = document.getElementById('ecomLogsTbody');
+        if (!tbody) return;
+
+        if (!res.logs || res.logs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">Nenhum log registrado ainda.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = res.logs.map(log => {
+          const dt = new Date(log.created_at);
+          const dtStr = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const statusColor = log.status === 'SUCCESS' ? '#10b981' : (log.status === 'FAILED' ? '#ef4444' : '#f59e0b');
+          return `
+            <tr>
+              <td><strong style="color: #38bdf8;">${log.event_type}</strong></td>
+              <td><span style="color: ${statusColor}; font-weight: 700;">${log.status}</span></td>
+              <td>${log.items_count || 0}</td>
+              <td style="color: var(--text-muted);">${dtStr}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (_) {}
+    }
+
+    async function handleSaveStoreConfig(e) {
+      if (e) e.preventDefault();
+      const btn = document.getElementById('btnSaveStoreConfig');
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; btn.disabled = true; }
+
+      try {
+        const body = {
+          platform: document.getElementById('ecomPlatform')?.value || 'nuvemshop',
+          store_url: document.getElementById('ecomStoreUrl')?.value || '',
+          store_id: document.getElementById('ecomStoreId')?.value || '',
+          access_token: document.getElementById('ecomAccessToken')?.value || '',
+          auto_sync: document.getElementById('ecomAutoSync')?.checked ? 1 : 0,
+          abandoned_cart_recovery: document.getElementById('ecomCartRecovery')?.checked ? 1 : 0,
+          order_notifications: document.getElementById('ecomOrderNotifs')?.checked ? 1 : 0
+        };
+
+        await apiFetch('/api/tenant/integration/ecommerce', {
+          method: 'POST',
+          body: JSON.stringify(body)
+        });
+
+        showEcomAlert('Configurações da loja salvas com sucesso!', 'success');
+        loadIntegrations();
+      } catch (err) {
+        showEcomAlert('Erro ao salvar: ' + err.message, 'error');
+      } finally {
+        if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+      }
+    }
+
+    async function testStoreConnection() {
+      const btn = document.getElementById('btnTestStore');
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testando...'; btn.disabled = true; }
+
+      try {
+        const body = {
+          store_url: document.getElementById('ecomStoreUrl')?.value || '',
+          store_id: document.getElementById('ecomStoreId')?.value || '',
+          access_token: document.getElementById('ecomAccessToken')?.value || ''
+        };
+
+        const res = await apiFetch('/api/tenant/integration/ecommerce/test', {
+          method: 'POST',
+          body: JSON.stringify(body)
+        });
+
+        if (res.success) {
+          showEcomAlert(res.message, 'success');
+        } else {
+          showEcomAlert(res.message || 'Falha no teste de conexão', 'error');
+        }
+      } catch (err) {
+        showEcomAlert('Erro no teste: ' + err.message, 'error');
+      } finally {
+        if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+      }
+    }
+
+    async function syncStoreProducts() {
+      const btn = document.getElementById('btnSyncStore');
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sincronizando Catálogo...'; btn.disabled = true; }
+
+      try {
+        const res = await apiFetch('/api/tenant/integration/ecommerce/sync', {
+          method: 'POST',
+          body: JSON.stringify({})
+        });
+
+        if (res.success) {
+          showEcomAlert(`🎉 Sucesso! ${res.total_synced} produtos sincronizados (${res.created} criados, ${res.updated} atualizados) da loja ${res.store_url}!`, 'success');
+          loadIntegrations();
+          loadProducts(); // Atualiza aba de catálogo
+        } else {
+          showEcomAlert('Erro na sincronização: ' + (res.error || 'Falha ao sincronizar'), 'error');
+        }
+      } catch (err) {
+        showEcomAlert('Erro ao sincronizar: ' + err.message, 'error');
+      } finally {
+        if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+      }
+    }
+
+    function showEcomAlert(msg, type = 'info') {
+      const alertEl = document.getElementById('ecomStatusAlert');
+      if (!alertEl) return;
+      alertEl.style.display = 'block';
+      if (type === 'success') {
+        alertEl.style.background = 'rgba(16, 185, 129, 0.15)';
+        alertEl.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+        alertEl.style.color = '#10b981';
+      } else if (type === 'error') {
+        alertEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        alertEl.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+        alertEl.style.color = '#ef4444';
+      } else {
+        alertEl.style.background = 'rgba(56, 189, 248, 0.15)';
+        alertEl.style.border = '1px solid rgba(56, 189, 248, 0.4)';
+        alertEl.style.color = '#38bdf8';
+      }
+      alertEl.textContent = msg;
+    }
+
+    function copyWebhookUrl() {
+      const webhookEl = document.getElementById('ecomWebhookUrl');
+      if (!webhookEl || !webhookEl.value) return;
+      navigator.clipboard.writeText(webhookEl.value).then(() => {
+        alert('URL de Webhook copiada com sucesso para a área de transferência!');
+      }).catch(() => {
+        prompt('Copie a URL de Webhook:', webhookEl.value);
+      });
+    }
+
+    async function openPurchaseModuleModal(billingType = 'monthly') {
+      try {
+        const res = await apiFetch('/api/tenant/modules/purchase', {
+          method: 'POST',
+          body: JSON.stringify({ module_key: 'ecommerce_sync', billing_type: billingType })
+        });
+
+        if (!res.success) throw new Error(res.error || 'Erro ao gerar Pix do módulo');
+
+        currentModuleData = res;
+        document.getElementById('addonModalName').textContent = res.module_name + (billingType === 'lifetime' ? ' (Vitalício)' : ' (Mensal)');
+        document.getElementById('addonModalPrice').textContent = `R$ ${Number(res.price).toFixed(2)}`;
+        document.getElementById('addonPixCode').value = res.pix_code;
+
+        const qrContainer = document.getElementById('addonQrContainer');
+        const qrImage = document.getElementById('addonQrImage');
+        if (res.pix_qr_code && qrImage && qrContainer) {
+          qrImage.src = res.pix_qr_code.startsWith('data:') ? res.pix_qr_code : `data:image/png;base64,${res.pix_qr_code}`;
+          qrContainer.style.display = 'block';
+        } else if (qrContainer) {
+          qrContainer.style.display = 'none';
+        }
+
+        openModal('modalPurchaseAddon');
+      } catch (err) {
+        alert('Erro ao solicitar módulo: ' + err.message);
+      }
+    }
+
+    function copyAddonPixCode() {
+      const pixEl = document.getElementById('addonPixCode');
+      if (!pixEl || !pixEl.value) return;
+      navigator.clipboard.writeText(pixEl.value).then(() => {
+        alert('Código Pix Copia e Cola copiado com sucesso! Abra o aplicativo do seu banco para pagar.');
+      }).catch(() => {
+        prompt('Copie o código Pix abaixo:', pixEl.value);
+      });
+    }
+
+    async function checkAddonPaymentStatus() {
+      const btn = document.getElementById('btnCheckAddonStatus');
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verificando...'; btn.disabled = true; }
+
+      try {
+        const dash = await apiFetch('/api/tenant/dashboard');
+        const modules = dash.tenant?.modules_enabled || [];
+        const isEnabled = (typeof modules === 'string' ? JSON.parse(modules) : modules).includes('ecommerce_sync');
+
+        if (isEnabled) {
+          alert('🎉 Pagamento confirmado! O Módulo Adicional E-commerce está ativo para a sua conta!');
+          closeModal('modalPurchaseAddon');
+          loadIntegrations();
+        } else {
+          alert('O pagamento ainda está em processamento pelo banco ou aguardando confirmação. Caso já tenha pago, aguarde 1 minuto ou fale com o suporte!');
+        }
+      } catch (err) {
+        alert('Erro ao verificar status: ' + err.message);
+      } finally {
+        if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+      }
+    }
+
+    function contactSupportForModule() {
+      const adminPhone = tenantData?.support_whatsapp || '554884702848';
+      const text = encodeURIComponent(`Olá! Sou do tenant ${tenantData?.name || ''} (${tenantData?.slug || ''}) e tenho interesse em ativar o Módulo Adicional de Integração E-commerce / Nuvemshop.`);
+      window.open(`https://wa.me/${adminPhone}?text=${text}`, '_blank');
+    }
+
+
+    // --- GESTÃO DE NICHOS, ONBOARDING SAAS & NÚCLEO DE INTELIGÊNCIA ---
+    let cachedNiches = [];
+    let selectedNicheKey = 'vendedores';
+    let selectedToneKey = 'consultivo';
+    let wizardCurrentStep = 1;
+
+    async function loadNicheSetup() {
+      try {
+        const [nichesRes, tenantCfgRes] = await Promise.all([
+          apiFetch('/api/saas/niches'),
+          apiFetch('/api/tenant/niche-config')
+        ]);
+
+        cachedNiches = nichesRes.niches || [];
+        selectedNicheKey = tenantCfgRes.niche || tenantCfgRes.niche_key || 'vendedores';
+        selectedToneKey = tenantCfgRes.interaction_tone || 'consultivo';
+
+        // Atualiza Badges
+        const currentNiche = cachedNiches.find(n => n.key === selectedNicheKey) || cachedNiches[0];
+        if (currentNiche) {
+          const titleEl = document.getElementById('currentNicheTitle');
+          if (titleEl) {
+            titleEl.innerHTML = `<i class="fa-solid ${currentNiche.icon}" style="color: ${currentNiche.color_accent || '#a855f7'};"></i> Nicho Ativo: ${currentNiche.name}`;
+          }
+        }
+        const badgeStatus = document.getElementById('badgeOnboardingStatus');
+        if (badgeStatus) {
+          if (tenantCfgRes.onboarding_completed) {
+            badgeStatus.style.background = 'rgba(16, 185, 129, 0.2)';
+            badgeStatus.style.color = '#34d399';
+            badgeStatus.innerHTML = '<i class="fa-solid fa-circle-check"></i> Onboarding Concluído';
+          } else {
+            badgeStatus.style.background = 'rgba(245, 158, 11, 0.2)';
+            badgeStatus.style.color = '#fbbf24';
+            badgeStatus.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Onboarding Pendente';
+          }
+        }
+
+        renderNicheGrid('nicheGridContainer', selectedNicheKey, false);
+        renderToneGrid('toneGridContainer', selectedNicheKey, selectedToneKey, false);
+        updateNichePreview(selectedNicheKey, selectedToneKey);
+        loadIntelligenceCoreInsights(selectedNicheKey);
+      } catch (err) {
+        console.error('Erro ao carregar nichos:', err);
+      }
+    }
+
+    function renderNicheGrid(containerId, currentKey, isWizard) {
+      const container = document.getElementById(containerId);
+      if (!container || !cachedNiches.length) return;
+      container.innerHTML = cachedNiches.map(n => `
+        <div class="niche-card ${n.key === currentKey ? 'selected' : ''}" onclick="selectNicheCard('${n.key}', ${isWizard})">
+          <div class="niche-card-header">
+            <div class="niche-card-icon" style="background: ${n.color_primary}22; color: ${n.color_accent || '#3b82f6'};">
+              <i class="fa-solid ${n.icon}"></i>
+            </div>
+            <div>
+              <div class="niche-card-title">${n.name}</div>
+              <div class="niche-card-cat">${n.category_name}</div>
+            </div>
+          </div>
+          <p style="font-size: 11px; color: var(--text-muted); line-height: 1.4; margin-top: 6px;">${n.banner_sub || n.banner_headline}</p>
+        </div>
+      `).join('');
+    }
+
+    function renderToneGrid(containerId, nicheKey, currentTone, isWizard) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const niche = cachedNiches.find(n => n.key === nicheKey) || cachedNiches[0];
+      const tones = niche?.tones || [
+        { key: 'formal', name: 'Formal & Institucional', description: 'Comunicação sóbria, respeitosa e vocabulário técnico preciso.' },
+        { key: 'consultivo', name: 'Consultivo & Humanizado', description: 'Empático, acolhedor e focado em solucionar as dores do cliente.' },
+        { key: 'comercial', name: 'Comercial & Alto Fechamento', description: 'Persuasivo, focado em quebra de objeções e fechamento de vendas rápido.' }
+      ];
+
+      container.innerHTML = tones.map(t => `
+        <div class="tone-card ${t.key === currentTone ? 'selected' : ''}" onclick="selectToneCard('${t.key}', ${isWizard})">
+          <div class="tone-card-header">
+            <strong style="color: #fff; font-size: 13px;">${t.name}</strong>
+            <span class="tone-badge tone-badge-${t.key}">${t.key.toUpperCase()}</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${t.description}</p>
+        </div>
+      `).join('');
+    }
+
+    async function selectNicheCard(key, isWizard) {
+      selectedNicheKey = key;
+      if (isWizard) {
+        renderNicheGrid('wzNicheGrid', selectedNicheKey, true);
+        renderToneGrid('wzToneGrid', selectedNicheKey, selectedToneKey, true);
+        updateWizardSummary();
+      } else {
+        renderNicheGrid('nicheGridContainer', selectedNicheKey, false);
+        renderToneGrid('toneGridContainer', selectedNicheKey, selectedToneKey, false);
+        await updateNichePreview(selectedNicheKey, selectedToneKey);
+        loadIntelligenceCoreInsights(selectedNicheKey);
+      }
+    }
+
+    async function selectToneCard(tone, isWizard) {
+      selectedToneKey = tone;
+      if (isWizard) {
+        renderToneGrid('wzToneGrid', selectedNicheKey, selectedToneKey, true);
+        updateWizardSummary();
+      } else {
+        renderToneGrid('toneGridContainer', selectedNicheKey, selectedToneKey, false);
+        await updateNichePreview(selectedNicheKey, selectedToneKey);
+      }
+    }
+
+    async function updateNichePreview(nicheKey, toneKey) {
+      try {
+        const res = await apiFetch(`/api/saas/niches/${nicheKey}`);
+        if (!res.success || !res.niche) return;
+        const n = res.niche;
+        const toneData = (n.tones_detail && n.tones_detail[toneKey]) ? n.tones_detail[toneKey] : {};
+
+        const welcomeEl = document.getElementById('previewWelcomeMsg');
+        if (welcomeEl) welcomeEl.textContent = toneData.welcome_template || 'Olá! Como posso ajudar você hoje?';
+        const qualEl = document.getElementById('previewQualQuestion');
+        if (qualEl) qualEl.textContent = toneData.qualification_question || 'Qual é a sua principal necessidade no momento?';
+        const objEl = document.getElementById('previewObjection');
+        if (objEl) objEl.textContent = toneData.objection_handler || 'Temos total flexibilidade e garantia de entrega!';
+        const voiceEl = document.getElementById('previewVoiceScript');
+        if (voiceEl) voiceEl.textContent = toneData.voice_ptt_script || 'Mensagem de voz rápida confirmando os detalhes do seu pedido.';
+
+        const cPriBox = document.getElementById('previewColorPrimaryBox');
+        if (cPriBox) cPriBox.style.background = n.color_primary;
+        const cPriTxt = document.getElementById('previewColorPrimaryText');
+        if (cPriTxt) cPriTxt.textContent = n.color_primary;
+
+        const cAccBox = document.getElementById('previewColorAccentBox');
+        if (cAccBox) cAccBox.style.background = n.color_accent;
+        const cAccTxt = document.getElementById('previewColorAccentText');
+        if (cAccTxt) cAccTxt.textContent = n.color_accent;
+
+        const headEl = document.getElementById('previewHeadline');
+        if (headEl) headEl.textContent = n.banner_headline;
+        const badgeEl = document.getElementById('previewBadge');
+        if (badgeEl) badgeEl.textContent = '🛡️ ' + n.badge_text;
+      } catch (err) {
+        console.error('Erro ao atualizar preview:', err);
+      }
+    }
+
+    async function saveNicheSetup() {
+      const btn = document.getElementById('btnSaveNicheSetup');
+      const orig = btn ? btn.innerHTML : '';
+      if (btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; btn.disabled = true; }
+
+      try {
+        const populate = document.getElementById('chkNichePopulateCatalog')?.checked || false;
+        const res = await apiFetch('/api/tenant/niche-config', {
+          method: 'PUT',
+          body: JSON.stringify({
+            niche: selectedNicheKey,
+            interaction_tone: selectedToneKey,
+            populate_catalog: populate
+          })
+        });
+
+        if (!res.success) throw new Error(res.error || 'Erro ao salvar nicho');
+        alert('🎉 Configuração de Nicho e IA atualizada com sucesso! Loja e robô atualizados.');
+        await loadNicheSetup();
+      } catch (err) {
+        alert('Erro ao salvar: ' + err.message);
+      } finally {
+        if (btn) { btn.innerHTML = orig; btn.disabled = false; }
+      }
+    }
+
+    async function playTenantVoiceSample() {
+      const btn = document.getElementById('btnTenantPreviewVoice');
+      const player = document.getElementById('tenantVoiceAudioPlayer');
+      const scriptEl = document.getElementById('previewVoiceScript');
+      const text = scriptEl ? scriptEl.textContent.trim() : 'Olá! Tudo bem? Deixa eu te explicar certinho como funciona.';
+      const persona = document.getElementById('tenantSelectPersona')?.value || 'marcos';
+
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando voz...';
+      }
+
+      try {
+        const res = await fetch('/api/voice/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, persona, organicBreath: true, phoneWarmth: true })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const blob = await res.blob();
+        if (player) {
+          player.src = URL.createObjectURL(blob);
+          player.style.display = 'block';
+          await player.play();
+        }
+      } catch (err) {
+        alert('Erro ao ouvir amostra de voz: ' + err.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalText;
+        }
+      }
+    }
+    window.playTenantVoiceSample = playTenantVoiceSample;
+
+    function previewCurrentStore() {
+      const slug = tenantData?.slug || '';
+      window.open(`/v/${slug}`, '_blank');
+    }
+
+    // --- CARREGAMENTO DO NÚCLEO DE INTELIGÊNCIA ---
+    async function loadIntelligenceCoreInsights(nicheKey) {
+      try {
+        const res = await apiFetch(`/api/intelligence-core/niche/${nicheKey || selectedNicheKey}`);
+        if (!res.success) return;
+        const lCount = document.getElementById('intelNicheLearningsCount');
+        if (lCount) lCount.textContent = res.recent_learnings?.length || 0;
+        const pCount = document.getElementById('intelNichePatternsCount');
+        if (pCount) pCount.textContent = res.total_patterns || 0;
+
+        const patternsContainer = document.getElementById('intelPatternsList');
+        if (patternsContainer) {
+          if (res.patterns && res.patterns.length > 0) {
+            patternsContainer.innerHTML = res.patterns.slice(0, 3).map(p => `
+              <div style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px dashed var(--card-border);">
+                <strong style="color: #fff;">[${p.pattern_type} • ${p.trigger_topic || 'Geral'}]:</strong>
+                <span style="color: #94a3b8;">"${(p.canonical_response || '').slice(0, 140)}..."</span>
+                <span style="color: #10b981; font-size: 10px; margin-left: 6px;">(${p.success_count}x validado)</span>
+              </div>
+            `).join('');
+          } else {
+            patternsContainer.innerHTML = '<span style="color: var(--text-muted);">Aguardando novos diálogos para catalogar os primeiros padrões de sucesso deste nicho. O robô já está pronto para capturar e aprender!</span>';
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar insights do núcleo:', err);
+      }
+    }
+
+    // --- ONBOARDING WIZARD ---
+    async function openOnboardingWizard() {
+      if (!cachedNiches.length) {
+        try {
+          const res = await apiFetch('/api/saas/niches');
+          cachedNiches = res.niches || [];
+        } catch (e) {}
+      }
+      wizardCurrentStep = 1;
+      setWizardStep(1);
+      renderNicheGrid('wzNicheGrid', selectedNicheKey, true);
+      renderToneGrid('wzToneGrid', selectedNicheKey, selectedToneKey, true);
+      updateWizardSummary();
+      openModal('modalOnboardingWizard');
+    }
+
+    function setWizardStep(step) {
+      wizardCurrentStep = step;
+      document.querySelectorAll('.wizard-step').forEach((el, idx) => {
+        el.classList.toggle('active', idx + 1 === step);
+      });
+      document.querySelectorAll('.wizard-dot').forEach((dot, idx) => {
+        dot.classList.toggle('active', idx + 1 <= step);
+      });
+    }
+
+    function wizardNext() {
+      if (wizardCurrentStep < 3) {
+        setWizardStep(wizardCurrentStep + 1);
+        updateWizardSummary();
+      }
+    }
+
+    function wizardPrev() {
+      if (wizardCurrentStep > 1) {
+        setWizardStep(wizardCurrentStep - 1);
+      }
+    }
+
+    function updateWizardSummary() {
+      const n = cachedNiches.find(x => x.key === selectedNicheKey) || { name: selectedNicheKey };
+      const nicheEl = document.getElementById('wzSummaryNiche');
+      if (nicheEl) nicheEl.textContent = n.name;
+      const toneEl = document.getElementById('wzSummaryTone');
+      if (toneEl) toneEl.textContent = selectedToneKey.toUpperCase() + ' (Adaptado para ' + n.name + ')';
+    }
+
+    async function submitOnboardingWizard() {
+      const btn = document.getElementById('btnSubmitWizard');
+      const orig = btn ? btn.innerHTML : '';
+      if (btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Ativando seu Negócio...'; btn.disabled = true; }
+
+      try {
+        const populate = document.getElementById('wzChkPopulateCatalog')?.checked || false;
+        const res = await apiFetch('/api/tenant/onboarding', {
+          method: 'POST',
+          body: JSON.stringify({
+            niche: selectedNicheKey,
+            interaction_tone: selectedToneKey,
+            populate_catalog: populate
+          })
+        });
+
+        if (!res.success) throw new Error(res.error || 'Erro no onboarding');
+        alert('🚀 Parabéns! Seu negócio foi ativado com sucesso com catálogo modelo e inteligência configurada!');
+        closeModal('modalOnboardingWizard');
+
+        // Oculta banner e atualiza dados
+        const banner = document.getElementById('onboardingBanner');
+        if (banner) banner.style.display = 'none';
+        if (tenantData) tenantData.onboarding_completed = 1;
+
+        switchTab('nicheSetup');
+      } catch (err) {
+        alert('Erro ao concluir onboarding: ' + err.message);
+      } finally {
+        if (btn) { btn.innerHTML = orig; btn.disabled = false; }
+      }
     }
 
     initDashboard();

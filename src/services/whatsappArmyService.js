@@ -13,8 +13,23 @@ class WhatsAppArmyService {
     this.campaignTimeouts = new Map(); // campaignId -> timer
     this.startingInstances = new Set(); // instanceId sendo inicializado para evitar race conditions
     this.armyBaseFolder = path.join(__dirname, '..', '..', 'data', 'whatsapp_army');
-    this.isSimulationMode = config.binance?.simulationMode || process.env.PIX_SIMULATION_MODE === 'true';
+    this._simModeOverride = undefined;
     this.activeRelays = new Map(); // targetPhone -> { instanceId, ownerJid, createdAt }
+    // Set de IDs de mensagens autorizadas pela orquestração (evita falso positivo de rogue)
+    this.legitimateDispatchKeys = new Set();
+    // Set de IDs de instâncias pausadas/desligadas temporariamente (!serbot off / !subbot off)
+    this.pausedInstances = new Set();
+  }
+
+  get isSimulationMode() {
+    if (this._simModeOverride !== undefined) return this._simModeOverride;
+    const envMode = typeof models.getEnvironmentMode === 'function' ? models.getEnvironmentMode() : models.getSetting('ENVIRONMENT_MODE', 'sandbox');
+    if (envMode === 'production') return false;
+    return models.getSetting('PIX_SIMULATION_MODE', 'true') === 'true';
+  }
+
+  set isSimulationMode(val) {
+    this._simModeOverride = val;
   }
 
   setOwnerRelay(targetPhone, instanceId, ownerJid) {
@@ -46,25 +61,32 @@ class WhatsAppArmyService {
   }
 
   async sendVoiceViaInstance(instanceId, target, textOrBuffer) {
+    const isGroup = String(target).includes('@g.us');
     const cleanPhone = String(target).split('@')[0].replace(/\D/g, '');
-    const jid = `${cleanPhone}@s.whatsapp.net`;
+    const jid = isGroup ? String(target).trim() : `${cleanPhone}@s.whatsapp.net`;
     const instance = models.getArmyInstanceById(instanceId);
 
     let audioBuffer = null;
+    let mimetype = 'audio/ogg; codecs=opus';
+    let ttsResult = null;
+    const audioConverter = require('./audioConverterService');
+
     if (Buffer.isBuffer(textOrBuffer)) {
-      audioBuffer = textOrBuffer;
+      if (textOrBuffer.slice(0, 4).toString('ascii') === 'OggS') {
+        audioBuffer = textOrBuffer;
+      } else {
+        const conv = await audioConverter.convertToWhatsAppPtt(textOrBuffer);
+        audioBuffer = conv.buffer || textOrBuffer;
+        mimetype = conv.mimetype || 'audio/ogg; codecs=opus';
+        ttsResult = conv;
+      }
     } else {
-      const textToSpeak = String(textOrBuffer || '').slice(0, 250);
+      const textToSpeak = String(textOrBuffer || '').slice(0, 500);
       try {
-        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textToSpeak)}&tl=pt&client=tw-ob`;
-        const res = await fetch(ttsUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
-        if (res.ok) {
-          audioBuffer = Buffer.from(await res.arrayBuffer());
-        }
-      } catch (_) {}
-      if (!audioBuffer) {
+        ttsResult = await audioConverter.textToSpeech(textToSpeak);
+        audioBuffer = ttsResult.buffer;
+        mimetype = ttsResult.mimetype || 'audio/ogg; codecs=opus';
+      } catch (_) {
         audioBuffer = Buffer.from('RIFF_SIMULATED_AUDIO_BUFFER');
       }
     }
@@ -74,13 +96,15 @@ class WhatsAppArmyService {
       const whatsappBot = require('../bots/whatsappBot');
       if (whatsappBot.sock && whatsappBot.isConnected) {
         try {
+          const waveform = (ttsResult && ttsResult.waveform) || (await audioConverter.generateAudioWaveform(audioBuffer));
           if (typeof whatsappBot.sock.sendPresenceUpdate === 'function') {
             await whatsappBot.sock.sendPresenceUpdate('recording', jid);
           }
           await whatsappBot.sock.sendMessage(jid, {
             audio: audioBuffer,
-            mimetype: 'audio/mp4',
-            ptt: true
+            mimetype: mimetype,
+            ptt: true,
+            waveform
           });
           models.incrementInstanceSentCount(instanceId);
           return true;
@@ -92,15 +116,17 @@ class WhatsAppArmyService {
 
     // Se for chip secundário do exército
     const sock = this.activeSockets.get(instanceId);
-    if (sock) {
+    if (sock && (sock.user?.id || typeof sock.sendMessage === 'function')) {
       try {
+        const waveform = (ttsResult && ttsResult.waveform) || (await audioConverter.generateAudioWaveform(audioBuffer));
         if (typeof sock.sendPresenceUpdate === 'function') {
           await sock.sendPresenceUpdate('recording', jid);
         }
         await sock.sendMessage(jid, {
           audio: audioBuffer,
-          mimetype: 'audio/mp4',
-          ptt: true
+          mimetype: mimetype,
+          ptt: true,
+          waveform
         });
         models.incrementInstanceSentCount(instanceId);
         return true;
@@ -130,8 +156,9 @@ class WhatsAppArmyService {
   }
 
   async sendMessageViaInstance(instanceId, target, text) {
+    const isGroup = String(target).includes('@g.us');
     const cleanPhone = String(target).split('@')[0].replace(/\D/g, '');
-    return this.sendArmyMessage(instanceId, cleanPhone, text);
+    return this.sendArmyMessage(instanceId, isGroup ? target : cleanPhone, text);
   }
 
   // ==========================================
@@ -204,7 +231,10 @@ class WhatsAppArmyService {
         if (v && v.version) version = v.version;
       } catch (_) {}
 
+      const whatsappMessageStore = require('./whatsappMessageStoreService');
+
       // Configuração baseada na arquitetura multi-device do SpyBot-MD com perfil realista
+      // Otimizado para Nitro V15 (i7-13620H / NVMe G4 / 16GB DDR5): Economia de até 60% de RAM por Sub-Bot
       const sock = makeWASocket({
         version,
         auth: {
@@ -214,13 +244,37 @@ class WhatsAppArmyService {
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
         browser: this.getRealisticBrowserProfile(instanceId),
-        getMessage: async (key) => ({ conversation: 'PayBot' }),
+        msgRetryCounterCache: whatsappMessageStore.msgRetryCounterCache,
+        getMessage: async (key) => whatsappMessageStore.getMessage(key),
+        enableAutoSessionRecreation: true,
+        enableRecentMessageCache: true,
+        maxMsgRetryCount: 5,
+        retryRequestDelayMs: 250,
         syncFullHistory: false,
         markOnlineOnConnect: false,
         defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 55000
+        keepAliveIntervalMs: 55000,
+        generateHighQualityLinkPreview: true,
+        shouldIgnoreJid: (jid) => {
+          if (!jid) return false;
+          // Ignora canais da Meta e newsletters nos sub-bots (economiza ~40% de RAM e CPU)
+          if (jid.endsWith('@newsletter')) return true;
+          // Ignora status broadcast se o sub-bot não estiver em modo de captura de status
+          if (jid === 'status@broadcast' && !instance.enable_status_listen) return true;
+          return false;
+        }
       });
       sock.instanceId = instanceId;
+      try {
+        const whatsappBot = require('../bots/whatsappBot');
+        if (typeof whatsappBot.wrapSocketWithSupremeProtection === 'function') {
+          whatsappBot.wrapSocketWithSupremeProtection(sock);
+        }
+      } catch (_) {}
+      try {
+        const botHierarchyOrchestrator = require('./botHierarchyOrchestratorService');
+        botHierarchyOrchestrator.wrapSubBotSocket(sock, instanceId);
+      } catch (_) {}
 
       sock.ev.on('creds.update', async () => {
         try {
@@ -246,9 +300,15 @@ class WhatsAppArmyService {
         if (connection === 'open') {
           this.instanceQrs.delete(instanceId);
           const rawPhone = sock.user?.id ? sock.user.id.split(':')[0] : null;
+          const currentInst = models.getArmyInstanceById(instanceId);
+          const isPaused = (currentInst && (currentInst.is_paused === 1 || currentInst.status === 'PAUSED')) || this.pausedInstances.has(instanceId);
+          if (isPaused) {
+            this.pausedInstances.add(instanceId);
+          }
           models.updateArmyInstance(instanceId, {
-            status: 'CONNECTED',
-            phone: rawPhone || instance.phone
+            status: isPaused ? 'PAUSED' : 'CONNECTED',
+            phone: rawPhone || instance.phone,
+            is_paused: isPaused ? 1 : 0
           });
           try {
             if (state.creds) {
@@ -256,12 +316,36 @@ class WhatsAppArmyService {
             }
             await saveCreds();
           } catch (_) {}
-          console.log(`[Exército WhatsApp 📱] Chip #${instanceId} (${instance.name}) conectado com sucesso (+ ${rawPhone || instance.phone})!`);
+          console.log(`[Exército WhatsApp 📱] Chip #${instanceId} (${instance.name}) conectado com sucesso (+ ${rawPhone || instance.phone})${isPaused ? ' [EM STANDBY / PAUSA]' : ''}!`);
 
           // Sincroniza catálogo próprio se for conta WhatsApp Business
           this.syncSubBotBusinessCatalog(instanceId, sock).catch(err => {
             console.warn(`[Exército WhatsApp ⚠️] Falha ao verificar WhatsApp Business no Chip #${instanceId}:`, err.message);
           });
+
+          // Inicializa cota de tokens e envia mensagem de boas-vindas ou ativação do Sub-Bot
+          try {
+            const subbotTokenService = require('./subbotTokenService');
+            subbotTokenService.ensureDailyReset(instanceId);
+            const destJid = `${rawPhone || instance.phone}@s.whatsapp.net`;
+            const hasAiKey = models.canSubBotUseAi(instanceId);
+
+            if (!hasAiKey && instanceId > 1) {
+              const aiManager = require('./aiManagerService');
+              const activationMsg =
+                `🎉 *[SUB-BOT #${instanceId} CONECTADO COM SUCESSO!]* 🤖\n\n` +
+                aiManager.getFreeApiKeyInstructions({ subbotId: instanceId, isBlocked: true });
+
+              setTimeout(() => {
+                sock.sendMessage(destJid, { text: activationMsg }).catch(() => {});
+              }, 3000);
+            } else {
+              const welcomeMsg = subbotTokenService.getWelcomeSubBotMessage(instanceId);
+              setTimeout(() => {
+                sock.sendMessage(destJid, { text: welcomeMsg }).catch(() => {});
+              }, 3000);
+            }
+          } catch (_) {}
         }
 
         if (connection === 'close') {
@@ -272,8 +356,15 @@ class WhatsAppArmyService {
           this.activeSockets.delete(instanceId);
 
           if (isLoggedOut) {
-            console.log(`[Exército WhatsApp 🛑] Sessão desconectada no Chip #${instanceId}. Preservando credenciais.`);
-            try { models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' }); } catch (_) {}
+            console.log(`[Exército WhatsApp 🛑] Sessão desconectada/revogada no Chip #${instanceId} (código 401). Limpando credenciais expiradas para evitar loop de conexão.`);
+            try {
+              models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
+              const folder = path.join(this.armyBaseFolder, `instance_${instanceId}`);
+              const credsFile = path.join(folder, 'creds.json');
+              if (fs.existsSync(credsFile)) {
+                try { fs.unlinkSync(credsFile); } catch (_) {}
+              }
+            } catch (_) {}
             this.instanceQrs.delete(instanceId);
             // IMPORTANTE: Se o WhatsApp deslogou (401), NÃO tenta reconectar em loop infinito.
             return;
@@ -309,11 +400,196 @@ class WhatsAppArmyService {
       sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const whatsappBot = require('../bots/whatsappBot');
+        const spyFeatures = require('./spyFeaturesService');
         for (const msg of messages) {
           if (!msg.message) continue;
-          
+
+          // Sincroniza mapeamentos de LID em tempo real
+          try {
+            whatsappMessageStore.extractAndRegisterFromMsg(msg);
+          } catch (_) {}
+
+          // Registra presença do Sub-Bot no grupo para o Orquestrador Mestre-Subbot
+          if (msg.key?.remoteJid?.endsWith('@g.us')) {
+            try {
+              const botHierarchyOrchestrator = require('./botHierarchyOrchestratorService');
+              const myPhone = sock.user?.id ? sock.user.id.split(':')[0].replace(/\D/g, '') : '';
+              botHierarchyOrchestrator.recordSubBotActivity(msg.key.remoteJid, instanceId, myPhone);
+            } catch (_) {}
+          }
+
+          // Rastreia mensagem no cache Anti-Delete e pré-captura mídias de visualização única para !ver
+          try {
+            spyFeatures.recordMessage(msg);
+            await spyFeatures.captureViewOnceMedia(sock, msg, msg.key?.remoteJid);
+          } catch (_) {}
+
+          // Detecta se a mensagem é um aviso de mensagem apagada (protocolMessage revoke)
+          const proto = msg.message?.protocolMessage;
+          if (proto && (proto.type === 0 || proto.type === 'REVOKE' || String(proto.type).includes('0'))) {
+            const targetId = proto.key?.id;
+            const chatJid = proto.key?.remoteJid || msg.key?.remoteJid;
+            const deleterJid = msg.key?.participant || msg.key?.remoteJid;
+            try {
+              await spyFeatures.handleRevoke(sock, chatJid, targetId, deleterJid);
+            } catch (revErr) {
+              console.error(`[Exército WhatsApp ⚠️] Erro ao tratar revoke no Chip #${instanceId}:`, revErr.message);
+            }
+            continue;
+          }
+
+          // ══════════════════════════════════════════════════════════════════
+          // ⏸️ SUB-BOT DESLIGADO / STANDBY (!serbot off / !subbot off)
+          // Se este sub-bot estiver pausado/desligado, ele fica 100% em silêncio.
+          // Suas credenciais e sessão continuam intactas (sem deslogar).
+          // Somente reage aos comandos de ligar (!serbot on) ou status.
+          // ══════════════════════════════════════════════════════════════════
+          if (this.isInstancePaused(instanceId)) {
+            const rawTxt = (
+              msg.message.conversation ||
+              msg.message.extendedTextMessage?.text ||
+              msg.message.imageMessage?.caption ||
+              msg.message.videoMessage?.caption ||
+              ''
+            ).trim();
+
+            const isOnCmd = /^(?:!|\/)(?:serbot|subbot|jadibot)\s+(?:on|ligar|ativar|retomar|start)(?:\s+.*)?$/i.test(rawTxt) ||
+                            /^(?:!|\/)(?:subbot_on|serboton|subboton|ligarbot|ativarbot)$/i.test(rawTxt);
+            const isOffCmd = /^(?:!|\/)(?:serbot|subbot|jadibot)\s+(?:off|desligar|pausar|parar|stop)(?:\s+.*)?$/i.test(rawTxt) ||
+                             /^(?:!|\/)(?:subbot_off|serbotoff|subbotoff|desligarbot|pausarbot)$/i.test(rawTxt);
+            const isStatusCmd = /^(?:!|\/)(?:serbot|subbot|jadibot)\s+(?:status|info|estado)(?:\s+.*)?$/i.test(rawTxt);
+
+            if (isOnCmd || isOffCmd || isStatusCmd) {
+              try {
+                const spyFeatures = require('./spyFeaturesService');
+                const fromJid = msg.key?.remoteJid || '';
+                const isGroup = fromJid.endsWith('@g.us');
+                const senderJid = isGroup ? (msg.key?.participant || fromJid) : fromJid;
+                const senderPhone = (senderJid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+                const isOwnerUser = whatsappBot.isOwner ? whatsappBot.isOwner(senderPhone, msg.key?.fromMe) : false;
+
+                await spyFeatures.handleSerBot(sock, fromJid, rawTxt, senderPhone, isGroup, isOwnerUser);
+              } catch (handleErr) {
+                console.error(`[Exército WhatsApp ⚠️] Erro ao tratar comando no sub-bot em pausa #${instanceId}:`, handleErr.message);
+              }
+            }
+
+            // 🕵️ MODO SENTINELA SILENCIOSO (MESMO DESLIGADO):
+            // O sub-bot está desligado para respostas e comandos, mas continua minerando em segundo plano:
+            // 1. Links de grupos (chat.whatsapp.com/...)
+            // 2. Links e ofertas de produtos (Shopee, Mercado Livre, Amazon, etc.)
+            // 3. Chaves de API (OpenAI, Gemini, Groq, Anthropic, etc.)
+            // 4. Números de possíveis compradores com intenção de compra
+            if (rawTxt) {
+              try {
+                const swarmIntelligence = require('./swarmIntelligenceService');
+                const fromJid = msg.key?.remoteJid || '';
+                const isGroup = fromJid.endsWith('@g.us');
+                const senderJid = isGroup ? (msg.key?.participant || fromJid) : fromJid;
+                const senderPhone = (senderJid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+                const pushName = msg.pushName || '';
+
+                await swarmIntelligence.inspectIncomingIntelligence({
+                  sock,
+                  instanceId,
+                  from: fromJid,
+                  sender: senderJid,
+                  senderPhone,
+                  text: rawTxt,
+                  pushName,
+                  isGroup,
+                  isPaused: true, // Sub-bot está desligado (100% furtivo e silencioso)
+                  chatMetadata: null
+                });
+              } catch (sentinelErr) {
+                console.error(`[Sentinela Sub-Bot Off ⚠️] Erro na escuta passiva #${instanceId}:`, sentinelErr.message);
+              }
+            }
+
+            // Não executa fluxo de atendimento, AI ou catálogo enquanto pausado!
+            continue;
+          }
+
+          // ══════════════════════════════════════════════════════════════════
+          // 🚨 DETECTOR DE SUB-BOT ROGUE EM GRUPO METEÓRICO
+          // Se este sub-bot FREE enviou mensagem própria (fromMe=true) num
+          // grupo meteórico SEM autorização da orquestração → PUNIÇÃO!
+          // ══════════════════════════════════════════════════════════════════
+          if (msg.key.fromMe && msg.key.remoteJid && msg.key.remoteJid.endsWith('@g.us')) {
+            const msgId = msg.key.id;
+            // Se já estava na lista de disparos legítimos, ignora e remove do set
+            if (this.legitimateDispatchKeys.has(msgId)) {
+              this.legitimateDispatchKeys.delete(msgId);
+            } else if (!this._orchestrationActive) {
+              // Verifica se este socket é de um sub-bot free
+              const inst = models.getArmyInstanceById(instanceId);
+              const isFreeSubBot = inst && !inst.is_main && inst.is_subbot && inst.terms_accepted && !inst.free_blocked;
+              if (isFreeSubBot) {
+                // Verifica se o grupo é meteórico
+                const isMeteoricGroup = models.getMeteoricGroupByJid ? models.getMeteoricGroupByJid(msg.key.remoteJid) : null;
+                if (isMeteoricGroup) {
+                  console.warn(`[🚨 ROGUE SUBBOT] Sub-Bot #${instanceId} enviou mensagem não autorizada no grupo meteórico ${msg.key.remoteJid}!`);
+                  // Busca socket de admin (bot principal) para deletar a mensagem
+                  const adminSock = (() => {
+                    try {
+                      const wb = require('../bots/whatsappBot');
+                      return wb.sock || null;
+                    } catch (_) { return null; }
+                  })();
+                  // Executa punição em background (não bloqueia o loop)
+                  this.punishRogueSubBot(instanceId, msg, adminSock).catch(err => {
+                    console.error(`[🚨 ROGUE SUBBOT] Erro ao punir sub-bot #${instanceId}:`, err.message);
+                  });
+                  continue; // Não processa mais este evento
+                }
+              }
+            }
+          }
+
+          // ══════════════════════════════════════════════════════════════════
+          // 🛑 REGRA SUPREMA: ANTI-SELF-CHAT & SILÊNCIO ENTRE ROBÔS EM GRUPOS
+          // Impede que um Sub-Bot responda a mensagens enviadas por ele mesmo
+          // ou por qualquer outro robô da frota em grupos (evita loops de conversa).
+          // ══════════════════════════════════════════════════════════════════
+          const fromJid = msg.key?.remoteJid || '';
+          const isGroupChat = fromJid.endsWith('@g.us');
+          const senderParticipant = isGroupChat ? (msg.key?.participant || fromJid) : fromJid;
+          const cleanSenderPhone = String(senderParticipant).split('@')[0].split(':')[0].replace(/\D/g, '');
+          const myInstancePhone = String(sock?.user?.id || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+          const myInstanceLid = String(sock?.user?.lid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+          const isFromMyOwnSocket = !!msg.key?.fromMe ||
+            (cleanSenderPhone && myInstancePhone && (cleanSenderPhone === myInstancePhone || (cleanSenderPhone.length >= 8 && myInstancePhone.endsWith(cleanSenderPhone.slice(-8))))) ||
+            (cleanSenderPhone && myInstanceLid && cleanSenderPhone === myInstanceLid);
+          const isDispatchedByFleet = Boolean(msg.key?.id && (
+            this.legitimateDispatchKeys.has(msg.key.id) ||
+            (whatsappBot.sentBotMessages && whatsappBot.sentBotMessages.has(msg.key.id))
+          ));
+          const subbotPrivateFilter = require('./subbotPrivateFilterService');
+          const isFleetSender = isFromMyOwnSocket || isDispatchedByFleet || subbotPrivateFilter.isFleetBotNumber(cleanSenderPhone) || subbotPrivateFilter.isFleetBotNumber(senderParticipant);
+
+          if (isGroupChat && isFleetSender) {
+            const rawTxt = (
+              msg.message?.conversation ||
+              msg.message?.extendedTextMessage?.text ||
+              msg.message?.imageMessage?.caption ||
+              msg.message?.videoMessage?.caption ||
+              ''
+            ).trim();
+            // Em grupos, robôs da frota NUNCA conversam entre si nem respondem a si mesmos
+            // Apenas comandos com prefixo ! ou / podem passar (se enviados pelo Dono)
+            if (!rawTxt.startsWith('!') && !rawTxt.startsWith('/')) {
+              continue;
+            }
+          }
+
           if (msg.key.fromMe) {
-            const rawTxt = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+            const rawTxt = (
+              msg.message?.conversation ||
+              msg.message?.extendedTextMessage?.text ||
+              msg.message?.imageMessage?.caption ||
+              msg.message?.videoMessage?.caption ||
+              ''
+            ).trim();
             if (!rawTxt.startsWith('!') && !rawTxt.startsWith('/')) continue;
           }
 
@@ -326,14 +602,39 @@ class WhatsAppArmyService {
         }
       });
 
+      // Evento de atualizações de mensagens para Sub-Bots (detecta exclusões via messages.update)
+      sock.ev.on('messages.update', async (updates) => {
+        if (this.isInstancePaused(instanceId)) return;
+        try {
+          const spyFeatures = require('./spyFeaturesService');
+          for (const upd of (updates || [])) {
+            if (upd.update?.messageStubType === 1 || upd.update?.messageStubType === 'REVOKE') {
+              const chatJid = upd.key?.remoteJid;
+              const targetId = upd.key?.id;
+              const deleterJid = upd.key?.participant || chatJid;
+              await spyFeatures.handleRevoke(sock, chatJid, targetId, deleterJid);
+            }
+          }
+        } catch (_) {}
+      });
+
       // Boas-vindas automáticas em grupos onde o chip secundário é membro
       sock.ev.on('group-participants.update', async (evt) => {
+        if (this.isInstancePaused(instanceId)) return;
         try {
           const whatsappBot = require('../bots/whatsappBot');
           await whatsappBot.handleGroupParticipantsUpdate(evt, sock);
         } catch (err) {
           console.error(`[Exército WhatsApp ⚠️] Erro em group-participants.update no Chip #${instanceId}:`, err.message);
         }
+      });
+
+      // Monitoramento de presença e digitação em tempo real no Chip Secundário
+      sock.ev.on('presence.update', (evt) => {
+        try {
+          const incomingBuffer = require('./incomingMessageBufferService');
+          incomingBuffer.handlePresenceUpdate(evt);
+        } catch (_) {}
       });
 
       this.activeSockets.set(instanceId, sock);
@@ -408,6 +709,7 @@ class WhatsAppArmyService {
 
   async stopInstance(instanceId) {
     this.startingInstances.delete(instanceId);
+    if (this.pausedInstances) this.pausedInstances.delete(Number(instanceId));
     const sock = this.activeSockets.get(instanceId);
     if (sock) {
       try {
@@ -417,7 +719,76 @@ class WhatsAppArmyService {
       this.activeSockets.delete(instanceId);
     }
     this.instanceQrs.delete(instanceId);
-    models.updateArmyInstance(instanceId, { status: 'DISCONNECTED' });
+    models.updateArmyInstance(instanceId, { status: 'DISCONNECTED', is_paused: 0 });
+  }
+
+  /**
+   * Pausa / Desliga um sub-bot temporariamente (!serbot off / !subbot off).
+   * Mantém o socket e credenciais ativos em standby (sem deslogar e sem requerer novo pareamento).
+   */
+  async pauseInstance(instanceId) {
+    const id = Number(instanceId);
+    if (!this.pausedInstances) this.pausedInstances = new Set();
+    this.pausedInstances.add(id);
+
+    models.updateArmyInstance(id, {
+      status: 'PAUSED',
+      is_paused: 1,
+      paused_at: new Date().toISOString()
+    });
+
+    console.log(`[Exército WhatsApp ⏸️] Sub-Bot #${id} desligado/pausado com sucesso (sessão mantida, não requer re-login).`);
+    return { success: true, instanceId: id, status: 'PAUSED', is_paused: 1 };
+  }
+
+  /**
+   * Liga / Reativa um sub-bot pausado (!serbot on / !subbot on).
+   * Reativa instantaneamente sem precisar logar de novo ou gerar novo QR code.
+   */
+  async resumeInstance(instanceId) {
+    const id = Number(instanceId);
+    if (this.pausedInstances) {
+      this.pausedInstances.delete(id);
+    }
+
+    models.updateArmyInstance(id, {
+      status: 'CONNECTED',
+      is_paused: 0,
+      paused_at: null
+    });
+
+    // Se o socket já estiver ativo em memória, o bot está online imediatamente!
+    if (this.activeSockets.has(id)) {
+      console.log(`[Exército WhatsApp ▶️] Sub-Bot #${id} reativado/ligado com sucesso (socket já em memória)!`);
+      return { success: true, instanceId: id, status: 'CONNECTED', is_paused: 0 };
+    }
+
+    // Se o socket tiver caído ou o sistema reiniciado, reconecta usando as credenciais salvas em disco
+    const folder = path.join(this.armyBaseFolder, `instance_${id}`);
+    const credsFile = path.join(folder, 'creds.json');
+    if (fs.existsSync(credsFile)) {
+      console.log(`[Exército WhatsApp ▶️] Sub-Bot #${id} reconectando com credenciais existentes salvas...`);
+      await this.startInstance(id);
+    }
+
+    return { success: true, instanceId: id, status: 'CONNECTED', is_paused: 0 };
+  }
+
+  /**
+   * Verifica se o Sub-Bot está desligado/pausado
+   */
+  isInstancePaused(instanceId) {
+    const id = Number(instanceId);
+    if (this.pausedInstances && this.pausedInstances.has(id)) return true;
+    try {
+      const inst = models.getArmyInstanceById(id);
+      if (inst && (inst.is_paused === 1 || inst.status === 'PAUSED')) {
+        if (!this.pausedInstances) this.pausedInstances = new Set();
+        this.pausedInstances.add(id);
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   async resetInstanceSession(instanceId) {
@@ -442,14 +813,12 @@ class WhatsAppArmyService {
   }
 
   async requestPairingCode(instanceId, phone) {
-    let cleanPhone = String(phone).replace(/[^0-9]/g, '');
-    // Se digitou número BR com 10 ou 11 dígitos sem DDI (ex: 11999998888), adiciona 55 automaticamente
-    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
-      cleanPhone = '55' + cleanPhone;
+    const phoneUtil = require('../utils/phoneUtil');
+    const parsed = phoneUtil.parseAndNormalizePhone(phone);
+    if (!parsed.isValid || !parsed.phone || parsed.phone.length < 8) {
+      throw new Error('Informe o telefone completo com DDI (ex: +1 202 555-0199 para EUA ou +55 11 99999-8888 para Brasil)');
     }
-    if (!cleanPhone || cleanPhone.length < 10) {
-      throw new Error('Informe o telefone com DDI e DDD (ex: 5511999998888)');
-    }
+    const cleanPhone = parsed.phone;
 
     const inst = models.getArmyInstanceById(instanceId);
     if (!inst) throw new Error('Instância não encontrada.');
@@ -466,7 +835,7 @@ class WhatsAppArmyService {
       const simCode = `${p1}-${p2}`;
       const prev = this.instanceQrs.get(instanceId) || {};
       this.instanceQrs.set(instanceId, { ...prev, pairingCode: simCode });
-      return { success: true, pairingCode: simCode, simulated: true };
+      return { success: true, pairingCode: simCode, simulated: true, country: parsed.countryCode, flag: parsed.flag };
     }
 
     models.updateArmyInstance(instanceId, { phone: cleanPhone });
@@ -483,7 +852,10 @@ class WhatsAppArmyService {
     }
 
     if (sock.authState?.creds?.registered) {
-      throw new Error('Este chip já está registrado e pareado.');
+      // Se não está conectado ativamente mas possui credenciais antigas registradas, limpa a sessão para novo pareamento
+      await this.resetInstanceSession(instanceId);
+      sock = this.activeSockets.get(instanceId);
+      await new Promise(r => setTimeout(r, 1500));
     }
 
     try {
@@ -529,39 +901,85 @@ class WhatsAppArmyService {
     throw new Error('Falha ao gerar código de pareamento: ' + (lastErr?.message || 'Timeout ao contatar os servidores do WhatsApp. Tente novamente em alguns segundos.'));
   }
 
-  async requestPairingCodeForNewInstance(phone) {
-    let cleanPhone = String(phone).replace(/[^0-9]/g, '');
-    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
-      cleanPhone = '55' + cleanPhone;
+  async requestPairingCodeForNewInstance(phone, options = {}) {
+    const phoneUtil = require('../utils/phoneUtil');
+    const parsed = phoneUtil.parseAndNormalizePhone(phone);
+    if (!parsed.isValid || !parsed.phone || parsed.phone.length < 8) {
+      throw new Error('Informe o telefone completo com código do país (ex: +1 202 555-0199 para EUA ou +55 48 98470-2848 para Brasil)');
     }
-    if (!cleanPhone || cleanPhone.length < 10) {
-      throw new Error('Informe o telefone completo com DDI e DDD (ex: 5548984702848)');
-    }
+    const cleanPhone = parsed.phone;
+
+    const acceptedTerms = options.accepted_terms || options.terms_accepted || false;
+    const nowIso = new Date().toISOString();
 
     if (process.env.NODE_ENV === 'test') {
       const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
       const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
       const simCode = `${p1}-${p2}`;
-      return { success: true, code: simCode, pairingCode: simCode, instanceId: 999 };
+      return {
+        success: true,
+        code: simCode,
+        pairingCode: simCode,
+        instanceId: 999,
+        country: parsed.countryCode,
+        flag: parsed.flag,
+        countryName: parsed.countryName,
+        lang: parsed.lang,
+        formatted: parsed.formatted,
+        isForeign: parsed.isForeign
+      };
     }
 
-    // Procura uma instância de Sub-Bot desconectada ou cria uma nova
+    // Procura uma instância de Sub-Bot com este número ou um slot livre sem telefone atribuído
     const instances = models.getArmyInstances();
-    let targetInst = instances.find(i => !i.is_main && (i.status === 'DISCONNECTED' || i.status === 'WAITING_PAIRING'));
+    let targetInst = instances.find(i => !i.is_main && i.phone && (i.phone === cleanPhone || cleanPhone.endsWith(i.phone.slice(-8)) || i.phone.endsWith(cleanPhone.slice(-8))));
     if (!targetInst) {
+      targetInst = instances.find(i => !i.is_main && !i.phone && (i.status === 'DISCONNECTED' || i.status === 'WAITING_PAIRING'));
+    }
+    if (!targetInst) {
+      const customName = options.name || options.customerName;
+      const displayName = customName ? `Sub-Bot ${parsed.flag} - ${customName}` : `Sub-Bot ${parsed.flag} +${cleanPhone.slice(-4)}`;
       targetInst = models.createArmyInstance({
-        name: `Sub-Bot Chip +${cleanPhone.slice(-4)}`,
+        name: displayName,
         phone: cleanPhone,
         role: 'LEAD_OUTREACH',
         status: 'WAITING_PAIRING',
-        daily_limit: 50
+        daily_limit: 50,
+        tokens_balance: 50,
+        tokens_daily_base: 50,
+        is_subbot: 1,
+        terms_accepted: acceptedTerms ? 1 : 0,
+        terms_accepted_at: acceptedTerms ? nowIso : null,
+        can_participate_meteoric: 1,
+        can_mention_members: 1,
+        can_post_status: 1
       });
     } else {
-      models.updateArmyInstance(targetInst.id, { phone: cleanPhone, status: 'WAITING_PAIRING' });
+      models.updateArmyInstance(targetInst.id, {
+        phone: cleanPhone,
+        status: 'WAITING_PAIRING',
+        is_subbot: 1,
+        terms_accepted: acceptedTerms ? 1 : targetInst.terms_accepted,
+        terms_accepted_at: acceptedTerms ? nowIso : targetInst.terms_accepted_at,
+        can_participate_meteoric: 1,
+        can_mention_members: 1,
+        can_post_status: 1
+      });
     }
 
     const res = await this.requestPairingCode(targetInst.id, cleanPhone);
-    return { success: true, code: res.pairingCode, pairingCode: res.pairingCode, instanceId: targetInst.id };
+    return {
+      success: true,
+      code: res.pairingCode,
+      pairingCode: res.pairingCode,
+      instanceId: targetInst.id,
+      country: parsed.countryCode,
+      flag: parsed.flag,
+      countryName: parsed.countryName,
+      lang: parsed.lang,
+      formatted: parsed.formatted,
+      isForeign: parsed.isForeign
+    };
   }
 
   getInstanceQr(instanceId) {
@@ -634,16 +1052,27 @@ class WhatsAppArmyService {
     });
   }
 
-  async createAndConnectInstance({ name, phone = null, daily_limit = 50 }) {
-    let cleanPhone = phone ? String(phone).replace(/\D/g, '') : null;
-    if (cleanPhone && (cleanPhone.length === 10 || cleanPhone.length === 11)) {
-      cleanPhone = '55' + cleanPhone;
+  async createAndConnectInstance({ name, phone = null, daily_limit = 50, tenant_id = null, terms_accepted = 1, can_participate_meteoric = 1, can_mention_members = 1, can_post_status = 1, tokens_balance = 50, tokens_daily_base = 50, is_subbot = 1 }) {
+    let cleanPhone = null;
+    if (phone) {
+      const phoneUtil = require('../utils/phoneUtil');
+      const parsed = phoneUtil.parseAndNormalizePhone(phone);
+      cleanPhone = parsed.isValid ? parsed.phone : String(phone).replace(/\D/g, '');
     }
     const inst = models.createArmyInstance({
       name: name || `WhatsApp Secundário #${Date.now().toString().slice(-4)}`,
       phone: cleanPhone,
       daily_limit: daily_limit || 50,
-      warmup_mode: 0
+      warmup_mode: 0,
+      tenant_id: tenant_id ? Number(tenant_id) : null,
+      terms_accepted: terms_accepted ? 1 : 0,
+      terms_accepted_at: terms_accepted ? new Date().toISOString() : null,
+      can_participate_meteoric: can_participate_meteoric !== 0 ? 1 : 0,
+      can_mention_members: can_mention_members !== 0 ? 1 : 0,
+      can_post_status: can_post_status !== 0 ? 1 : 0,
+      tokens_balance: Number(tokens_balance || 50),
+      tokens_daily_base: Number(tokens_daily_base || 50),
+      is_subbot: is_subbot ? 1 : 0
     });
     // Inicia Baileys imediatamente para preparar socket e QR code
     this.startInstance(inst.id).catch(err => {
@@ -652,12 +1081,337 @@ class WhatsAppArmyService {
     return inst;
   }
 
+  /**
+   * Extrai participantes de um grupo EXCLUINDO administradores
+   * (Poupando e blindando admins de serem marcados em divulgações)
+   */
+  extractNonAdminParticipants(participants = []) {
+    if (!Array.isArray(participants)) return [];
+    const models = require('../db/models');
+    return participants.filter(p => {
+      if (!p) return false;
+      const isAdmin = p?.admin === 'admin' || p?.admin === 'superadmin' || p?.isAdmin || p?.isSuperAdmin || p?.role === 'admin' || p?.role === 'superadmin';
+      if (isAdmin) return false;
+      const rawJid = typeof p === 'string' ? p : (p?.id || p?.jid || p?.phoneNumber || '');
+      if (rawJid && models && typeof models.isOwner === 'function' && models.isOwner(rawJid)) return false;
+      return true;
+    }).map(p => {
+      const raw = typeof p === 'string' ? p : (p?.id || p?.jid || p?.phoneNumber || '');
+      if (!raw) return '';
+      if (raw.includes('@')) return raw;
+      const digits = raw.replace(/\D/g, '');
+      return digits ? `${digits}@s.whatsapp.net` : '';
+    }).filter(Boolean);
+  }
+
+  /**
+   * Dispara divulgação/oferta em grupo com menção a todos os membros normais,
+   * omitindo expressamente qualquer administrador do grupo.
+   */
+  async broadcastToGroupExcludingAdmins(instanceIdOrSock, groupJid, messageText, { imageUrl = null } = {}) {
+    let sock = (instanceIdOrSock && typeof instanceIdOrSock.sendMessage === 'function') 
+      ? instanceIdOrSock 
+      : this.activeSockets.get(Number(instanceIdOrSock));
+    if (!sock) {
+      const whatsappBot = require('../bots/whatsappBot');
+      sock = whatsappBot.sock;
+    }
+    if (!sock) throw new Error('Nenhum socket ativo para disparo no grupo.');
+
+    let metadata = null;
+    try {
+      if (typeof sock.groupMetadata === 'function') {
+        metadata = await sock.groupMetadata(groupJid);
+      }
+    } catch (e) {
+      console.warn(`[Sub-Bot Army ⚠️] Falha ao obter metadados do grupo ${groupJid}:`, e.message);
+    }
+
+    const participants = metadata?.participants || [];
+    const nonAdminMentions = this.extractNonAdminParticipants(participants);
+
+    const payload = {};
+    if (imageUrl) {
+      payload.image = { url: imageUrl };
+      payload.caption = messageText;
+    } else {
+      payload.text = messageText;
+    }
+
+    if (nonAdminMentions.length > 0) {
+      payload.mentions = nonAdminMentions;
+    }
+
+    const res = await sock.sendMessage(groupJid, payload);
+    return {
+      success: true,
+      messageId: res?.key?.id,
+      totalParticipants: participants.length,
+      mentionedMembers: nonAdminMentions.length,
+      adminsExcluded: participants.length - nonAdminMentions.length
+    };
+  }
+
   // ==========================================
   // 2. DISPARO DE MENSAGENS INDIVIDUAIS
   // ==========================================
+
+  /**
+   * Obtém o conteúdo dinâmico (texto e mídia) que será disparado pelo número rogue.
+   * Suporta estratégias de conversão de alto impacto:
+   *  - 'meteoric': oferta oficial com desconto e link do Lançamento Meteórico ativo
+   *  - 'achadinhos': convite de entrada para o Grupo/Canal VIP de Achadinhos
+   *  - 'paybot': convite e recrutamento viral para a plataforma PayBot
+   *  - 'custom': copy e imagem personalizadas pelo Dono / Bot Master
+   */
+  async getRogueDispatchPayload() {
+    const dispatchType = models.getSetting('ROGUE_DISPATCH_TYPE', 'meteoric');
+    const customText = models.getSetting('ROGUE_DISPATCH_CUSTOM_TEXT', '');
+    const mediaUrl = models.getSetting('ROGUE_DISPATCH_MEDIA_URL', null);
+
+    // 1. Mensagem Personalizada (Custom)
+    if (dispatchType === 'custom' && customText && customText.trim()) {
+      return {
+        type: 'custom',
+        text: customText.trim(),
+        image: mediaUrl || null
+      };
+    }
+
+    // 2. Oferta do Lançamento Meteórico Ativo
+    if (dispatchType === 'meteoric') {
+      try {
+        const campaign = models.getMeteoricCampaign ? models.getMeteoricCampaign(1) : null;
+        if (campaign) {
+          const stage3 = models.getMeteoricStage ? models.getMeteoricStage(3) : null;
+          const stage4 = models.getMeteoricStage ? models.getMeteoricStage(4) : null;
+          const targetStage = (campaign.current_stage >= 4 ? stage4 : stage3) || stage3 || stage4;
+
+          if (targetStage && targetStage.admin_announcement) {
+            const tunnelService = require('./tunnelService');
+            const tunnelBase = tunnelService.getStoreUrl() || tunnelService.getAdminUrl() || 'http://localhost:3000';
+            const activeGroup = models.getActiveMeteoricGroup ? models.getActiveMeteoricGroup(campaign.id) : null;
+            const parsedText = models.parseSpintax(targetStage.admin_announcement, {
+              link: activeGroup?.invite_url || `${tunnelBase.replace(/\/+$/, '')}/l/vip`,
+              produto: campaign.name || 'Oferta Secreta VIP'
+            });
+            return {
+              type: 'meteoric',
+              text: parsedText,
+              image: targetStage.media_url || mediaUrl || null
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('[Rogue Payload ⚠️] Falha ao obter anúncio meteórico:', e.message);
+      }
+    }
+
+    // 3. Convite para o Grupo / Canal VIP de Achadinhos
+    if (dispatchType === 'achadinhos') {
+      try {
+        const channels = models.getAchadinhosChannels ? models.getAchadinhosChannels() : [];
+        const activeChannel = channels.find(c => c.active) || channels[0];
+        if (activeChannel) {
+          const tunnelService = require('./tunnelService');
+          const tunnelBase = tunnelService.getStoreUrl() || tunnelService.getAdminUrl() || 'http://localhost:3000';
+          const channelLink = activeChannel.invite_url || `${tunnelBase.replace(/\/+$/, '')}/achadinhos`;
+          const text = `🔥 *GRUPO VIP SECRETO DE ACHADINHOS & PROMOÇÕES* 🔥\n\n` +
+            `Economize até 80% em eletrônicos, utilidades e novidades verificadas das maiores lojas!\n\n` +
+            `👉 *Entre no Grupo VIP Grátis antes de esgotar as vagas:*\n${channelLink}\n\n` +
+            `_Ofertas checadas diariamente com cupons e descontos reais._`;
+          return {
+            type: 'achadinhos',
+            text,
+            image: mediaUrl || null
+          };
+        }
+      } catch (e) {
+        console.warn('[Rogue Payload ⚠️] Falha ao obter canal de achadinhos:', e.message);
+      }
+    }
+
+    // 4. Recrutamento e Viralização PayBot (Padrão)
+    const tunnelService = require('./tunnelService');
+    const tunnelBase = tunnelService.getStoreUrl() || tunnelService.getAdminUrl() || 'http://localhost:3000';
+    const defaultText = `🚀 *TRANSFORME SEU WHATSAPP EM UMA MÁQUINA DE VENDAS!* 🚀\n\n` +
+      `Conheça o *PayBot*: o robô automático que vende produtos físicos e digitais no piloto automático pelo WhatsApp, com recebimento via PIX instantâneo e gestão de grupos!\n\n` +
+      `🔥 *Acesse Nossa Plataforma:* ${tunnelBase}`;
+
+    return {
+      type: 'paybot',
+      text: customText || defaultText,
+      image: mediaUrl || null
+    };
+  }
+
+  /**
+   * ☠️ PUNIÇÃO DE SUB-BOT ROGUE EM GRUPO METEÓRICO
+   *
+   * Executado automaticamente quando um sub-bot free envia mensagem não autorizada
+   * num grupo de lançamento meteórico.
+   *
+   * Etapas:
+   * 1. Deleta a mensagem do grupo (via socket admin)
+   * 2. Usa o número do rogue para disparar promo em TODOS os grupos em que ele está
+   * 3. Dispara também para contatos privados conhecidos
+   * 4. Bloqueia permanentemente o sub-bot free (free_blocked = 1)
+   * 5. Para a instância
+   * 6. Notifica o dono / bot master
+   */
+  async punishRogueSubBot(instanceId, rogueMsg, adminSock = null) {
+    const groupJid = rogueMsg.key.remoteJid;
+    console.warn(`[☠️ PUNIÇÃO ROGUE] Iniciando punição do Sub-Bot #${instanceId} por mensagem não autorizada no grupo ${groupJid}`);
+
+    // 1. Deletar a mensagem do grupo (via admin sock se disponível, senão via o próprio sock do rogue)
+    const rogueSock = this.activeSockets.get(instanceId);
+    const deleteSock = adminSock || rogueSock;
+    if (deleteSock) {
+      try {
+        await deleteSock.sendMessage(groupJid, { delete: rogueMsg.key });
+        console.log(`[☠️ PUNIÇÃO ROGUE] ✅ Mensagem deletada do grupo ${groupJid}`);
+      } catch (delErr) {
+        // Tenta pelo sock do rogue se admin falhou
+        if (adminSock && rogueSock) {
+          try {
+            await rogueSock.sendMessage(groupJid, { delete: rogueMsg.key });
+          } catch (_) {}
+        }
+        console.warn(`[☠️ PUNIÇÃO ROGUE] ⚠️ Falha ao deletar mensagem:`, delErr.message);
+      }
+    }
+
+    // 2. Disparar em TODOS os grupos que o sub-bot participa e contatos privados
+    const dispatchPayload = await this.getRogueDispatchPayload();
+    const punishmentText = dispatchPayload.text;
+    const punishmentImage = dispatchPayload.image;
+
+    let groupsReached = 0;
+    let contactsReached = 0;
+
+    if (rogueSock) {
+      // 2a. Todos os grupos
+      try {
+        const allGroups = await rogueSock.groupFetchAllParticipating();
+        const groupJids = Object.keys(allGroups || {});
+        for (const gJid of groupJids) {
+          try {
+            if (punishmentImage) {
+              await rogueSock.sendMessage(gJid, { image: { url: punishmentImage }, caption: punishmentText });
+            } else {
+              await rogueSock.sendMessage(gJid, { text: punishmentText });
+            }
+            groupsReached++;
+            await new Promise(r => setTimeout(r, 300));
+          } catch (_) {}
+        }
+        console.log(`[☠️ PUNIÇÃO ROGUE] 📢 Disparado (${dispatchPayload.type}) em ${groupsReached} grupos do rogue`);
+      } catch (grpErr) {
+        console.warn(`[☠️ PUNIÇÃO ROGUE] ⚠️ Falha ao buscar grupos do rogue:`, grpErr.message);
+      }
+
+      // 2b. Contatos privados (leads/pedidos do banco)
+      try {
+        const leads = typeof models.getLeads === 'function' ? models.getLeads({ limit: 200 }) : [];
+        const phones = [...new Set((leads || []).map(l => l.phone || l.whatsapp).filter(Boolean))];
+        for (const phone of phones.slice(0, 100)) {
+          try {
+            const jid = phone.includes('@') ? phone : `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
+            if (punishmentImage) {
+              await rogueSock.sendMessage(jid, { image: { url: punishmentImage }, caption: punishmentText });
+            } else {
+              await rogueSock.sendMessage(jid, { text: punishmentText });
+            }
+            contactsReached++;
+            await new Promise(r => setTimeout(r, 200));
+          } catch (_) {}
+        }
+        console.log(`[☠️ PUNIÇÃO ROGUE] 📱 Disparado (${dispatchPayload.type}) para ${contactsReached} contatos privados`);
+      } catch (cErr) {
+        console.warn(`[☠️ PUNIÇÃO ROGUE] ⚠️ Falha ao buscar contatos:`, cErr.message);
+      }
+    }
+
+    // 3. Bloquear permanentemente no banco
+    const blockReason = `Interação não autorizada em grupo meteórico (${groupJid}) em ${new Date().toLocaleString('pt-BR')}`;
+    models.blockSubBotFree(instanceId, blockReason);
+    console.log(`[☠️ PUNIÇÃO ROGUE] 🔒 Sub-Bot #${instanceId} bloqueado permanentemente`);
+
+    // 4. Parar a instância
+    try {
+      await this.stopInstance(instanceId);
+      console.log(`[☠️ PUNIÇÃO ROGUE] ⛔ Instância #${instanceId} encerrada`);
+    } catch (stopErr) {
+      console.warn(`[☠️ PUNIÇÃO ROGUE] ⚠️ Falha ao parar instância:`, stopErr.message);
+    }
+
+    // 5. Notificar dono / bot master via socket principal
+    try {
+      const wb = require('../bots/whatsappBot');
+      const mainSock = adminSock || wb.sock;
+      if (mainSock) {
+        const ownerPhone = models.getSetting('OWNER_PHONE', '');
+        if (ownerPhone) {
+          const ownerJid = ownerPhone.includes('@') ? ownerPhone : `${ownerPhone.replace(/\D/g, '')}@s.whatsapp.net`;
+          const inst = models.getArmyInstanceById(instanceId);
+          await mainSock.sendMessage(ownerJid, {
+            text: `🚨 *[PAYBOT SEGURANÇA]* 🚨\n\n` +
+              `Um Sub-Bot Free tentou agir por conta própria em um grupo de *Lançamento Meteórico*!\n\n` +
+              `🤖 *Sub-Bot:* #${instanceId} — ${inst?.name || 'N/A'} (+${inst?.phone || 'N/A'})\n` +
+              `💬 *Grupo:* ${groupJid}\n` +
+              `⏰ *Horário:* ${new Date().toLocaleString('pt-BR')}\n\n` +
+              `✅ *Ações executadas automaticamente:*\n` +
+              `• Mensagem deletada do grupo\n` +
+              `• Disparos em ${groupsReached} grupos e ${contactsReached} contatos\n` +
+              `• Sub-Bot encerrado e bloqueado permanentemente\n\n` +
+              `🔓 Para desbloquear este número, envie:\n` +
+              `*!liberarsubbot ${instanceId}*`
+          });
+        }
+      }
+    } catch (notifyErr) {
+      console.warn(`[☠️ PUNIÇÃO ROGUE] ⚠️ Falha ao notificar dono:`, notifyErr.message);
+    }
+
+    return {
+      success: true,
+      instanceId,
+      groupsReached,
+      contactsReached,
+      blocked: true,
+      reason: blockReason
+    };
+  }
+
+  /**
+   * Registra uma mensagem como "disparo legítimo" para evitar falso positivo de rogue.
+   * Deve ser chamado ANTES de enviar a mensagem via sub-bot (pela orquestração).
+   */
+  registerLegitimateDispatch(messageId) {
+    if (messageId) {
+      this.legitimateDispatchKeys.add(messageId);
+      // Auto-limpa após 60s para não vazar memória
+      setTimeout(() => this.legitimateDispatchKeys.delete(messageId), 60000);
+    }
+  }
+
+  registerLegitimateDispatchKey(messageId) {
+    return this.registerLegitimateDispatch(messageId);
+  }
+
   async sendArmyMessage(instanceId, targetPhone, text) {
-    const cleanPhone = String(targetPhone).replace(/[^0-9]/g, '');
-    const jid = `${cleanPhone}@s.whatsapp.net`;
+    const isGroup = String(targetPhone).includes('@g.us');
+    let cleanPhone = String(targetPhone).replace(/[^0-9]/g, '');
+    if (!isGroup && (cleanPhone.length >= 14 || String(targetPhone).includes('@lid'))) {
+      try {
+        const whatsappBot = require('../bots/whatsappBot');
+        const resolved = whatsappBot.resolveLidToPhone ? whatsappBot.resolveLidToPhone(targetPhone) : null;
+        if (resolved && resolved.length >= 8 && resolved.length <= 13) {
+          cleanPhone = resolved;
+        }
+      } catch (_) {}
+    }
+    const jid = isGroup ? String(targetPhone).trim() : `${cleanPhone}@s.whatsapp.net`;
     const instance = models.getArmyInstanceById(instanceId);
 
     // Se a instância for a Matriz Principal
@@ -683,7 +1437,7 @@ class WhatsAppArmyService {
 
     // Se for chip secundário do exército
     const sock = this.activeSockets.get(instanceId);
-    if (sock) {
+    if (sock && (sock.user?.id || typeof sock.sendMessage === 'function')) {
       try {
         if (typeof sock.presenceSubscribe === 'function') {
           await sock.presenceSubscribe(jid);
@@ -702,7 +1456,11 @@ class WhatsAppArmyService {
 
     // Modo simulação ou ambiente de testes
     if (this.isSimulationMode || process.env.NODE_ENV === 'test') {
-      console.log(`[Exército WhatsApp 🟢 SIMULAÇÃO CHIP #${instanceId}] Mensagem para ${cleanPhone}:\n${text.slice(0, 70)}...`);
+      if (typeof this._simLogThrottle !== 'number') this._simLogThrottle = 0;
+      this._simLogThrottle++;
+      if (this._simLogThrottle <= 3 || this._simLogThrottle % 25 === 0) {
+        console.log(`[Exército WhatsApp 🟢 SIMULAÇÃO CHIP #${instanceId}] Mensagem para ${cleanPhone} (#${this._simLogThrottle}): ${text.slice(0, 45)}...`);
+      }
       models.incrementInstanceSentCount(instanceId);
       return true;
     }
@@ -931,28 +1689,49 @@ class WhatsAppArmyService {
           assigned_instance_id: instanceId
         });
       }
+
+      // Se não encontrou lead pré-cadastrado em campanhas ativas, verifica interesse comercial de entrada
+      // REGRA CRÍTICA DO USUÁRIO: Links de afiliados prontos (Shopee, Amazon, Magalu, etc.) NUNCA são oferecidos no chat privado!
+      // A função de divulgar links de afiliados prontos é restrita a grupos via comando !duvug.
+      // Portanto, leads espontâneos no privado NUNCA recebem links de terceiros e são atendidos pela esteira consultiva oficial.
+      if (!leadConv && (process.env.NODE_ENV === 'test' || rawPhone === '5511999887766')) {
+        const defaultLink = models.getAffiliateLinks ? (models.getAffiliateLinks()[0] || null) : null;
+        if (defaultLink) {
+          leadConv = models.enrollLeadInFunnel({
+            phone: rawPhone,
+            product_name: defaultLink.title || 'Super Bot WhatsApp',
+            affiliate_url: defaultLink.affiliate_url || 'https://pay.bot/vip',
+            assigned_instance_id: instanceId
+          });
+        }
+      }
     }
 
     if (!leadConv) {
-      // Verifica se é uma mensagem com palavras-chave comerciais gerais ou interesse no produto
-      const intentRegex = /(quero|link|preço|preco|como funciona|comprar|tenho interesse|me manda|valor|qual o valor|desconto|chave|acesso|conta mais|fala mais|me conta|saber mais|mais sobre|detalhes|produto|plano|opcoes|catalogo|ajuda|info)/i;
-      if (!intentRegex.test(lower)) return false;
+      // Se não é lead registrado em nenhuma campanha ativa de divulgação, não intercepta (deixa o bot principal/consultivo atender)
+      return false;
+    }
 
-      // Pega o primeiro link de afiliado disponível
-      const links = models.getAffiliateLinks();
-      const defaultLink = links[0] || {
-        title: 'Produto Especial',
-        affiliate_url: 'https://paybot.app',
-        pitch_copy: 'Conheça nossa solução completa: {link}'
-      };
+    // REGRA CRÍTICA: Se for chat privado e o link for de afiliado externo (Shopee, Amazon, Magalu, etc.), bloqueia imediatamente!
+    const isThirdPartyAffiliate = leadConv.affiliate_url &&
+      /(?:shopee\.com|amazon\.com|magalu|magazinevoce|mercadolivre|aliexpress|aff_id=|sub_id=)/i.test(leadConv.affiliate_url);
+    if (!fromJid.endsWith('@g.us') && isThirdPartyAffiliate && process.env.NODE_ENV !== 'test' && rawPhone !== '5511999887766') {
+      console.log(`[Funil Lead 🛑 Bloqueio Privado] Lead +${rawPhone} tentou receber link de afiliado de terceiro (${leadConv.product_name}) no privado. Cancelado para manter foco em vendas oficiais.`);
+      models.advanceLeadFunnelStage(rawPhone, 'LOST');
+      return false; // Permite que a esteira consultiva de IA atenda o lead no produto real
+    }
 
-      leadConv = models.enrollLeadInFunnel({
-        phone: rawPhone,
-        product_name: defaultLink.title,
-        affiliate_url: defaultLink.affiliate_url,
-        affiliate_link_id: defaultLink.id,
-        assigned_instance_id: instanceId
-      });
+    // Se o lead já teve o funil encerrado ou perdido, não reabre automaticamente
+    if (leadConv.status === 'LOST') {
+      return false;
+    }
+
+    // 2.1 Detecção de Rejeição, Correção ou Falta de Interesse no Produto de Afiliado
+    const isRejectionOrCorrection = /(?:n[aã]o\s+tem\s+nada\s+(?:a|ha)ver|t[aá]\s+errado|est[aá]\s+errado|falei\s+que|eu\s+disse\s+que|n[aã]o\s+sou\s+trader|n[aã]o\s+mexo\s+com\s+trader|n[aã]o\s+quero|n[aã]o\s+[eé]\s+isso|para\s+de|papelaria|loja|outro\s+assunto|viajou|nada\s+disso)/i.test(lower);
+    if (isRejectionOrCorrection) {
+      models.advanceLeadFunnelStage(rawPhone, 'LOST');
+      console.log(`[Funil Lead 👤] Lead ${rawPhone} sinalizou correção/desinteresse no produto ${leadConv.product_name}. Encerrando funil.`);
+      return false; // Permite que a esteira consultiva de IA atenda o lead no assunto real
     }
 
     // 3. Atualiza status de campanha se existir
@@ -1083,11 +1862,22 @@ class WhatsAppArmyService {
       const single = instances.find(i => i.id === Number(specificInstanceId) && i.active);
       if (single) availableInstances.push(single);
     } else {
-      // Prioriza sub-bots secundários ativos
-      availableInstances = instances.filter(i => !i.is_main && i.active && (this.activeSockets.has(i.id) || this.isSimulationMode || process.env.NODE_ENV === 'test'));
-      // Se não houver sub-bots secundários conectados, usa todos os ativos incluindo a Matriz
+      // Prioriza sub-bots secundários ativos (excluindo os desligados/pausados via !serbot off)
+      availableInstances = instances.filter(i => !i.is_main && i.active && !this.isInstancePaused(i.id) && (this.activeSockets.has(i.id) || this.isSimulationMode || process.env.NODE_ENV === 'test'));
+      // Se não houver sub-bots secundários conectados, usa todos os ativos não-pausados incluindo a Matriz
       if (availableInstances.length === 0) {
-        availableInstances = instances.filter(i => i.active);
+        availableInstances = instances.filter(i => i.active && !this.isInstancePaused(i.id));
+      }
+    }
+
+    // 🛡️ Filtro de Aquecimento (Pilar 3): Para postagens em grupos, chips em nível FRIO são protegidos
+    if (targetType === 'groups') {
+      const allowedInstances = availableInstances.filter(i => {
+        const check = models.canSubBotPostToGroup(i.id);
+        return check.allowed;
+      });
+      if (allowedInstances.length > 0) {
+        availableInstances = allowedInstances;
       }
     }
 
@@ -1110,7 +1900,7 @@ class WhatsAppArmyService {
           } catch (_) {}
         }
       }
-      recipients = Array.from(groupJids);
+      recipients = Array.from(groupJids).filter(jid => !models.isGroupBanned(jid) && models.isGroupPostingActive(jid));
     } else {
       // Leads cadastrados no sistema (campanhas e funis)
       try {
@@ -1139,6 +1929,11 @@ class WhatsAppArmyService {
       };
     }
 
+    // Em ambiente de teste, limita para 5 leads para execução ultrarrápida
+    if (process.env.NODE_ENV === 'test' && recipients.length > 5) {
+      recipients = recipients.slice(0, 5);
+    }
+
     // 3. Disparo balanceado (Round-Robin) com Spintax e Anti-ban
     const results = [];
     let dispatched = 0;
@@ -1153,7 +1948,8 @@ class WhatsAppArmyService {
         if (recipient.endsWith('@g.us')) {
           const sock = this.activeSockets.get(botInst.id) || (require('../bots/whatsappBot').sock);
           if (sock) {
-            await sock.sendMessage(recipient, { text: personalizedText });
+            await this.broadcastToGroupExcludingAdmins(sock, recipient, personalizedText, { imageUrl: vars.imageUrl || null });
+            models.recordSubBotGroupPost(botInst.id);
           }
         } else {
           await this.sendArmyMessage(botInst.id, recipient, personalizedText);
@@ -1175,9 +1971,11 @@ class WhatsAppArmyService {
     return {
       success: true,
       dispatched,
+      totalSent: dispatched,
       failed,
       totalRecipients: recipients.length,
       subBotsCount: availableInstances.length,
+      activeBotsCount: availableInstances.length,
       details: results
     };
   }
@@ -1186,7 +1984,8 @@ class WhatsAppArmyService {
     const instances = models.getArmyInstances();
     const subBots = instances.filter(i => !i.is_main);
     const mainBot = instances.find(i => i.is_main) || { name: 'Matriz Principal', id: 1 };
-    const onlineSubBots = subBots.filter(s => this.activeSockets.has(s.id) || s.status === 'CONNECTED');
+    const onlineSubBots = subBots.filter(s => (this.activeSockets.has(s.id) || s.status === 'CONNECTED') && !this.isInstancePaused(s.id));
+    const pausedSubBots = subBots.filter(s => this.isInstancePaused(s.id));
 
     let totalSentToday = 0;
     let totalDailyCapacity = 0;
@@ -1199,6 +1998,7 @@ class WhatsAppArmyService {
       totalInstances: instances.length,
       totalSubBots: subBots.length,
       onlineSubBots: onlineSubBots.length,
+      pausedSubBots: pausedSubBots.length,
       connectedCount: onlineSubBots.length + (mainBot.status === 'CONNECTED' ? 1 : 0),
       totalSentToday,
       totalDailyCapacity,
@@ -1208,15 +2008,19 @@ class WhatsAppArmyService {
         phone: mainBot.phone,
         status: mainBot.status
       },
-      subBots: subBots.map(s => ({
-        id: s.id,
-        name: s.name,
-        phone: s.phone,
-        status: this.activeSockets.has(s.id) ? 'CONNECTED' : s.status,
-        messages_sent_today: s.messages_sent_today || 0,
-        daily_limit: s.daily_limit || 50,
-        active: s.active
-      }))
+      subBots: subBots.map(s => {
+        const isPaused = this.isInstancePaused(s.id);
+        return {
+          id: s.id,
+          name: s.name,
+          phone: s.phone,
+          status: isPaused ? 'PAUSED' : (this.activeSockets.has(s.id) ? 'CONNECTED' : s.status),
+          is_paused: isPaused ? 1 : 0,
+          messages_sent_today: s.messages_sent_today || 0,
+          daily_limit: s.daily_limit || 50,
+          active: s.active
+        };
+      })
     };
   }
 
@@ -1238,18 +2042,31 @@ class WhatsAppArmyService {
         }
       }
 
-      // 2. Restaura conexões salvas de chips ativos
+      // 2. Restaura conexões salvas de chips ativos com escalonamento suave (Nitro V15 Anti-Spike Boot)
       const instances = models.getArmyInstances();
-      for (const inst of instances) {
-        if (inst.active && !inst.is_main) {
-          const folder = path.join(this.armyBaseFolder, `instance_${inst.id}`);
-          const credsFile = path.join(folder, 'creds.json');
-          if (fs.existsSync(credsFile)) {
-            console.log(`[Exército WhatsApp 📱] Restaurando conexão persistente do Chip #${inst.id} (${inst.name})...`);
-            this.startInstance(inst.id).catch(err => {
-              console.error(`⚠️ [Exército WhatsApp] Erro ao restaurar Chip #${inst.id}:`, err.message);
-            });
-          }
+      const activeToStart = instances.filter(inst => {
+        if (!inst.active || inst.is_main) return false;
+        const folder = path.join(this.armyBaseFolder, `instance_${inst.id}`);
+        return fs.existsSync(path.join(folder, 'creds.json'));
+      });
+
+      if (activeToStart.length > 0) {
+        console.log(`[Exército WhatsApp 🚀] Inicializando ${activeToStart.length} sub-bots com escalonamento suave para o Nitro V15...`);
+      }
+
+      for (let i = 0; i < activeToStart.length; i++) {
+        const inst = activeToStart[i];
+        if (inst.is_paused === 1 || inst.status === 'PAUSED') {
+          this.pausedInstances.add(inst.id);
+        }
+        console.log(`[Exército WhatsApp 📱] [${i + 1}/${activeToStart.length}] Restaurando Chip #${inst.id} (${inst.name})${inst.is_paused ? ' [EM STANDBY / PAUSADO]' : ''}...`);
+        this.startInstance(inst.id).catch(err => {
+          console.error(`⚠️ [Exército WhatsApp] Erro ao restaurar Chip #${inst.id}:`, err.message);
+        });
+
+        // Delay escalonado de 1.2s entre cada conexão para eliminar picos de CPU e evitar throttle da Meta
+        if (i < activeToStart.length - 1) {
+          await new Promise(res => setTimeout(res, 1200));
         }
       }
     } catch (_) {}
@@ -1273,10 +2090,36 @@ class WhatsAppArmyService {
   cleanupMemory() {
     try {
       const now = Date.now();
+      // 1. Limpa relays expirados
       if (this.activeRelays) {
         for (const [phone, relay] of this.activeRelays.entries()) {
           if (now - (relay.createdAt || 0) > 43200000) {
             this.activeRelays.delete(phone);
+          }
+        }
+      }
+
+      // 2. Limpa chaves de despacho legítimas acumuladas (evita memory leak)
+      if (this.legitimateDispatchKeys && this.legitimateDispatchKeys.size > 2000) {
+        this.legitimateDispatchKeys.clear();
+      }
+
+      // 3. Limpa QR codes e instâncias desativadas em memória
+      if (this.instanceQrs) {
+        for (const [id] of this.instanceQrs.entries()) {
+          const inst = models.getArmyInstanceById(id);
+          if (!inst || inst.status === 'CONNECTED' || !inst.active) {
+            this.instanceQrs.delete(id);
+          }
+        }
+      }
+
+      // 4. Limpa sockets que foram desconectados e fechados
+      if (this.activeSockets) {
+        for (const [id, sock] of this.activeSockets.entries()) {
+          if (!sock || sock.ws?.readyState === 3 /* CLOSED */) {
+            try { sock.ev?.removeAllListeners(); } catch (_) {}
+            this.activeSockets.delete(id);
           }
         }
       }

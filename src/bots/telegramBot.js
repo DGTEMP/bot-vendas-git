@@ -4,6 +4,7 @@ const config = require('../config');
 const models = require('../db/models');
 const binancePay = require('../services/binancePay');
 const pixPayment = require('../services/pixPayment');
+const cryptoWalletService = require('../services/cryptoWalletService');
 const fulfillment = require('../services/fulfillment');
 const updatesChannel = require('../services/updatesChannel');
 
@@ -259,8 +260,100 @@ class TelegramBotService {
         statusText += `\n`;
       }
 
-      statusText += `_Comandos úteis: /desativar, /ativar, /bloquear, /desbloquear, /admin, /suporte_`;
+      statusText += `_Comandos úteis: /desativar, /ativar, /bloquear, /desbloquear, /admin, /sodivu, /suporte_`;
       return ctx.reply(statusText, { parse_mode: 'Markdown' });
+    });
+
+    // Modo Só Divulgação (/sodivu, /sodivuglobal, /sodivu_global)
+    this.bot.command(['sodivu', 'sodivuglobal', 'sodivu_global', 'sodivulgacao', 'apenasdivu'], async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      const isGroup = ctx.chat.type !== 'private';
+      const rawText = ctx.message?.text || '';
+      const parts = rawText.trim().split(/\s+/);
+      const cmdName = (parts[0] || '').replace(/^\//, '').toLowerCase();
+      const action = (parts[1] || '').toLowerCase();
+
+      const isGlobalCmd = cmdName.includes('global') || action === 'global' || (parts[2] || '').toLowerCase() === 'global';
+
+      if (isGlobalCmd) {
+        if (action === 'on' || (parts[2] || '').toLowerCase() === 'on') {
+          models.setGlobalSoDivu(true);
+        } else if (action === 'off' || (parts[2] || '').toLowerCase() === 'off') {
+          models.setGlobalSoDivu(false);
+        } else if (action === 'status') {
+          // apenas exibe status
+        } else {
+          models.toggleGlobalSoDivu();
+        }
+        const isGlobalAct = models.isGlobalSoDivuActive();
+        return ctx.reply(
+          `📢 *MODO SÓ DIVULGAÇÃO GLOBAL (TELEGRAM)* 🌍\n\n` +
+          `• *Status Global:* ${isGlobalAct ? '🟢 *ATIVADO (Apenas postagens/ofertas)*' : '⚪ *DESATIVADO*'}\n\n` +
+          `_${isGlobalAct ? 'O bot silenciará comandos comuns e manterá apenas postagens em todos os grupos.' : 'O bot voltou a aceitar comandos e interações normalmente em todos os grupos.'}_\n\n` +
+          `💡 Use */sodivuglobal on* ou */sodivuglobal off* para alternar.`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      if (!isGroup) {
+        const isGlobalAct = models.isGlobalSoDivuActive();
+        return ctx.reply(
+          `📢 *MODO SÓ DIVULGAÇÃO (!sodivu)* 🛍️\n\n` +
+          `• *Status Global:* ${isGlobalAct ? '🟢 Ativado' : '⚪ Desativado'}\n\n` +
+          `💡 _Envie este comando dentro de um grupo para ativar apenas naquele grupo, ou use */sodivuglobal* para todos os grupos._`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      if (action === 'on') {
+        models.setGroupSoDivu(chatId, true);
+      } else if (action === 'off') {
+        models.setGroupSoDivu(chatId, false);
+      } else if (action === 'status') {
+        // apenas exibe status
+      } else {
+        models.toggleGroupSoDivu(chatId);
+      }
+
+      const isAct = models.isGroupSoDivuActive(chatId);
+      const isGlob = models.isGlobalSoDivuActive();
+
+      return ctx.reply(
+        `📢 *MODO SÓ DIVULGAÇÃO NESTE CHAT* 🛍️\n\n` +
+        `• *Status no Grupo:* ${isAct ? '🟢 *ATIVADO (Apenas postagens)*' : '⚪ *DESATIVADO*'}\n` +
+        `• *Status Global:* ${isGlob ? '🟢 *Ativo em todos*' : '⚪ Desativado'}\n\n` +
+        `_${isAct ? 'Este grupo agora receberá exclusivamente postagens e promoções. Comandos comuns de membros foram silenciados.' : 'Interações e comandos de membros foram reativados normalmente neste grupo.'}_\n\n` +
+        `💡 Use */sodivu on* ou */sodivu off* para alternar.`,
+        { parse_mode: 'Markdown' }
+      );
+    });
+
+    // Gerente Geral da Operação & Árbitro do Sistema (/gerente, /arbitro, /operacao, /pleno)
+    this.bot.command(['gerente', 'arbitro', 'operacao', 'statusoperacao', 'pleno'], async (ctx) => {
+      try {
+        const operationsArbiter = require('../services/operationsArbiterService');
+        await ctx.reply('⚖️ *Consultando o Árbitro da Operação com o Núcleo de Inteligência...*', { parse_mode: 'Markdown' });
+        const audit = await operationsArbiter.auditAll({ forceAi: true });
+        const report = operationsArbiter.formatTelegramReport(audit);
+        return ctx.reply(report, { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao consultar Gerente da Operação: ${err.message}`);
+      }
+    });
+
+    // Autocura Operacional (/autocura, /reparar)
+    this.bot.command(['autocura', 'reparar'], async (ctx) => {
+      const isAdmin = await this.checkTelegramAdmin(ctx);
+      if (!isAdmin) return ctx.reply('⚠️ Apenas o Administrador Supremo pode acionar a autocura.');
+      try {
+        const operationsArbiter = require('../services/operationsArbiterService');
+        await ctx.reply('🛠️ *Executando ciclo de autocura em todos os subsistemas...*', { parse_mode: 'Markdown' });
+        const audit = await operationsArbiter.auditAll({ triggerAutoHeal: true, forceAi: true });
+        const report = operationsArbiter.formatTelegramReport(audit);
+        return ctx.reply(report, { parse_mode: 'Markdown' });
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao acionar autocura: ${err.message}`);
+      }
     });
 
     // Comando de Suporte Humano / Transbordo
@@ -275,6 +368,67 @@ class TelegramBotService {
       });
       const sellerInfo = ticket.seller_name ? `O atendente *${ticket.seller_name}*` : 'Um especialista da nossa equipe';
       return ctx.reply(`🛎️ *Chamado de Suporte Aberto (#${ticket.id})*\n\n${sellerInfo} foi notificado para te atender com prioridade! Por favor, descreva sua solicitação ou envie o comprovante abaixo.`, { parse_mode: 'Markdown' });
+    });
+
+    // Comando /download, /dl, /baixar (Downloader Universal & Feed de Perfil)
+    this.bot.command(['download', 'dl', 'baixar'], async (ctx) => {
+      const text = (ctx.message?.text || '').trim();
+      const parts = text.split(/\s+/);
+      const query = parts.slice(1).join(' ').trim();
+      if (!query) {
+        return ctx.reply(
+          `📥 *DOWNLOADER UNIVERSAL & FEED (SPY)*\n\n` +
+          `Baixe qualquer link ou até N publicações completas de um perfil:\n\n` +
+          `• \`/download https://instagram.com/p/...\` (Foto, Vídeo ou Carrossel)\n` +
+          `• \`/download @PapaiSpy 4\` (Traz as 4 últimas publicações com fotos e detalhes)\n` +
+          `• \`/download https://youtube.com/watch?v=...\`\n` +
+          `• \`/download https://vm.tiktok.com/...\`\n\n` +
+          `⚡ _Também pode usar /dl ou /baixar_`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      const spyFeatures = require('../services/spyFeaturesService');
+      const chatId = String(ctx.chat.id);
+      const tgSock = {
+        sendMessage: async (to, msg) => {
+          try {
+            if (msg.text) return await ctx.reply(msg.text, { parse_mode: 'Markdown' });
+            if (msg.image) return await ctx.replyWithPhoto({ source: msg.image }, { caption: msg.caption });
+            if (msg.video) return await ctx.replyWithVideo({ source: msg.video }, { caption: msg.caption });
+            if (msg.audio) return await ctx.replyWithAudio({ source: msg.audio }, { caption: msg.caption });
+            if (msg.document) return await ctx.replyWithDocument({ source: msg.document, filename: msg.fileName }, { caption: msg.caption });
+          } catch (err) {
+            console.error('[Telegram Download Send Error]:', err.message);
+          }
+        }
+      };
+      return spyFeatures.handleUniversalDownload(tgSock, chatId, text);
+    });
+
+    // Comando /imei, /consultaimei, /celularseguro (Consulta Celular Seguro & Anatel)
+    this.bot.command(['imei', 'consultaimei', 'consultarimei', 'celularseguro', 'celularroubado', 'checarimei'], async (ctx) => {
+      const text = (ctx.message?.text || '').trim();
+      const parts = text.split(/\s+/);
+      const query = parts.slice(1).join(' ').trim();
+      const quotedText = ctx.message?.reply_to_message?.text || '';
+      const imeiService = require('../services/imeiService');
+      const targetImei = imeiService.extractImei(query, quotedText);
+
+      if (!targetImei) {
+        try {
+          return await ctx.reply(imeiService.getHelpGuide('/'), { parse_mode: 'Markdown' });
+        } catch (_) {
+          return await ctx.reply(imeiService.getHelpGuide('/'));
+        }
+      }
+
+      const result = await imeiService.consultarCelularSeguro(targetImei, { usedPrefix: '/' });
+      try {
+        return await ctx.reply(result.formattedMessage, { parse_mode: 'Markdown' });
+      } catch (_) {
+        return await ctx.reply(result.formattedMessage);
+      }
     });
 
     // ==========================================
@@ -294,6 +448,15 @@ class TelegramBotService {
           '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
         );
 
+        const memberSvgService = require('../services/memberSvgService');
+        const isSvgActive = memberSvgService.isWelcomeSvgEnabled(chatId);
+        let chatMembersCount = 100;
+        try {
+          if (typeof ctx.getChatMembersCount === 'function') {
+            chatMembersCount = await ctx.getChatMembersCount().catch(() => 100);
+          }
+        } catch (_) {}
+
         const newMembers = ctx.message.new_chat_members || [];
         for (const member of newMembers) {
           if (member.is_bot && ctx.botInfo && member.id === ctx.botInfo.id) {
@@ -307,7 +470,38 @@ class TelegramBotService {
             .replace(/\{numero\}/gi, String(member.id))
             .replace(/\{grupo\}/gi, groupName);
 
-          await ctx.reply(welcomeText, { parse_mode: 'Markdown' });
+          let cardResult = null;
+          if (isSvgActive) {
+            try {
+              const avatarBase64 = await memberSvgService.fetchTelegramAvatarBase64(this.bot, member.id);
+              cardResult = await memberSvgService.createMemberWelcomeCard({
+                memberJid: String(member.id),
+                memberPhone: String(member.id),
+                memberName,
+                groupName,
+                memberNumber: chatMembersCount,
+                avatarUrl: avatarBase64,
+                groupId: chatId
+              });
+            } catch (cardErr) {
+              console.warn('[Telegram Welcome SVG ⚠️] Erro ao renderizar card visual:', cardErr.message);
+            }
+          }
+
+          if (cardResult && cardResult.pngBuffer) {
+            try {
+              await ctx.replyWithPhoto({ source: cardResult.pngBuffer }, { caption: welcomeText, parse_mode: 'Markdown' });
+
+              if (memberSvgService.isWelcomeSvgDocEnabled(chatId) && cardResult.svgBuffer) {
+                await ctx.replyWithDocument({ source: cardResult.svgBuffer, filename: `welcome_${member.id}.svg` });
+              }
+            } catch (sendErr) {
+              console.warn('[Telegram Welcome SVG ⚠️] Falha ao enviar foto, fallback texto:', sendErr.message);
+              await ctx.reply(welcomeText, { parse_mode: 'Markdown' });
+            }
+          } else {
+            await ctx.reply(welcomeText, { parse_mode: 'Markdown' });
+          }
         }
       } catch (err) {
         console.error('[Telegram Group Welcome] Erro ao enviar boas-vindas:', err.message);
@@ -759,6 +953,119 @@ class TelegramBotService {
       return ctx.reply(`✅ *Mensagem de Boas-Vindas Atualizada!*\n\nNovos participantes receberão:\n"${newMsg}"`, { parse_mode: 'Markdown' });
     });
 
+    // 12.1 Configurar Card SVG Personalizado: /welcomesvg on/off/tema/doc/test
+    this.bot.command(['welcomesvg', 'svgbv', 'cardbv'], async (ctx) => {
+      const adminStatus = await this.getTelegramAdminStatus(ctx);
+      if (!adminStatus.isGroup) return ctx.reply('⚠️ Este comando só pode ser usado em grupos.');
+      if (!adminStatus.isRequesterAdmin) return ctx.reply('⚠️ Apenas administradores podem configurar os cards de boas-vindas.');
+
+      const memberSvgService = require('../services/memberSvgService');
+      const parts = ctx.message.text.trim().split(/\s+/);
+      const subCmd = parts[1]?.toLowerCase();
+      const subArg = parts.slice(2).join(' ').trim();
+      const chatId = String(ctx.chat.id);
+
+      if (subCmd === 'on' || subCmd === 'ativar' || subCmd === '1') {
+        memberSvgService.setWelcomeSvgEnabled(chatId, true);
+        return ctx.reply('🎨 *Card SVG Personalizado Ativado!* ✨\n\nNovos membros receberão um cartão visual de alta resolução estilizado.\n\n_Para escolher um tema:_ `/welcomesvg tema cyber`\n_Para testar:_ `/welcomesvg test`', { parse_mode: 'Markdown' });
+      } else if (subCmd === 'off' || subCmd === 'desativar' || subCmd === '0') {
+        memberSvgService.setWelcomeSvgEnabled(chatId, false);
+        return ctx.reply('🔕 *Card SVG Personalizado Desativado!*\nAs boas-vindas voltarão a enviar apenas mensagem de texto.', { parse_mode: 'Markdown' });
+      } else if (subCmd === 'tema' || subCmd === 'theme') {
+        if (!subArg) {
+          const themesList = memberSvgService.getThemes().map(t => `• *${t.id}* - ${t.name}`).join('\n');
+          return ctx.reply(`🎨 *Temas Visuais Disponíveis:*\n\n${themesList}\n\n_Para alterar:_ \`/welcomesvg tema cyber\``, { parse_mode: 'Markdown' });
+        }
+        const chosen = memberSvgService.setWelcomeSvgTheme(chatId, subArg);
+        return ctx.reply(`✅ *Tema visual atualizado para:* \`${chosen}\`! 🎉\nUse \`/welcomesvg test\` para visualizar uma prévia.`, { parse_mode: 'Markdown' });
+      } else if (subCmd === 'doc' || subCmd === 'arquivo') {
+        const docActive = subArg === 'on' || subArg === '1' || subArg === 'ativar';
+        memberSvgService.setWelcomeSvgDocEnabled(chatId, docActive);
+        return ctx.reply(`📄 *Envio do arquivo vetorial .svg:* ${docActive ? '🟢 Ativado' : '🔴 Desativado'}`, { parse_mode: 'Markdown' });
+      } else if (subCmd === 'test' || subCmd === 'teste') {
+        const curTheme = memberSvgService.getWelcomeSvgTheme(chatId);
+        await ctx.reply(`⏳ *Gerando prévia do card SVG personalizado (Tema: ${curTheme})...*`, { parse_mode: 'Markdown' });
+        try {
+          const avatarBase64 = await memberSvgService.fetchTelegramAvatarBase64(this.bot, ctx.from.id);
+          const memberCount = await ctx.getChatMembersCount().catch(() => 100);
+          const card = await memberSvgService.createMemberWelcomeCard({
+            memberJid: String(ctx.from.id),
+            memberPhone: String(ctx.from.id),
+            memberName: ctx.from.first_name || 'Membro',
+            groupName: ctx.chat.title || 'Grupo VIP',
+            memberNumber: memberCount,
+            avatarUrl: avatarBase64,
+            groupId: chatId,
+            theme: curTheme
+          });
+
+          if (card && card.pngBuffer) {
+            await ctx.replyWithPhoto({ source: card.pngBuffer }, {
+              caption: `🎉 *PRÉVIA DO CARD SVG DE BOAS-VINDAS* 🎨\n\n• *Tema:* ${curTheme}\n• *Membro:* ${ctx.from.first_name}\n• *Grupo:* ${ctx.chat.title}\n• *Membro #:* ${memberCount}\n\n_Altere com /welcomesvg tema <cyber|gold|aurora|neon|dark|sunset>_`,
+              parse_mode: 'Markdown'
+            });
+
+            if (memberSvgService.isWelcomeSvgDocEnabled(chatId) && card.svgBuffer) {
+              await ctx.replyWithDocument({ source: card.svgBuffer, filename: `card_preview_${ctx.from.id}.svg` });
+            }
+          }
+        } catch (err) {
+          return ctx.reply(`❌ Erro ao testar card: ${err.message}`);
+        }
+        return;
+      } else {
+        const isAct = memberSvgService.isWelcomeSvgEnabled(chatId);
+        const curTheme = memberSvgService.getWelcomeSvgTheme(chatId);
+        const isDoc = memberSvgService.isWelcomeSvgDocEnabled(chatId);
+        const themesAvailable = memberSvgService.getThemes().map(t => t.id).join(', ');
+
+        return ctx.reply(
+          `🎨 *Configuração do Card SVG de Boas-Vindas* ⚡\n\n` +
+          `• *Status:* ${isAct ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Tema Atual:* \`${curTheme}\`\n` +
+          `• *Arquivo .svg Anexo:* ${isDoc ? '🟢 Ativado' : '🔴 Desativado'}\n` +
+          `• *Temas:* ${themesAvailable}\n\n` +
+          `📌 *Comandos:*\n` +
+          `• \`/welcomesvg on/off\` - Ativa ou desativa\n` +
+          `• \`/welcomesvg tema <nome>\` - Escolhe o tema visual\n` +
+          `• \`/welcomesvg doc on/off\` - Anexa o arquivo .svg\n` +
+          `• \`/welcomesvg test\` - Gera uma prévia agora`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+    });
+
+    // 12.2 Atalho de Teste do Card SVG: /testbv
+    this.bot.command(['testbv', 'testsvg'], async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      const memberSvgService = require('../services/memberSvgService');
+      const curTheme = memberSvgService.getWelcomeSvgTheme(chatId);
+      await ctx.reply(`⏳ *Gerando prévia do card SVG...*`);
+      try {
+        const avatarBase64 = await memberSvgService.fetchTelegramAvatarBase64(this.bot, ctx.from.id);
+        const memberCount = typeof ctx.getChatMembersCount === 'function' ? await ctx.getChatMembersCount().catch(() => 100) : 100;
+        const card = await memberSvgService.createMemberWelcomeCard({
+          memberJid: String(ctx.from.id),
+          memberPhone: String(ctx.from.id),
+          memberName: ctx.from.first_name || 'Membro',
+          groupName: ctx.chat.title || 'Grupo VIP',
+          memberNumber: memberCount,
+          avatarUrl: avatarBase64,
+          groupId: chatId,
+          theme: curTheme
+        });
+
+        if (card && card.pngBuffer) {
+          await ctx.replyWithPhoto({ source: card.pngBuffer }, {
+            caption: `🎉 *CARD DE BOAS-VINDAS GERADO COM SUCESSO!* 🎨\n\n• *Tema:* ${curTheme}\n• *Membro:* ${ctx.from.first_name}\n• *Membro #:* ${memberCount}`,
+            parse_mode: 'Markdown'
+          });
+        }
+      } catch (err) {
+        return ctx.reply(`❌ Erro ao gerar preview: ${err.message}`);
+      }
+    });
+
     // /start com suporte a Links de Afiliados e Ofertas (Deep-Linking: /start ref_CODIGO ou /start buy_ID)
     this.bot.start(async (ctx) => {
       const userName = ctx.from.first_name || 'Cliente';
@@ -839,6 +1146,31 @@ class TelegramBotService {
       return ctx.reply(`🎉 *Cupom ${coupon.code} Aplicado com Sucesso!*\n\nVocê ganhou *${coupon.discount_percent}% de desconto* para sua próxima compra! Acesse o menu e escolha seu produto.`, { parse_mode: 'Markdown' });
     });
 
+    this.bot.command(['loja', 'vitrine', 'catalogo', 'store'], async (ctx) => {
+      const userId = String(ctx.from?.id || '');
+      const userName = ctx.from?.first_name || 'Cliente';
+      const userRef = this.userReferrals?.get(userId)?.ref_code || null;
+      const webStoreTrackerService = require('../services/webStoreTrackerService');
+      const tracked = webStoreTrackerService.buildTrackedStoreUrl({
+        phone: userId,
+        name: userName,
+        refCode: userRef,
+        source: 'telegram_bot'
+      });
+      await ctx.reply(
+        `🛍️ *Vitrine Online & Catálogo Oficial*\n\n` +
+        `Olá, *${userName}*! Acesse nossa vitrine completa com fotos, descrições e checkout automático:\n\n` +
+        `🌐 *Link da Loja:*\n👉 ${tracked.url}\n\n` +
+        (tracked.shortUrl ? `🔗 *Link Curto:* ${tracked.shortUrl}` : ''),
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('🌐 Abrir Vitrine Web', tracked.url)]
+          ])
+        }
+      );
+    });
+
     this.bot.command('produtos', (ctx) => this.showProducts(ctx, false));
     this.bot.command('planos', (ctx) => this.showProducts(ctx, true));
     this.bot.command('ajuda', (ctx) => this.showHelp(ctx));
@@ -893,9 +1225,20 @@ class TelegramBotService {
 
       await ctx.answerCbQuery('Gerando cobrança PIX...');
 
-      const tradeNo = `ORD_PIX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       const userId = String(ctx.from.id);
       const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
+      
+      const recentPendingPix = models.getLatestPendingOrder(userId, product.id);
+      let tradeNo;
+      let isExistingPix = false;
+      if (recentPendingPix && (Date.now() - new Date(recentPendingPix.created_at).getTime() < 30 * 60 * 1000)) {
+        tradeNo = recentPendingPix.merchant_trade_no;
+        isExistingPix = true;
+        models.cancelOtherPendingOrders(userId, tradeNo, product.id);
+      } else {
+        tradeNo = `ORD_PIX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      }
+
       let amount = product.price_brl || product.price;
 
       // Aplica Cupom de Desconto se houver
@@ -908,13 +1251,19 @@ class TelegramBotService {
         couponCode = activeCoupon.code;
         models.useCoupon(activeCoupon.code);
         this.userCoupons.delete(userId);
+      } else if (isExistingPix && recentPendingPix.discount_amount) {
+        discountAmount = Number(recentPendingPix.discount_amount);
+        amount = Number(Math.max(0.50, amount - discountAmount).toFixed(2));
+        couponCode = recentPendingPix.coupon_code;
       }
 
+      const tenantId = product.tenant_id || null;
       const pixRes = await pixPayment.createPixCharge({
         merchantTradeNo: tradeNo,
         amount,
         goodsName: product.name,
-        payerName: userName
+        payerName: userName,
+        tenantId
       });
 
       if (!pixRes.success) {
@@ -931,43 +1280,77 @@ class TelegramBotService {
         if (nextSeller) sellerId = nextSeller.id;
       }
 
-      // Salva no banco
-      models.createOrder({
-        merchant_trade_no: tradeNo,
-        platform: 'telegram',
-        platform_user_id: userId,
-        platform_user_name: userName,
-        product_id: product.id,
-        gateway: 'mercadopago',
-        amount,
-        currency: 'BRL',
-        prepay_id: paymentId,
-        checkout_url: checkoutUrl,
-        pix_code: pixCode,
-        affiliate_id: refInfo.affiliate_id || null,
-        seller_id: sellerId,
-        ref_code: refInfo.ref_code || null,
-        coupon_code: couponCode,
-        discount_amount: discountAmount
-      });
+      // Salva ou atualiza no banco sem duplicar
+      const chosenGateway = pixRes.isLivepix ? 'livepix' : (pixRes.gateway || 'mercadopago');
+      if (isExistingPix) {
+        models.updateOrderGateway(tradeNo, {
+          gateway: chosenGateway,
+          currency: 'BRL',
+          amount,
+          prepay_id: paymentId,
+          checkout_url: checkoutUrl,
+          pix_code: pixCode
+        });
+      } else {
+        models.createOrder({
+          merchant_trade_no: tradeNo,
+          platform: 'telegram',
+          platform_user_id: userId,
+          platform_user_name: userName,
+          product_id: product.id,
+          gateway: chosenGateway,
+          amount,
+          currency: 'BRL',
+          prepay_id: paymentId,
+          checkout_url: checkoutUrl,
+          pix_code: pixCode,
+          affiliate_id: refInfo.affiliate_id || null,
+          seller_id: sellerId,
+          ref_code: refInfo.ref_code || null,
+          coupon_code: couponCode,
+          discount_amount: discountAmount,
+          is_upsell: product.is_upsell || 0,
+          tenant_id: tenantId
+        });
+      }
 
       const couponNotice = couponCode ? ` (Cupom *${couponCode}* aplicado: -R$ ${discountAmount.toFixed(2)})` : '';
-      const captionText = `🟢 *PAGAMENTO VIA PIX GERADO!*\n\n` +
-        `📦 *Item:* ${product.name}\n` +
-        `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*${couponNotice}\n` +
-        `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
-        `📲 *Como Pagar:*\n` +
-        `1. Escaneie o QR Code acima pelo app do seu banco.\n` +
-        `2. Ou copie o código *PIX Copia e Cola* abaixo e cole no seu banco:\n\n` +
-        `\`${pixCode}\`\n\n` +
-        `⚡ *A entrega é instantânea assim que o banco confirmar!*`;
+      let captionText;
+      let buttons = [];
 
-      const buttons = [
-        [Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)],
-        [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
-      ];
+      if (pixRes.isLivepix) {
+        captionText = `🟢 *PAGAMENTO VIA PIX* ⚡\n\n` +
+          `📦 *Item:* ${product.name}\n` +
+          `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*${couponNotice}\n` +
+          `🆔 *Código do Pedido:* \`${tradeNo}\`\n\n` +
+          (pixCode ? `📱 *Pix Copia e Cola:*\n\`${pixCode}\`\n\n` : '') +
+          `📲 *Como Pagar:*\n` +
+          `1. Aponte a câmera do aplicativo do seu banco para o QR Code (ou copie o Pix Copia e Cola acima);\n` +
+          `2. Confirme o valor de *R$ ${Number(amount).toFixed(2)}* no app do seu banco;\n` +
+          `3. Assim que você pagar, seu produto é liberado imediatamente!\n\n` +
+          (checkoutUrl ? `🔗 *Link Alternativo de Pagamento:*\n${checkoutUrl}` : '');
 
-      if (pixRes.isSimulated) {
+        if (checkoutUrl) {
+          buttons.push([Markup.button.url('🟢 Pagar via PIX', checkoutUrl)]);
+        }
+        buttons.push([Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)]);
+        buttons.push([Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]);
+      } else {
+        captionText = `🟢 *PAGAMENTO VIA PIX GERADO!* ⚡\n\n` +
+          `📦 *Item:* ${product.name}\n` +
+          `💰 *Valor:* *R$ ${Number(amount).toFixed(2)}*${couponNotice}\n` +
+          `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
+          `📲 *Como Pagar:*\n` +
+          `1. Escaneie o QR Code acima pelo app do seu banco.\n` +
+          (pixCode ? `2. Ou copie o código *PIX Copia e Cola* abaixo e cole no seu banco:\n\n\`${pixCode}\`\n\n` : '') +
+          `⚡ *A entrega é instantânea assim que o banco confirmar!*`;
+
+        buttons.push([Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)]);
+        buttons.push([Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]);
+      }
+
+      const isProduction = typeof models.isProduction === 'function' ? models.isProduction() : (models.getSetting('ENVIRONMENT_MODE', 'sandbox') === 'production');
+      if (pixRes.isSimulated && !isProduction) {
         buttons.unshift([Markup.button.url('🧪 [TESTE] Simular Pagamento Pix', checkoutUrl)]);
       }
 
@@ -976,6 +1359,10 @@ class TelegramBotService {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(buttons)
       });
+
+      if (pixCode && String(pixCode).trim().length > 0) {
+        await ctx.reply(`${pixCode.trim()}`);
+      }
     });
 
     // 2. Processar Pagamento via BINANCE PAY (USDT)
@@ -986,9 +1373,20 @@ class TelegramBotService {
 
       await ctx.answerCbQuery('Gerando fatura Binance Pay...');
 
-      const tradeNo = `ORD_BNB_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       const userId = String(ctx.from.id);
       const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
+      
+      const recentPendingBnb = models.getLatestPendingOrder(userId, product.id);
+      let tradeNo;
+      let isExistingBnb = false;
+      if (recentPendingBnb && (Date.now() - new Date(recentPendingBnb.created_at).getTime() < 30 * 60 * 1000)) {
+        tradeNo = recentPendingBnb.merchant_trade_no;
+        isExistingBnb = true;
+        models.cancelOtherPendingOrders(userId, tradeNo, product.id);
+      } else {
+        tradeNo = `ORD_BNB_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      }
+
       let amount = Number(product.price_usdt || (product.price / 5.5)).toFixed(2);
 
       // Aplica Cupom de Desconto se houver
@@ -1001,6 +1399,11 @@ class TelegramBotService {
         couponCode = activeCoupon.code;
         models.useCoupon(activeCoupon.code);
         this.userCoupons.delete(userId);
+      } else if (isExistingBnb && recentPendingBnb.discount_amount) {
+        discountAmount = Number(recentPendingBnb.discount_amount);
+        const discountUsdt = Math.round((discountAmount / 5.5) * 100) / 100;
+        amount = Number(Math.max(0.10, amount - discountUsdt).toFixed(2));
+        couponCode = recentPendingBnb.coupon_code;
       }
 
       const binanceRes = await binancePay.createOrder({
@@ -1025,24 +1428,35 @@ class TelegramBotService {
         if (nextSeller) sellerId = nextSeller.id;
       }
 
-      models.createOrder({
-        merchant_trade_no: tradeNo,
-        platform: 'telegram',
-        platform_user_id: userId,
-        platform_user_name: userName,
-        product_id: product.id,
-        gateway: 'binancepay',
-        amount,
-        currency: 'USDT',
-        prepay_id: payData.prepayId,
-        checkout_url: payData.checkoutUrl,
-        qr_content: payData.qrContent,
-        affiliate_id: refInfo.affiliate_id || null,
-        seller_id: sellerId,
-        ref_code: refInfo.ref_code || null,
-        coupon_code: couponCode,
-        discount_amount: discountAmount
-      });
+      if (isExistingBnb) {
+        models.updateOrderGateway(tradeNo, {
+          gateway: 'binancepay',
+          currency: 'USDT',
+          amount,
+          prepay_id: payData.prepayId,
+          checkout_url: payData.checkoutUrl,
+          qr_content: payData.qrContent
+        });
+      } else {
+        models.createOrder({
+          merchant_trade_no: tradeNo,
+          platform: 'telegram',
+          platform_user_id: userId,
+          platform_user_name: userName,
+          product_id: product.id,
+          gateway: 'binancepay',
+          amount,
+          currency: 'USDT',
+          prepay_id: payData.prepayId,
+          checkout_url: payData.checkoutUrl,
+          qr_content: payData.qrContent,
+          affiliate_id: refInfo.affiliate_id || null,
+          seller_id: sellerId,
+          ref_code: refInfo.ref_code || null,
+          coupon_code: couponCode,
+          discount_amount: discountAmount
+        });
+      }
 
       const qrBuffer = await QRCode.toBuffer(payData.qrContent || payData.checkoutUrl, { width: 360, margin: 2 });
 
@@ -1059,9 +1473,128 @@ class TelegramBotService {
         [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
       ];
 
-      if (binanceRes.isSimulated) {
+      const isProduction = typeof models.isProduction === 'function' ? models.isProduction() : (models.getSetting('ENVIRONMENT_MODE', 'sandbox') === 'production');
+      if (binanceRes.isSimulated && !isProduction) {
         buttons.splice(1, 0, [Markup.button.url('🧪 [TESTE] Simular Pagamento', payData.checkoutUrl)]);
       }
+
+      await ctx.replyWithPhoto({ source: qrBuffer }, {
+        caption: captionText,
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      });
+    });
+
+    // 2.5 Processar Pagamento via CARTEIRA CRIPTO (Auto-Custódia)
+    this.bot.action(/^pay_crypto_(\d+)$/, async (ctx) => {
+      const productId = parseInt(ctx.match[1], 10);
+      const product = models.getProductById(productId);
+      if (!product) return ctx.answerCbQuery('Produto não encontrado.');
+
+      await ctx.answerCbQuery('Gerando carteira cripto...');
+
+      const userId = String(ctx.from.id);
+      const userName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Cliente');
+      
+      const recentPendingCrp = models.getLatestPendingOrder(userId, product.id);
+      let tradeNo;
+      let isExistingCrp = false;
+      if (recentPendingCrp && (Date.now() - new Date(recentPendingCrp.created_at).getTime() < 30 * 60 * 1000)) {
+        tradeNo = recentPendingCrp.merchant_trade_no;
+        isExistingCrp = true;
+        models.cancelOtherPendingOrders(userId, tradeNo, product.id);
+      } else {
+        tradeNo = `ORD_TCRP_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      }
+
+      let amount = Number(product.price_usdt || (product.price / 5.5)).toFixed(2);
+
+      let couponCode = null;
+      let discountAmount = 0;
+      const activeCoupon = this.userCoupons.get(userId);
+      if (activeCoupon) {
+        discountAmount = Number(((amount * activeCoupon.discount_percent) / 100).toFixed(2));
+        amount = Number(Math.max(0.50, amount - discountAmount).toFixed(2));
+        couponCode = activeCoupon.code;
+        models.useCoupon(activeCoupon.code);
+        this.userCoupons.delete(userId);
+      } else if (isExistingCrp && recentPendingCrp.discount_amount) {
+        discountAmount = Number(recentPendingCrp.discount_amount);
+        const discountUsdt = Math.round((discountAmount / 5.5) * 100) / 100;
+        amount = Number(Math.max(0.10, amount - discountUsdt).toFixed(2));
+        couponCode = recentPendingCrp.coupon_code;
+      }
+
+      const cryptoRes = await cryptoWalletService.createOrder({
+        merchantTradeNo: tradeNo,
+        amountUsdt: amount,
+        productName: product.name,
+        networkKey: null
+      });
+
+      if (!cryptoRes.success) {
+        return ctx.reply(`❌ Erro Cripto: ${cryptoRes.errorMessage || 'Nenhuma carteira configurada.'}`);
+      }
+
+      const payData = cryptoRes.data;
+
+      const refInfo = this.userReferrals.get(userId) || {};
+      let sellerId = null;
+      if (models.getSetting('ROUND_ROBIN_SELLERS', 'true') === 'true') {
+        const nextSeller = models.getNextRoundRobinSeller(product.id);
+        if (nextSeller) sellerId = nextSeller.id;
+      }
+
+      if (isExistingCrp) {
+        models.updateOrderGateway(tradeNo, {
+          gateway: 'crypto',
+          currency: 'USDT',
+          amount,
+          qr_content: JSON.stringify({ ...payData, gateway: 'crypto' })
+        });
+      } else {
+        models.createOrder({
+          merchant_trade_no: tradeNo,
+          platform: 'telegram',
+          platform_user_id: userId,
+          platform_user_name: userName,
+          product_id: product.id,
+          gateway: 'crypto',
+          amount,
+          currency: 'USDT',
+          qr_content: JSON.stringify({ ...payData, gateway: 'crypto' }),
+          affiliate_id: refInfo.affiliate_id || null,
+          seller_id: sellerId,
+          ref_code: refInfo.ref_code || null,
+          coupon_code: couponCode,
+          discount_amount: discountAmount
+        });
+      }
+
+      cryptoWalletService.startPolling(tradeNo, async (tNo) => {
+        try {
+          await fulfillment.fulfillOrder(tNo);
+        } catch (e) {
+          console.error('[Telegram Crypto Polling Error]:', e.message);
+        }
+      });
+
+      const qrData = payData.paymentUri || payData.address;
+      const qrBuffer = await QRCode.toBuffer(qrData, { width: 360, margin: 2 });
+
+      const captionText = `💎 *PAGAMENTO EM CARTEIRA CRIPTO (AUTO-CUSTÓDIA)*\n\n` +
+        `📦 *Item:* ${product.name}\n` +
+        `🌐 *Rede:* ${payData.networkIcon || '💎'} ${payData.networkName || payData.network}\n` +
+        `💰 *Valor Exato:* \`${payData.amountUsdt} USDT\`\n` +
+        `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
+        `📋 *Endereço de Destino:*\n\`${payData.address}\`\n\n` +
+        (payData.memo ? `🏷️ *Referência / Memo:* \`${payData.memo}\`\n\n` : '') +
+        `_Transfira exatamente o valor informado para o endereço acima._`;
+
+      const buttons = [
+        [Markup.button.callback('🔄 Já Transferi / Verificar', `check_${tradeNo}`)],
+        [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
+      ];
 
       await ctx.replyWithPhoto({ source: qrBuffer }, {
         caption: captionText,
@@ -1078,7 +1611,7 @@ class TelegramBotService {
 
       const username = models.getSetting('LIVEPIX_USERNAME', '');
       if (!username) {
-        return ctx.reply('⚠️ O usuário da LivePix ainda não foi configurado pelo administrador.');
+        return ctx.reply('⚠️ O método de pagamento PIX está temporariamente indisponível.');
       }
 
       const tradeNo = `ORD_LPX_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -1109,21 +1642,21 @@ class TelegramBotService {
       });
 
       const livepixUrl = `https://livepix.gg/${username}`;
-      const msg = `💜 *PAGAMENTO VIA LIVEPIX*\n\n` +
+      const msg = `🟢 *PAGAMENTO VIA PIX* ⚡\n\n` +
         `📦 *Item:* ${product.name}\n` +
         `💰 *Valor:* R$ ${Number(amount).toFixed(2)}\n` +
         `🆔 *Código do Pedido:* \`${tradeNo}\`\n\n` +
         `👉 *Instruções:*\n` +
-        `1. Acesse: ${livepixUrl}\n` +
-        `2. Digite o valor de *R$ ${Number(amount).toFixed(2)}*\n` +
-        `3. ⚠️ *MUITO IMPORTANTE:* No campo de mensagem/mensagem da doação, insira o código: \`${tradeNo}\`\n\n` +
-        `Assim que o LivePix notificar nosso sistema, seu produto será entregue automaticamente!`;
+        `1. Acesse o link de pagamento PIX;\n` +
+        `2. O valor de *R$ ${Number(amount).toFixed(2)}* e o pedido \`${tradeNo}\` já foram configurados;\n` +
+        `3. Conclua o Pix pelo app do seu banco.\n\n` +
+        `Assim que o pagamento for concluído, seu produto será entregue automaticamente!`;
 
       await ctx.reply(msg, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.url('💜 Abrir Página do LivePix', livepixUrl)],
-          [Markup.button.callback('🔄 Já Apoiei / Verificar', `check_${tradeNo}`)],
+          [Markup.button.url('🟢 Pagar via PIX', livepixUrl)],
+          [Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)],
           [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
         ])
       });
@@ -1151,6 +1684,22 @@ class TelegramBotService {
         const queryRes = await binancePay.queryOrder(tradeNo);
         if (queryRes.success && queryRes.status === 'PAID') {
           await ctx.reply('🎉 Pagamento confirmado pela Binance Pay!');
+          return fulfillment.fulfillOrder(tradeNo);
+        }
+      }
+      // Se for Carteira Cripto (Auto-Custódia)
+      else if (order.gateway === 'crypto') {
+        const queryRes = await cryptoWalletService.checkOrderPayment(tradeNo);
+        if (queryRes.paid) {
+          await ctx.reply('🎉 Pagamento em criptomoeda detectado na blockchain!');
+          return fulfillment.fulfillOrder(tradeNo);
+        }
+      }
+      // Se for LivePix
+      else if (order.gateway === 'livepix') {
+        const isProduction = typeof models.isProduction === 'function' ? models.isProduction() : (models.getSetting('ENVIRONMENT_MODE', 'sandbox') === 'production');
+        if (!isProduction && models.getSetting('PIX_SIMULATION_MODE', 'false') === 'true') {
+          await ctx.reply('🎉 [MODO TESTE] Pagamento PIX confirmado!');
           return fulfillment.fulfillOrder(tradeNo);
         }
       }
@@ -1199,13 +1748,14 @@ class TelegramBotService {
 
       const { pixCode, qrBuffer, checkoutUrl, paymentId } = pixRes.data;
 
+      const chosenGateway = pixRes.isLivepix ? 'livepix' : (pixRes.gateway || 'mercadopago');
       models.createOrder({
         merchant_trade_no: tradeNo,
         platform: 'telegram',
         platform_user_id: userId,
         platform_user_name: userName,
         product_id: product.id,
-        gateway: 'mercadopago',
+        gateway: chosenGateway,
         amount: discountedAmount,
         currency: 'BRL',
         prepay_id: paymentId,
@@ -1214,17 +1764,34 @@ class TelegramBotService {
         is_upsell: 1
       });
 
-      const captionText = `🔥 *OFERTA UPSELL: PIX COM DESCONTO GERADO!*\n\n` +
-        `📦 *Item Adicional:* ${product.name}\n` +
-        `💰 *Valor Especial:* *R$ ${discountedAmount.toFixed(2)}* (${discountPercent}% OFF)\n` +
-        `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
-        `📲 *Pix Copia e Cola:*\n\`${pixCode}\``;
+      let captionText;
+      let buttons = [];
 
-      const buttons = [
-        [Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)],
-        [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
-      ];
-      if (pixRes.isSimulated) {
+      if (pixRes.isLivepix) {
+        captionText = `🔥 *OFERTA UPSELL: PIX COM DESCONTO GERADO!* ⚡\n\n` +
+          `📦 *Item Adicional:* ${product.name}\n` +
+          `💰 *Valor Especial:* *R$ ${discountedAmount.toFixed(2)}* (${discountPercent}% OFF)\n` +
+          `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
+          (pixCode ? `📲 *Pix Copia e Cola:*\n\`${pixCode}\`\n\n` : '') +
+          (checkoutUrl ? `🔗 *Link de Pagamento:*\n${checkoutUrl}` : '');
+
+        if (checkoutUrl) {
+          buttons.push([Markup.button.url('🟢 Pagar via PIX', checkoutUrl)]);
+        }
+        buttons.push([Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)]);
+        buttons.push([Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]);
+      } else {
+        captionText = `🔥 *OFERTA UPSELL: PIX COM DESCONTO GERADO!*\n\n` +
+          `📦 *Item Adicional:* ${product.name}\n` +
+          `💰 *Valor Especial:* *R$ ${discountedAmount.toFixed(2)}* (${discountPercent}% OFF)\n` +
+          `🆔 *Pedido:* \`${tradeNo}\`\n\n` +
+          `📲 *Pix Copia e Cola:*\n\`${pixCode}\``;
+
+        buttons.push([Markup.button.callback('🔄 Já Paguei / Verificar Pix', `check_${tradeNo}`)]);
+        buttons.push([Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]);
+      }
+      const isProduction = typeof models.isProduction === 'function' ? models.isProduction() : (models.getSetting('ENVIRONMENT_MODE', 'sandbox') === 'production');
+      if (pixRes.isSimulated && !isProduction) {
         buttons.unshift([Markup.button.url('🧪 [TESTE] Simular Pagamento Pix', checkoutUrl)]);
       }
 
@@ -1233,6 +1800,10 @@ class TelegramBotService {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(buttons)
       });
+
+      if (pixCode && String(pixCode).trim().length > 0) {
+        await ctx.reply(`${pixCode.trim()}`);
+      }
     });
 
     // Pagar Upsell com Binance Pay
@@ -1287,7 +1858,8 @@ class TelegramBotService {
         [Markup.button.callback('🔄 Já Paguei / Verificar', `check_${tradeNo}`)],
         [Markup.button.callback('⬅️ Cancelar', `cancel_${tradeNo}`)]
       ];
-      if (binanceRes.isSimulated) {
+      const isProduction = typeof models.isProduction === 'function' ? models.isProduction() : (models.getSetting('ENVIRONMENT_MODE', 'sandbox') === 'production');
+      if (binanceRes.isSimulated && !isProduction) {
         buttons.splice(1, 0, [Markup.button.url('🧪 [TESTE] Simular Pagamento', payData.checkoutUrl)]);
       }
 
@@ -1305,6 +1877,15 @@ class TelegramBotService {
 
       const userName = ctx.from.first_name || 'Cliente';
       try {
+        // Consulta Base de Conhecimento RAG / FAQ de Produtos
+        const faqMatch = models.matchProductFaq(text);
+        if (faqMatch && faqMatch.match) {
+          const faq = faqMatch.faq;
+          let ans = `💡 *${faq.question}*\n\n${faq.answer}\n\n`;
+          ans += `🛒 Digite /produtos para ver nosso catálogo completo.`;
+          return ctx.reply(ans, { parse_mode: 'Markdown' });
+        }
+
         const nlpService = require('../services/nlpService');
         const nlp = await nlpService.processMessage({
           text,
@@ -1337,6 +1918,51 @@ class TelegramBotService {
         }
       } catch (err) {
         console.error('[Telegram NLP Error]:', err.message);
+      }
+    });
+
+    // Transcrição de Áudio de Clientes via IA (Speech-to-Text)
+    this.bot.on('voice', async (ctx) => {
+      try {
+        const speechToTextService = require('../services/speechToTextService');
+        if (!speechToTextService.isEnabled()) return;
+
+        const fileId = ctx.message?.voice?.file_id;
+        if (!fileId) return;
+
+        const fileLink = await ctx.telegram.getFileLink(fileId);
+        const res = await fetch(fileLink.href);
+        const buffer = Buffer.from(await res.arrayBuffer());
+
+        const transcribedText = await speechToTextService.transcribeAudio(buffer, 'audio/ogg');
+        if (transcribedText && transcribedText.trim()) {
+          const userName = ctx.from.first_name || 'Cliente';
+          console.log(`[Telegram 🎙️] Áudio de @${ctx.from?.username || ctx.from?.id} transcrito: "${transcribedText}"`);
+          // FAQ check
+          const faqMatch = models.matchProductFaq(transcribedText);
+          if (faqMatch && faqMatch.match) {
+            const faq = faqMatch.faq;
+            let ans = `💡 *${faq.question}*\n\n${faq.answer}\n\n`;
+            ans += `🛒 Digite /produtos para ver nosso catálogo completo.`;
+            return ctx.reply(ans, { parse_mode: 'Markdown' });
+          }
+
+          const nlpService = require('../services/nlpService');
+          const nlp = await nlpService.processMessage({
+            text: transcribedText,
+            customerName: userName,
+            platform: 'telegram'
+          });
+
+          if (nlp.directAction === 'SHOW_MENU') {
+            return this.showProducts(ctx, false);
+          }
+          if (nlp.replyText) {
+            return ctx.reply(nlp.replyText, { parse_mode: 'Markdown' });
+          }
+        }
+      } catch (err) {
+        console.error('[Telegram Voice Transcription Error]:', err.message);
       }
     });
   }
@@ -1385,19 +2011,20 @@ class TelegramBotService {
     const isPix = models.getSetting('GATEWAY_PIX_ENABLED', 'true') === 'true';
     const isBinance = models.getSetting('GATEWAY_BINANCE_ENABLED', 'true') === 'true';
     const isLivepix = models.getSetting('GATEWAY_LIVEPIX_ENABLED', 'false') === 'true';
+    const isCrypto = cryptoWalletService.isEnabled();
 
     const buttons = [];
     const brlPrice = product.price_brl || product.price;
     const usdtPrice = product.price_usdt || (brlPrice / 5.5).toFixed(2);
 
-    if (isPix) {
+    if (isPix || isLivepix) {
       buttons.push([Markup.button.callback(`🟢 Pagar com PIX (R$ ${Number(brlPrice).toFixed(2)})`, `pay_pix_${product.id}`)]);
     }
     if (isBinance) {
       buttons.push([Markup.button.callback(`🟡 Pagar com Binance Pay (${Number(usdtPrice).toFixed(2)} USDT)`, `pay_bpay_${product.id}`)]);
     }
-    if (isLivepix) {
-      buttons.push([Markup.button.callback(`💜 Pagar via LivePix (Apoiador)`, `pay_lpix_${product.id}`)]);
+    if (isCrypto) {
+      buttons.push([Markup.button.callback(`💎 Pagar com Carteira Cripto (${Number(usdtPrice).toFixed(2)} USDT)`, `pay_crypto_${product.id}`)]);
     }
 
     buttons.push([Markup.button.callback('⬅️ Voltar ao Início', 'nav_main')]);

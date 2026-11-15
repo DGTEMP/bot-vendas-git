@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PAYBOT // Conectar Sub-Bot Oficial</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Fira+Code:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    :root {
+      --bg-deep: #030409;
+      --panel-bg: rgba(14, 18, 34, 0.88);
+      --card-bg: rgba(22, 28, 52, 0.75);
+      --neon-cyan: #00e5ff;
+      --neon-purple: #b537f2;
+      --neon-green: #10b981;
+      --neon-pink: #f43f5e;
+      --neon-amber: #f59e0b;
+      --text-main: #f1f5f9;
+      --text-dim: #94a3b8;
+      --border-glow: rgba(0, 229, 255, 0.35);
+      --glow-cyan: 0 0 20px rgba(0, 229, 255, 0.35);
+      --glow-green: 0 0 20px rgba(16, 185, 129, 0.4);
+      --font-main: 'Rajdhani', -apple-system, sans-serif;
+      --font-code: 'Fira Code', monospace;
+      --clip-hud: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+      --clip-btn: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    }
+
+    * {
+      margin: 0; padding: 0; box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg-deep);
+      color: var(--text-main);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 16px 60px;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(181, 55, 242, 0.16) 0%, transparent 60%),
+        radial-gradient(circle at 50% 100%, rgba(0, 229, 255, 0.12) 0%, transparent 60%);
+    }
+
+    .container {
+      width: 100%;
+      max-width: 580px;
+      margin: 0 auto;
+    }
+
+    /* HEADER */
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(0, 229, 255, 0.1);
+      border: 1px solid var(--border-glow);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--neon-cyan);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      box-shadow: var(--glow-cyan);
+    }
+    .brand-pill i {
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.2); }
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.2;
+      color: #fff;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .title span {
+      color: var(--neon-cyan);
+      text-shadow: var(--glow-cyan);
+    }
+    .subtitle {
+      font-size: 15px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+
+    /* CARD PRINCIPAL */
+    .card {
+      background: var(--panel-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(16px);
+      clip-path: var(--clip-hud);
+      padding: 24px 20px;
+      margin-bottom: 20px;
+      position: relative;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; width: 40px; height: 3px;
+      background: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    /* GREETING PERSONALIZADO */
+    .greeting-box {
+      background: rgba(0, 229, 255, 0.05);
+      border: 1px dashed rgba(0, 229, 255, 0.3);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .greeting-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--neon-purple), var(--neon-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      color: #fff;
+      flex-shrink: 0;
+      box-shadow: var(--glow-cyan);
+    }
+    .greeting-text h4 {
+      font-size: 17px;
+      color: #fff;
+      font-weight: 700;
+    }
+    .greeting-text p {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    /* BENEFÍCIOS GRID */
+    .benefits-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .benefit-item {
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 12px 10px;
+      text-align: center;
+    }
+    .benefit-icon {
+      font-size: 20px;
+      color: var(--neon-cyan);
+      margin-bottom: 6px;
+    }
+    .benefit-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .benefit-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* TABS */
+    .tabs-nav {
+      display: flex;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 8px;
+      padding: 4px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 10px 12px;
+      font-family: var(--font-main);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-dim);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+    }
+    .tab-btn.active {
+      background: var(--neon-cyan);
+      color: #030409;
+      box-shadow: var(--glow-cyan);
+    }
+
+    /* FORM ELEMENTS */
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .input-flag {
+      position: absolute;
+      left: 14px;
+      font-size: 20px;
+      pointer-events: none;
+    }
+    .form-input {
+      width: 100%;
+      background: rgba(8, 10, 20, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff;
+      font-family: var(--font-code);
+      font-size: 16px;
+      font-weight: 700;
+      padding: 12px 14px 12px 46px;
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+    }
+
+    /* TERMOS CHECK */
+    .terms-box {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+    .terms-box input[type="checkbox"] {
+      margin-top: 2px;
+      accent-color: var(--neon-cyan);
+      width: 16px; height: 16px;
+      cursor: pointer;
+    }
+    .terms-box a {
+      color: var(--neon-cyan);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    /* BOTÃO GERAR CÓDIGO */
+    .btn-action {
+      width: 100%;
+      background: linear-gradient(135deg, #00e5ff 0%, #0088ff 100%);
+      border: none;
+      color: #030409;
+      font-family: var(--font-main);
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 15px;
+      clip-path: var(--clip-btn);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: var(--glow-cyan);
+      transition: all 0.2s ease;
+    }
+    .btn-action:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 25px rgba(0, 229, 255, 0.6);
+    }
+    .btn-action:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* BOX DO CÓDIGO PAIRING */
+    .code-display-card {
+      display: none;
+      background: rgba(0, 229, 255, 0.06);
+      border: 2px solid var(--neon-cyan);
+      border-radius: 10px;
+      padding: 22px 18px;
+      text-align: center;
+      margin-top: 20px;
+      box-shadow: var(--glow-cyan);
+      animation: fadeIn 0.4s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .code-label {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    .code-digits {
+      font-family: var(--font-code);
+      font-size: 38px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: 4px;
+      text-shadow: var(--glow-cyan);
+      margin-bottom: 14px;
+      user-select: all;
+    }
+    .btn-copy {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-family: var(--font-main);
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-copy:hover {
+      background: var(--neon-cyan);
+      color: #030409;
+    }
+    .timer-bar {
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      margin-top: 16px;
+      overflow: hidden;
+    }
+    .timer-fill {
+      height: 100%;
+      width: 100%;
+      background: var(--neon-cyan);
+      transition: width 1s linear;
+    }
+    .timer-text {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 6px;
+    }
+
+    /* TUTORIAL PASSO A PASSO */
+    .steps-card {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 18px;
+      text-align: left;
+    }
+    .steps-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--neon-cyan);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .step-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+    .step-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(0, 229, 255, 0.2);
+      color: var(--neon-cyan);
+      font-weight: 700;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* QR CODE CONTAINER */
+    .qr-container {
+      display: none;
+      text-align: center;
+      padding: 16px 0;
+    }
+    .qr-box {
+      width: 240px;
+      height: 240px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      margin: 0 auto 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 30px rgba(0, 229, 255, 0.2);
+    }
+    .qr-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* ESTADO DE CONECTADO (SUCESSO) */
+    .connected-card {
+      display: none;
+      background: rgba(16, 185, 129, 0.08);
+      border: 2px solid var(--neon-green);
+      border-radius: 12px;
+      padding: 30px 20px;
+      text-align: center;
+      box-shadow: var(--glow-green);
+      animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes popIn {
+      from { transform: scale(0.85); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .success-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--neon-green);
+      color: #030409;
+      font-size: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      box-shadow: var(--glow-green);
+    }
+    .success-title {
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .success-desc {
+      font-size: 15px;
+      color: #94a3b8;
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+    .stats-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      padding: 8px 18px;
+      border-radius: 999px;
+      color: var(--neon-green);
+      font-weight: 700;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .btn-whatsapp {
+      background: #25d366;
+      color: #fff;
+      text-decoration: none;
+      font-family: var(--font-main);
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 14px 24px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 0 20px rgba(37, 211, 102, 0.4);
+      transition: transform 0.2s;
+    }
+    .btn-whatsapp:hover {
+      transform: translateY(-2px);
+    }
+
+    /* MODAL DE TERMOS */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-box {
+      background: #0d1222;
+      border: 1px solid var(--border-glow);
+      max-width: 500px;
+      max-height: 80vh;
+      border-radius: 12px;
+      padding: 24px;
+      overflow-y: auto;
+      color: #e2e8f0;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 10px;
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- HEADER -->
+    <header class="header">
+      <div class="brand-pill">
+        <i class="fa-solid fa-bolt"></i> PayBot Multi-Devices Free
+      </div>
+      <h1 class="title">Conecte seu <span>Sub-Bot</span></h1>
+      <p class="subtitle">Torne seu WhatsApp um robô de alta performance com 50 tokens diários gratuitos!</p>
+    </header>
+
+    <!-- CARD PRINCIPAL DE CONEXÃO -->
+    <div class="card" id="connectionSection">
+      
+      <!-- GREETING CUSTOMIZADO DO SOLICITANTE -->
+      <div class="greeting-box" id="greetingBox">
+        <div class="greeting-avatar">
+          <i class="fa-solid fa-user-astronaut"></i>
+        </div>
+        <div class="greeting-text">
+          <h4>Olá, <span id="clientNameText">Cliente</span>! 👋</h4>
+          <p id="greetingSubText">Seu link exclusivo de ativação foi pré-configurado com sucesso.</p>
+        </div>
+      </div>
+
+      <!-- BENEFÍCIOS -->
+      <div class="benefits-grid">
+        <div class="benefit-item">
+          <div class="benefit-icon"><i class="fa-solid fa-sack-dollar"></i></div>
+          <div class="benefit-title">R$ 0,00 Custo</div>
+          <div class="benefit-desc">100% Gratuito</div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon"><i class="fa-solid fa-coins"></i></div>
+          <div class="benefit-title">50 Tokens/Dia</div>
+          <div class="benefit-desc">Renovados todo dia</div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+          <div class="benefit-title">Comandos VIP</div>
+          <div class="benefit-desc">Figurinhas, IA e +</div>
+        </div>
+      </div>
+
+      <!-- TABS DE NAVEGAÇÃO -->
+      <div class="tabs-nav">
+        <button class="tab-btn active" id="tabPairingBtn" onclick="switchMethod('pairing')">
+          <i class="fa-solid fa-mobile-screen"></i> Código de 8 Dígitos (Fácil)
+        </button>
+        <button class="tab-btn" id="tabQrBtn" onclick="switchMethod('qr')">
+          <i class="fa-solid fa-qrcode"></i> QR Code
+        </button>
+      </div>
+
+      <!-- CONTEÚDO: PAIRING CODE -->
+      <div id="pairingMethodView">
+        <div class="form-group">
+          <label class="form-label">Número do WhatsApp a Conectar</label>
+          <div class="input-wrapper">
+            <span class="input-flag" id="countryFlag">🇧🇷</span>
+            <input type="tel" class="form-input" id="phoneInput" placeholder="Ex: 5511999998888" autocomplete="tel">
+          </div>
+          <small style="color: #64748b; font-size: 11px; margin-top: 4px; display: block;">
+            Formato com código do país (ex: 55 + DDD + Número no Brasil).
+          </small>
+        </div>
+
+        <div class="terms-box">
+          <input type="checkbox" id="termsCheck" checked>
+          <label for="termsCheck">
+            Concordo com os <a onclick="openTermsModal()">Termos de Uso do Exército PayBot</a> (Lançamentos Meteóricos, ofertas em grupos poupando administradores e status promocionais).
+          </label>
+        </div>
+
+        <button class="btn-action" id="btnRequestCode" onclick="handleGeneratePairingCode()">
+          <i class="fa-solid fa-bolt"></i> Gerar Código de Conexão
+        </button>
+
+        <!-- CARD COM O CÓDIGO GERADO -->
+        <div class="code-display-card" id="codeDisplayBox">
+          <div class="code-label">Seu Código de Pareamento WhatsApp:</div>
+          <div class="code-digits" id="pairingCodeText">---- ----</div>
+          <button class="btn-copy" id="btnCopyCode" onclick="copyPairingCode()">
+            <i class="fa-solid fa-copy"></i> Copiar Código
+          </button>
+          
+          <div class="timer-bar">
+            <div class="timer-fill" id="timerFill"></div>
+          </div>
+          <div class="timer-text" id="timerText">Válido por 2 minutos</div>
+
+          <!-- TUTORIAL PASSO A PASSO -->
+          <div class="steps-card">
+            <div class="steps-title"><i class="fa-solid fa-circle-info"></i> Como Ativar no seu Celular:</div>
+            <div class="step-line">
+              <span class="step-num">1</span>
+              <span>Abra o WhatsApp do aparelho que deseja conectar</span>
+            </div>
+            <div class="step-line">
+              <span class="step-num">2</span>
+              <span>Acesse <strong>Aparelhos Conectados</strong> (Menu ⋮ no Android ou Configurações ⚙️ no iPhone)</span>
+            </div>
+            <div class="step-line">
+              <span class="step-num">3</span>
+              <span>Toque no botão <strong>Conectar um Aparelho</strong></span>
+            </div>
+            <div class="step-line">
+              <span class="step-num">4</span>
+              <span>Toque em <strong>Conectar com número de telefone</strong> (no rodapé da tela)</span>
+            </div>
+            <div class="step-line">
+              <span class="step-num">5</span>
+              <span>Digite ou cole o código acima! ⚡</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTEÚDO: QR CODE -->
+      <div id="qrMethodView" class="qr-container">
+        <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 12px;">
+          Abra o WhatsApp > Aparelhos Conectados > Conectar um Aparelho e aponte a câmera:
+        </p>
+        <div class="qr-box" id="qrBox">
+          <i class="fa-solid fa-spinner fa-spin" style="font-size: 32px; color: #030409;"></i>
+        </div>
+        <button class="btn-copy" onclick="loadQrCode()">
+          <i class="fa-solid fa-rotate-right"></i> Atualizar QR Code
+        </button>
+      </div>
+
+    </div>
+
+    <!-- CARD DE SUCESSO (EXIBIDO QUANDO CONECTADO) -->
+    <div class="connected-card" id="connectedSuccessCard">
+      <div class="success-icon">
+        <i class="fa-solid fa-check"></i>
+      </div>
+      <h2 class="success-title">Sub-Bot Conectado!</h2>
+      <p class="success-desc">
+        Parabéns, <strong id="successClientName">Cliente</strong>! Seu WhatsApp agora é um Sub-Bot oficial PayBot. Seus 50 tokens diários gratuitos já estão prontos para uso.
+      </p>
+
+      <div class="stats-badge">
+        <i class="fa-solid fa-battery-full"></i> Saldo: <span id="tokensCount">50</span> Tokens Ativos
+      </div>
+
+      <div>
+        <a href="https://wa.me/" class="btn-whatsapp" id="btnOpenWhatsApp" target="_blank">
+          <i class="fa-brands fa-whatsapp"></i> Abrir WhatsApp e Usar
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE TERMOS -->
+  <div class="modal-overlay" id="termsModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="color: var(--neon-cyan);"><i class="fa-solid fa-file-contract"></i> Termos do Exército Sub-Bot</h3>
+        <button class="modal-close" onclick="closeTermsModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div style="font-size: 13px; line-height: 1.6; color: #cbd5e1;">
+        <p><strong>1. Custo Zero & Tokens Diários:</strong> A adesão ao programa Sub-Bot Free é 100% gratuita. Você recebe 50 tokens diários sem pagar nenhum centavo para usar comandos do bot (!figu, !play, !ia, etc.).</p>
+        <br>
+        <p><strong>2. Campanhas Meteóricas:</strong> Seu número poderá participar de ações coordenadas de vendas e engajamento da rede PayBot.</p>
+        <br>
+        <p><strong>3. Divulgações em Grupos:</strong> Eventuais ofertas poderão ser compartilhadas nos grupos onde você é membro marcando participantes comuns, poupando expressamente todos os administradores para proteger sua permanência.</p>
+        <br>
+        <p><strong>4. Liberdade de Desconexão:</strong> Você pode desconectar o robô a qualquer momento pelo próprio WhatsApp (Configurações > Aparelhos Conectados > Desconectar) ou enviando o comando <code>!stopbot</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentInstanceId = null;
+    let pollInterval = null;
+    let timerCountdown = null;
+    let targetPhone = '';
+
+    // Extrai parâmetros da URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramPhone = urlParams.get('phone') || urlParams.get('numero') || urlParams.get('lead') || '';
+    const paramName = urlParams.get('name') || urlParams.get('nome') || '';
+    const paramToken = urlParams.get('token') || urlParams.get('s') || urlParams.get('t') || '';
+
+    // Inicialização da Página
+    document.addEventListener('DOMContentLoaded', async () => {
+      // 1. Preenche dados iniciais se fornecidos na URL
+      if (paramName && paramName !== 'Cliente') {
+        document.getElementById('clientNameText').innerText = paramName;
+        document.getElementById('successClientName').innerText = paramName;
+      }
+      if (paramPhone) {
+        document.getElementById('phoneInput').value = paramPhone;
+        targetPhone = paramPhone;
+      }
+
+      // 2. Consulta API de informações pré-configuradas do cliente
+      try {
+        const infoRes = await fetch(`/api/subbot/connect/info?token=${encodeURIComponent(paramToken)}&phone=${encodeURIComponent(paramPhone)}&name=${encodeURIComponent(paramName)}`);
+        const info = await infoRes.json();
+        
+        if (info.success && info.data) {
+          const d = info.data;
+          if (d.name && d.name !== 'Cliente') {
+            document.getElementById('clientNameText').innerText = d.name;
+            document.getElementById('successClientName').innerText = d.name;
+          }
+          if (d.phone) {
+            document.getElementById('phoneInput').value = d.phone;
+            targetPhone = d.phone;
+          }
+          if (d.flag) {
+            document.getElementById('countryFlag').innerText = d.flag;
+          }
+
+          // Se já estiver conectado, exibe tela de sucesso imediatamente!
+          if (d.instance && d.instance.isConnected) {
+            currentInstanceId = d.instance.id;
+            showConnectedState(d.instance.tokens_balance || 50);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar dados prévios:', err);
+      }
+    });
+
+    // Alterna abas (Pairing Code vs QR Code)
+    function switchMethod(method) {
+      const pairingView = document.getElementById('pairingMethodView');
+      const qrView = document.getElementById('qrMethodView');
+      const btnPairing = document.getElementById('tabPairingBtn');
+      const btnQr = document.getElementById('tabQrBtn');
+
+      if (method === 'pairing') {
+        pairingView.style.display = 'block';
+        qrView.style.display = 'none';
+        btnPairing.classList.add('active');
+        btnQr.classList.remove('active');
+      } else {
+        pairingView.style.display = 'none';
+        qrView.style.display = 'block';
+        btnPairing.classList.remove('active');
+        btnQr.classList.add('active');
+        loadQrCode();
+      }
+    }
+
+    // Solicita o Código de Pareamento (8 Dígitos)
+    async function handleGeneratePairingCode() {
+      const phoneVal = document.getElementById('phoneInput').value.trim();
+      const termsAccepted = document.getElementById('termsCheck').checked;
+
+      if (!phoneVal || phoneVal.replace(/\D/g, '').length < 8) {
+        alert('Por favor, informe seu número de WhatsApp completo com código do país (ex: 5511999998888).');
+        return;
+      }
+      if (!termsAccepted) {
+        alert('É necessário concordar com os Termos do Exército de Sub-Bots para prosseguir.');
+        return;
+      }
+
+      const btn = document.getElementById('btnRequestCode');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando Código Seguro...';
+
+      try {
+        const clientName = document.getElementById('clientNameText').innerText;
+        const res = await fetch('/api/subbot/connect/request-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: phoneVal,
+            name: clientName,
+            accepted_terms: true,
+            token: paramToken
+          })
+        });
+
+        const data = await res.json();
+        if (data.success && (data.code || data.pairingCode)) {
+          const rawCode = data.code || data.pairingCode;
+          currentInstanceId = data.instanceId;
+          targetPhone = phoneVal;
+
+          // Exibe o código formatado
+          document.getElementById('pairingCodeText').innerText = rawCode;
+          document.getElementById('codeDisplayBox').style.display = 'block';
+          btn.style.display = 'none';
+
+          // Inicia timer regressivo de 2 minutos
+          startTimer(120);
+
+          // Inicia polling de verificação de conexão
+          startStatusPolling(currentInstanceId || phoneVal);
+        } else {
+          alert('Erro ao gerar código: ' + (data.error || data.message || 'Tente novamente.'));
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Tentar Novamente';
+        }
+      } catch (err) {
+        alert('Falha na comunicação com o servidor: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Gerar Código de Conexão';
+      }
+    }
+
+    // Copia o código para a área de transferência
+    function copyPairingCode() {
+      const code = document.getElementById('pairingCodeText').innerText.trim();
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('btnCopyCode');
+        btn.innerHTML = '<i class="fa-solid fa-check"></i> Copiado!';
+        btn.style.background = 'var(--neon-green)';
+        btn.style.color = '#030409';
+        setTimeout(() => {
+          btn.innerHTML = '<i class="fa-solid fa-copy"></i> Copiar Código';
+          btn.style.background = '';
+          btn.style.color = '';
+        }, 3000);
+      });
+    }
+
+    // Carrega QR Code
+    async function loadQrCode() {
+      const qrBox = document.getElementById('qrBox');
+      qrBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="font-size: 32px; color: #030409;"></i>';
+
+      try {
+        const phoneVal = document.getElementById('phoneInput').value.trim() || targetPhone;
+        const res = await fetch('/api/subbot/connect/request-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: phoneVal || '5511999990000',
+            accepted_terms: true
+          })
+        });
+        const data = await res.json();
+        if (data.instanceId) {
+          currentInstanceId = data.instanceId;
+          const qrRes = await fetch(`/api/army/instances/${data.instanceId}/qr`);
+          const qrData = await qrRes.json();
+          if (qrData.qrDataUrl) {
+            qrBox.innerHTML = `<img src="${qrData.qrDataUrl}" alt="QR Code WhatsApp">`;
+            startStatusPolling(currentInstanceId);
+          } else {
+            qrBox.innerHTML = '<p style="color: #64748b; font-size: 13px;">Aguardando geração do QR Code... Toque em atualizar.</p>';
+          }
+        }
+      } catch (err) {
+        qrBox.innerHTML = '<p style="color: #ef4444; font-size: 13px;">Erro ao carregar QR Code.</p>';
+      }
+    }
+
+    // Timer regressivo
+    function startTimer(seconds) {
+      if (timerCountdown) clearInterval(timerCountdown);
+      let remaining = seconds;
+      const fill = document.getElementById('timerFill');
+      const text = document.getElementById('timerText');
+
+      timerCountdown = setInterval(() => {
+        remaining--;
+        const pct = (remaining / seconds) * 100;
+        fill.style.width = pct + '%';
+        const mins = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        text.innerText = `Expira em ${mins}:${secs < 10 ? '0' : ''}${secs}`;
+
+        if (remaining <= 0) {
+          clearInterval(timerCountdown);
+          text.innerText = 'Código expirado. Gere um novo código.';
+          fill.style.background = 'var(--neon-pink)';
+        }
+      }, 1000);
+    }
+
+    // Polling em tempo real para detectar quando o WhatsApp conecta
+    function startStatusPolling(idOrPhone) {
+      if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/subbot/connect/status/${encodeURIComponent(idOrPhone)}`);
+          const data = await res.json();
+          if (data.success && data.isConnected) {
+            clearInterval(pollInterval);
+            if (timerCountdown) clearInterval(timerCountdown);
+            showConnectedState(data.tokens || 50);
+          }
+        } catch (_) {}
+      }, 2500);
+    }
+
+    // Exibe a tela de vitória quando conectado
+    function showConnectedState(tokens) {
+      document.getElementById('connectionSection').style.display = 'none';
+      document.getElementById('connectedSuccessCard').style.display = 'block';
+      document.getElementById('tokensCount').innerText = tokens;
+      
+      const phoneClean = (targetPhone || '').replace(/\D/g, '');
+      if (phoneClean) {
+        document.getElementById('btnOpenWhatsApp').href = `https://wa.me/${phoneClean}`;
+      }
+    }
+
+    // Modal de Termos
+    function openTermsModal() {
+      document.getElementById('termsModal').style.display = 'flex';
+    }
+    function closeTermsModal() {
+      document.getElementById('termsModal').style.display = 'none';
+    }
+  </script>
+</body>
+</html>

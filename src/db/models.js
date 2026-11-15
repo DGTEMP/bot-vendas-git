@@ -1,4 +1,5 @@
 const db = require('./database');
+const dateTimeUtils = require('../utils/dateTime');
 
 // ==========================================
 // Cache Write-Through em Memória RAM para Configurações (Acesso ~0ms)
@@ -18,11 +19,28 @@ function _ensureSettingsCache() {
   }
 }
 
+// ==========================================
+// Cache em Memória RAM para Catálogo de Produtos e Categorias
+// ==========================================
+const _productMemoryCache = new Map();
+const _productCacheTTL = 4000; // 4s TTL com invalidação write-through imediata
+
 const models = {
+  invalidateProductCache() {
+    _productMemoryCache.clear();
+  },
+
   // ==========================================
   // 1. PRODUTOS & CATEGORIAS
   // ==========================================
   getProducts(activeOnly = true, includeSubbots = false) {
+    const cacheKey = `${activeOnly}:${includeSubbots}`;
+    const cached = _productMemoryCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && (now - cached.timestamp < _productCacheTTL)) {
+      return cached.data;
+    }
+
     let whereClause = '';
     if (activeOnly) {
       whereClause = includeSubbots ? 'WHERE p.active = 1' : 'WHERE p.active = 1 AND (p.army_instance_id IS NULL OR p.army_instance_id = 0)';
@@ -37,17 +55,71 @@ const models = {
          ${whereClause}
          ORDER BY p.id ASC`;
     const products = db.prepare(sql).all();
+    if (!products.length) {
+      _productMemoryCache.set(cacheKey, { data: [], timestamp: now });
+      return [];
+    }
+
+    // Otimização Escalável: Eliminação do Problema N+1 de Consultas
+    // 1. Carrega estoque de chaves disponíveis em 1 única consulta agregada
+    const stockMap = new Map();
+    const stockRows = db.prepare('SELECT product_id, COUNT(*) as stock FROM inventory_keys WHERE is_used = 0 GROUP BY product_id').all();
+    for (const s of stockRows) stockMap.set(s.product_id, s.stock);
+
+    // 2. Carrega todos os vendedores atribuídos em 1 única consulta indexada
+    const sellerRows = db.prepare(`
+      SELECT sp.product_id, s.id, s.name, s.email, s.phone, s.telegram_username, s.commission_rate, s.active
+      FROM seller_products sp
+      JOIN sellers s ON sp.seller_id = s.id
+      ORDER BY s.name ASC
+    `).all();
+    const sellersByProduct = new Map();
+    const sellerIdsByProduct = new Map();
+    for (const sr of sellerRows) {
+      let list = sellersByProduct.get(sr.product_id);
+      if (!list) {
+        list = [];
+        sellersByProduct.set(sr.product_id, list);
+        sellerIdsByProduct.set(sr.product_id, []);
+      }
+      list.push({
+        id: sr.id,
+        name: sr.name,
+        email: sr.email,
+        phone: sr.phone,
+        telegram_username: sr.telegram_username,
+        commission_rate: sr.commission_rate,
+        active: sr.active
+      });
+      sellerIdsByProduct.get(sr.product_id).push(sr.id);
+    }
+
     for (const p of products) {
       if (p.type === 'license_key') {
-        p.availableStock = models.getAvailableKeyCount(p.id);
+        p.availableStock = stockMap.get(p.id) || 0;
       }
-      p.assigned_seller_ids = models.getProductSellerIds(p.id);
-      p.assigned_sellers = models.getProductSellers(p.id);
+      p.assigned_seller_ids = sellerIdsByProduct.get(p.id) || [];
+      p.assigned_sellers = sellersByProduct.get(p.id) || [];
+      if (!p.image_url || !String(p.image_url).trim()) {
+        p.image_url = models.getDefaultProductImage(p.category, p.name);
+      }
     }
+
+    _productMemoryCache.set(cacheKey, { data: products, timestamp: now });
     return products;
   },
 
+  getDefaultProductImage(category = '', name = '') {
+    try {
+      const { resolveProductImage } = require('../utils/productImageResolver');
+      return resolveProductImage(name, category);
+    } catch (_) {
+      return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop&q=80';
+    }
+  },
+
   getProductById(id) {
+    if (!id) return null;
     const product = db.prepare(`
       SELECT p.*, c.name as company_name, u.name as upsell_product_name, u.price_brl as upsell_base_brl, u.price_usdt as upsell_base_usdt
       FROM products p
@@ -62,8 +134,24 @@ const models = {
       }
       product.assigned_seller_ids = models.getProductSellerIds(product.id);
       product.assigned_sellers = models.getProductSellers(product.id);
+      if (!product.image_url || !String(product.image_url).trim()) {
+        product.image_url = models.getDefaultProductImage(product.category, product.name);
+      }
     }
     return product;
+  },
+
+  getProductByExternalId(tenantId, externalId) {
+    if (!externalId) return null;
+    try {
+      return db.prepare(`
+        SELECT * FROM products 
+        WHERE (tenant_id IS ? OR tenant_id = ?) AND external_id = ?
+        LIMIT 1
+      `).get(tenantId || null, tenantId || null, String(externalId));
+    } catch (_) {
+      return null;
+    }
   },
 
   getProductSellerIds(productId) {
@@ -89,6 +177,7 @@ const models = {
         if (sid) insert.run(Number(sid), productId);
       }
     }
+    models.invalidateProductCache();
     return models.getProductSellers(productId);
   },
 
@@ -98,13 +187,52 @@ const models = {
     return rows.map(r => r.category);
   },
 
-  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral', affiliation_enabled = 1, custom_affiliate_rate = null, seller_ids = [], tenant_id = null }) {
+  createProduct({ name, description = null, price, price_brl = null, price_usdt = null, currency = 'BRL', type, duration_days = 0, content = null, telegram_channel_id = null, upsell_product_id = null, upsell_discount_percent = 20.0, upsell_headline = null, company_id = null, category = 'Geral', affiliation_enabled = 1, custom_affiliate_rate = null, seller_ids = [], tenant_id = null, image_url = null, external_id = null, external_url = null, external_platform = null }) {
     const brl = price_brl !== null ? Number(price_brl) : Number(price);
     const usdt = price_usdt !== null ? Number(price_usdt) : Number((brl / 5.5).toFixed(2));
+    const finalImage = (image_url && String(image_url).trim()) ? String(image_url).trim() : models.getDefaultProductImage(category, name);
     
+    // Evita duplicidade de produtos com mesmo nome
+    const cleanName = String(name || '').trim();
+    if (cleanName) {
+      const existing = db.prepare(`
+        SELECT id FROM products 
+        WHERE lower(trim(name)) = lower(trim(?)) 
+          AND (tenant_id IS ? OR tenant_id = ?)
+        LIMIT 1
+      `).get(cleanName, tenant_id || null, tenant_id || null);
+      if (existing) {
+        return models.updateProduct(existing.id, {
+          name: cleanName,
+          description,
+          price_brl: brl,
+          price_usdt: usdt,
+          currency,
+          type,
+          duration_days,
+          content,
+          telegram_channel_id,
+          upsell_product_id,
+          upsell_discount_percent,
+          upsell_headline,
+          company_id,
+          category,
+          affiliation_enabled,
+          custom_affiliate_rate,
+          tenant_id,
+          seller_ids,
+          image_url: finalImage,
+          external_id,
+          external_url,
+          external_platform,
+          active: 1
+        });
+      }
+    }
+
     const stmt = db.prepare(`
-      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category, affiliation_enabled, custom_affiliate_rate, tenant_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, description, price, price_brl, price_usdt, currency, type, duration_days, content, telegram_channel_id, upsell_product_id, upsell_discount_percent, upsell_headline, company_id, category, affiliation_enabled, custom_affiliate_rate, tenant_id, image_url, external_id, external_url, external_platform)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const res = stmt.run(
       name, 
@@ -124,12 +252,17 @@ const models = {
       category || 'Geral',
       affiliation_enabled ? 1 : 0,
       custom_affiliate_rate !== null && custom_affiliate_rate !== undefined && custom_affiliate_rate !== '' ? Number(custom_affiliate_rate) : null,
-      tenant_id ? Number(tenant_id) : null
+      tenant_id ? Number(tenant_id) : null,
+      finalImage,
+      external_id || null,
+      external_url || null,
+      external_platform || null
     );
     const prodId = Number(res.lastInsertRowid);
     if (Array.isArray(seller_ids) && seller_ids.length > 0) {
       models.setProductSellers(prodId, seller_ids);
     }
+    models.invalidateProductCache();
     return models.getProductById(prodId);
   },
 
@@ -155,10 +288,18 @@ const models = {
     const affiliation_enabled = data.affiliation_enabled !== undefined ? (data.affiliation_enabled ? 1 : 0) : (existing.affiliation_enabled !== undefined ? existing.affiliation_enabled : 1);
     const custom_affiliate_rate = data.custom_affiliate_rate !== undefined ? (data.custom_affiliate_rate !== null && data.custom_affiliate_rate !== '' ? Number(data.custom_affiliate_rate) : null) : existing.custom_affiliate_rate;
     const tenant_id = data.tenant_id !== undefined ? (data.tenant_id ? Number(data.tenant_id) : null) : existing.tenant_id;
+    const buyers_group_jid = data.buyers_group_jid !== undefined ? (data.buyers_group_jid ? data.buyers_group_jid.trim() : '') : (existing.buyers_group_jid || '');
+    const buyers_group_invite_url = data.buyers_group_invite_url !== undefined ? (data.buyers_group_invite_url ? data.buyers_group_invite_url.trim() : '') : (existing.buyers_group_invite_url || '');
+    const buyers_group_admin_id = data.buyers_group_admin_id !== undefined ? Number(data.buyers_group_admin_id) : (existing.buyers_group_admin_id || 1);
+    const buyers_group_workflow = data.buyers_group_workflow !== undefined ? data.buyers_group_workflow : (existing.buyers_group_workflow || '');
+    const image_url = data.image_url !== undefined ? (data.image_url ? String(data.image_url).trim() : '') : (existing.image_url || '');
+    const external_id = data.external_id !== undefined ? data.external_id : existing.external_id;
+    const external_url = data.external_url !== undefined ? data.external_url : existing.external_url;
+    const external_platform = data.external_platform !== undefined ? data.external_platform : existing.external_platform;
 
     db.prepare(`
       UPDATE products 
-      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, company_id = ?, category = ?, active = ?, affiliation_enabled = ?, custom_affiliate_rate = ?, tenant_id = ?
+      SET name = ?, description = ?, price = ?, price_brl = ?, price_usdt = ?, currency = ?, type = ?, duration_days = ?, content = ?, telegram_channel_id = ?, upsell_product_id = ?, upsell_discount_percent = ?, upsell_headline = ?, company_id = ?, category = ?, active = ?, affiliation_enabled = ?, custom_affiliate_rate = ?, tenant_id = ?, buyers_group_jid = ?, buyers_group_invite_url = ?, buyers_group_admin_id = ?, buyers_group_workflow = ?, image_url = ?, external_id = ?, external_url = ?, external_platform = ?
       WHERE id = ?
     `).run(
       name, 
@@ -180,6 +321,14 @@ const models = {
       affiliation_enabled, 
       custom_affiliate_rate,
       tenant_id,
+      buyers_group_jid,
+      buyers_group_invite_url,
+      buyers_group_admin_id,
+      buyers_group_workflow,
+      image_url,
+      external_id || null,
+      external_url || null,
+      external_platform || null,
       id
     );
 
@@ -187,11 +336,14 @@ const models = {
       models.setProductSellers(id, data.seller_ids);
     }
 
+    models.invalidateProductCache();
     return models.getProductById(id);
   },
 
   deleteProduct(id) {
-    return db.prepare('DELETE FROM products WHERE id = ?').run(id);
+    const res = db.prepare('DELETE FROM products WHERE id = ?').run(id);
+    models.invalidateProductCache();
+    return res;
   },
 
   // ==========================================
@@ -212,10 +364,14 @@ const models = {
     for (const key of keyList) {
       const cleanKey = key.trim();
       if (cleanKey) {
-        stmt.run(productId, cleanKey);
-        added++;
+        const exists = db.prepare('SELECT id FROM inventory_keys WHERE product_id = ? AND key_content = ?').get(productId, cleanKey);
+        if (!exists) {
+          stmt.run(productId, cleanKey);
+          added++;
+        }
       }
     }
+    models.invalidateProductCache();
     return added;
   },
 
@@ -234,6 +390,7 @@ const models = {
         // Concorrência evitada: tenta a próxima chave disponível
         return models.popAvailableKey(productId, orderId);
       }
+      models.invalidateProductCache();
       return key.key_content;
     } catch (err) {
       try { db.exec('ROLLBACK;'); } catch (_) {}
@@ -250,9 +407,40 @@ const models = {
       ? 'SELECT * FROM sellers WHERE active = 1 ORDER BY id ASC'
       : 'SELECT * FROM sellers ORDER BY id ASC';
     const sellers = db.prepare(sql).all();
+    if (!sellers.length) return [];
+
+    // Otimização Escalável: Eliminação do Problema N+1 para Vendedores
+    const spRows = db.prepare(`
+      SELECT sp.seller_id, p.id, p.name, p.price_brl, p.price_usdt, p.category, c.name as company_name
+      FROM seller_products sp
+      JOIN products p ON sp.product_id = p.id
+      LEFT JOIN companies c ON p.company_id = c.id
+      ORDER BY p.name ASC
+    `).all();
+
+    const prodsBySeller = new Map();
+    const prodIdsBySeller = new Map();
+    for (const r of spRows) {
+      let list = prodsBySeller.get(r.seller_id);
+      if (!list) {
+        list = [];
+        prodsBySeller.set(r.seller_id, list);
+        prodIdsBySeller.set(r.seller_id, []);
+      }
+      list.push({
+        id: r.id,
+        name: r.name,
+        price_brl: r.price_brl,
+        price_usdt: r.price_usdt,
+        category: r.category,
+        company_name: r.company_name
+      });
+      prodIdsBySeller.get(r.seller_id).push(r.id);
+    }
+
     for (const s of sellers) {
-      s.assigned_product_ids = models.getSellerProductIds(s.id);
-      s.assigned_products = models.getSellerProducts(s.id);
+      s.assigned_product_ids = prodIdsBySeller.get(s.id) || [];
+      s.assigned_products = prodsBySeller.get(s.id) || [];
     }
     return sellers;
   },
@@ -446,8 +634,10 @@ const models = {
 
   getAffiliateByCode(refCode) {
     if (!refCode) return null;
-    const clean = refCode.trim().toUpperCase().replace(/^REF_/, '');
-    return db.prepare('SELECT * FROM affiliates WHERE UPPER(ref_code) = ? AND active = 1').get(clean);
+    const clean = String(refCode).trim().toUpperCase();
+    const withoutRef = clean.replace(/^REF_/, '');
+    const withRef = `REF_${withoutRef}`;
+    return db.prepare('SELECT * FROM affiliates WHERE (UPPER(ref_code) = ? OR UPPER(ref_code) = ? OR UPPER(ref_code) = ?) AND active = 1').get(clean, withoutRef, withRef);
   },
 
   createAffiliate({ name, email, phone, telegram_id, telegram_username, ref_code, commission_rate = 20.0, pix_key, usdt_wallet }) {
@@ -482,6 +672,32 @@ const models = {
 
   deleteAffiliate(id) {
     return db.prepare('DELETE FROM affiliates WHERE id = ?').run(id);
+  },
+
+  getOrCreateCustomerAffiliate(phone, name = 'Cliente VIP', commissionRate = 20.0) {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    if (cleanPhone) {
+      const existing = db.prepare(`
+        SELECT * FROM affiliates 
+        WHERE phone = ? OR phone LIKE ?
+        ORDER BY id DESC LIMIT 1
+      `).get(cleanPhone, `%${cleanPhone}%`);
+      if (existing) return existing;
+    }
+
+    const suffix = cleanPhone ? cleanPhone.slice(-4) : Math.random().toString(36).slice(2, 6).toUpperCase();
+    let refCode = `IND_${suffix}`;
+    const existsRef = db.prepare('SELECT id FROM affiliates WHERE UPPER(ref_code) = ?').get(refCode);
+    if (existsRef) {
+      refCode = `IND_${suffix}_${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    }
+
+    return models.createAffiliate({
+      name: name || `Cliente ${cleanPhone ? cleanPhone.slice(-4) : 'VIP'}`,
+      phone: cleanPhone || null,
+      ref_code: refCode,
+      commission_rate: Number(commissionRate) || 20.0
+    });
   },
 
   creditAffiliateBalance(affiliateId, amount, currency) {
@@ -566,10 +782,10 @@ const models = {
   // ==========================================
   // 6. PEDIDOS (ORDERS)
   // ==========================================
-  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null, affiliate_id = null, seller_id = null, ref_code = null, coupon_code = null, discount_amount = 0, is_upsell = 0, status = 'PENDING' }) {
+  createOrder({ merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway = 'binancepay', amount, currency = 'BRL', prepay_id = null, checkout_url = null, qr_content = null, pix_code = null, affiliate_id = null, seller_id = null, ref_code = null, coupon_code = null, discount_amount = 0, is_upsell = 0, status = 'PENDING', tenant_id = null }) {
     const stmt = db.prepare(`
-      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code, affiliate_id, seller_id, ref_code, coupon_code, discount_amount, is_upsell, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (merchant_trade_no, platform, platform_user_id, platform_user_name, product_id, gateway, amount, currency, prepay_id, checkout_url, qr_content, pix_code, affiliate_id, seller_id, ref_code, coupon_code, discount_amount, is_upsell, status, tenant_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       merchant_trade_no, 
@@ -590,22 +806,40 @@ const models = {
       coupon_code || null,
       Number(discount_amount || 0),
       is_upsell ? 1 : 0,
-      status || 'PENDING'
+      status || 'PENDING',
+      tenant_id ? Number(tenant_id) : null
     );
     return models.getOrderByTradeNo(merchant_trade_no);
   },
 
   getOrderByTradeNo(tradeNo) {
+    if (!tradeNo) return null;
+    const cleanTrade = String(tradeNo).trim();
     return db.prepare(`
-      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id,
+      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id, p.price_brl, p.price_usdt,
         a.name as affiliate_name, a.ref_code as affiliate_code,
         s.name as seller_name
       FROM orders o
       JOIN products p ON o.product_id = p.id
       LEFT JOIN affiliates a ON o.affiliate_id = a.id
       LEFT JOIN sellers s ON o.seller_id = s.id
-      WHERE o.merchant_trade_no = ?
-    `).get(tradeNo);
+      WHERE o.merchant_trade_no = ? OR o.prepay_id = ? OR o.merchant_trade_no LIKE ?
+    `).get(cleanTrade, cleanTrade, `%${cleanTrade}%`);
+  },
+
+  getOrderByTxid(txid) {
+    if (!txid) return null;
+    const cleanTx = String(txid).trim();
+    return db.prepare(`
+      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id, p.price_brl, p.price_usdt,
+        a.name as affiliate_name, a.ref_code as affiliate_code,
+        s.name as seller_name
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      LEFT JOIN affiliates a ON o.affiliate_id = a.id
+      LEFT JOIN sellers s ON o.seller_id = s.id
+      WHERE o.prepay_id = ? OR o.merchant_trade_no = ? OR o.merchant_trade_no LIKE ?
+    `).get(cleanTx, cleanTx, `%${cleanTx}%`);
   },
 
   getOrderById(id) {
@@ -622,13 +856,17 @@ const models = {
   },
 
   updateOrderStatus(tradeNo, status, deliveredContent = null) {
+    let content = deliveredContent;
+    if (deliveredContent && typeof deliveredContent === 'object') {
+      content = deliveredContent.delivered_content || JSON.stringify(deliveredContent);
+    }
     const paidAt = status === 'PAID' ? new Date().toISOString() : null;
-    if (deliveredContent) {
+    if (content) {
       db.prepare(`
         UPDATE orders 
         SET status = ?, delivered_content = ?, paid_at = COALESCE(paid_at, ?)
         WHERE merchant_trade_no = ?
-      `).run(status, deliveredContent, paidAt, tradeNo);
+      `).run(status, typeof content === 'string' ? content : String(content), paidAt, tradeNo);
     } else {
       db.prepare(`
         UPDATE orders 
@@ -697,6 +935,22 @@ const models = {
     return true;
   },
 
+  getRecentPaidOrder(platformUserId, platform = 'whatsapp') {
+    if (!platformUserId) return null;
+    const cleanId = String(platformUserId).replace(/\D/g, '');
+    const row = db.prepare(`
+      SELECT o.*, p.name as product_name, p.type as product_type, p.price_brl, p.price_usdt,
+             p.upsell_product_id, p.upsell_discount_percent, p.upsell_headline
+      FROM orders o
+      LEFT JOIN products p ON o.product_id = p.id
+      WHERE o.platform = ? 
+        AND (o.platform_user_id = ? OR o.platform_user_id LIKE ? OR o.platform_user_id = ?)
+        AND o.status = 'PAID'
+      ORDER BY o.id DESC LIMIT 1
+    `).get(platform, platformUserId, `%${cleanId}%`, cleanId);
+    return row || null;
+  },
+
   getPendingRecoveryTasks(limit = 50) {
     return db.prepare(`
       SELECT o.*, p.name as product_name, p.price_brl, p.price_usdt
@@ -715,6 +969,10 @@ const models = {
     const updates = [];
     const params = [];
 
+    if (patch.platform !== undefined) {
+      updates.push('platform = ?');
+      params.push(String(patch.platform).trim());
+    }
     if (patch.platform_user_name !== undefined) {
       updates.push('platform_user_name = ?');
       params.push(String(patch.platform_user_name).trim());
@@ -743,6 +1001,26 @@ const models = {
       updates.push('gateway = ?');
       params.push(String(patch.gateway).toLowerCase());
     }
+    if (patch.pix_code !== undefined) {
+      updates.push('pix_code = ?');
+      params.push(patch.pix_code ? String(patch.pix_code) : null);
+    }
+    if (patch.qr_content !== undefined) {
+      updates.push('qr_content = ?');
+      params.push(patch.qr_content ? String(patch.qr_content) : null);
+    }
+    if (patch.checkout_url !== undefined) {
+      updates.push('checkout_url = ?');
+      params.push(patch.checkout_url ? String(patch.checkout_url) : null);
+    }
+    if (patch.prepay_id !== undefined) {
+      updates.push('prepay_id = ?');
+      params.push(patch.prepay_id ? String(patch.prepay_id) : null);
+    }
+    if (patch.delivered_content !== undefined) {
+      updates.push('delivered_content = ?');
+      params.push(patch.delivered_content ? String(patch.delivered_content) : null);
+    }
     if (patch.recovery_sent !== undefined) {
       updates.push('recovery_sent = ?');
       params.push(Number(patch.recovery_sent));
@@ -754,6 +1032,96 @@ const models = {
     }
 
     return this.getOrderByTradeNo(tradeNo);
+  },
+
+  updateOrderGateway(tradeNo, { gateway, currency, amount, pix_code = null, qr_content = null, checkout_url = null, prepay_id = null }) {
+    if (!tradeNo) return null;
+    const cleanTrade = String(tradeNo).trim();
+    const order = this.getOrderByTradeNo(cleanTrade);
+    if (!order) return null;
+
+    db.prepare(`
+      UPDATE orders 
+      SET gateway = ?, 
+          currency = ?, 
+          amount = ?, 
+          pix_code = ?, 
+          qr_content = ?, 
+          checkout_url = ?, 
+          prepay_id = ?
+      WHERE merchant_trade_no = ?
+    `).run(
+      gateway ? String(gateway).toLowerCase() : order.gateway,
+      currency ? String(currency).toUpperCase() : order.currency,
+      amount !== undefined ? Number(amount) : order.amount,
+      pix_code !== undefined ? (pix_code ? String(pix_code) : null) : order.pix_code,
+      qr_content !== undefined ? (qr_content ? String(qr_content) : null) : order.qr_content,
+      checkout_url !== undefined ? (checkout_url ? String(checkout_url) : null) : order.checkout_url,
+      prepay_id !== undefined ? (prepay_id ? String(prepay_id) : null) : order.prepay_id,
+      cleanTrade
+    );
+    return this.getOrderByTradeNo(cleanTrade);
+  },
+
+  getLatestPendingOrder(platformUserId, productId = null) {
+    if (!platformUserId) return null;
+    const raw = String(platformUserId).trim();
+    const clean = raw.replace(/\D/g, '');
+    const cleanNoDdi = clean.startsWith('55') ? clean.slice(2) : clean;
+    const withDdi = clean.startsWith('55') ? clean : '55' + clean;
+
+    let query = `
+      SELECT o.*, p.name as product_name, p.type as product_type, p.price_brl, p.price_usdt
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      WHERE o.status = 'PENDING'
+        AND (
+          o.platform_user_id = ? 
+          OR o.platform_user_id = ? 
+          OR o.platform_user_id = ? 
+          OR o.platform_user_id = ?
+          OR o.platform_user_id LIKE ?
+        )
+    `;
+    const params = [raw, clean, cleanNoDdi, withDdi, `%${cleanNoDdi || raw}%`];
+
+    if (productId) {
+      query += ` AND o.product_id = ?`;
+      params.push(Number(productId));
+    }
+
+    query += ` ORDER BY o.id DESC LIMIT 1`;
+    return db.prepare(query).get(...params);
+  },
+
+  cancelOtherPendingOrders(platformUserId, keepTradeNo, productId = null) {
+    if (!platformUserId || !keepTradeNo) return 0;
+    const raw = String(platformUserId).trim();
+    const clean = raw.replace(/\D/g, '');
+    const cleanNoDdi = clean.startsWith('55') ? clean.slice(2) : clean;
+    const withDdi = clean.startsWith('55') ? clean : '55' + clean;
+
+    let query = `
+      UPDATE orders
+      SET status = 'CANCELLED'
+      WHERE status = 'PENDING'
+        AND merchant_trade_no != ?
+        AND (
+          platform_user_id = ? 
+          OR platform_user_id = ? 
+          OR platform_user_id = ? 
+          OR platform_user_id = ?
+        )
+    `;
+    const params = [String(keepTradeNo).trim(), raw, clean, cleanNoDdi, withDdi];
+
+    if (productId) {
+      query += ` AND product_id = ?`;
+      params.push(Number(productId));
+    }
+
+    const res = db.prepare(query).run(...params);
+    return res.changes;
   },
 
   getAllOrders(limit = 100) {
@@ -856,6 +1224,230 @@ const models = {
       _settingsMemoryCache.set('TUNNEL_ADMIN_URL', valStr);
       db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('TUNNEL_ADMIN_URL', valStr);
     }
+    if (key.includes('OWNER') || key.includes('ADMIN')) {
+      setImmediate(() => {
+        try {
+          const whatsappBot = require('../bots/whatsappBot');
+          if (typeof whatsappBot.invalidateOwnerCache === 'function') {
+            whatsappBot.invalidateOwnerCache();
+          }
+        } catch (_) {}
+      });
+    }
+  },
+
+  getOrdersGroupJid() {
+    const fromSetting = this.getSetting('ORDERS_GROUP_JID', '');
+    if (fromSetting && fromSetting.trim()) return fromSetting.trim();
+    if (process.env.ORDERS_GROUP_JID && process.env.ORDERS_GROUP_JID.trim()) return process.env.ORDERS_GROUP_JID.trim();
+    return '';
+  },
+
+  setOrdersGroupJid(jid) {
+    const cleanJid = String(jid || '').trim();
+    this.setSetting('ORDERS_GROUP_JID', cleanJid);
+    return cleanJid;
+  },
+
+  /**
+   * 🛡️ IDENTIFICAÇÃO E PROTEÇÃO SUPREMA DO DONO
+   * Reconhece o Dono Supremo por JID, LID, telefone completo, 8 dígitos finais + DDD,
+   * variáveis de ambiente ou configurações do banco de dados.
+   */
+  isOwner(phoneOrJid, isFromMe = false) {
+    if (isFromMe) return true;
+    if (!phoneOrJid) return false;
+
+    let clean = String(phoneOrJid).replace(/@.*$/, '').replace(/:.*$/, '').replace(/\D/g, '');
+    if (!clean) return false;
+
+    // Se for o LID oficial do dono conhecido
+    if (clean === '151866151276711') return true;
+
+    const ownerList = [
+      this.getSetting('OWNER_PHONE', ''),
+      this.getSetting('ADMIN_PHONE', ''),
+      this.getSetting('ADMIN_NOTIFY_WHATSAPP_PHONE', ''),
+      this.getSetting('OWNER_WHATSAPP', ''),
+      process.env.OWNER_PHONE || '',
+      process.env.OWNER_WHATSAPP || '',
+      process.env.ADMIN_NOTIFY_WHATSAPP_PHONE || '',
+      process.env.ADMIN_PHONE || '',
+      '554884702848' // Default Dono
+    ];
+
+    try {
+      const mainInstance = this.getArmyInstanceById(1);
+      if (mainInstance && mainInstance.phone) {
+        ownerList.push(mainInstance.phone);
+      }
+    } catch (_) {}
+
+    const validOwners = new Set();
+    const last8Map = new Map();
+
+    for (const raw of ownerList) {
+      if (!raw) continue;
+      const c = String(raw).replace(/\D/g, '');
+      if (!c) continue;
+      validOwners.add(c);
+      if (c.length >= 8) {
+        const last8 = c.slice(-8);
+        if (!last8Map.has(last8)) last8Map.set(last8, []);
+        last8Map.get(last8).push(c);
+      }
+    }
+
+    if (validOwners.has(clean)) return true;
+
+    if (clean.length >= 8) {
+      const last8Sender = clean.slice(-8);
+      const matches = last8Map.get(last8Sender);
+      if (matches && matches.length > 0) {
+        if (clean.length < 10) return true;
+        const senderDDD = clean.startsWith('55') && clean.length >= 12 ? clean.slice(2, 4) : clean.slice(0, 2);
+        for (const cfg of matches) {
+          if (cfg.length < 10) return true;
+          const cfgDDD = cfg.startsWith('55') && cfg.length >= 12 ? cfg.slice(2, 4) : cfg.slice(0, 2);
+          if (senderDDD === cfgDDD) return true;
+        }
+      }
+    }
+
+    return false;
+  },
+
+  isOwnerNumber(phone) {
+    return this.isOwner(phone);
+  },
+
+  /**
+   * 💎 IDENTIFICAÇÃO DE USUÁRIOS VIP DO BOT
+   * Considera VIP:
+   * 1. Dono Supremo ou Devs de Suporte (isOwner)
+   * 2. Telefones registrados no global.prems
+   * 3. Telefones cadastrados na configuração VIP_USERS ou VIP_NUMBERS
+   * 4. Assinatura ativa na tabela subscriptions (status = 'ACTIVE' e end_date > agora)
+   * 5. Clientes com pedidos pagos na tabela orders (status = 'PAID', 'DELIVERED', 'COMPLETED')
+   * 6. Registros ativos na tabela vip_users
+   */
+  isVip(phoneOrJid, isFromMe = false) {
+    if (isFromMe) return true;
+    if (!phoneOrJid) return false;
+
+    const clean = String(phoneOrJid).replace(/@.*$/, '').replace(/:.*$/, '').replace(/\D/g, '');
+    if (!clean) return false;
+
+    // 1. Donos e Devs têm privilégio VIP automático
+    if (this.isOwner(clean, isFromMe)) return true;
+
+    // 2. Verifica se consta em global.prems
+    if (Array.isArray(global.prems) && global.prems.length > 0) {
+      if (global.prems.some(p => {
+        const c = String(p).replace(/\D/g, '');
+        return c && (c === clean || clean.endsWith(c) || c.endsWith(clean));
+      })) {
+        return true;
+      }
+    }
+
+    // 3. Verifica na configuração do banco (VIP_USERS ou VIP_NUMBERS)
+    const vipConfig = this.getSetting('VIP_USERS', '') || this.getSetting('VIP_NUMBERS', '');
+    if (vipConfig) {
+      const list = vipConfig.split(/[,\s;|]+/).map(v => v.replace(/\D/g, '')).filter(Boolean);
+      if (list.some(v => v === clean || (v.length >= 8 && clean.endsWith(v)) || (clean.length >= 8 && v.endsWith(clean)))) {
+        return true;
+      }
+    }
+
+    // 4. Verifica tabela de assinaturas ativas (subscriptions)
+    try {
+      const nowIso = new Date().toISOString();
+      const activeSub = db.prepare(`
+        SELECT id FROM subscriptions
+        WHERE (platform_user_id = ? OR platform_user_id LIKE ?)
+          AND status = 'ACTIVE'
+          AND end_date > ?
+        LIMIT 1
+      `).get(clean, `%${clean.slice(-8)}%`, nowIso);
+      if (activeSub) return true;
+    } catch (_) {}
+
+    // 5. Verifica se é comprador ativo com pedidos pagos
+    try {
+      if (clean.length >= 8) {
+        const last8 = clean.slice(-8);
+        const paidOrder = db.prepare(`
+          SELECT id FROM orders
+          WHERE (customer_phone = ? OR customer_phone LIKE ?)
+            AND status IN ('PAID', 'DELIVERED', 'COMPLETED')
+          LIMIT 1
+        `).get(clean, `%${last8}%`);
+        if (paidOrder) return true;
+      }
+    } catch (_) {}
+
+    // 6. Verifica tabela específica vip_users
+    try {
+      const nowIso = new Date().toISOString();
+      const vipRecord = db.prepare(`
+        SELECT phone FROM vip_users
+        WHERE (phone = ? OR phone LIKE ?)
+          AND (expires_at IS NULL OR expires_at > ?)
+        LIMIT 1
+      `).get(clean, `%${clean.slice(-8)}%`, nowIso);
+      if (vipRecord) return true;
+    } catch (_) {}
+
+    return false;
+  },
+
+  addVipUser(phone, name = 'VIP', days = 30, addedBy = 'Sistema') {
+    const clean = String(phone).replace(/\D/g, '');
+    if (!clean) return false;
+    let expiresAt = null;
+    if (days && days > 0) {
+      const exp = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      expiresAt = exp.toISOString();
+    }
+    try {
+      db.prepare(`
+        CREATE TABLE IF NOT EXISTS vip_users (
+          phone TEXT PRIMARY KEY,
+          name TEXT,
+          added_by TEXT,
+          expires_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+      db.prepare(`
+        INSERT OR REPLACE INTO vip_users (phone, name, added_by, expires_at)
+        VALUES (?, ?, ?, ?)
+      `).run(clean, name, addedBy, expiresAt);
+      return true;
+    } catch (e) {
+      console.warn('[AddVipUser Error]:', e.message);
+      return false;
+    }
+  },
+
+  removeVipUser(phone) {
+    const clean = String(phone).replace(/\D/g, '');
+    if (!clean) return false;
+    try {
+      db.prepare(`DELETE FROM vip_users WHERE phone = ? OR phone LIKE ?`).run(clean, `%${clean.slice(-8)}%`);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  getVipUsers() {
+    try {
+      return db.prepare(`SELECT * FROM vip_users ORDER BY created_at DESC`).all();
+    } catch (_) {
+      return [];
+    }
   },
 
   getAllSettings() {
@@ -872,21 +1464,49 @@ const models = {
     _settingsLoaded = false;
   },
 
+  getEnvironmentMode() {
+    const mode = this.getSetting('ENVIRONMENT_MODE', null);
+    if (mode) return mode.toLowerCase().trim();
+    const pixSim = this.getSetting('PIX_SIMULATION_MODE', 'true') === 'true';
+    const bnbSim = this.getSetting('BINANCE_SIMULATION_MODE', 'true') === 'true';
+    return (!pixSim && !bnbSim) ? 'production' : 'sandbox';
+  },
+
+  isProduction() {
+    return this.getEnvironmentMode() === 'production';
+  },
+
+  setEnvironmentMode(mode) {
+    const cleanMode = (String(mode || '').toLowerCase().trim() === 'production') ? 'production' : 'sandbox';
+    this.setSetting('ENVIRONMENT_MODE', cleanMode);
+    if (cleanMode === 'production') {
+      this.setSetting('PIX_SIMULATION_MODE', 'false');
+      this.setSetting('BINANCE_SIMULATION_MODE', 'false');
+      this.setSetting('BACEN_PIX_SANDBOX', 'false');
+    } else {
+      this.setSetting('PIX_SIMULATION_MODE', 'true');
+      this.setSetting('BINANCE_SIMULATION_MODE', 'true');
+      this.setSetting('BACEN_PIX_SANDBOX', 'true');
+    }
+    return cleanMode;
+  },
+
   // ==========================================
   // 9. MÉTRICAS E RESUMO GERAL
   // ==========================================
   getMetrics() {
-    const paidOrders = db.prepare("SELECT * FROM orders WHERE status = 'PAID'").all();
-    let totalBRL = 0;
-    let totalUSDT = 0;
-
-    for (const o of paidOrders) {
-      if (o.currency === 'USDT') {
-        totalUSDT += o.amount;
-      } else {
-        totalBRL += o.amount;
-      }
-    }
+    // Otimização Escalável: Agregação Direta no SQLite em 1 único comando compilado
+    const stats = db.prepare(`
+      SELECT 
+        COUNT(*) as paidOrders,
+        COALESCE(SUM(CASE WHEN currency = 'USDT' THEN amount ELSE 0 END), 0) as totalUSDT,
+        COALESCE(SUM(CASE WHEN currency != 'USDT' THEN amount ELSE 0 END), 0) as totalBRL,
+        COALESCE(SUM(CASE WHEN recovery_sent = 1 THEN 1 ELSE 0 END), 0) as recoveredOrdersCount,
+        COALESCE(SUM(CASE WHEN recovery_sent = 1 AND currency != 'USDT' THEN amount ELSE 0 END), 0) as recoveredRevenueBRL,
+        COALESCE(SUM(CASE WHEN is_upsell = 1 THEN 1 ELSE 0 END), 0) as upsellOrdersCount
+      FROM orders 
+      WHERE status = 'PAID'
+    `).get() || { paidOrders: 0, totalUSDT: 0, totalBRL: 0, recoveredOrdersCount: 0, recoveredRevenueBRL: 0, upsellOrdersCount: 0 };
 
     const totalOrders = db.prepare("SELECT COUNT(*) as count FROM orders").get().count;
     const activeSubs = db.prepare("SELECT COUNT(*) as count FROM subscriptions WHERE status = 'ACTIVE'").get().count;
@@ -903,19 +1523,15 @@ const models = {
       else pendingBRL = pc.total || 0;
     }
 
-    // Vendas Recuperadas & Upsells
-    const recoveredOrders = paidOrders.filter(o => o.recovery_sent === 1);
-    const recoveredRevenueBRL = recoveredOrders.reduce((acc, o) => acc + (o.currency === 'BRL' ? o.amount : 0), 0);
-    const upsellOrdersCount = paidOrders.filter(o => o.is_upsell === 1).length;
     const totalCoupons = db.prepare("SELECT COUNT(*) as count FROM coupons WHERE active = 1").get().count;
     const totalCompanies = db.prepare("SELECT COUNT(*) as count FROM companies WHERE active = 1").get().count;
     const pendingAffiliationsCount = db.prepare("SELECT COUNT(*) as count FROM product_affiliations WHERE status = 'PENDING'").get().count;
 
     return {
-      totalRevenueBRL: Number(totalBRL.toFixed(2)),
-      totalRevenueUSDT: Number(totalUSDT.toFixed(2)),
+      totalRevenueBRL: Number(stats.totalBRL.toFixed(2)),
+      totalRevenueUSDT: Number(stats.totalUSDT.toFixed(2)),
       totalOrders,
-      paidOrders: paidOrders.length,
+      paidOrders: stats.paidOrders,
       activeSubs,
       totalProducts,
       totalSellers,
@@ -924,9 +1540,9 @@ const models = {
       pendingAffiliationsCount,
       pendingCommissionsBRL: Number(pendingBRL.toFixed(2)),
       pendingCommissionsUSDT: Number(pendingUSDT.toFixed(2)),
-      recoveredOrdersCount: recoveredOrders.length,
-      recoveredRevenueBRL: Number(recoveredRevenueBRL.toFixed(2)),
-      upsellOrdersCount,
+      recoveredOrdersCount: stats.recoveredOrdersCount,
+      recoveredRevenueBRL: Number(stats.recoveredRevenueBRL.toFixed(2)),
+      upsellOrdersCount: stats.upsellOrdersCount,
       totalCoupons
     };
   },
@@ -934,11 +1550,22 @@ const models = {
   // 10. OFERTAS & PROMOÇÕES DO CANAL (OFFERS)
   // ==========================================
   createOffer({ title, content, image_url = null, product_id = null, cta_text = '🛒 Aproveitar Oferta', cta_url = null }) {
+    const cleanTitle = String(title || '').trim();
+    const existing = db.prepare('SELECT id FROM offers WHERE title = ?').get(cleanTitle);
+    if (existing) {
+      db.prepare(`
+        UPDATE offers 
+        SET content = ?, image_url = ?, product_id = ?, cta_text = ?, cta_url = ?
+        WHERE id = ?
+      `).run(content, image_url || null, product_id ? Number(product_id) : null, cta_text, cta_url || null, existing.id);
+      return db.prepare('SELECT o.*, p.name as product_name FROM offers o LEFT JOIN products p ON o.product_id = p.id WHERE o.id = ?').get(existing.id);
+    }
+
     const stmt = db.prepare(`
       INSERT INTO offers (title, content, image_url, product_id, cta_text, cta_url)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    const res = stmt.run(title, content, image_url || null, product_id ? Number(product_id) : null, cta_text, cta_url || null);
+    const res = stmt.run(cleanTitle, content, image_url || null, product_id ? Number(product_id) : null, cta_text, cta_url || null);
     return db.prepare('SELECT o.*, p.name as product_name FROM offers o LEFT JOIN products p ON o.product_id = p.id WHERE o.id = ?').get(Number(res.lastInsertRowid));
   },
 
@@ -972,8 +1599,13 @@ const models = {
 
   getCouponByCode(code) {
     if (!code) return null;
-    const clean = code.trim().toUpperCase();
-    return db.prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1').get(clean);
+    let clean = String(code).trim().toUpperCase();
+    let row = db.prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1').get(clean);
+    if (!row && /^(?:CUPOM|COUPON)[_-]/i.test(clean)) {
+      const stripped = clean.replace(/^(?:CUPOM|COUPON)[_-]/i, '');
+      row = db.prepare('SELECT * FROM coupons WHERE UPPER(code) = ? AND active = 1').get(stripped);
+    }
+    return row;
   },
 
   createCoupon({ code, discount_percent = 10.0, discount_amount = 0, max_uses = 0, expires_at = null }) {
@@ -1003,6 +1635,42 @@ const models = {
 
   incrementCouponUsage(code) {
     return models.useCoupon(code);
+  },
+
+  createOrGetAbandonedCoupon(phone, name = null, discountPercent = 10, validHours = 2) {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    const suffix = cleanPhone ? cleanPhone.slice(-4) : Math.random().toString(36).slice(2, 6).toUpperCase();
+    const prefix = 'VOLTA10';
+    const baseCode = `${prefix}_${suffix}`;
+
+    // Verifica se já existe um cupom ativo e válido para esse sufixo/cliente
+    const existing = db.prepare(`
+      SELECT * FROM coupons 
+      WHERE (UPPER(code) = ? OR UPPER(code) LIKE ?) 
+        AND active = 1 
+        AND (expires_at IS NULL OR expires_at > datetime('now'))
+        AND (max_uses = 0 OR used_count < max_uses)
+      ORDER BY id DESC LIMIT 1
+    `).get(baseCode, `${prefix}_${suffix}%`);
+
+    if (existing) {
+      return existing;
+    }
+
+    let finalCode = baseCode;
+    const existsAny = db.prepare('SELECT id FROM coupons WHERE UPPER(code) = ?').get(finalCode);
+    if (existsAny) {
+      finalCode = `${prefix}_${suffix}_${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    }
+
+    const expiresAt = new Date(Date.now() + validHours * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
+
+    const stmt = db.prepare(`
+      INSERT INTO coupons (code, discount_percent, discount_amount, max_uses, expires_at, active)
+      VALUES (?, ?, 0, 1, ?, 1)
+    `);
+    const res = stmt.run(finalCode, Number(discountPercent), expiresAt);
+    return models.getCouponById(Number(res.lastInsertRowid));
   },
 
   // ==========================================
@@ -1240,22 +1908,55 @@ const models = {
   // 14. EXÉRCITO DE WHATSAPP (MULTI-INSTÂNCIAS / CHIPS)
   // ==========================================
   getArmyInstances() {
-    return db.prepare('SELECT * FROM whatsapp_army_instances ORDER BY is_main DESC, id ASC').all();
+    const list = db.prepare('SELECT * FROM whatsapp_army_instances ORDER BY is_main DESC, id ASC').all();
+    return list.map(inst => ({
+      ...inst,
+      features: this.getSubBotFeatures(inst.id)
+    }));
   },
 
   getArmyInstanceById(id) {
     return db.prepare('SELECT * FROM whatsapp_army_instances WHERE id = ?').get(id);
   },
 
-  createArmyInstance({ name, phone = null, daily_limit = 50, warmup_mode = 0 }) {
+  getArmyInstance(id) {
+    return this.getArmyInstanceById(id);
+  },
+
+  createArmyInstance({ name, phone = null, status = 'DISCONNECTED', daily_limit = 50, warmup_mode = 0, tenant_id = null, ai_provider = 'auto', ai_model = null, ai_instruction = null, ai_api_key = null, ai_enabled = 1, tokens_balance = 50, tokens_daily_base = 50, referred_by = null, is_subbot = 1, terms_accepted = 0, terms_accepted_at = null, terms_version = '1.0', can_participate_meteoric = 1, can_mention_members = 1, can_post_status = 1, access_mode = 'PUBLIC' }) {
     const count = db.prepare('SELECT COUNT(*) as count FROM whatsapp_army_instances').get().count;
     const sessionId = `session_${Date.now()}_${count + 1}`;
+    const todayStr = new Date().toISOString().split('T')[0];
     const stmt = db.prepare(`
-      INSERT INTO whatsapp_army_instances (name, phone, session_id, status, daily_limit, warmup_mode, is_main, active)
-      VALUES (?, ?, ?, 'DISCONNECTED', ?, ?, 0, 1)
+      INSERT INTO whatsapp_army_instances (
+        name, phone, session_id, status, daily_limit, warmup_mode, is_main, active, tenant_id,
+        ai_provider, ai_model, ai_instruction, ai_api_key, ai_enabled,
+        tokens_balance, tokens_daily_base, last_token_reset, daily_shares_count, referral_code, referred_by, is_subbot,
+        terms_accepted, terms_accepted_at, terms_version, can_participate_meteoric, can_mention_members, can_post_status,
+        access_mode
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const res = stmt.run(name, phone || null, sessionId, Number(daily_limit || 50), warmup_mode ? 1 : 0);
-    return models.getArmyInstanceById(Number(res.lastInsertRowid));
+    const tempRefCode = `SUB-${Math.floor(1000 + Math.random() * 9000)}`;
+    const isSubBotBool = is_subbot ? 1 : 0;
+    const finalTokensBalance = isSubBotBool ? Math.min(50, Math.max(0, Number(tokens_balance || 50))) : Number(tokens_balance || 50);
+    const finalTokensDailyBase = isSubBotBool ? Math.min(50, Math.max(0, Number(tokens_daily_base || 50))) : Number(tokens_daily_base || 50);
+    const finalAccessMode = String(access_mode || 'PUBLIC').toUpperCase().trim() === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC';
+
+    const res = stmt.run(
+      name, phone || null, sessionId, status || 'DISCONNECTED', Number(daily_limit || 50), warmup_mode ? 1 : 0, tenant_id ? Number(tenant_id) : null,
+      ai_provider || 'auto', ai_model || null, ai_instruction || null, ai_api_key || null, ai_enabled !== 0 ? 1 : 0,
+      finalTokensBalance, finalTokensDailyBase, todayStr, tempRefCode, referred_by ? Number(referred_by) : null, isSubBotBool,
+      terms_accepted ? 1 : 0, terms_accepted_at || (terms_accepted ? new Date().toISOString() : null), terms_version || '1.0',
+      can_participate_meteoric !== 0 ? 1 : 0, can_mention_members !== 0 ? 1 : 0, can_post_status !== 0 ? 1 : 0,
+      finalAccessMode
+    );
+    const newId = Number(res.lastInsertRowid);
+    const finalRefCode = `SUB-${newId}`;
+    try {
+      db.prepare('UPDATE whatsapp_army_instances SET referral_code = ? WHERE id = ?').run(finalRefCode, newId);
+    } catch (_) {}
+    return models.getArmyInstanceById(newId);
   },
 
   updateArmyInstance(id, data = {}) {
@@ -1275,14 +1976,396 @@ const models = {
     const role = data.role !== undefined ? data.role : (existing.role || (existing.is_main ? 'MATRIZ_ORCHESTRATOR' : (existing.is_business ? 'BUSINESS_CATALOG' : 'LEAD_OUTREACH')));
     const health_score = data.health_score !== undefined ? Number(data.health_score) : (existing.health_score || 98.5);
     const delivery_success_rate = data.delivery_success_rate !== undefined ? Number(data.delivery_success_rate) : (existing.delivery_success_rate || 99.0);
+    const tenant_id = data.tenant_id !== undefined ? (data.tenant_id ? Number(data.tenant_id) : null) : existing.tenant_id;
+    const ai_provider = data.ai_provider !== undefined ? (data.ai_provider ? String(data.ai_provider).toLowerCase().trim() : 'auto') : (existing.ai_provider || 'auto');
+    const ai_model = data.ai_model !== undefined ? (data.ai_model ? String(data.ai_model).trim() : null) : existing.ai_model;
+    const ai_instruction = data.ai_instruction !== undefined ? (data.ai_instruction ? String(data.ai_instruction).trim() : null) : existing.ai_instruction;
+    const ai_api_key = data.ai_api_key !== undefined ? (data.ai_api_key ? String(data.ai_api_key).trim() : null) : existing.ai_api_key;
+    const ai_enabled = data.ai_enabled !== undefined ? (data.ai_enabled ? 1 : 0) : (existing.ai_enabled !== undefined ? existing.ai_enabled : 1);
+
+    let tokens_balance = data.tokens_balance !== undefined ? Number(data.tokens_balance) : (existing.tokens_balance !== undefined ? existing.tokens_balance : 50);
+    let tokens_daily_base = data.tokens_daily_base !== undefined ? Number(data.tokens_daily_base) : (existing.tokens_daily_base || 50);
+    const last_token_reset = data.last_token_reset !== undefined ? data.last_token_reset : existing.last_token_reset;
+    const daily_shares_count = data.daily_shares_count !== undefined ? Number(data.daily_shares_count) : (existing.daily_shares_count || 0);
+    const last_daily_share_date = data.last_daily_share_date !== undefined ? data.last_daily_share_date : existing.last_daily_share_date;
+    const official_groups_bonus_claimed = data.official_groups_bonus_claimed !== undefined ? data.official_groups_bonus_claimed : existing.official_groups_bonus_claimed;
+    const referral_code = data.referral_code !== undefined ? data.referral_code : (existing.referral_code || `SUB-${id}`);
+    const referred_by = data.referred_by !== undefined ? (data.referred_by ? Number(data.referred_by) : null) : existing.referred_by;
+    const is_subbot = data.is_subbot !== undefined ? (data.is_subbot ? 1 : 0) : (existing.is_subbot !== undefined ? existing.is_subbot : 1);
+
+    // Sub-Bot Free tem teto máximo diário inviolável de 50 tokens
+    if (id !== 1 && is_subbot) {
+      tokens_balance = Math.min(50, Math.max(0, tokens_balance));
+      tokens_daily_base = Math.min(50, Math.max(0, tokens_daily_base));
+    }
+
+    const terms_accepted = data.terms_accepted !== undefined ? (data.terms_accepted ? 1 : 0) : (existing.terms_accepted || 0);
+    const terms_accepted_at = data.terms_accepted_at !== undefined ? data.terms_accepted_at : existing.terms_accepted_at;
+    const terms_version = data.terms_version !== undefined ? data.terms_version : (existing.terms_version || '1.0');
+    const can_participate_meteoric = data.can_participate_meteoric !== undefined ? (data.can_participate_meteoric ? 1 : 0) : (existing.can_participate_meteoric !== undefined ? existing.can_participate_meteoric : 1);
+    const can_mention_members = data.can_mention_members !== undefined ? (data.can_mention_members ? 1 : 0) : (existing.can_mention_members !== undefined ? existing.can_mention_members : 1);
+    const can_post_status = data.can_post_status !== undefined ? (data.can_post_status ? 1 : 0) : (existing.can_post_status !== undefined ? existing.can_post_status : 1);
+    const is_paused = data.is_paused !== undefined ? (data.is_paused ? 1 : 0) : (existing.is_paused !== undefined ? existing.is_paused : 0);
+    const paused_at = data.paused_at !== undefined ? data.paused_at : (existing.paused_at || null);
+    const pv_filter_mode = data.pv_filter_mode !== undefined ? String(data.pv_filter_mode).toUpperCase().trim() : (existing.pv_filter_mode || 'LEADS_AND_COMMANDS');
+    const antitoxic_pv = data.antitoxic_pv !== undefined ? (data.antitoxic_pv ? 1 : 0) : (existing.antitoxic_pv !== undefined ? existing.antitoxic_pv : 1);
+    const access_mode = data.access_mode !== undefined ? (String(data.access_mode).toUpperCase().trim() === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC') : (existing.access_mode || 'PUBLIC');
+    const enabled_features = data.enabled_features !== undefined ? (typeof data.enabled_features === 'string' ? data.enabled_features : JSON.stringify(data.enabled_features)) : (existing.enabled_features || null);
 
     db.prepare(`
       UPDATE whatsapp_army_instances
-      SET name = ?, phone = ?, status = ?, daily_limit = ?, messages_sent_today = ?, warmup_mode = ?, active = ?, is_business = ?, business_catalog_synced = ?, catalog_products = ?, role = ?, health_score = ?, delivery_success_rate = ?
+      SET name = ?, phone = ?, status = ?, daily_limit = ?, messages_sent_today = ?, warmup_mode = ?, active = ?, is_business = ?, business_catalog_synced = ?, catalog_products = ?, role = ?, health_score = ?, delivery_success_rate = ?, tenant_id = ?, ai_provider = ?, ai_model = ?, ai_instruction = ?, ai_api_key = ?, ai_enabled = ?,
+          tokens_balance = ?, tokens_daily_base = ?, last_token_reset = ?, daily_shares_count = ?, last_daily_share_date = ?, official_groups_bonus_claimed = ?, referral_code = ?, referred_by = ?, is_subbot = ?,
+          terms_accepted = ?, terms_accepted_at = ?, terms_version = ?, can_participate_meteoric = ?, can_mention_members = ?, can_post_status = ?,
+          is_paused = ?, paused_at = ?,
+          pv_filter_mode = ?, antitoxic_pv = ?,
+          access_mode = ?,
+          enabled_features = ?
       WHERE id = ?
-    `).run(name, phone || null, status, daily_limit, messages_sent_today, warmup_mode, active, is_business, business_catalog_synced, catalog_products, role, health_score, delivery_success_rate, id);
+    `).run(
+      name, phone || null, status, daily_limit, messages_sent_today, warmup_mode, active, is_business, business_catalog_synced, catalog_products, role, health_score, delivery_success_rate, tenant_id, ai_provider, ai_model, ai_instruction, ai_api_key, ai_enabled,
+      tokens_balance, tokens_daily_base, last_token_reset, daily_shares_count, last_daily_share_date, official_groups_bonus_claimed, referral_code, referred_by, is_subbot,
+      terms_accepted, terms_accepted_at, terms_version, can_participate_meteoric, can_mention_members, can_post_status,
+      is_paused, paused_at,
+      pv_filter_mode, antitoxic_pv,
+      access_mode,
+      enabled_features,
+      id
+    );
 
     return models.getArmyInstanceById(id);
+  },
+
+  setMatrizAccessMode(mode = 'PUBLIC') {
+    const cleanMode = String(mode).toUpperCase().trim() === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC';
+    this.setSetting('MATRIZ_ACCESS_MODE', cleanMode);
+    try {
+      this.updateArmyInstance(1, { access_mode: cleanMode });
+    } catch (_) {}
+    return cleanMode;
+  },
+
+  getMatrizAccessMode() {
+    return (this.getSetting('MATRIZ_ACCESS_MODE', 'PUBLIC') || 'PUBLIC').toUpperCase().trim();
+  },
+
+  setSubBotAccessMode(id, mode = 'PUBLIC') {
+    const cleanMode = String(mode).toUpperCase().trim() === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC';
+    this.updateArmyInstance(id, { access_mode: cleanMode });
+    return cleanMode;
+  },
+
+  getSubBotAccessMode(id) {
+    const inst = this.getArmyInstanceById(id);
+    return inst ? ((inst.access_mode || 'PUBLIC').toUpperCase().trim()) : 'PUBLIC';
+  },
+
+  setBotAccessMode(instanceId = 1, mode = 'PUBLIC') {
+    const id = Number(instanceId || 1);
+    if (id === 1) {
+      return this.setMatrizAccessMode(mode);
+    } else {
+      return this.setSubBotAccessMode(id, mode);
+    }
+  },
+
+  getBotAccessMode(instanceId = 1) {
+    const id = Number(instanceId || 1);
+    if (id === 1) {
+      return this.getMatrizAccessMode();
+    } else {
+      return this.getSubBotAccessMode(id);
+    }
+  },
+
+  isBotPrivateMode(instanceId = 1) {
+    return this.getBotAccessMode(instanceId) === 'PRIVATE';
+  },
+
+  pauseSubBot(id) {
+    const inst = models.getArmyInstanceById(id);
+    if (!inst) return null;
+    return models.updateArmyInstance(id, {
+      status: 'PAUSED',
+      is_paused: 1,
+      paused_at: new Date().toISOString()
+    });
+  },
+
+  resumeSubBot(id) {
+    const inst = models.getArmyInstanceById(id);
+    if (!inst) return null;
+    return models.updateArmyInstance(id, {
+      status: 'CONNECTED',
+      is_paused: 0,
+      paused_at: null
+    });
+  },
+
+  isSubBotPaused(id) {
+    const inst = models.getArmyInstanceById(id);
+    return !!(inst && (inst.is_paused === 1 || inst.status === 'PAUSED'));
+  },
+
+  setSubBotPvFilterMode(id, mode = 'LEADS_AND_COMMANDS') {
+    return models.updateArmyInstance(id, { pv_filter_mode: mode });
+  },
+
+  getSubBotPvFilterMode(id) {
+    const inst = models.getArmyInstanceById(id);
+    return inst ? (inst.pv_filter_mode || 'LEADS_AND_COMMANDS') : 'LEADS_AND_COMMANDS';
+  },
+
+  isRegisteredLead(rawPhone) {
+    if (!rawPhone) return false;
+    const clean = String(rawPhone).replace(/\D/g, '');
+    if (clean.length < 8) return false;
+    const s8 = clean.slice(-8);
+
+    // 1. Funil de Vendas / Leads
+    try {
+      const inFunnel = db.prepare('SELECT id FROM lead_funnel_conversations WHERE phone = ? OR phone LIKE ? LIMIT 1').get(clean, `%${s8}%`);
+      if (inFunnel) return true;
+    } catch (_) {}
+
+    // 2. Campanhas de Divulgação
+    try {
+      const inCampaign = db.prepare('SELECT id FROM campaign_leads WHERE phone = ? OR phone LIKE ? LIMIT 1').get(clean, `%${s8}%`);
+      if (inCampaign) return true;
+    } catch (_) {}
+
+    // 3. Leads capturados pelo Radar de Oportunidades
+    try {
+      const inRadar = db.prepare('SELECT id FROM radar_captured_leads WHERE sender_phone = ? OR sender_phone LIKE ? LIMIT 1').get(clean, `%${s8}%`);
+      if (inRadar) return true;
+    } catch (_) {}
+
+    // 4. Clientes com pedidos na loja
+    try {
+      const inOrders = db.prepare('SELECT id FROM orders WHERE platform_user_id = ? OR platform_user_id LIKE ? LIMIT 1').get(clean, `%${s8}%`);
+      if (inOrders) return true;
+    } catch (_) {}
+
+    // 5. CRM Cognitivo
+    try {
+      const inCrm = db.prepare('SELECT id FROM lead_cognitive_profiles WHERE phone = ? OR phone LIKE ? LIMIT 1').get(clean, `%${s8}%`);
+      if (inCrm) return true;
+    } catch (_) {}
+
+    return false;
+  },
+
+  acceptSubBotTerms(id, version = '1.0') {
+    const nowIso = new Date().toISOString();
+    return models.updateArmyInstance(id, {
+      terms_accepted: 1,
+      terms_accepted_at: nowIso,
+      terms_version: version,
+      can_participate_meteoric: 1,
+      can_mention_members: 1,
+      can_post_status: 1
+    });
+  },
+
+  getSubBotTermsStatus(id) {
+    const inst = models.getArmyInstanceById(id);
+    if (!inst) return null;
+    return {
+      id: inst.id,
+      phone: inst.phone,
+      terms_accepted: Boolean(inst.terms_accepted),
+      terms_accepted_at: inst.terms_accepted_at,
+      terms_version: inst.terms_version || '1.0',
+      can_participate_meteoric: Boolean(inst.can_participate_meteoric !== 0),
+      can_mention_members: Boolean(inst.can_mention_members !== 0),
+      can_post_status: Boolean(inst.can_post_status !== 0),
+      free_blocked: Boolean(inst.free_blocked),
+      free_blocked_reason: inst.free_blocked_reason || null,
+      free_blocked_at: inst.free_blocked_at || null
+    };
+  },
+
+  /**
+   * Bloqueia permanentemente um sub-bot free por violação dos termos.
+   * Apenas o dono / bot master pode desbloquear via unblockSubBotFree().
+   */
+  blockSubBotFree(id, reason = 'Violação dos termos do Exército de Sub-Bots') {
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE whatsapp_army_instances
+      SET free_blocked = 1,
+          free_blocked_reason = ?,
+          free_blocked_at = ?,
+          active = 0,
+          status = 'BLOCKED'
+      WHERE id = ?
+    `).run(reason, now, id);
+    return { id, free_blocked: true, reason, blocked_at: now };
+  },
+
+  /**
+   * Desbloqueia um sub-bot free (apenas dono / bot master).
+   */
+  unblockSubBotFree(id) {
+    db.prepare(`
+      UPDATE whatsapp_army_instances
+      SET free_blocked = 0,
+          free_blocked_reason = NULL,
+          free_blocked_at = NULL,
+          active = 1,
+          status = 'DISCONNECTED'
+      WHERE id = ?
+    `).run(id);
+    return { id, free_blocked: false };
+  },
+
+  // Operações de Gamificação e Economia de Tokens de Sub-Bots
+  getSubBotTokens(id) {
+    const inst = models.getArmyInstanceById(id);
+    if (!inst) return null;
+    return {
+      id: inst.id,
+      name: inst.name,
+      phone: inst.phone,
+      tokens_balance: inst.tokens_balance !== undefined ? inst.tokens_balance : 50,
+      tokens_daily_base: inst.tokens_daily_base || 50,
+      last_token_reset: inst.last_token_reset,
+      daily_shares_count: inst.daily_shares_count || 0,
+      last_daily_share_date: inst.last_daily_share_date,
+      official_groups_bonus_claimed: inst.official_groups_bonus_claimed,
+      referral_code: inst.referral_code || `SUB-${inst.id}`,
+      referred_by: inst.referred_by,
+      is_subbot: inst.is_subbot !== undefined ? inst.is_subbot : 1
+    };
+  },
+
+  logSubBotTokenTransaction({ instance_id, type, amount, balance_after, description = '', command = '', replenished = null, replenished_at = null, available_at = null, created_at = null }) {
+    try {
+      const nowIso = created_at || new Date().toISOString();
+      const isConsumption = type === 'CONSUME_COMMAND' || Number(amount) < 0;
+      const rep = replenished !== null ? Number(replenished) : (isConsumption ? 0 : 1);
+      const repAt = replenished_at || (rep === 1 && !isConsumption ? nowIso : null);
+      const availAt = available_at || (isConsumption ? new Date(new Date(nowIso).getTime() + 24 * 60 * 60 * 1000).toISOString() : nowIso);
+
+      const stmt = db.prepare(`
+        INSERT INTO subbot_token_logs (instance_id, type, amount, balance_after, description, command, replenished, replenished_at, available_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      return stmt.run(
+        Number(instance_id),
+        String(type),
+        Number(amount),
+        Number(balance_after),
+        String(description || ''),
+        String(command || ''),
+        rep,
+        repAt,
+        availAt,
+        nowIso
+      );
+    } catch (err) {
+      console.warn('[SubBot Tokens ⚠️] Erro ao registrar transação de token:', err.message);
+      return null;
+    }
+  },
+
+  getPendingReplenishments(instanceId) {
+    try {
+      return db.prepare(`
+        SELECT * FROM subbot_token_logs 
+        WHERE instance_id = ? 
+          AND (type = 'CONSUME_COMMAND' OR amount < 0) 
+          AND (replenished = 0 OR replenished IS NULL)
+        ORDER BY created_at ASC
+      `).all(Number(instanceId));
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getEligibleReplenishments(instanceId, nowIso = null) {
+    try {
+      const targetTime = nowIso || new Date().toISOString();
+      const logs = db.prepare(`
+        SELECT * FROM subbot_token_logs 
+        WHERE instance_id = ? 
+          AND (type = 'CONSUME_COMMAND' OR amount < 0) 
+          AND (replenished = 0 OR replenished IS NULL)
+        ORDER BY created_at ASC
+      `).all(Number(instanceId));
+
+      const targetMs = new Date(targetTime).getTime();
+      return logs.filter(log => {
+        if (log.available_at) {
+          return new Date(log.available_at).getTime() <= targetMs;
+        }
+        if (log.created_at) {
+          const createdMs = new Date(log.created_at).getTime();
+          return (createdMs + 24 * 60 * 60 * 1000) <= targetMs;
+        }
+        return true;
+      });
+    } catch (_) {
+      return [];
+    }
+  },
+
+  markTokenLogsReplenished(logIds = [], replenishedAtIso = null) {
+    if (!Array.isArray(logIds) || logIds.length === 0) return 0;
+    try {
+      const repAt = replenishedAtIso || new Date().toISOString();
+      const placeholders = logIds.map(() => '?').join(',');
+      const stmt = db.prepare(`
+        UPDATE subbot_token_logs 
+        SET replenished = 1, replenished_at = ?
+        WHERE id IN (${placeholders})
+      `);
+      const res = stmt.run(repAt, ...logIds.map(Number));
+      return res.changes;
+    } catch (err) {
+      console.warn('[SubBot Tokens ⚠️] Erro ao marcar logs como repostos:', err.message);
+      return 0;
+    }
+  },
+
+  getSubBotTokenLogs(instanceId, limit = 20) {
+    try {
+      return db.prepare('SELECT * FROM subbot_token_logs WHERE instance_id = ? ORDER BY id DESC LIMIT ?').all(Number(instanceId), Number(limit));
+    } catch (_) {
+      return [];
+    }
+  },
+
+  recordSubBotMission({ instance_id, mission_date, mission_type, status = 'COMPLETED', proof_text = '', tokens_awarded = 100 }) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO subbot_daily_missions (instance_id, mission_date, mission_type, status, proof_text, tokens_awarded)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      return stmt.run(Number(instance_id), String(mission_date), String(mission_type), String(status), String(proof_text || ''), Number(tokens_awarded));
+    } catch (err) {
+      console.warn('[SubBot Missões ⚠️] Erro ao registrar missão:', err.message);
+      return null;
+    }
+  },
+
+  getSubBotMissionsToday(instanceId, dateStr = null) {
+    try {
+      const today = dateStr || new Date().toISOString().split('T')[0];
+      return db.prepare('SELECT * FROM subbot_daily_missions WHERE instance_id = ? AND mission_date = ?').all(Number(instanceId), today);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getSubBotByReferralCode(code) {
+    if (!code) return null;
+    try {
+      const clean = String(code).trim().toUpperCase();
+      return db.prepare('SELECT * FROM whatsapp_army_instances WHERE UPPER(referral_code) = ?').get(clean);
+    } catch (_) {
+      return null;
+    }
   },
 
   setArmyInstanceRole(id, role) {
@@ -1350,7 +2433,7 @@ const models = {
     // 3. Verifica vendedor cadastrado com o mesmo telefone deste sub-bot
     const cleanPhone = (phone || inst.phone || '').replace(/\D/g, '');
     if (cleanPhone) {
-      const seller = db.prepare('SELECT * FROM sellers WHERE replace(replace(replace(replace(phone, " ", ""), "-", ""), "+", ""), "(", "") LIKE ?').get(`%${cleanPhone.slice(-8)}%`);
+      const seller = db.prepare("SELECT * FROM sellers WHERE replace(replace(replace(replace(replace(phone, ' ', ''), '-', ''), '+', ''), '(', ''), ')', '') LIKE ?").get(`%${cleanPhone.slice(-8)}%`);
       if (seller) {
         const sProds = models.getSellerProducts(seller.id);
         if (sProds && sProds.length > 0) {
@@ -1418,6 +2501,275 @@ const models = {
     return db.prepare('SELECT * FROM products WHERE army_instance_id = ? AND active = 1 ORDER BY id DESC').all(Number(instanceId));
   },
 
+  // ==========================================
+  // GESTÃO DE CHAVES DE IA POR SUB-BOT
+  // ==========================================
+
+  /**
+   * Obtém as chaves de IA cadastradas para um determinado Sub-Bot.
+   * @param {number|string} subbotId
+   * @param {string} [provider] - 'gemini', 'groq', 'openai', etc. Se omitido, retorna dicionário por provedor.
+   */
+  getSubBotAiKeys(subbotId, provider = null) {
+    if (!subbotId) return provider ? [] : {};
+    const sId = Number(subbotId);
+    const providers = ['gemini', 'groq', 'openai', 'deepseek', 'openrouter', 'local'];
+
+    if (provider) {
+      const p = String(provider).toLowerCase().trim();
+      const raw = this.getSetting(`AI_SUBBOT_${sId}_KEYS_${p.toUpperCase()}`, '[]');
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return raw ? raw.split(',').map(k => k.trim()).filter(Boolean) : [];
+      }
+    }
+
+    const result = {};
+    for (const p of providers) {
+      const raw = this.getSetting(`AI_SUBBOT_${sId}_KEYS_${p.toUpperCase()}`, '[]');
+      try {
+        const parsed = JSON.parse(raw);
+        result[p] = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        result[p] = raw ? raw.split(',').map(k => k.trim()).filter(Boolean) : [];
+      }
+    }
+    return result;
+  },
+
+  /**
+   * Define a lista de chaves de IA de um Sub-Bot para um provedor.
+   */
+  setSubBotAiKeys(subbotId, provider, keysArray) {
+    if (!subbotId || !provider) return [];
+    const sId = Number(subbotId);
+    const p = String(provider).toLowerCase().trim();
+    const cleanKeys = Array.from(
+      new Set(
+        (Array.isArray(keysArray) ? keysArray : [keysArray])
+          .map(k => String(k).trim())
+          .filter(k => k && k.length > 3)
+      )
+    );
+    this.setSetting(`AI_SUBBOT_${sId}_KEYS_${p.toUpperCase()}`, JSON.stringify(cleanKeys));
+    return cleanKeys;
+  },
+
+  /**
+   * Adiciona uma chave de API para o Sub-Bot.
+   */
+  addSubBotAiKey(subbotId, provider, key) {
+    if (!subbotId || !provider || !key) throw new Error('Parâmetros obrigatórios ausentes.');
+    const sId = Number(subbotId);
+    const p = String(provider).toLowerCase().trim();
+    const cleanKey = String(key).trim();
+    const existing = this.getSubBotAiKeys(sId, p);
+    if (!existing.includes(cleanKey)) {
+      existing.push(cleanKey);
+      this.setSubBotAiKeys(sId, p, existing);
+    }
+    return { subbotId: sId, provider: p, totalKeys: existing.length, keys: existing };
+  },
+
+  /**
+   * Remove uma chave de API do Sub-Bot.
+   */
+  removeSubBotAiKey(subbotId, provider, key) {
+    if (!subbotId || !provider) return { subbotId, provider, totalKeys: 0 };
+    const sId = Number(subbotId);
+    const p = String(provider).toLowerCase().trim();
+    const cleanKey = String(key).trim();
+    const existing = this.getSubBotAiKeys(sId, p);
+    const filtered = existing.filter(k => {
+      if (k === cleanKey) return false;
+      const masked = k.length > 8 ? `${k.slice(0, 4)}...${k.slice(-4)}` : `${k.slice(0, 2)}...`;
+      if (masked === cleanKey) return false;
+      return true;
+    });
+    this.setSubBotAiKeys(sId, p, filtered);
+    return { subbotId: sId, provider: p, totalKeys: filtered.length, keys: filtered };
+  },
+
+  // ==========================================
+  // GESTÃO DE FUNÇÕES DE SUB-BOTS (CONTROLE DO DONO, DEVS & BOT MASTER)
+  // ==========================================
+  getDefaultSubBotFeatures() {
+    return {
+      ai: true,
+      group_posts: true,
+      pv_chat: true,
+      audio_voice: true,
+      media_dl: true,
+      stickers: true,
+      games: true,
+      moderation: true,
+      auto_heating: true
+    };
+  },
+
+  getSubBotFeatures(instanceId) {
+    if (!instanceId || Number(instanceId) === 1) {
+      return this.getDefaultSubBotFeatures();
+    }
+    const inst = this.getArmyInstanceById(Number(instanceId));
+    if (!inst) return this.getDefaultSubBotFeatures();
+
+    let feats = this.getDefaultSubBotFeatures();
+    if (inst.enabled_features) {
+      try {
+        const parsed = typeof inst.enabled_features === 'string' ? JSON.parse(inst.enabled_features) : inst.enabled_features;
+        if (parsed && typeof parsed === 'object') {
+          feats = { ...feats, ...parsed };
+        }
+      } catch (_) {}
+    }
+
+    if (inst.ai_enabled === 0) {
+      feats.ai = false;
+    }
+
+    return feats;
+  },
+
+  isSubBotFeatureEnabled(instanceId, featureKey) {
+    if (!instanceId || Number(instanceId) === 1) return true;
+    const feats = this.getSubBotFeatures(instanceId);
+    return feats[featureKey] !== false;
+  },
+
+  setSubBotFeature(instanceId, featureKey, enabled = true) {
+    if (!instanceId || Number(instanceId) === 1) return this.getDefaultSubBotFeatures();
+    const current = this.getSubBotFeatures(instanceId);
+    const updated = { ...current, [featureKey]: Boolean(enabled) };
+
+    const patch = { enabled_features: JSON.stringify(updated) };
+    if (featureKey === 'ai') {
+      patch.ai_enabled = enabled ? 1 : 0;
+    }
+
+    this.updateArmyInstance(Number(instanceId), patch);
+    return updated;
+  },
+
+  setSubBotFeatures(targetIds, featuresPatch = {}) {
+    const all = this.getArmyInstances().filter(i => !i.is_main && i.id !== 1);
+    let ids = [];
+
+    if (targetIds === 'all' || targetIds === '*' || (Array.isArray(targetIds) && targetIds.includes('all'))) {
+      ids = all.map(i => i.id);
+    } else if (Array.isArray(targetIds)) {
+      ids = targetIds.map(Number).filter(id => id > 1);
+    } else {
+      ids = String(targetIds).split(/[\s,]+/).map(Number).filter(id => id > 1);
+    }
+
+    const updatedInstances = [];
+    for (const id of ids) {
+      const current = this.getSubBotFeatures(id);
+      const merged = { ...current, ...featuresPatch };
+      const patch = { enabled_features: JSON.stringify(merged) };
+      if (featuresPatch.ai !== undefined) {
+        patch.ai_enabled = featuresPatch.ai ? 1 : 0;
+      }
+      this.updateArmyInstance(id, patch);
+      updatedInstances.push({ id, features: merged });
+    }
+
+    return { updatedCount: updatedInstances.length, instances: updatedInstances };
+  },
+
+  getAllSubBotsWithFeatures() {
+    const all = this.getArmyInstances().filter(i => !i.is_main && i.id !== 1);
+    return all.map(inst => ({
+      ...inst,
+      features: this.getSubBotFeatures(inst.id)
+    }));
+  },
+
+  /**
+   * Verifica se o Sub-Bot possui permissão/chaves para usar IA.
+   * Se for a Matriz (id=1), sempre tem permissão. Se for sub-bot, precisa da função ativada e ao menos 1 chave.
+   */
+  canSubBotUseAi(subbotId) {
+    if (!subbotId || Number(subbotId) === 1) return true;
+    const sId = Number(subbotId);
+    if (!this.isSubBotFeatureEnabled(sId, 'ai')) return false;
+    const inst = this.getArmyInstanceById(sId);
+    if (inst && inst.ai_api_key && inst.ai_api_key.trim()) return true;
+    const allKeys = this.getSubBotAiKeys(sId);
+    for (const p of Object.keys(allKeys)) {
+      if (allKeys[p] && allKeys[p].length > 0) return true;
+    }
+    return false;
+  },
+
+  /**
+   * Agrega todas as chaves cadastradas por todos os Sub-Bots (para uso no Mega-Pool do Bot Master).
+   */
+  getAllSubBotsAiKeys(provider = null) {
+    const instances = this.getArmyInstances();
+    const subbots = instances.filter(i => !i.is_main && i.id !== 1);
+    const pTarget = provider ? String(provider).toLowerCase().trim() : null;
+
+    if (pTarget) {
+      const keys = [];
+      for (const sb of subbots) {
+        const sbKeys = this.getSubBotAiKeys(sb.id, pTarget);
+        sbKeys.forEach(k => keys.push(k));
+      }
+      try {
+        const rows = db.prepare('SELECT value FROM settings WHERE key LIKE ?').all(`AI_SUBBOT_%_KEYS_${pTarget.toUpperCase()}`);
+        for (const row of rows) {
+          try {
+            const parsed = JSON.parse(row.value);
+            if (Array.isArray(parsed)) parsed.forEach(k => keys.push(k));
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return Array.from(new Set(keys));
+    }
+
+    const aggregated = {
+      gemini: [],
+      groq: [],
+      openai: [],
+      deepseek: [],
+      openrouter: [],
+      local: []
+    };
+
+    for (const sb of subbots) {
+      const sbDict = this.getSubBotAiKeys(sb.id);
+      for (const [p, kList] of Object.entries(sbDict)) {
+        if (!aggregated[p]) aggregated[p] = [];
+        kList.forEach(k => aggregated[p].push(k));
+      }
+    }
+
+    try {
+      const rows = db.prepare('SELECT key, value FROM settings WHERE key LIKE ?').all('AI_SUBBOT_%_KEYS_%');
+      for (const row of rows) {
+        const m = row.key.match(/_KEYS_([A-Z0-9]+)$/);
+        if (m) {
+          const prov = m[1].toLowerCase();
+          if (!aggregated[prov]) aggregated[prov] = [];
+          try {
+            const parsed = JSON.parse(row.value);
+            if (Array.isArray(parsed)) parsed.forEach(k => aggregated[prov].push(k));
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
+    for (const p of Object.keys(aggregated)) {
+      aggregated[p] = Array.from(new Set(aggregated[p]));
+    }
+
+    return aggregated;
+  },
+
   deleteArmyInstance(id) {
     const inst = models.getArmyInstanceById(id);
     if (inst && inst.is_main) {
@@ -1477,13 +2829,61 @@ const models = {
     return db.prepare('SELECT * FROM affiliate_links WHERE id = ?').get(id);
   },
 
-  createAffiliateLink({ title, platform = 'Hotmart', affiliate_url, commission_percent = 50.0, product_price = 0.0, currency = 'BRL', pitch_copy = null }) {
+  createAffiliateLink({
+    title,
+    platform = 'Hotmart',
+    affiliate_url,
+    commission_percent = 50.0,
+    product_price = 0.0,
+    original_price = 0.0,
+    currency = 'BRL',
+    pitch_copy = null,
+    keywords = null,
+    image_url = null,
+    tenant_id = null,
+    source = 'manual',
+    original_product_url = null,
+    platform_account_id = null,
+    auto_distributed = 0,
+    is_launch = 0,
+    coupon_code = null,
+    category = null,
+    free_shipping = 1,
+    rating = 4.9,
+    active = 1
+  }) {
     if (!title || !affiliate_url) throw new Error('Título e Link de Afiliado são obrigatórios.');
     const stmt = db.prepare(`
-      INSERT INTO affiliate_links (title, platform, affiliate_url, commission_percent, product_price, currency, pitch_copy)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO affiliate_links (
+        title, platform, affiliate_url, commission_percent, product_price, original_price,
+        currency, pitch_copy, keywords, image_url, tenant_id, source, original_product_url,
+        platform_account_id, auto_distributed, is_launch, coupon_code, category, free_shipping, rating, active
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const res = stmt.run(title, platform, affiliate_url, Number(commission_percent || 50.0), Number(product_price || 0.0), currency, pitch_copy || null);
+    const res = stmt.run(
+      title,
+      platform,
+      affiliate_url,
+      Number(commission_percent || 50.0),
+      Number(product_price || 0.0),
+      Number(original_price || 0.0),
+      currency,
+      pitch_copy || null,
+      keywords ? String(keywords) : null,
+      image_url ? String(image_url) : null,
+      tenant_id ? Number(tenant_id) : null,
+      source || 'manual',
+      original_product_url || null,
+      platform_account_id ? Number(platform_account_id) : null,
+      auto_distributed ? 1 : 0,
+      is_launch ? 1 : 0,
+      coupon_code ? String(coupon_code).trim() : null,
+      category ? String(category).trim() : null,
+      free_shipping ? 1 : 0,
+      Number(rating || 4.9),
+      active ? 1 : 0
+    );
     return models.getAffiliateLinkById(Number(res.lastInsertRowid));
   },
 
@@ -1496,17 +2896,128 @@ const models = {
     const affiliate_url = data.affiliate_url !== undefined ? data.affiliate_url : existing.affiliate_url;
     const commission_percent = data.commission_percent !== undefined ? Number(data.commission_percent) : existing.commission_percent;
     const product_price = data.product_price !== undefined ? Number(data.product_price) : existing.product_price;
+    const original_price = data.original_price !== undefined ? Number(data.original_price) : (existing.original_price || 0.0);
     const currency = data.currency !== undefined ? data.currency : existing.currency;
     const pitch_copy = data.pitch_copy !== undefined ? data.pitch_copy : existing.pitch_copy;
+    const keywords = data.keywords !== undefined ? data.keywords : existing.keywords;
+    const image_url = data.image_url !== undefined ? data.image_url : existing.image_url;
+    const tenant_id = data.tenant_id !== undefined ? (data.tenant_id ? Number(data.tenant_id) : null) : existing.tenant_id;
+    const source = data.source !== undefined ? data.source : existing.source;
+    const original_product_url = data.original_product_url !== undefined ? data.original_product_url : existing.original_product_url;
+    const platform_account_id = data.platform_account_id !== undefined ? data.platform_account_id : existing.platform_account_id;
+    const auto_distributed = data.auto_distributed !== undefined ? (data.auto_distributed ? 1 : 0) : existing.auto_distributed;
+    const is_launch = data.is_launch !== undefined ? (data.is_launch ? 1 : 0) : (existing.is_launch || 0);
+    const coupon_code = data.coupon_code !== undefined ? (data.coupon_code ? String(data.coupon_code).trim() : null) : existing.coupon_code;
+    const category = data.category !== undefined ? (data.category ? String(data.category).trim() : null) : existing.category;
+    const free_shipping = data.free_shipping !== undefined ? (data.free_shipping ? 1 : 0) : (existing.free_shipping ?? 1);
+    const rating = data.rating !== undefined ? Number(data.rating) : (existing.rating ?? 4.9);
     const active = data.active !== undefined ? (data.active ? 1 : 0) : existing.active;
 
     db.prepare(`
       UPDATE affiliate_links
-      SET title = ?, platform = ?, affiliate_url = ?, commission_percent = ?, product_price = ?, currency = ?, pitch_copy = ?, active = ?
+      SET title = ?, platform = ?, affiliate_url = ?, commission_percent = ?, product_price = ?, original_price = ?,
+          currency = ?, pitch_copy = ?, keywords = ?, image_url = ?, tenant_id = ?, source = ?, original_product_url = ?,
+          platform_account_id = ?, auto_distributed = ?, is_launch = ?, coupon_code = ?, category = ?, free_shipping = ?, rating = ?, active = ?
       WHERE id = ?
-    `).run(title, platform, affiliate_url, commission_percent, product_price, currency, pitch_copy || null, active, id);
+    `).run(
+      title, platform, affiliate_url, commission_percent, product_price, original_price,
+      currency, pitch_copy || null, keywords || null, image_url || null, tenant_id || null, source || 'manual',
+      original_product_url || null, platform_account_id || null, auto_distributed, is_launch,
+      coupon_code, category, free_shipping, rating, active, id
+    );
 
     return models.getAffiliateLinkById(id);
+  },
+
+  // ==========================================
+  // CONTAS DE AFILIADO DAS PLATAFORMAS (Mercado Livre, Shopee, Braip, Shein, Hotmart, Kiwify...)
+  // ==========================================
+  getAffiliatePlatformAccounts() {
+    try {
+      return db.prepare('SELECT * FROM affiliate_platform_accounts ORDER BY id ASC').all();
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getAffiliatePlatformAccountById(id) {
+    try {
+      return db.prepare('SELECT * FROM affiliate_platform_accounts WHERE id = ?').get(Number(id));
+    } catch (_) {
+      return null;
+    }
+  },
+
+  getAffiliatePlatformAccountByPlatform(platform) {
+    if (!platform) return null;
+    const cleanPlat = String(platform).trim().toLowerCase();
+    try {
+      return db.prepare('SELECT * FROM affiliate_platform_accounts WHERE LOWER(platform) = ? AND active = 1 ORDER BY id DESC LIMIT 1').get(cleanPlat);
+    } catch (_) {
+      return null;
+    }
+  },
+
+  saveAffiliatePlatformAccount(data = {}) {
+    const { id, platform, account_name, affiliate_id, tracking_tag, api_key, api_secret, cookie_token, notes, active = 1 } = data;
+    if (!platform || !account_name) {
+      throw new Error('Plataforma e Nome da Conta são obrigatórios.');
+    }
+    const cleanPlat = String(platform).trim().toLowerCase();
+
+    if (id) {
+      db.prepare(`
+        UPDATE affiliate_platform_accounts
+        SET platform = ?, account_name = ?, affiliate_id = ?, tracking_tag = ?, api_key = ?, api_secret = ?, cookie_token = ?, notes = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        cleanPlat,
+        String(account_name).trim(),
+        affiliate_id ? String(affiliate_id).trim() : null,
+        tracking_tag ? String(tracking_tag).trim() : null,
+        api_key ? String(api_key).trim() : null,
+        api_secret ? String(api_secret).trim() : null,
+        cookie_token ? String(cookie_token).trim() : null,
+        notes ? String(notes).trim() : null,
+        active ? 1 : 0,
+        Number(id)
+      );
+      return models.getAffiliatePlatformAccountById(Number(id));
+    }
+
+    const res = db.prepare(`
+      INSERT INTO affiliate_platform_accounts (platform, account_name, affiliate_id, tracking_tag, api_key, api_secret, cookie_token, notes, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      cleanPlat,
+      String(account_name).trim(),
+      affiliate_id ? String(affiliate_id).trim() : null,
+      tracking_tag ? String(tracking_tag).trim() : null,
+      api_key ? String(api_key).trim() : null,
+      api_secret ? String(api_secret).trim() : null,
+      cookie_token ? String(cookie_token).trim() : null,
+      notes ? String(notes).trim() : null,
+      active ? 1 : 0
+    );
+
+    return models.getAffiliatePlatformAccountById(Number(res.lastInsertRowid));
+  },
+
+  deleteAffiliatePlatformAccount(id) {
+    if (!id) return false;
+    try {
+      return db.prepare('DELETE FROM affiliate_platform_accounts WHERE id = ?').run(Number(id));
+    } catch (_) {
+      return false;
+    }
+  },
+
+  createAffiliatePlatformAccount(data) {
+    return this.saveAffiliatePlatformAccount(data);
+  },
+
+  updateAffiliatePlatformAccount(id, data) {
+    return this.saveAffiliatePlatformAccount({ ...data, id });
   },
 
   deleteAffiliateLink(id) {
@@ -1518,14 +3029,448 @@ const models = {
   },
 
   // ==========================================
+  // CANAIS E GRUPOS DE ACHADINHOS (WHATSAPP @g.us / @newsletter)
+  // ==========================================
+  getAchadinhosChannels({ tenantId = undefined, activeOnly = false } = {}) {
+    try {
+      let query = 'SELECT ac.*, st.name as tenant_name FROM achadinhos_channels ac LEFT JOIN saas_tenants st ON ac.tenant_id = st.id WHERE 1=1';
+      const params = [];
+
+      if (tenantId === 'master' || tenantId === null) {
+        query += ' AND ac.tenant_id IS NULL';
+      } else if (tenantId !== undefined && tenantId !== 'all' && tenantId !== '*') {
+        query += ' AND ac.tenant_id = ?';
+        params.push(Number(tenantId));
+      }
+
+      if (activeOnly) {
+        query += ' AND ac.active = 1';
+      }
+
+      query += ' ORDER BY ac.id DESC';
+      return db.prepare(query).all(...params);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getAchadinhosChannelById(id) {
+    if (!id) return null;
+    try {
+      return db.prepare(`
+        SELECT ac.*, st.name as tenant_name 
+        FROM achadinhos_channels ac 
+        LEFT JOIN saas_tenants st ON ac.tenant_id = st.id 
+        WHERE ac.id = ?
+      `).get(Number(id));
+    } catch (_) {
+      return null;
+    }
+  },
+
+  getAchadinhosChannelByJid(targetJid) {
+    if (!targetJid) return null;
+    try {
+      return db.prepare(`
+        SELECT ac.*, st.name as tenant_name 
+        FROM achadinhos_channels ac 
+        LEFT JOIN saas_tenants st ON ac.tenant_id = st.id 
+        WHERE ac.target_jid = ?
+        LIMIT 1
+      `).get(String(targetJid).trim());
+    } catch (_) {
+      return null;
+    }
+  },
+
+  saveAchadinhosChannel(data = {}) {
+    const {
+      id,
+      tenant_id = null,
+      name,
+      target_jid,
+      channel_type = 'group',
+      instance_id = null,
+      template_style = 'fire_sale',
+      header_text = null,
+      footer_text = null,
+      auto_post_new_links = 1,
+      active = 1,
+      mention_all_on_launch = 1,
+      mention_all_on_good_deals = 1,
+      mention_all_on_first_post = 1,
+      mention_min_discount = 40
+    } = data;
+
+    if (!name || !target_jid) {
+      throw new Error('Nome e JID do Canal/Grupo são obrigatórios.');
+    }
+
+    let cleanJid = String(target_jid).trim();
+    // Normalização amigável de JID
+    if (!cleanJid.includes('@')) {
+      const digits = cleanJid.replace(/\D/g, '');
+      if (channel_type === 'channel' || cleanJid.length >= 17) {
+        cleanJid = `${digits}@newsletter`;
+      } else {
+        cleanJid = `${digits}@g.us`;
+      }
+    }
+
+    const detectedType = cleanJid.endsWith('@newsletter') ? 'channel' : (channel_type || 'group');
+    const safeTenantId = (tenant_id && Number(tenant_id) > 0) ? Number(tenant_id) : null;
+    const safeInstanceId = (instance_id && Number(instance_id) > 0) ? Number(instance_id) : null;
+
+    if (id) {
+      db.prepare(`
+        UPDATE achadinhos_channels
+        SET tenant_id = ?, name = ?, target_jid = ?, channel_type = ?,
+            instance_id = ?, template_style = ?, header_text = ?, footer_text = ?,
+            auto_post_new_links = ?, active = ?,
+            mention_all_on_launch = ?, mention_all_on_good_deals = ?, mention_all_on_first_post = ?, mention_min_discount = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        safeTenantId,
+        String(name).trim(),
+        cleanJid,
+        detectedType,
+        safeInstanceId,
+        template_style || 'fire_sale',
+        header_text ? String(header_text).trim() : null,
+        footer_text ? String(footer_text).trim() : null,
+        auto_post_new_links ? 1 : 0,
+        active ? 1 : 0,
+        mention_all_on_launch ? 1 : 0,
+        mention_all_on_good_deals ? 1 : 0,
+        mention_all_on_first_post ? 1 : 0,
+        Number(mention_min_discount || 40),
+        Number(id)
+      );
+      return models.getAchadinhosChannelById(Number(id));
+    }
+
+    const res = db.prepare(`
+      INSERT INTO achadinhos_channels (
+        tenant_id, name, target_jid, channel_type,
+        instance_id, template_style, header_text, footer_text,
+        auto_post_new_links, active,
+        mention_all_on_launch, mention_all_on_good_deals, mention_all_on_first_post, mention_min_discount
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      safeTenantId,
+      String(name).trim(),
+      cleanJid,
+      detectedType,
+      safeInstanceId,
+      template_style || 'fire_sale',
+      header_text ? String(header_text).trim() : null,
+      footer_text ? String(footer_text).trim() : null,
+      auto_post_new_links ? 1 : 0,
+      active ? 1 : 0,
+      mention_all_on_launch ? 1 : 0,
+      mention_all_on_good_deals ? 1 : 0,
+      mention_all_on_first_post ? 1 : 0,
+      Number(mention_min_discount || 40)
+    );
+
+    return models.getAchadinhosChannelById(Number(res.lastInsertRowid));
+  },
+
+  deleteAchadinhosChannel(id) {
+    if (!id) return false;
+    try {
+      return db.prepare('DELETE FROM achadinhos_channels WHERE id = ?').run(Number(id));
+    } catch (_) {
+      return false;
+    }
+  },
+
+  isAffiliateLinkFirstAchadinhoPost(linkId, channelId = null) {
+    if (!linkId) return true;
+    try {
+      let query = 'SELECT COUNT(*) as count FROM achadinhos_posts_log WHERE affiliate_link_id = ?';
+      const params = [Number(linkId)];
+      if (channelId) {
+        query += ' AND channel_id = ?';
+        params.push(Number(channelId));
+      }
+      const row = db.prepare(query).get(...params);
+      return (row?.count || 0) === 0;
+    } catch (_) {
+      return true;
+    }
+  },
+
+  logAchadinhoPost(data = {}) {
+    const {
+      channel_id = null,
+      tenant_id = null,
+      affiliate_link_id = null,
+      target_jid,
+      product_title = '',
+      affiliate_url = '',
+      message_text = '',
+      image_url = null,
+      status = 'SENT',
+      error_message = null,
+      mentioned_all = 0,
+      mention_reason = null
+    } = data;
+
+    try {
+      const res = db.prepare(`
+        INSERT INTO achadinhos_posts_log (
+          channel_id, tenant_id, affiliate_link_id, target_jid,
+          product_title, affiliate_url, message_text, image_url,
+          status, error_message, mentioned_all, mention_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        channel_id ? Number(channel_id) : null,
+        tenant_id ? Number(tenant_id) : null,
+        affiliate_link_id ? Number(affiliate_link_id) : null,
+        String(target_jid || ''),
+        String(product_title || ''),
+        String(affiliate_url || ''),
+        String(message_text || ''),
+        image_url ? String(image_url) : null,
+        status || 'SENT',
+        error_message ? String(error_message) : null,
+        mentioned_all ? 1 : 0,
+        mention_reason ? String(mention_reason).trim() : null
+      );
+      return res.lastInsertRowid;
+    } catch (e) {
+      console.warn('[LogAchadinhoPost Error]:', e.message);
+      return null;
+    }
+  },
+
+  getAchadinhosPostsLog({ tenantId = undefined, channelId = null, limit = 50 } = {}) {
+    try {
+      let query = `
+        SELECT apl.*, ac.name as channel_name, st.name as tenant_name
+        FROM achadinhos_posts_log apl
+        LEFT JOIN achadinhos_channels ac ON apl.channel_id = ac.id
+        LEFT JOIN saas_tenants st ON apl.tenant_id = st.id
+        WHERE 1=1
+      `;
+      const params = [];
+
+      if (tenantId === 'master' || tenantId === null) {
+        query += ' AND apl.tenant_id IS NULL';
+      } else if (tenantId !== undefined && tenantId !== 'all' && tenantId !== '*') {
+        query += ' AND apl.tenant_id = ?';
+        params.push(Number(tenantId));
+      }
+
+      if (channelId) {
+        query += ' AND apl.channel_id = ?';
+        params.push(Number(channelId));
+      }
+
+      query += ' ORDER BY apl.id DESC LIMIT ?';
+      params.push(Math.min(200, Math.max(1, Number(limit) || 50)));
+
+      return db.prepare(query).all(...params);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  // ==========================================
+  // ALERTAS DE COMPRADORES & BUSCA DE ACHADINHOS
+  // ==========================================
+  addBuyerAlert({ phone, keyword, chat_jid = null }) {
+    if (!phone || !keyword) throw new Error('Telefone e palavra-chave são obrigatórios.');
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const cleanKw = String(keyword).trim().toLowerCase();
+    if (!cleanKw || cleanKw.length < 2) throw new Error('Palavra-chave muito curta.');
+
+    try {
+      const existing = db.prepare(`
+        SELECT id FROM achadinhos_buyer_alerts
+        WHERE phone = ? AND LOWER(keyword) = ?
+      `).get(cleanPhone, cleanKw);
+
+      if (existing) {
+        return existing;
+      }
+
+      const res = db.prepare(`
+        INSERT INTO achadinhos_buyer_alerts (phone, keyword, chat_jid)
+        VALUES (?, ?, ?)
+      `).run(cleanPhone, cleanKw, chat_jid || `${cleanPhone}@s.whatsapp.net`);
+
+      return { id: Number(res.lastInsertRowid), phone: cleanPhone, keyword: cleanKw };
+    } catch (e) {
+      console.warn('[AddBuyerAlert Error]:', e.message);
+      return null;
+    }
+  },
+
+  getBuyerAlertsByPhone(phone) {
+    if (!phone) return [];
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    try {
+      return db.prepare(`
+        SELECT * FROM achadinhos_buyer_alerts
+        WHERE phone = ?
+        ORDER BY id DESC
+      `).all(cleanPhone);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  removeBuyerAlert(phone, keyword = null) {
+    if (!phone) return false;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    try {
+      if (!keyword || keyword.toLowerCase() === 'all' || keyword.toLowerCase() === 'todos') {
+        db.prepare('DELETE FROM achadinhos_buyer_alerts WHERE phone = ?').run(cleanPhone);
+      } else {
+        const cleanKw = String(keyword).trim().toLowerCase();
+        db.prepare('DELETE FROM achadinhos_buyer_alerts WHERE phone = ? AND LOWER(keyword) = ?').run(cleanPhone, cleanKw);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  findMatchingBuyerAlerts(textOrTitle) {
+    if (!textOrTitle || typeof textOrTitle !== 'string') return [];
+    const lower = textOrTitle.toLowerCase();
+    try {
+      const allAlerts = db.prepare('SELECT * FROM achadinhos_buyer_alerts ORDER BY id ASC').all();
+      return allAlerts.filter(a => {
+        const kw = String(a.keyword || '').trim().toLowerCase();
+        return kw && lower.includes(kw);
+      });
+    } catch (_) {
+      return [];
+    }
+  },
+
+  markBuyerAlertNotified(alertId) {
+    if (!alertId) return false;
+    try {
+      return db.prepare(`
+        UPDATE achadinhos_buyer_alerts
+        SET notified_count = notified_count + 1, last_notified_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(Number(alertId));
+    } catch (_) {
+      return false;
+    }
+  },
+
+  searchDeals(query, { limit = 5 } = {}) {
+    if (!query || typeof query !== 'string') return [];
+    const clean = query.trim().toLowerCase();
+    try {
+      const sql = `
+        SELECT * FROM affiliate_links
+        WHERE active = 1
+          AND (
+            LOWER(title) LIKE ?
+            OR LOWER(COALESCE(keywords, '')) LIKE ?
+            OR LOWER(COALESCE(category, '')) LIKE ?
+            OR LOWER(COALESCE(platform, '')) LIKE ?
+            OR LOWER(COALESCE(pitch_copy, '')) LIKE ?
+          )
+        ORDER BY id DESC
+        LIMIT ?
+      `;
+      const term = `%${clean}%`;
+      return db.prepare(sql).all(term, term, term, term, term, Number(limit));
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getActiveDeals({ limit = 50 } = {}) {
+    try {
+      return db.prepare(`
+        SELECT * FROM affiliate_links
+        WHERE active = 1
+          AND affiliate_url NOT LIKE '%test%'
+          AND affiliate_url NOT LIKE '%example%'
+          AND affiliate_url NOT LIKE '%ml_top_123%'
+          AND affiliate_url NOT LIKE '%shope_tag_01%'
+          AND affiliate_url NOT LIKE '%trader-pro-test%'
+        ORDER BY id DESC
+        LIMIT ?
+      `).all(Number(limit) || 50);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getDealById(id) {
+    return models.getAffiliateLinkById(id);
+  },
+
+  deactivateDeal(id) {
+    if (!id) return false;
+    try {
+      return db.prepare('UPDATE affiliate_links SET active = 0 WHERE id = ?').run(Number(id));
+    } catch (_) {
+      return false;
+    }
+  },
+
+  getPendingAffiliateLinks({ limit = 50 } = {}) {
+    try {
+      return db.prepare(`
+        SELECT * FROM affiliate_links
+        WHERE active = 0
+        ORDER BY id DESC
+        LIMIT ?
+      `).all(Number(limit) || 50);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  attachUserAffiliateLink(linkId, userAffiliateUrl) {
+    if (!linkId || !userAffiliateUrl) return null;
+    const cleanUrl = String(userAffiliateUrl).trim();
+    try {
+      const existing = models.getAffiliateLinkById(Number(linkId));
+      if (!existing) return null;
+      db.prepare(`
+        UPDATE affiliate_links
+        SET affiliate_url = ?, active = 1
+        WHERE id = ?
+      `).run(cleanUrl, Number(linkId));
+      return models.getAffiliateLinkById(Number(linkId));
+    } catch (_) {
+      return null;
+    }
+  },
+
+  // ==========================================
   // 16. CAMPANHAS DE DIVULGAÇÃO & SPINTAX (AFFILIATE BROADCAST)
   // ==========================================
-  parseSpintax(text) {
+  parseSpintax(text, vars = {}) {
     if (!text) return '';
     let result = text;
+    if (vars && typeof vars === 'object') {
+      for (const [key, val] of Object.entries(vars)) {
+        if (val !== undefined && val !== null) {
+          result = result.replace(new RegExp(`\\{${key}\\}`, 'gi'), String(val));
+        }
+      }
+    }
     const regex = /\{([^{}]*\|[^{}]*)\}/;
     let matches;
-    while ((matches = regex.exec(result)) !== null) {
+    let safetyCounter = 0;
+    while ((matches = regex.exec(result)) !== null && safetyCounter < 100) {
+      safetyCounter++;
       const options = matches[1].split('|');
       const randomOption = options[Math.floor(Math.random() * options.length)];
       result = result.replace(matches[0], randomOption);
@@ -1535,7 +3480,7 @@ const models = {
 
   formatCampaignMessage(template, lead = {}, campaign = {}) {
     let msg = template || '';
-    const greeting = new Date().getHours() < 12 ? 'Bom dia' : (new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite');
+    const greeting = dateTimeUtils.getBrasiliaGreeting().saudacao;
     const rawName = (lead.name || '').trim();
     const isGeneric = !rawName || /^(amigo\(a\)|amigo|lead|cliente|undefined|null)$/i.test(rawName);
     const firstName = isGeneric ? '' : rawName.split(' ')[0];
@@ -2116,10 +4061,15 @@ const models = {
     const totalSent = db.prepare('SELECT SUM(total_messages_sent) as sum FROM social_accounts').get().sum || 0;
     const totalMessagesLogged = db.prepare('SELECT COUNT(*) as count FROM social_messages_log').get().count;
 
+    const rows = db.prepare('SELECT platform, COUNT(*) as count FROM social_accounts GROUP BY platform').all();
+    const platformCounts = {};
+    rows.forEach(r => { platformCounts[r.platform] = r.count; });
+
     return {
       totalAccounts,
       igAccounts,
       fbAccounts,
+      platformCounts,
       totalReceived,
       totalSent,
       totalMessagesLogged
@@ -2174,7 +4124,18 @@ const models = {
     }
   },
 
-  muteChat({ platform, chatId, targetType = 'PRIVATE', reason = 'Desativado via comando', createdBy = 'admin', userName = null }) {
+  muteChat(arg1, arg2, arg3, arg4) {
+    let platform, chatId, targetType, reason, createdBy, userName;
+    if (typeof arg1 === 'object' && arg1 !== null) {
+      ({ platform = 'whatsapp', chatId, targetType = 'PRIVATE', reason = 'Desativado via comando', createdBy = 'admin', userName = null } = arg1);
+    } else {
+      platform = arg1 || 'whatsapp';
+      chatId = arg2;
+      reason = arg3 || 'Desativado via comando';
+      createdBy = arg4 || 'admin';
+      targetType = String(chatId).includes('@g.us') ? 'GROUP' : 'PRIVATE';
+    }
+
     const cleanChat = String(chatId).trim();
     const existing = db.prepare(`
       SELECT id FROM bot_chat_controls
@@ -2186,18 +4147,25 @@ const models = {
         UPDATE bot_chat_controls
         SET active = 1, target_type = ?, reason = ?, user_name = COALESCE(?, user_name), updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(targetType, reason, userName, existing.id);
+      `).run(targetType || 'PRIVATE', reason || null, userName || null, existing.id);
       return { id: existing.id, muted: true };
     } else {
       const info = db.prepare(`
         INSERT INTO bot_chat_controls (platform, control_type, target_type, chat_id, reason, created_by, user_name, active)
         VALUES (?, 'MUTE_CHAT', ?, ?, ?, ?, ?, 1)
-      `).run(platform, targetType, cleanChat, reason, createdBy, userName);
+      `).run(platform, targetType || 'PRIVATE', cleanChat, reason || null, createdBy || 'admin', userName || null);
       return { id: info.lastInsertRowid, muted: true };
     }
   },
 
-  unmuteChat(platform, chatId) {
+  unmuteChat(arg1, arg2) {
+    let platform, chatId;
+    if (typeof arg1 === 'object' && arg1 !== null) {
+      ({ platform = 'whatsapp', chatId } = arg1);
+    } else {
+      platform = arg1 || 'whatsapp';
+      chatId = arg2;
+    }
     const cleanChat = String(chatId).trim();
     const info = db.prepare(`
       UPDATE bot_chat_controls
@@ -2207,7 +4175,19 @@ const models = {
     return { unmuted: info.changes > 0 };
   },
 
-  blockUser({ platform, userId, chatId = null, targetType = 'USER', reason = 'Participante bloqueado', createdBy = 'admin', userName = null }) {
+  blockUser(arg1, arg2, arg3, arg4, arg5) {
+    let platform, userId, chatId, targetType, reason, createdBy, userName;
+    if (typeof arg1 === 'object' && arg1 !== null) {
+      ({ platform = 'whatsapp', userId, chatId = null, targetType = 'USER', reason = 'Participante bloqueado', createdBy = 'admin', userName = null } = arg1);
+    } else {
+      platform = arg1 || 'whatsapp';
+      userId = arg2;
+      chatId = arg3 || '*';
+      reason = arg4 || 'Participante bloqueado';
+      createdBy = arg5 || 'admin';
+      targetType = 'USER';
+    }
+
     const cleanUser = String(userId).trim();
     const cleanChat = chatId ? String(chatId).trim() : '*';
 
@@ -2221,13 +4201,13 @@ const models = {
         UPDATE bot_chat_controls
         SET active = 1, reason = ?, user_name = COALESCE(?, user_name), updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(reason, userName, existing.id);
+      `).run(reason || null, userName || null, existing.id);
       return { id: existing.id, blocked: true };
     } else {
       const info = db.prepare(`
         INSERT INTO bot_chat_controls (platform, control_type, target_type, chat_id, user_id, user_name, reason, created_by, active)
         VALUES (?, 'BLOCK_USER', ?, ?, ?, ?, ?, ?, 1)
-      `).run(platform, targetType, cleanChat, cleanUser, userName, reason, createdBy);
+      `).run(platform, targetType || 'USER', cleanChat, cleanUser, userName || null, reason || null, createdBy || 'admin');
       return { id: info.lastInsertRowid, blocked: true };
     }
   },
@@ -2330,6 +4310,9 @@ const models = {
       `WELCOME_MSG_${groupId}`,
       '👋 Olá {nome}, seja muito bem-vindo(a) ao grupo *{grupo}*! Sinta-se em casa e confira as regras.'
     );
+    const welcomeSvg = this.getSetting(`WELCOME_SVG_${groupId}`, 'true') !== 'false';
+    const welcomeSvgTheme = this.getSetting(`WELCOME_SVG_THEME_${groupId}`, 'cyber');
+    const welcomeSvgDoc = this.getSetting(`WELCOME_SVG_DOC_${groupId}`, 'false') === 'true';
     const antifake = this.getSetting(`ANTIFAKE_${groupId}`, 'false') === 'true';
     const antiviewonce = this.getSetting(`ANTIVIEWONCE_${groupId}`, 'true') === 'true';
     const antidelete = this.getSetting(`ANTIDELETE_${groupId}`, 'false') === 'true';
@@ -2338,18 +4321,29 @@ const models = {
       `BYE_MSG_${groupId}`,
       '👋 @{numero} saiu ou foi removido do grupo *{grupo}*.'
     );
-    return { platform, groupId, antilink, welcome, welcomeMsg, antifake, antiviewonce, antidelete, bye, byeMsg };
+    const botActive = this.isGroupBotActive(groupId);
+    const postingActive = this.isGroupPostingActive(groupId);
+    const soDivu = this.isGroupSoDivuActive(groupId);
+    const globalSoDivu = this.isGlobalSoDivuActive();
+    return { platform, groupId, antilink, welcome, welcomeMsg, welcomeSvg, welcomeSvgTheme, welcomeSvgDoc, antifake, antiviewonce, antidelete, bye, byeMsg, botActive, postingActive, soDivu, globalSoDivu };
   },
 
   updateGroupSettings(platform, groupId, {
     antilink = null,
     welcome = null,
     welcomeMsg = null,
+    welcomeSvg = null,
+    welcomeSvgTheme = null,
+    welcomeSvgDoc = null,
     antifake = null,
     antiviewonce = null,
     antidelete = null,
     bye = null,
-    byeMsg = null
+    byeMsg = null,
+    botActive = null,
+    postingActive = null,
+    soDivu = null,
+    globalSoDivu = null
   } = {}) {
     if (antilink !== null && antilink !== undefined) {
       this.setSetting(`ANTILINK_${groupId}`, antilink ? 'true' : 'false');
@@ -2359,6 +4353,15 @@ const models = {
     }
     if (welcomeMsg !== null && welcomeMsg !== undefined) {
       this.setSetting(`WELCOME_MSG_${groupId}`, String(welcomeMsg));
+    }
+    if (welcomeSvg !== null && welcomeSvg !== undefined) {
+      this.setSetting(`WELCOME_SVG_${groupId}`, welcomeSvg ? 'true' : 'false');
+    }
+    if (welcomeSvgTheme !== null && welcomeSvgTheme !== undefined) {
+      this.setSetting(`WELCOME_SVG_THEME_${groupId}`, String(welcomeSvgTheme).toLowerCase().trim());
+    }
+    if (welcomeSvgDoc !== null && welcomeSvgDoc !== undefined) {
+      this.setSetting(`WELCOME_SVG_DOC_${groupId}`, welcomeSvgDoc ? 'true' : 'false');
     }
     if (antifake !== null && antifake !== undefined) {
       this.setSetting(`ANTIFAKE_${groupId}`, antifake ? 'true' : 'false');
@@ -2375,7 +4378,40 @@ const models = {
     if (byeMsg !== null && byeMsg !== undefined) {
       this.setSetting(`BYE_MSG_${groupId}`, String(byeMsg));
     }
+    if (botActive !== null && botActive !== undefined) {
+      this.setGroupBotActive(groupId, !!botActive);
+    }
+    if (postingActive !== null && postingActive !== undefined) {
+      this.setGroupPostingActive(groupId, !!postingActive);
+    }
+    if (soDivu !== null && soDivu !== undefined) {
+      this.setGroupSoDivu(groupId, !!soDivu);
+    }
+    if (globalSoDivu !== null && globalSoDivu !== undefined) {
+      this.setGlobalSoDivu(!!globalSoDivu);
+    }
     return this.getGroupSettings(platform, groupId);
+  },
+
+  isAntiDeleteActive(groupId) {
+    if (!groupId) return false;
+    if (this.getSetting(`ANTIDELETE_${groupId}`, 'false') === 'true') return true;
+    if (this.getSetting('ANTIDELETE_GLOBAL', 'false') === 'true') return true;
+    try {
+      const prot = this.getGroupProtection(groupId);
+      if (prot && (prot.x9_enabled === 1 || prot.antidelete_enabled === 1)) return true;
+    } catch (_) {}
+    return false;
+  },
+
+  isGroupX9Active(groupId) {
+    if (!groupId) return false;
+    try {
+      const prot = this.getGroupProtection(groupId);
+      return prot && prot.x9_enabled === 1;
+    } catch (_) {
+      return false;
+    }
   },
 
   // ==========================================
@@ -2611,6 +4647,11 @@ const models = {
     const cleanPhone = String(userPhone).replace(/\D/g, '');
     const cleanGroup = String(groupId).trim();
     
+    // 🛡️ IMUNIDADE SUPREMA DO DONO: Dono nunca recebe advertências!
+    if (this.isOwner(cleanPhone)) {
+      return { count: 0, reason, warnedBy, userPhone: cleanPhone, isOwner: true, blocked: true };
+    }
+
     db.prepare(`
       INSERT INTO group_warnings (group_id, user_phone, reason, warned_by)
       VALUES (?, ?, ?, ?)
@@ -2620,14 +4661,25 @@ const models = {
     return { count, reason, warnedBy, userPhone: cleanPhone };
   },
 
+  addWarn(groupId, userPhone, reason = 'Violação de regras do grupo', warnedBy = 'Admin') {
+    return this.addWarning(groupId, userPhone, reason, warnedBy);
+  },
+
   getWarningsCount(groupId, userPhone) {
     const cleanPhone = String(userPhone).replace(/\D/g, '');
+    // 🛡️ IMUNIDADE SUPREMA DO DONO: Dono sempre tem 0 advertências
+    if (this.isOwner(cleanPhone)) return 0;
+
     const cleanGroup = String(groupId).trim();
     const row = db.prepare(`
       SELECT COUNT(*) as count FROM group_warnings 
       WHERE group_id = ? AND user_phone = ?
     `).get(cleanGroup, cleanPhone);
     return row ? row.count : 0;
+  },
+
+  getWarnCount(groupId, userPhone) {
+    return this.getWarningsCount(groupId, userPhone);
   },
 
   getWarnings(groupId, userPhone) {
@@ -2778,7 +4830,15 @@ const models = {
         current_stage: 1,
         group_description: 'Grupo VIP oficial de lançamento. Acompanhe os avisos!',
         total_groups_created: 0,
-        total_leads_reached: 0
+        total_leads_reached: 0,
+        product_id: 1,
+        admin_subbot_id: 1,
+        buyer_subbot_ids: '',
+        buyers_group_jid: '',
+        buyers_group_invite_url: '',
+        buyers_group_admin_id: 1,
+        buyers_group_workflow: '',
+        auto_move_buyers: 1
       };
     }
     return row;
@@ -2788,7 +4848,10 @@ const models = {
     const allowed = [
       'name', 'group_base_name', 'max_members_per_group', 'active',
       'current_group_id', 'current_stage', 'group_description',
-      'total_groups_created', 'total_leads_reached'
+      'total_groups_created', 'total_leads_reached',
+      'product_id', 'admin_subbot_id', 'buyer_subbot_ids',
+      'buyers_group_jid', 'buyers_group_invite_url', 'buyers_group_admin_id',
+      'buyers_group_workflow', 'auto_move_buyers'
     ];
     const sets = [];
     const vals = [];
@@ -3193,8 +5256,8 @@ const models = {
     const stmt = db.prepare(`
       INSERT INTO viral_generated_posts (
         source_post_id, profile_id, title, target_platform, tone, objective,
-        product_id, hook, body, cta, hashtags, media_suggestion, full_content, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        product_id, hook, body, cta, hashtags, media_suggestion, media_url, full_content, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const res = stmt.run(
@@ -3210,6 +5273,7 @@ const models = {
       data.cta || '',
       data.hashtags || '',
       data.media_suggestion || '',
+      data.media_url || null,
       data.full_content || '',
       data.status || 'READY'
     );
@@ -3224,7 +5288,7 @@ const models = {
   },
 
   updateViralGeneratedPost(id, updates = {}) {
-    const allowed = ['title', 'target_platform', 'tone', 'objective', 'product_id', 'hook', 'body', 'cta', 'hashtags', 'media_suggestion', 'full_content', 'status', 'published_at'];
+    const allowed = ['title', 'target_platform', 'tone', 'objective', 'product_id', 'hook', 'body', 'cta', 'hashtags', 'media_suggestion', 'media_url', 'full_content', 'status', 'published_at'];
     const sets = [];
     const vals = [];
 
@@ -3326,9 +5390,15 @@ const models = {
   // ==========================================
   // 18. VITRINE & CATÁLOGO E-COMMERCE (SPY TECH SOLUTIONS)
   // ==========================================
-  getStoreProducts(category = null, search = null) {
+  getStoreProducts(category = null, search = null, tenantId = null) {
     let sql = 'SELECT * FROM products WHERE active = 1 AND (army_instance_id IS NULL OR army_instance_id = 0)';
     const params = [];
+    if (tenantId) {
+      sql += ' AND tenant_id = ?';
+      params.push(tenantId);
+    } else {
+      sql += ' AND (tenant_id IS NULL OR tenant_id = 0)';
+    }
     if (category && category !== 'Todos') {
       sql += ' AND category = ?';
       params.push(category);
@@ -3338,8 +5408,228 @@ const models = {
       const term = `%${search.trim()}%`;
       params.push(term, term, term);
     }
-    sql += ' ORDER BY id DESC';
-    return db.prepare(sql).all(...params);
+    sql += ' ORDER BY COALESCE(intelligence_score, 85.0) DESC, COALESCE(profit_margin_percent, 90.0) DESC, id DESC';
+    const products = db.prepare(sql).all(...params);
+    return products.map(p => {
+      if (!p.image_url || !String(p.image_url).trim()) {
+        p.image_url = models.getDefaultProductImage(p.category, p.name);
+      }
+      return p;
+    });
+  },
+
+  /**
+   * Registra visualização de produto na vitrine e recalcula score de inteligência
+   */
+  recordProductView(productId) {
+    if (!productId) return null;
+    const id = Number(productId);
+    try {
+      db.prepare(`
+        UPDATE products
+        SET views_count = views_count + 1,
+            intelligence_score = ROUND((COALESCE(profit_margin_percent, 90.0) * 0.45) + (COALESCE(sales_count, 0) * 5.0) + ((views_count + 1) * 0.2), 1)
+        WHERE id = ?
+      `).run(id);
+      return models.getProductById(id);
+    } catch (_) {
+      return null;
+    }
+  },
+
+  /**
+   * Registra adição de produto ao carrinho e recalcula score de inteligência
+   */
+  recordProductCartAdd(productId) {
+    if (!productId) return null;
+    const id = Number(productId);
+    try {
+      db.prepare(`
+        UPDATE products
+        SET cart_adds_count = cart_adds_count + 1,
+            intelligence_score = ROUND((COALESCE(profit_margin_percent, 90.0) * 0.45) + (COALESCE(sales_count, 0) * 5.0) + (views_count * 0.2) + ((cart_adds_count + 1) * 2.0), 1)
+        WHERE id = ?
+      `).run(id);
+      return models.getProductById(id);
+    } catch (_) {
+      return null;
+    }
+  },
+
+  /**
+   * Registra venda concluída do produto e impulsiona seu score de inteligência
+   */
+  recordProductSale(productId, amount = null) {
+    if (!productId) return null;
+    const id = Number(productId);
+    try {
+      db.prepare(`
+        UPDATE products
+        SET sales_count = sales_count + 1,
+            intelligence_score = ROUND((COALESCE(profit_margin_percent, 90.0) * 0.45) + ((sales_count + 1) * 6.0) + (views_count * 0.2), 1)
+        WHERE id = ?
+      `).run(id);
+      return models.getProductById(id);
+    } catch (_) {
+      return null;
+    }
+  },
+
+  /**
+   * Retorna os produtos mais inteligentes da vitrine ordenados por margem de lucro e conversão
+   */
+  getHighMarginSmartProducts(limit = 6, tenantId = null) {
+    let sql = `
+      SELECT * FROM products
+      WHERE active = 1 AND (army_instance_id IS NULL OR army_instance_id = 0)
+    `;
+    const params = [];
+    if (tenantId) {
+      sql += ' AND tenant_id = ?';
+      params.push(tenantId);
+    } else {
+      sql += ' AND (tenant_id IS NULL OR tenant_id = 0)';
+    }
+    sql += `
+      ORDER BY
+        COALESCE(intelligence_score, 85.0) DESC,
+        COALESCE(profit_margin_percent, 90.0) DESC,
+        price_brl DESC
+      LIMIT ?
+    `;
+    params.push(limit);
+    const prods = db.prepare(sql).all(...params);
+    return prods.map(p => {
+      if (!p.image_url || !String(p.image_url).trim()) {
+        p.image_url = models.getDefaultProductImage(p.category, p.name);
+      }
+      return p;
+    });
+  },
+
+  /**
+   * Retorna lista pública anonimizada de compras recentes para prova social ao vivo na loja web
+   */
+  getRecentPublicPurchases(limit = 8, tenantId = null) {
+    let sql = `
+      SELECT o.id, o.amount, o.currency, o.platform_user_name, o.created_at,
+             p.image_url, p.name as product_name, p.category
+      FROM orders o
+      LEFT JOIN products p ON o.product_id = p.id
+      WHERE o.status = 'PAID'
+    `;
+    const params = [];
+    if (tenantId) {
+      sql += ' AND o.tenant_id = ?';
+      params.push(tenantId);
+    }
+    sql += ' ORDER BY o.id DESC LIMIT ?';
+    params.push(limit);
+
+    const rows = db.prepare(sql).all(...params);
+
+    const locations = [
+      'São Paulo/SP', 'Rio de Janeiro/RJ', 'Belo Horizonte/MG', 'Curitiba/PR',
+      'Brasília/DF', 'Porto Alegre/RS', 'Salvador/BA', 'Florianópolis/SC',
+      'Goiânia/GO', 'Campinas/SP', 'Fortaleza/CE', 'Recife/PE'
+    ];
+
+    const formatCustomerName = (rawName, idx) => {
+      if (!rawName || /^(cliente|lead|amigo|user|undefined|null|Lead Loja Web)$/i.test(rawName.trim())) {
+        const fallbacks = ['Lucas M.', 'Mariana S.', 'Rafael C.', 'Ana P.', 'Felipe G.', 'Camila T.', 'Rodrigo B.', 'Juliana K.'];
+        return fallbacks[idx % fallbacks.length];
+      }
+      const parts = rawName.trim().split(/\s+/);
+      if (parts.length === 1) return parts[0];
+      return `${parts[0]} ${parts[1][0].toUpperCase()}.`;
+    };
+
+    const results = rows.map((r, idx) => {
+      const loc = locations[(r.id || idx) % locations.length];
+      const prodName = r.p_name || r.product_name || 'Produto VIP';
+      const img = r.image_url || models.getDefaultProductImage(r.category, prodName);
+      const minutesAgo = Math.max(1, (idx * 3) + 2);
+      return {
+        id: r.id,
+        customer_name: formatCustomerName(r.platform_user_name, idx),
+        location: loc,
+        product_name: prodName,
+        product_image: img,
+        amount: Number(r.amount || 0),
+        currency: r.currency || 'BRL',
+        time_ago: minutesAgo === 1 ? 'há 1 minuto' : `há ${minutesAgo} minutos`
+      };
+    });
+
+    if (results.length < limit) {
+      const prods = models.getHighMarginSmartProducts(5, tenantId);
+      const sampleNames = ['Gustavo L.', 'Beatriz M.', 'Thiago R.', 'Larissa F.', 'Eduardo V.'];
+      for (let i = results.length; i < limit; i++) {
+        const prod = (prods && prods[i % prods.length]) || { name: 'Aluguel PayBot Pro', price_brl: 97.0, category: 'software' };
+        const loc = locations[(i * 5) % locations.length];
+        const minutesAgo = (i * 4) + 3;
+        results.push({
+          id: 99000 + i,
+          customer_name: sampleNames[i % sampleNames.length],
+          location: loc,
+          product_name: prod.name,
+          product_image: prod.image_url || models.getDefaultProductImage(prod.category, prod.name),
+          amount: Number(prod.price_brl || 97),
+          currency: 'BRL',
+          time_ago: `há ${minutesAgo} minutos`
+        });
+      }
+    }
+
+    return results;
+  },
+
+  /**
+   * Recupera o contexto em tempo real do lead na loja web (carrinho, último produto olhado, intenção)
+   */
+  getLeadStoreContext(phone) {
+    if (!phone) return null;
+    const clean = String(phone).replace(/\D/g, '');
+    const profile = models.getLeadCognitiveProfile(clean);
+    const cart = models.getCartSession(`sess_lead_${clean}`);
+    const recentMemories = models.getLeadEpisodicMemories(clean, 5);
+
+    let lastViewedName = profile?.last_viewed_product_name || cart?.current_product_name || null;
+    let lastViewedId = profile?.last_viewed_product_id || cart?.current_product_id || null;
+    let cartTotal = Number(profile?.current_cart_total || cart?.cart_total || 0);
+
+    return {
+      phone: clean,
+      name: profile?.name || cart?.customer_name || 'Cliente',
+      buying_stage: profile?.buying_stage || 'DESCOBERTA',
+      readiness_score: profile?.readiness_score || 30,
+      last_viewed_product_id: lastViewedId,
+      last_viewed_product_name: lastViewedName,
+      cart_total: cartTotal,
+      cart_status: cart?.status || 'NONE',
+      device: cart?.device || null,
+      location: cart?.location || null,
+      is_online: cart?.is_online || 0,
+      has_active_cart: Boolean(cart && (cart.status === 'IN_CART' || cart.status === 'CHECKOUT_OPEN')),
+      recentMemories
+    };
+  },
+
+  /**
+   * Registra a margem e lucro líquido da transação
+   */
+  recordOrderProfit(tradeNo, profitAmount, marginPercent = 90.0) {
+    if (!tradeNo) return false;
+    try {
+      db.prepare(`
+        UPDATE orders
+        SET profit_amount = ?, profit_margin_percent = ?
+        WHERE merchant_trade_no = ?
+      `).run(Number(profitAmount || 0), Number(marginPercent || 90.0), tradeNo);
+      return true;
+    } catch (_) {
+      return false;
+    }
   },
 
   // ==========================================
@@ -3689,7 +5979,8 @@ const models = {
 
     const instances = models.getArmyInstances();
     const now = new Date();
-    const hoursElapsed = Math.max(1, now.getHours() + (now.getMinutes() / 60));
+    const brHour = dateTimeUtils.getBrasiliaHour(now);
+    const hoursElapsed = Math.max(1, brHour + (now.getMinutes() / 60));
     const hoursRemaining = Math.max(1, 24 - hoursElapsed);
     const avgTicketBrl = 497;
     const estConversionRate = 0.038;
@@ -3831,12 +6122,15 @@ const models = {
           phone, name, company_niche, project_scope, tech_stack,
           budget_tier, budget_confidence, buying_stage, readiness_score,
           main_objection, objection_confidence, last_quote_amount, last_quote_details,
-          next_followup_at, followup_count, notes, last_interaction_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          next_followup_at, followup_count, notes,
+          last_viewed_product_id, last_viewed_product_name, current_cart_total, high_margin_interest, last_store_visit_at,
+          prefers_audio, preferred_channel,
+          last_interaction_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         cleanPhone,
         data.name || 'Lead WhatsApp',
-        data.company_niche || 'Geral / Tech',
+        data.company_niche || '',
         data.project_scope || 'Software & Soluções Digitais',
         data.tech_stack || 'Node.js, Web, Automações',
         data.budget_tier || 'MEDIO',
@@ -3850,13 +6144,20 @@ const models = {
         data.next_followup_at ?? null,
         data.followup_count ?? 0,
         data.notes ?? '',
+        data.last_viewed_product_id !== undefined ? (data.last_viewed_product_id ? Number(data.last_viewed_product_id) : null) : null,
+        data.last_viewed_product_name ?? null,
+        data.current_cart_total !== undefined ? Number(data.current_cart_total) : 0,
+        data.high_margin_interest !== undefined ? (data.high_margin_interest ? 1 : 0) : 0,
+        data.last_store_visit_at ?? null,
+        data.prefers_audio !== undefined ? (data.prefers_audio ? 1 : 0) : 0,
+        data.preferred_channel || 'text',
         now,
         now
       );
     } else {
       const updated = {
         name: data.name ?? existing.name ?? 'Lead WhatsApp',
-        company_niche: data.company_niche ?? existing.company_niche ?? 'Geral / Tech',
+        company_niche: data.company_niche ?? existing.company_niche ?? '',
         project_scope: data.project_scope ?? existing.project_scope ?? 'Software & Soluções Digitais',
         tech_stack: data.tech_stack ?? existing.tech_stack ?? 'Node.js, Web, Automações',
         budget_tier: data.budget_tier ?? existing.budget_tier ?? 'MEDIO',
@@ -3869,7 +6170,14 @@ const models = {
         last_quote_details: data.last_quote_details ?? existing.last_quote_details ?? null,
         next_followup_at: data.next_followup_at ?? existing.next_followup_at ?? null,
         followup_count: data.followup_count !== undefined ? Number(data.followup_count) : (existing.followup_count ?? 0),
-        notes: data.notes ?? existing.notes ?? ''
+        notes: data.notes ?? existing.notes ?? '',
+        last_viewed_product_id: data.last_viewed_product_id !== undefined ? (data.last_viewed_product_id ? Number(data.last_viewed_product_id) : null) : (existing.last_viewed_product_id ?? null),
+        last_viewed_product_name: data.last_viewed_product_name !== undefined ? data.last_viewed_product_name : (existing.last_viewed_product_name ?? null),
+        current_cart_total: data.current_cart_total !== undefined ? Number(data.current_cart_total) : (existing.current_cart_total ?? 0),
+        high_margin_interest: data.high_margin_interest !== undefined ? (data.high_margin_interest ? 1 : 0) : (existing.high_margin_interest ?? 0),
+        last_store_visit_at: data.last_store_visit_at ?? existing.last_store_visit_at ?? null,
+        prefers_audio: data.prefers_audio !== undefined ? (data.prefers_audio ? 1 : 0) : (existing.prefers_audio ?? 0),
+        preferred_channel: data.preferred_channel ?? existing.preferred_channel ?? 'text'
       };
 
       db.prepare(`
@@ -3877,13 +6185,19 @@ const models = {
           name = ?, company_niche = ?, project_scope = ?, tech_stack = ?,
           budget_tier = ?, budget_confidence = ?, buying_stage = ?, readiness_score = ?,
           main_objection = ?, objection_confidence = ?, last_quote_amount = ?, last_quote_details = ?,
-          next_followup_at = ?, followup_count = ?, notes = ?, last_interaction_at = ?, updated_at = ?
+          next_followup_at = ?, followup_count = ?, notes = ?,
+          last_viewed_product_id = ?, last_viewed_product_name = ?, current_cart_total = ?, high_margin_interest = ?, last_store_visit_at = ?,
+          prefers_audio = ?, preferred_channel = ?,
+          last_interaction_at = ?, updated_at = ?
         WHERE phone = ?
       `).run(
         updated.name, updated.company_niche, updated.project_scope, updated.tech_stack,
         updated.budget_tier, updated.budget_confidence, updated.buying_stage, updated.readiness_score,
         updated.main_objection, updated.objection_confidence, updated.last_quote_amount, updated.last_quote_details,
-        updated.next_followup_at, updated.followup_count, updated.notes, now, now,
+        updated.next_followup_at, updated.followup_count, updated.notes,
+        updated.last_viewed_product_id, updated.last_viewed_product_name, updated.current_cart_total, updated.high_margin_interest, updated.last_store_visit_at,
+        updated.prefers_audio, updated.preferred_channel,
+        now, now,
         cleanPhone
       );
     }
@@ -4405,9 +6719,17 @@ const models = {
     let status = 'permanent';
 
     if (durationDays !== 'permanent' && Number(durationDays) > 0) {
-      const exp = new Date();
-      exp.setDate(exp.getDate() + Number(durationDays));
-      expiresAt = exp.toISOString();
+      let baseDate = new Date();
+      // Se o grupo já possui aluguel ativo com dias restantes, estende a partir da data de vencimento atual!
+      const current = this.getGroupRental(groupId);
+      if (current && current.active && current.expires_at && current.expires_at !== 'permanent') {
+        const curExp = new Date(current.expires_at);
+        if (curExp > baseDate) {
+          baseDate = curExp;
+        }
+      }
+      baseDate.setDate(baseDate.getDate() + Number(durationDays));
+      expiresAt = baseDate.toISOString();
       status = 'active';
     } else if (durationDays === -1 || durationDays === 'permanent') {
       expiresAt = 'permanent';
@@ -4417,8 +6739,8 @@ const models = {
     }
 
     db.prepare(`
-      INSERT INTO group_rentals (group_jid, group_name, expires_at, status, rental_code, payer_phone, payer_name, notified_24h, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+      INSERT INTO group_rentals (group_jid, group_name, expires_at, status, rental_code, payer_phone, payer_name, notified_72h, notified_24h, left_group, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, CURRENT_TIMESTAMP)
       ON CONFLICT(group_jid) DO UPDATE SET
         expires_at = excluded.expires_at,
         status = excluded.status,
@@ -4426,7 +6748,9 @@ const models = {
         payer_phone = COALESCE(excluded.payer_phone, group_rentals.payer_phone),
         payer_name = COALESCE(excluded.payer_name, group_rentals.payer_name),
         group_name = COALESCE(excluded.group_name, group_rentals.group_name),
+        notified_72h = 0,
         notified_24h = 0,
+        left_group = 0,
         updated_at = CURRENT_TIMESTAMP
     `).run(
       groupId,
@@ -4438,7 +6762,7 @@ const models = {
       info.payer_name || null
     );
 
-    return models.getGroupRental(groupId);
+    return this.getGroupRental(groupId);
   },
 
   removeGroupRental(groupId) {
@@ -4636,6 +6960,10 @@ const models = {
       fields.push('soadm_enabled = ?');
       values.push(patch.soadm_enabled ? 1 : 0);
     }
+    if (patch.x9_enabled !== undefined) {
+      fields.push('x9_enabled = ?');
+      values.push(patch.x9_enabled ? 1 : 0);
+    }
     if (patch.muted_users !== undefined) {
       fields.push('muted_users = ?');
       values.push(typeof patch.muted_users === 'string' ? patch.muted_users : JSON.stringify(patch.muted_users));
@@ -4652,6 +6980,30 @@ const models = {
       fields.push('blacklist_numbers = ?');
       values.push(typeof patch.blacklist_numbers === 'string' ? patch.blacklist_numbers : JSON.stringify(patch.blacklist_numbers));
     }
+    if (patch.antiddd_enabled !== undefined) {
+      fields.push('antiddd_enabled = ?');
+      values.push(patch.antiddd_enabled ? 1 : 0);
+    }
+    if (patch.antiddd_list !== undefined) {
+      fields.push('antiddd_list = ?');
+      values.push(typeof patch.antiddd_list === 'string' ? patch.antiddd_list : JSON.stringify(patch.antiddd_list));
+    }
+    if (patch.welcome_pv_enabled !== undefined) {
+      fields.push('welcome_pv_enabled = ?');
+      values.push(patch.welcome_pv_enabled ? 1 : 0);
+    }
+    if (patch.welcome_pv_text !== undefined) {
+      fields.push('welcome_pv_text = ?');
+      values.push(String(patch.welcome_pv_text));
+    }
+    if (patch.bot_active !== undefined) {
+      fields.push('bot_active = ?');
+      values.push(patch.bot_active ? 1 : 0);
+    }
+    if (patch.posting_active !== undefined) {
+      fields.push('posting_active = ?');
+      values.push(patch.posting_active ? 1 : 0);
+    }
 
     if (fields.length > 0) {
       fields.push('updated_at = CURRENT_TIMESTAMP');
@@ -4662,9 +7014,393 @@ const models = {
     return models.getGroupProtection(groupId);
   },
 
+  setGroupBotActive(groupId, active = true) {
+    if (!groupId) return false;
+    const isAct = active ? 1 : 0;
+    this.setSetting(`BOT_ACTIVE_${groupId}`, isAct ? 'true' : 'false');
+    try {
+      this.updateGroupProtection(groupId, { bot_active: isAct });
+    } catch (_) {}
+    return isAct === 1;
+  },
+
+  isGroupBotActive(groupId) {
+    if (!groupId) return true;
+    const cached = this.getSetting(`BOT_ACTIVE_${groupId}`, null);
+    if (cached !== null) {
+      return cached !== 'false' && cached !== '0';
+    }
+    try {
+      const prot = this.getGroupProtection(groupId);
+      if (prot && prot.bot_active !== undefined && prot.bot_active !== null) {
+        return prot.bot_active === 1;
+      }
+    } catch (_) {}
+    return true;
+  },
+
+  setGroupPostingActive(groupId, active = true) {
+    if (!groupId) return false;
+    const isAct = active ? 1 : 0;
+    this.setSetting(`GROUP_POSTING_ACTIVE_${groupId}`, isAct ? 'true' : 'false');
+    try {
+      this.updateGroupProtection(groupId, { posting_active: isAct });
+    } catch (_) {}
+    return isAct === 1;
+  },
+
+  isGroupPostingActive(groupId) {
+    if (!groupId) return true;
+    if (this.isGroupSoDivuActive(groupId)) return true;
+    const cached = this.getSetting(`GROUP_POSTING_ACTIVE_${groupId}`, null);
+    if (cached !== null) {
+      return cached !== 'false' && cached !== '0';
+    }
+    try {
+      const prot = this.getGroupProtection(groupId);
+      if (prot && prot.posting_active !== undefined && prot.posting_active !== null) {
+        return prot.posting_active === 1;
+      }
+    } catch (_) {}
+    return true;
+  },
+
+  // ==========================================
+  // MODO SÓ DIVULGAÇÃO (!sodivu & !sodivu-global)
+  // ==========================================
+  setGroupSoDivu(groupId, enabled = true) {
+    if (!groupId) return false;
+    const isAct = enabled ? 1 : 0;
+    this.setSetting(`GROUP_SODIVU_${groupId}`, isAct ? 'true' : 'false');
+    if (isAct === 1) {
+      this.setGroupPostingActive(groupId, true);
+    }
+    return isAct === 1;
+  },
+
+  isGroupSoDivuActive(groupId) {
+    if (this.isGlobalSoDivuActive()) {
+      return true;
+    }
+    if (!groupId) return false;
+    const val = this.getSetting(`GROUP_SODIVU_${groupId}`, 'false');
+    return val === 'true' || val === '1';
+  },
+
+  setGlobalSoDivu(enabled = true) {
+    const isAct = enabled ? 1 : 0;
+    this.setSetting('GLOBAL_SODIVU', isAct ? 'true' : 'false');
+    return isAct === 1;
+  },
+
+  isGlobalSoDivuActive() {
+    const val = this.getSetting('GLOBAL_SODIVU', 'false');
+    return val === 'true' || val === '1';
+  },
+
+  toggleGroupSoDivu(groupId) {
+    const current = this.isGroupSoDivuActive(groupId);
+    return this.setGroupSoDivu(groupId, !current);
+  },
+
+  toggleGlobalSoDivu() {
+    const current = this.isGlobalSoDivuActive();
+    return this.setGlobalSoDivu(!current);
+  },
+
+  getGroupSoDivuStatus(groupId) {
+    return {
+      groupId,
+      isSoDivu: this.isGroupSoDivuActive(groupId),
+      isGlobalSoDivu: this.isGlobalSoDivuActive(),
+      postingActive: this.isGroupPostingActive(groupId),
+      botActive: this.isGroupBotActive(groupId)
+    };
+  },
+
+  // ==========================================
+  // GRUPOS BANIDOS / SENTINELA STEALTH (!bangp)
+  // ==========================================
+  banGroup(groupId, { groupName = '', bannedBy = '554884702848', reason = 'Banido via !bangp' } = {}) {
+    if (!groupId) return false;
+    const cleanJid = String(groupId).trim();
+    const bannedByClean = String(bannedBy || '554884702848').replace(/\D/g, '') || '554884702848';
+
+    // 1. Atualiza registro na tabela group_stealth_bans
+    try {
+      db.prepare(`
+        INSERT INTO group_stealth_bans (group_jid, group_name, banned_by, banned_at, reason, active)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, 1)
+        ON CONFLICT(group_jid) DO UPDATE SET
+          group_name = CASE WHEN excluded.group_name != '' THEN excluded.group_name ELSE group_stealth_bans.group_name END,
+          banned_by = excluded.banned_by,
+          banned_at = CURRENT_TIMESTAMP,
+          reason = excluded.reason,
+          active = 1
+      `).run(cleanJid, groupName, bannedByClean, String(reason));
+    } catch (_) {}
+
+    // 2. Salva em settings para redundância ultra-rápida
+    this.setSetting(`GROUP_BANNED_${cleanJid}`, 'true');
+
+    // 3. Desativa canais de Achadinhos vinculados a este grupo (impede auto-postagens)
+    try {
+      db.prepare('UPDATE achadinhos_channels SET active = 0 WHERE target_jid = ?').run(cleanJid);
+    } catch (_) {}
+
+    // 4. Invalida cache em memória do orquestrador
+    try {
+      const orchestrator = require('../services/botHierarchyOrchestratorService');
+      if (orchestrator && orchestrator._bannedGroupsCache) {
+        orchestrator._bannedGroupsCache.add(cleanJid);
+      }
+    } catch (_) {}
+
+    return this.getBannedGroup(cleanJid);
+  },
+
+  unbanGroup(groupId) {
+    if (!groupId) return false;
+    const cleanJid = String(groupId).trim();
+
+    try {
+      db.prepare('UPDATE group_stealth_bans SET active = 0 WHERE group_jid = ?').run(cleanJid);
+    } catch (_) {}
+
+    this.setSetting(`GROUP_BANNED_${cleanJid}`, 'false');
+
+    try {
+      const orchestrator = require('../services/botHierarchyOrchestratorService');
+      if (orchestrator && orchestrator._bannedGroupsCache) {
+        orchestrator._bannedGroupsCache.delete(cleanJid);
+      }
+    } catch (_) {}
+
+    return true;
+  },
+
+  isGroupBanned(groupId) {
+    if (!groupId) return false;
+    const cleanJid = String(groupId).trim();
+
+    try {
+      const orchestrator = require('../services/botHierarchyOrchestratorService');
+      if (orchestrator && orchestrator._bannedGroupsCache && orchestrator._bannedGroupsCache.has(cleanJid)) {
+        return true;
+      }
+    } catch (_) {}
+
+    const cached = this.getSetting(`GROUP_BANNED_${cleanJid}`, null);
+    if (cached !== null) {
+      const isBan = cached === 'true' || cached === '1';
+      if (isBan) {
+        try {
+          const orchestrator = require('../services/botHierarchyOrchestratorService');
+          if (orchestrator && orchestrator._bannedGroupsCache) {
+            orchestrator._bannedGroupsCache.add(cleanJid);
+          }
+        } catch (_) {}
+      }
+      return isBan;
+    }
+
+    try {
+      const row = db.prepare('SELECT active FROM group_stealth_bans WHERE group_jid = ?').get(cleanJid);
+      const isBan = Boolean(row && row.active === 1);
+      if (isBan) {
+        try {
+          const orchestrator = require('../services/botHierarchyOrchestratorService');
+          if (orchestrator && orchestrator._bannedGroupsCache) {
+            orchestrator._bannedGroupsCache.add(cleanJid);
+          }
+        } catch (_) {}
+      }
+      return isBan;
+    } catch (_) {}
+
+    return false;
+  },
+
+  getBannedGroup(groupId) {
+    if (!groupId) return null;
+    const cleanJid = String(groupId).trim();
+    try {
+      return db.prepare('SELECT * FROM group_stealth_bans WHERE group_jid = ?').get(cleanJid) || null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  listBannedGroups() {
+    try {
+      return db.prepare('SELECT * FROM group_stealth_bans WHERE active = 1 ORDER BY banned_at DESC').all() || [];
+    } catch (_) {
+      return [];
+    }
+  },
+
+  // ==========================================
+  // DELEGAÇÃO DE GRUPOS PARA SUB-BOTS GERENTES
+  // ==========================================
+  setGroupManager(groupJid, instanceId, delegatedBy = 'Dono') {
+    if (!groupJid || !instanceId) return false;
+    const cleanJid = String(groupJid).trim();
+    const instId = Number(instanceId);
+    db.prepare(`
+      INSERT INTO group_delegated_managers (group_jid, instance_id, delegated_by, created_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(group_jid) DO UPDATE SET
+        instance_id = excluded.instance_id,
+        delegated_by = excluded.delegated_by,
+        created_at = CURRENT_TIMESTAMP
+    `).run(cleanJid, instId, String(delegatedBy));
+    return models.getGroupManager(cleanJid);
+  },
+
+  getGroupManager(groupJid) {
+    if (!groupJid) return null;
+    const cleanJid = String(groupJid).trim();
+    const row = db.prepare(`
+      SELECT gdm.*, wai.name as instance_name, wai.phone as instance_phone, wai.status as instance_status
+      FROM group_delegated_managers gdm
+      LEFT JOIN whatsapp_army_instances wai ON gdm.instance_id = wai.id
+      WHERE gdm.group_jid = ?
+    `).get(cleanJid);
+    return row || null;
+  },
+
+  removeGroupManager(groupJid) {
+    if (!groupJid) return false;
+    const cleanJid = String(groupJid).trim();
+    db.prepare('DELETE FROM group_delegated_managers WHERE group_jid = ?').run(cleanJid);
+    return true;
+  },
+
+  listGroupManagers() {
+    return db.prepare(`
+      SELECT gdm.*, wai.name as instance_name, wai.phone as instance_phone, wai.status as instance_status
+      FROM group_delegated_managers gdm
+      LEFT JOIN whatsapp_army_instances wai ON gdm.instance_id = wai.id
+      ORDER BY gdm.created_at DESC
+    `).all();
+  },
+
+  // ==============================================================
+  // AQUECIMENTO DE GRUPOS & DIÁLOGOS DE SUB-BOTS (LIMITES 24H)
+  // ==============================================================
+  recordGroupTopicInteraction(data = {}) {
+    const {
+      group_jid,
+      topic_key,
+      instance_id,
+      flow_type = 'PEER_INFLUENCE',
+      message_text = '',
+      has_link = 0,
+      affiliate_url = '',
+      turn_index = 1
+    } = data;
+
+    if (!group_jid || !topic_key || !instance_id) return null;
+
+    const res = db.prepare(`
+      INSERT INTO group_subbot_topic_interactions (
+        group_jid, topic_key, instance_id, flow_type, message_text, has_link, affiliate_url, turn_index, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(
+      String(group_jid).trim(),
+      String(topic_key).toLowerCase().trim(),
+      Number(instance_id),
+      String(flow_type).toUpperCase().trim(),
+      String(message_text).slice(0, 1000),
+      has_link ? 1 : 0,
+      affiliate_url ? String(affiliate_url).trim() : '',
+      Number(turn_index) || 1
+    );
+
+    return res.lastInsertRowid;
+  },
+
+  getTopicInteractionsCount24h(groupJid, topicKey) {
+    if (!groupJid || !topicKey) return 0;
+    const cleanJid = String(groupJid).trim();
+    const cleanTopic = String(topicKey).toLowerCase().trim();
+    const row = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM group_subbot_topic_interactions
+      WHERE group_jid = ?
+        AND topic_key = ?
+        AND datetime(created_at) >= datetime('now', '-24 hours')
+    `).get(cleanJid, cleanTopic);
+    return row ? Number(row.count) : 0;
+  },
+
+  listTopicInteractions24h(groupJid, topicKey) {
+    if (!groupJid || !topicKey) return [];
+    const cleanJid = String(groupJid).trim();
+    const cleanTopic = String(topicKey).toLowerCase().trim();
+    return db.prepare(`
+      SELECT gsti.*, wai.name as instance_name, wai.phone as instance_phone
+      FROM group_subbot_topic_interactions gsti
+      LEFT JOIN whatsapp_army_instances wai ON gsti.instance_id = wai.id
+      WHERE gsti.group_jid = ?
+        AND gsti.topic_key = ?
+        AND datetime(gsti.created_at) >= datetime('now', '-24 hours')
+      ORDER BY gsti.created_at ASC
+    `).all(cleanJid, cleanTopic);
+  },
+
+  resetTopicInteractions(groupJid, topicKey = null) {
+    if (!groupJid) return 0;
+    const cleanJid = String(groupJid).trim();
+    if (topicKey) {
+      const cleanTopic = String(topicKey).toLowerCase().trim();
+      const res = db.prepare('DELETE FROM group_subbot_topic_interactions WHERE group_jid = ? AND topic_key = ?').run(cleanJid, cleanTopic);
+      return res.changes;
+    }
+    const res = db.prepare('DELETE FROM group_subbot_topic_interactions WHERE group_jid = ?').run(cleanJid);
+    return res.changes;
+  },
+
+  listGroupHeatingLogs(groupJid = null, limit = 50) {
+    if (groupJid) {
+      return db.prepare(`
+        SELECT gsti.*, wai.name as instance_name, wai.phone as instance_phone
+        FROM group_subbot_topic_interactions gsti
+        LEFT JOIN whatsapp_army_instances wai ON gsti.instance_id = wai.id
+        WHERE gsti.group_jid = ?
+        ORDER BY gsti.created_at DESC
+        LIMIT ?
+      `).all(String(groupJid).trim(), limit);
+    }
+    return db.prepare(`
+      SELECT gsti.*, wai.name as instance_name, wai.phone as instance_phone
+      FROM group_subbot_topic_interactions gsti
+      LEFT JOIN whatsapp_army_instances wai ON gsti.instance_id = wai.id
+      ORDER BY gsti.created_at DESC
+      LIMIT ?
+    `).all(limit);
+  },
+
+  getGroupHeatingSummary24h(groupJid) {
+    if (!groupJid) return [];
+    const cleanJid = String(groupJid).trim();
+    return db.prepare(`
+      SELECT topic_key, COUNT(*) as interactions_24h, MAX(created_at) as last_interaction_at,
+             GROUP_CONCAT(DISTINCT flow_type) as flows_used
+      FROM group_subbot_topic_interactions
+      WHERE group_jid = ?
+        AND datetime(created_at) >= datetime('now', '-24 hours')
+      GROUP BY topic_key
+      ORDER BY interactions_24h DESC
+    `).all(cleanJid);
+  },
+
   // Helpers para Mute de Usuários por Grupo (Nazuna MenuAdm)
   isUserMuted(groupId, userJid) {
     if (!groupId || !userJid) return false;
+    // 🛡️ IMUNIDADE SUPREMA DO DONO: Dono jamais fica silenciado
+    if (this.isOwner(userJid)) return false;
+
     const prot = models.getGroupProtection(groupId);
     if (!prot || !prot.muted_users) return false;
     try {
@@ -4681,6 +7417,9 @@ const models = {
 
   muteUser(groupId, userJid) {
     if (!groupId || !userJid) return false;
+    // 🛡️ IMUNIDADE SUPREMA DO DONO: Tentativa de mutar o dono é ignorada
+    if (this.isOwner(userJid)) return false;
+
     const prot = models.getGroupProtection(groupId);
     let list = [];
     try { list = JSON.parse(prot?.muted_users || '[]'); } catch (_) {}
@@ -4766,11 +7505,107 @@ const models = {
     return true;
   },
 
+  // Helpers para Anti-DDD
+  getGroupAntiDDD(groupId) {
+    if (!groupId) return { enabled: false, list: [] };
+    const prot = models.getGroupProtection(groupId);
+    let list = [];
+    try { list = JSON.parse(prot?.antiddd_list || '[]'); } catch (_) { list = []; }
+    return {
+      enabled: (prot?.antiddd_enabled === 1),
+      list: Array.isArray(list) ? list : []
+    };
+  },
+
+  setGroupAntiDDD(groupId, enabled, list = null) {
+    if (!groupId) return false;
+    const patch = { antiddd_enabled: enabled ? 1 : 0 };
+    if (list !== null) {
+      patch.antiddd_list = Array.isArray(list) ? list.map(d => String(d).replace(/\D/g, '')).filter(Boolean) : [];
+    }
+    models.updateGroupProtection(groupId, patch);
+    return true;
+  },
+
+  // Helpers para Boas-Vindas no Privado (PV)
+  getWelcomePv(groupId) {
+    if (!groupId) return { enabled: false, text: '' };
+    const prot = models.getGroupProtection(groupId);
+    const globalDefault = models.getSetting('WELCOME_PV_TEXT', '👋 Olá #nome#, seja muito bem-vindo(a) ao grupo *#grupo#*! 🎉\n\n📌 *Diretrizes & Avisos:* #desc#\n\nFique à vontade para interagir e tirar dúvidas!');
+    return {
+      enabled: (prot?.welcome_pv_enabled === 1) || (models.getSetting(`WELCOME_PV_${groupId}`, 'false') === 'true'),
+      text: prot?.welcome_pv_text || models.getSetting(`WELCOME_PV_MSG_${groupId}`, null) || globalDefault
+    };
+  },
+
+  setWelcomePv(groupId, enabled, text = null) {
+    if (!groupId) return false;
+    const patch = { welcome_pv_enabled: enabled ? 1 : 0 };
+    if (text !== null) {
+      patch.welcome_pv_text = String(text);
+      models.setSetting(`WELCOME_PV_MSG_${groupId}`, String(text));
+    }
+    models.setSetting(`WELCOME_PV_${groupId}`, enabled ? 'true' : 'false');
+    models.updateGroupProtection(groupId, patch);
+    return true;
+  },
+
+  // Helpers para Anti-Chamada (Anti-Call)
+  isAntiChamadaActive() {
+    return models.getSetting('ANTICALL_GLOBAL', 'false') === 'true' || global.opts?.anticall === true;
+  },
+
+  setAntiChamadaActive(enabled) {
+    const val = enabled ? 'true' : 'false';
+    models.setSetting('ANTICALL_GLOBAL', val);
+    if (global.opts) global.opts.anticall = !!enabled;
+    return enabled;
+  },
+
+  // Auditoria e Registros do X9 (Dedo-Duro do Grupo)
+  logX9Event(groupJid, eventType, targetPhone = '', perpetratorPhone = '', details = '', mediaType = '') {
+    try {
+      if (!groupJid) return null;
+      const res = db.prepare(`
+        INSERT INTO x9_events_log (group_jid, event_type, target_phone, perpetrator_phone, details, media_type)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(groupJid, eventType, targetPhone, perpetratorPhone, details, mediaType);
+      return {
+        id: res.lastInsertRowid,
+        group_jid: groupJid,
+        event_type: eventType,
+        target_phone: targetPhone,
+        perpetrator_phone: perpetratorPhone,
+        details,
+        media_type: mediaType
+      };
+    } catch (_) {
+      return null;
+    }
+  },
+
+  getX9Events(groupJid, limit = 20) {
+    try {
+      if (!groupJid) return [];
+      return db.prepare(`
+        SELECT * FROM x9_events_log 
+        WHERE group_jid = ? 
+        ORDER BY id DESC 
+        LIMIT ?
+      `).all(groupJid, limit);
+    } catch (_) {
+      return [];
+    }
+  },
+
   // Helpers para Blacklist Global de Números (Nazuna MenuAdm)
   isNumberBlacklisted(number) {
     if (!number) return false;
     const clean = String(number).replace(/\D/g, '');
     if (!clean) return false;
+    // 🛡️ IMUNIDADE SUPREMA DO DONO: Dono nunca está na blacklist
+    if (this.isOwner(clean)) return false;
+
     const raw = models.getSetting('GLOBAL_BLACKLIST', '[]');
     try {
       const list = JSON.parse(raw);
@@ -4782,6 +7617,11 @@ const models = {
     if (!number) return false;
     const clean = String(number).replace(/\D/g, '');
     if (!clean) return false;
+    // 🛡️ IMUNIDADE SUPREMA DO DONO: Bloqueia tentativa de adicionar Dono à blacklist
+    if (this.isOwner(clean)) {
+      throw new Error('Não é permitido adicionar o Dono Supremo à lista negra.');
+    }
+
     const raw = models.getSetting('GLOBAL_BLACKLIST', '[]');
     let list = [];
     try { list = JSON.parse(raw); } catch (_) {}
@@ -4883,6 +7723,351 @@ const models = {
   },
 
   // ==========================================
+  // 39.1. AUDITORIA E HISTÓRICO DE COMANDOS (BOTS & SUB-BOTS)
+  // ==========================================
+  logCommandAudit(data) {
+    if (!data || !data.command) return null;
+    const cleanCmd = String(data.command).trim();
+    const cleanPhone = data.sender_phone ? String(data.sender_phone).replace(/\D/g, '') : null;
+    const stmt = db.prepare(`
+      INSERT INTO bot_command_audit_logs (
+        command, raw_message, sender_jid, sender_phone, sender_name, sender_role,
+        bot_type, bot_instance_id, bot_name, chat_jid, chat_name, is_group,
+        status, execution_time_ms, response_text, error_message, alert_sent, alert_recipients
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const info = stmt.run(
+      cleanCmd,
+      data.raw_message || cleanCmd,
+      data.sender_jid || null,
+      cleanPhone,
+      data.sender_name || 'Desconhecido',
+      data.sender_role || 'CLIENTE',
+      data.bot_type || 'WHATSAPP_MAIN',
+      parseInt(data.bot_instance_id, 10) || 1,
+      data.bot_name || (parseInt(data.bot_instance_id, 10) === 1 ? 'Matriz Principal' : `Sub-Bot #${data.bot_instance_id}`),
+      data.chat_jid || null,
+      data.chat_name || (data.is_group ? 'Grupo' : 'Privado'),
+      data.is_group ? 1 : 0,
+      data.status || 'SUCCESS',
+      parseInt(data.execution_time_ms, 10) || 0,
+      data.response_text ? String(data.response_text).slice(0, 1000) : null,
+      data.error_message ? String(data.error_message).slice(0, 2000) : null,
+      data.alert_sent ? 1 : 0,
+      data.alert_recipients || null
+    );
+
+    return { id: info.lastInsertRowid, ...data };
+  },
+
+  updateCommandAudit(id, updates = {}) {
+    if (!id) return false;
+    const allowed = ['status', 'response_text', 'error_message', 'execution_time_ms', 'alert_sent', 'alert_recipients'];
+    const sets = [];
+    const vals = [];
+    for (const key of allowed) {
+      if (updates[key] !== undefined) {
+        sets.push(`${key} = ?`);
+        vals.push(updates[key]);
+      }
+    }
+    if (sets.length === 0) return false;
+    vals.push(id);
+    db.prepare(`UPDATE bot_command_audit_logs SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    return true;
+  },
+
+  getCommandAuditLogs({ limit = 50, offset = 0, status, botType, botInstanceId, search, senderPhone } = {}) {
+    let where = 'WHERE 1=1';
+    const params = [];
+
+    if (status && status !== 'ALL') {
+      where += ' AND status = ?';
+      params.push(status.toUpperCase());
+    }
+    if (botType && botType !== 'ALL') {
+      where += ' AND bot_type = ?';
+      params.push(botType);
+    }
+    if (botInstanceId !== undefined && botInstanceId !== null && botInstanceId !== '' && botInstanceId !== 'ALL') {
+      where += ' AND bot_instance_id = ?';
+      params.push(parseInt(botInstanceId, 10));
+    }
+    if (senderPhone) {
+      const clean = String(senderPhone).replace(/\D/g, '');
+      where += ' AND sender_phone LIKE ?';
+      params.push(`%${clean}%`);
+    }
+    if (search && search.trim()) {
+      where += ' AND (command LIKE ? OR sender_name LIKE ? OR chat_name LIKE ? OR error_message LIKE ? OR response_text LIKE ?)';
+      const s = `%${search.trim()}%`;
+      params.push(s, s, s, s, s);
+    }
+
+    const countRow = db.prepare(`SELECT COUNT(*) as total FROM bot_command_audit_logs ${where}`).get(...params);
+    const total = countRow ? countRow.total : 0;
+
+    const rows = db.prepare(`
+      SELECT * FROM bot_command_audit_logs
+      ${where}
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
+
+    return {
+      total,
+      limit,
+      offset,
+      logs: rows
+    };
+  },
+
+  getCommandAuditById(id) {
+    if (!id) return null;
+    return db.prepare('SELECT * FROM bot_command_audit_logs WHERE id = ?').get(id) || null;
+  },
+
+  getCommandAuditStats() {
+    const totalRow = db.prepare(`SELECT COUNT(*) as total FROM bot_command_audit_logs`).get();
+    const total = totalRow?.total || 0;
+
+    const avgRow = db.prepare(`SELECT AVG(execution_time_ms) as avg_ms FROM bot_command_audit_logs`).get();
+    const avgExecutionTimeMs = avgRow?.avg_ms ? Math.round(avgRow.avg_ms) : 0;
+
+    const statusCounts = db.prepare(`
+      SELECT status, COUNT(*) as count
+      FROM bot_command_audit_logs
+      GROUP BY status
+    `).all();
+
+    const counts = { SUCCESS: 0, ERROR: 0, UNAUTHORIZED: 0, IGNORED: 0 };
+    statusCounts.forEach(r => { counts[r.status] = r.count; });
+
+    const recentErrors = db.prepare(`
+      SELECT * FROM bot_command_audit_logs
+      WHERE status = 'ERROR'
+      ORDER BY id DESC
+      LIMIT 10
+    `).all();
+
+    const topCommands = db.prepare(`
+      SELECT command, COUNT(*) as count,
+        SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) as success_count,
+        SUM(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END) as error_count
+      FROM bot_command_audit_logs
+      GROUP BY command
+      ORDER BY count DESC
+      LIMIT 8
+    `).all();
+
+    const botDistribution = db.prepare(`
+      SELECT bot_type, bot_instance_id, bot_name, COUNT(*) as count
+      FROM bot_command_audit_logs
+      GROUP BY bot_type, bot_instance_id
+      ORDER BY count DESC
+      LIMIT 10
+    `).all();
+
+    const successRate = total > 0 ? Number(((counts.SUCCESS / total) * 100).toFixed(1)) : 100;
+
+    return {
+      total,
+      totalCommands: total,
+      successCount: counts.SUCCESS,
+      errorCount: counts.ERROR,
+      errorCommands: counts.ERROR,
+      unauthorizedCount: counts.UNAUTHORIZED,
+      avgExecutionTimeMs,
+      successRate,
+      recentErrors,
+      topCommands,
+      botDistribution
+    };
+  },
+
+  clearCommandAuditLogs() {
+    db.prepare('DELETE FROM bot_command_audit_logs').run();
+    return true;
+  },
+
+  // ==========================================
+  // 39.2. DELEGAÇÃO DE SUPORTE (DEVELOPERS NOMEADOS PELO DONO)
+  // ==========================================
+  getSupportDevs({ activeOnly = false } = {}) {
+    if (activeOnly) {
+      return db.prepare('SELECT * FROM support_devs WHERE active = 1 ORDER BY id ASC').all();
+    }
+    return db.prepare('SELECT * FROM support_devs ORDER BY id ASC').all();
+  },
+
+  getSupportDevByPhone(phone, { activeOnly = false } = {}) {
+    if (!phone) return null;
+    const clean = String(phone).replace(/\D/g, '');
+    if (!clean) return null;
+    const activeClause = activeOnly ? 'AND active = 1' : '';
+    if (clean.length >= 8) {
+      return db.prepare(`
+        SELECT * FROM support_devs 
+        WHERE (phone = ? OR (length(phone) >= 8 AND (phone LIKE '%' || ? OR ? LIKE '%' || phone)))
+        ${activeClause}
+        ORDER BY id DESC LIMIT 1
+      `).get(clean, clean, clean) || null;
+    }
+    return db.prepare(`SELECT * FROM support_devs WHERE phone = ? ${activeClause} LIMIT 1`).get(clean) || null;
+  },
+
+  isSupportDev(phone) {
+    if (!phone) return false;
+    const clean = String(phone).replace(/\D/g, '');
+    if (!clean || clean.length < 8) return false;
+    const row = db.prepare(`
+      SELECT id FROM support_devs 
+      WHERE (phone = ? OR (length(phone) >= 8 AND (phone LIKE '%' || ? OR ? LIKE '%' || phone)))
+      AND active = 1
+      LIMIT 1
+    `).get(clean, clean, clean);
+    return !!row;
+  },
+
+  addSupportDev({ phone, name, notes = '', assignedBy = '554884702848', receiveAlerts = 1 }) {
+    if (!phone || !name) throw new Error('Telefone e Nome do Desenvolvedor de Suporte são obrigatórios');
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 8) throw new Error('Telefone inválido');
+
+    db.prepare(`
+      INSERT INTO support_devs (phone, name, role, active, receive_alerts, assigned_by, notes, updated_at)
+      VALUES (?, ?, 'SUPORTE_DEV', 1, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(phone) DO UPDATE SET
+        name = excluded.name,
+        active = 1,
+        receive_alerts = excluded.receive_alerts,
+        notes = excluded.notes,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(cleanPhone, String(name).trim(), receiveAlerts ? 1 : 0, assignedBy, notes || '');
+
+    return db.prepare('SELECT * FROM support_devs WHERE phone = ?').get(cleanPhone);
+  },
+
+  removeSupportDev(phoneOrId) {
+    if (!phoneOrId) return false;
+    if (typeof phoneOrId === 'number' || (/^\d+$/.test(String(phoneOrId)) && String(phoneOrId).length < 6)) {
+      db.prepare('DELETE FROM support_devs WHERE id = ?').run(parseInt(phoneOrId, 10));
+    } else {
+      const clean = String(phoneOrId).replace(/\D/g, '');
+      db.prepare('DELETE FROM support_devs WHERE phone = ?').run(clean);
+    }
+    return true;
+  },
+
+  toggleSupportDev(id, { active, receiveAlerts, receive_alerts } = {}) {
+    const dev = db.prepare('SELECT * FROM support_devs WHERE id = ?').get(id);
+    if (!dev) return null;
+    const newActive = active !== undefined ? (active ? 1 : 0) : dev.active;
+    const alertsVal = receiveAlerts !== undefined ? receiveAlerts : receive_alerts;
+    const newAlerts = alertsVal !== undefined ? (alertsVal ? 1 : 0) : dev.receive_alerts;
+    db.prepare('UPDATE support_devs SET active = ?, receive_alerts = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newActive, newAlerts, id);
+    return db.prepare('SELECT * FROM support_devs WHERE id = ?').get(id);
+  },
+
+  // ==========================================
+  // 39.3 BLOQUEIO TEMPORÁRIO DE USUÁRIOS (TIMEOUT POR 'X' MINUTOS)
+  // ==========================================
+  blockUserTemporarily({ phone, name = 'Usuário', minutes = 15, reason = '', blockedBy = '554884702848' }) {
+    if (!phone) throw new Error('Telefone do usuário é obrigatório');
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 8) throw new Error('Telefone inválido');
+
+    const ownerPhone = (models.getSetting('OWNER_PHONE', '554884702848') || '554884702848').replace(/\D/g, '');
+    if (cleanPhone === ownerPhone || cleanPhone.endsWith(ownerPhone) || ownerPhone.endsWith(cleanPhone)) {
+      throw new Error('O Dono Supremo (+554884702848) não pode ser bloqueado');
+    }
+
+    const duration = parseInt(minutes, 10) > 0 ? parseInt(minutes, 10) : 15;
+    const expiresAt = new Date(Date.now() + duration * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+
+    // Desativa bloqueios anteriores do mesmo número
+    db.prepare(`
+      UPDATE bot_user_timeouts SET active = 0, updated_at = CURRENT_TIMESTAMP
+      WHERE phone = ? OR (length(phone) >= 8 AND (phone LIKE '%' || ? OR ? LIKE '%' || phone))
+    `).run(cleanPhone, cleanPhone, cleanPhone);
+
+    const res = db.prepare(`
+      INSERT INTO bot_user_timeouts (phone, name, reason, blocked_by, duration_minutes, expires_at, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(cleanPhone, String(name || 'Usuário').trim(), reason || '', blockedBy, duration, expiresAt);
+
+    return db.prepare('SELECT * FROM bot_user_timeouts WHERE id = ?').get(res.lastInsertRowid);
+  },
+
+  isUserTemporarilyBlocked(phone) {
+    if (!phone) return null;
+    const clean = String(phone).replace(/\D/g, '');
+    if (!clean || clean.length < 8) return null;
+
+    const ownerPhone = (models.getSetting('OWNER_PHONE', '554884702848') || '554884702848').replace(/\D/g, '');
+    if (clean === ownerPhone || clean.endsWith(ownerPhone) || ownerPhone.endsWith(clean)) return null;
+
+    const row = db.prepare(`
+      SELECT * FROM bot_user_timeouts
+      WHERE (phone = ? OR (length(phone) >= 8 AND (phone LIKE '%' || ? OR ? LIKE '%' || phone)))
+      AND active = 1
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(clean, clean, clean);
+
+    if (!row) return null;
+
+    const expTimeUtc = new Date(row.expires_at.replace(' ', 'T') + 'Z').getTime();
+    const expTimeLocal = new Date(row.expires_at).getTime();
+    const finalExpTime = Math.max(expTimeUtc, expTimeLocal);
+    const nowTime = Date.now();
+
+    if (finalExpTime > nowTime) {
+      const minutesRemaining = Math.max(1, Math.ceil((finalExpTime - nowTime) / 60000));
+      return {
+        blocked: true,
+        ...row,
+        minutesRemaining,
+        expiresAt: row.expires_at
+      };
+    } else {
+      db.prepare('UPDATE bot_user_timeouts SET active = 0 WHERE id = ?').run(row.id);
+      return null;
+    }
+  },
+
+  unblockUserTemporary(phoneOrId) {
+    if (!phoneOrId) return false;
+    if (typeof phoneOrId === 'number' || (/^\d+$/.test(String(phoneOrId)) && String(phoneOrId).length < 6)) {
+      db.prepare('UPDATE bot_user_timeouts SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(parseInt(phoneOrId, 10));
+    } else {
+      const clean = String(phoneOrId).replace(/\D/g, '');
+      db.prepare(`
+        UPDATE bot_user_timeouts SET active = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE phone = ? OR (length(phone) >= 8 AND (phone LIKE '%' || ? OR ? LIKE '%' || phone))
+      `).run(clean, clean, clean);
+    }
+    return true;
+  },
+
+  listTemporarilyBlockedUsers() {
+    const rows = db.prepare('SELECT * FROM bot_user_timeouts WHERE active = 1 ORDER BY id DESC').all();
+    const nowTime = Date.now();
+    return rows.map(r => {
+      const expTimeUtc = new Date(r.expires_at.replace(' ', 'T') + 'Z').getTime();
+      const expTimeLocal = new Date(r.expires_at).getTime();
+      const finalExpTime = Math.max(expTimeUtc, expTimeLocal);
+      const minutesRemaining = Math.max(0, Math.ceil((finalExpTime - nowTime) / 60000));
+      return {
+        ...r,
+        minutesRemaining,
+        isExpired: minutesRemaining <= 0
+      };
+    }).filter(r => !r.isExpired);
+  },
+
+  // ==========================================
   // 40. ZAPVOICE 2025 (MENSAGENS RÁPIDAS, ÁUDIOS PTT & FUNIS)
   // ==========================================
   listZapVoiceMessages(category = null) {
@@ -4907,7 +8092,9 @@ const models = {
 
   saveZapVoiceMessage(data = {}) {
     const { id, title, shortcut, content, category } = data;
-    const trigger_keywords = data.trigger_keywords || data.trigger_keyword || '';
+    const trigger_keywords = Array.isArray(data.trigger_keywords)
+      ? JSON.stringify(data.trigger_keywords)
+      : (data.trigger_keywords || data.trigger_keyword || '');
     if (!title || !shortcut || !content) {
       throw new Error('title, shortcut e content são obrigatórios para mensagem rápida ZapVoice');
     }
@@ -4954,18 +8141,24 @@ const models = {
   saveZapVoiceAudio(data = {}) {
     const { id, title, shortcut, audio_path, duration_seconds, is_ptt } = data;
     if (!title || !audio_path) throw new Error('title e audio_path são obrigatórios para áudio ZapVoice');
-    if (id) {
+    const cleanShortcut = shortcut ? (shortcut.startsWith('/') ? shortcut : `/${shortcut}`) : null;
+    let targetId = id;
+    if (!targetId && cleanShortcut) {
+      const existing = models.getZapVoiceAudio(cleanShortcut);
+      if (existing) targetId = existing.id;
+    }
+    if (targetId) {
       db.prepare(`
         UPDATE zapvoice_audios 
         SET title = ?, shortcut = ?, audio_path = ?, duration_seconds = ?, is_ptt = ?
         WHERE id = ?
-      `).run(title, shortcut || null, audio_path, duration_seconds || 15, is_ptt !== undefined ? (is_ptt ? 1 : 0) : 1, Number(id));
-      return models.getZapVoiceAudio(Number(id));
+      `).run(title, cleanShortcut, audio_path, duration_seconds || 15, is_ptt !== undefined ? (is_ptt ? 1 : 0) : 1, Number(targetId));
+      return models.getZapVoiceAudio(Number(targetId));
     }
     const res = db.prepare(`
       INSERT INTO zapvoice_audios (title, shortcut, audio_path, duration_seconds, is_ptt)
       VALUES (?, ?, ?, ?, ?)
-    `).run(title, shortcut || null, audio_path, duration_seconds || 15, is_ptt !== undefined ? (is_ptt ? 1 : 0) : 1);
+    `).run(title, cleanShortcut, audio_path, duration_seconds || 15, is_ptt !== undefined ? (is_ptt ? 1 : 0) : 1);
     return models.getZapVoiceAudio(Number(res.lastInsertRowid));
   },
 
@@ -5002,7 +8195,9 @@ const models = {
 
   saveZapVoiceFunnel(data = {}) {
     const { id, name, active } = data;
-    const trigger_keywords = data.trigger_keywords || data.trigger_keyword || '';
+    const trigger_keywords = Array.isArray(data.trigger_keywords)
+      ? JSON.stringify(data.trigger_keywords)
+      : (data.trigger_keywords || data.trigger_keyword || '');
     const description = data.description || '';
     if (!name) throw new Error('name é obrigatório para funil ZapVoice');
     if (id) {
@@ -5065,7 +8260,19 @@ const models = {
 
   saveZapVoiceCampaign(data = {}) {
     const { name, funnel_id, target_type, targets, min_delay, max_delay } = data;
-    const strTargets = typeof targets === 'string' ? targets : JSON.stringify(targets || []);
+    let targetList = [];
+    if (Array.isArray(targets)) {
+      targetList = targets;
+    } else if (typeof targets === 'string') {
+      try {
+        const parsed = JSON.parse(targets);
+        if (Array.isArray(parsed)) targetList = parsed;
+        else targetList = targets.split(/[\n,]/).map(t => t.trim()).filter(Boolean);
+      } catch (_) {
+        targetList = targets.split(/[\n,]/).map(t => t.trim()).filter(Boolean);
+      }
+    }
+    const strTargets = JSON.stringify(targetList);
     const res = db.prepare(`
       INSERT INTO zapvoice_campaigns (name, funnel_id, target_type, targets, min_delay, max_delay, total_count)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -5074,9 +8281,9 @@ const models = {
       funnel_id ? Number(funnel_id) : null,
       target_type || 'contacts',
       strTargets,
-      min_delay || 15,
-      max_delay || 45,
-      Array.isArray(targets) ? targets.length : 1
+      Number(min_delay) || 15,
+      Number(max_delay) || 45,
+      targetList.length
     );
     return db.prepare('SELECT * FROM zapvoice_campaigns WHERE id = ?').get(Number(res.lastInsertRowid));
   },
@@ -5095,6 +8302,17 @@ const models = {
     return db.prepare('SELECT * FROM zapvoice_campaigns WHERE id = ?').get(Number(id));
   },
 
+  getZapVoiceCampaign(id) {
+    if (!id) return null;
+    return db.prepare('SELECT * FROM zapvoice_campaigns WHERE id = ?').get(Number(id));
+  },
+
+  deleteZapVoiceCampaign(id) {
+    if (!id) return false;
+    db.prepare('DELETE FROM zapvoice_campaigns WHERE id = ?').run(Number(id));
+    return true;
+  },
+
   getZapVoiceStats() {
     const totalMessages = db.prepare('SELECT COUNT(*) as cnt FROM zapvoice_quick_messages').get().cnt;
     const totalAudios = db.prepare('SELECT COUNT(*) as cnt FROM zapvoice_audios').get().cnt;
@@ -5111,7 +8329,7 @@ const models = {
   },
 
   // ==========================================
-  // 42. SOCIAL LISTENING & ENTROSAMENTO ORGÂNICO (AFILIADOS)
+  // 42. SOCIAL LISTENING & ENTROSAMENTO ORGÂNICO (AFILIADOS & SENTINELA)
   // ==========================================
   listSocialListeningRules(activeOnly = false) {
     const sql = activeOnly
@@ -5120,6 +8338,8 @@ const models = {
     const rows = db.prepare(sql).all();
     return rows.map(r => ({
       ...r,
+      action_type: r.action_type || 'REPLY',
+      target_groups: r.target_groups || '',
       triggered_count: r.total_triggers || 0,
       templates: (typeof r.templates === 'string' && r.templates.startsWith('[')) ? JSON.parse(r.templates) : [r.templates]
     }));
@@ -5131,30 +8351,70 @@ const models = {
     if (!r) return null;
     return {
       ...r,
+      action_type: r.action_type || 'REPLY',
+      target_groups: r.target_groups || '',
       triggered_count: r.total_triggers || 0,
       templates: (typeof r.templates === 'string' && r.templates.startsWith('[')) ? JSON.parse(r.templates) : [r.templates]
     };
   },
 
   saveSocialListeningRule(data = {}) {
-    const { id, keywords, product_name, affiliate_url, templates, cooldown_minutes, active } = data;
-    if (!keywords || !affiliate_url) {
+    const { id, keywords, product_name, affiliate_url, affiliate_url_alt, templates, cooldown_minutes, active, action_type, target_groups } = data;
+    if (!keywords || !String(keywords).trim()) {
+      throw new Error('keywords é obrigatório para regra de escuta');
+    }
+    const finalAction = (action_type || 'REPLY').toUpperCase();
+    if (finalAction !== 'ALERT' && (!affiliate_url || !String(affiliate_url).trim())) {
       throw new Error('keywords e affiliate_url são obrigatórios para regra de escuta');
     }
+    const safeUrl = affiliate_url ? String(affiliate_url).trim() : '';
+    const safeAltUrl = affiliate_url_alt ? String(affiliate_url_alt).trim() : '';
+    const safeAction = finalAction;
+    const safeTargets = target_groups ? String(target_groups).trim() : '';
     const strTemplates = Array.isArray(templates) ? JSON.stringify(templates) : (typeof templates === 'string' ? templates : '[]');
     if (id) {
       db.prepare(`
         UPDATE social_listening_rules
-        SET keywords = ?, product_name = ?, affiliate_url = ?, templates = ?, cooldown_minutes = ?, active = ?
+        SET keywords = ?, product_name = ?, affiliate_url = ?, affiliate_url_alt = ?, templates = ?, cooldown_minutes = ?, active = ?, action_type = ?, target_groups = ?
         WHERE id = ?
-      `).run(keywords, product_name || 'Produto Recomendado', affiliate_url, strTemplates, cooldown_minutes || 15, active !== undefined ? (active ? 1 : 0) : 1, Number(id));
+      `).run(
+        String(keywords).trim(),
+        product_name || (safeAction === 'ALERT' ? 'Radar Sentinela' : 'Produto Recomendado'),
+        safeUrl,
+        safeAltUrl,
+        strTemplates,
+        cooldown_minutes || 15,
+        active !== undefined ? (active ? 1 : 0) : 1,
+        safeAction,
+        safeTargets,
+        Number(id)
+      );
       return models.getSocialListeningRule(Number(id));
     }
     const res = db.prepare(`
-      INSERT INTO social_listening_rules (keywords, product_name, affiliate_url, templates, cooldown_minutes, active)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(keywords, product_name || 'Produto Recomendado', affiliate_url, strTemplates, cooldown_minutes || 15, active !== undefined ? (active ? 1 : 0) : 1);
+      INSERT INTO social_listening_rules (keywords, product_name, affiliate_url, affiliate_url_alt, templates, cooldown_minutes, active, action_type, target_groups)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      String(keywords).trim(),
+      product_name || (safeAction === 'ALERT' ? 'Radar Sentinela' : 'Produto Recomendado'),
+      safeUrl,
+      safeAltUrl,
+      strTemplates,
+      cooldown_minutes || 15,
+      active !== undefined ? (active ? 1 : 0) : 1,
+      safeAction,
+      safeTargets
+    );
     return models.getSocialListeningRule(Number(res.lastInsertRowid));
+  },
+
+  toggleSocialListeningRule(id) {
+    if (!id) return null;
+    const rule = models.getSocialListeningRule(Number(id));
+    if (!rule) return null;
+    const nextActive = rule.active ? 0 : 1;
+    db.prepare('UPDATE social_listening_rules SET active = ? WHERE id = ?').run(nextActive, Number(id));
+    return models.getSocialListeningRule(Number(id));
   },
 
   deleteSocialListeningRule(id) {
@@ -5177,15 +8437,23 @@ const models = {
   // 43. TELEMETRIA DA LOJA WEB & RASTREAMENTO DO CARRINHO COM WHATSAPP
   // ==========================================
   logStoreTelemetry(data = {}) {
-    const { session_id, phone, customer_name, event_type, product_id, product_name, cart_payload, cart_total, metadata } = data;
+    const { session_id, phone, customer_name, event_type, product_id, product_name, cart_payload, cart_total, metadata, ip, device, location, section } = data;
     if (!session_id || !event_type) return false;
     const cleanPhone = phone ? String(phone).replace(/\D/g, '') : null;
     const strCart = typeof cart_payload === 'string' ? cart_payload : JSON.stringify(cart_payload || []);
     const strMeta = typeof metadata === 'string' ? metadata : JSON.stringify(metadata || {});
     db.prepare(`
-      INSERT INTO web_store_telemetry (session_id, phone, customer_name, event_type, product_id, product_name, cart_payload, cart_total, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(session_id, cleanPhone, customer_name || null, event_type, product_id ? Number(product_id) : null, product_name || null, strCart, Number(cart_total || 0), strMeta);
+      INSERT INTO web_store_telemetry (
+        session_id, phone, customer_name, event_type, product_id, product_name, cart_payload, cart_total, metadata,
+        ip, device, location, section
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      session_id, cleanPhone, customer_name || null, event_type,
+      product_id ? Number(product_id) : null, product_name || null,
+      strCart, Number(cart_total || 0), strMeta,
+      ip || null, device || null, location || null, section || null
+    );
     return true;
   },
 
@@ -5200,7 +8468,27 @@ const models = {
   },
 
   saveCartSession(data = {}) {
-    const { session_id, phone, customer_name, cart_items, cart_total, status } = data;
+    const {
+      session_id,
+      phone,
+      customer_name,
+      cart_items,
+      cart_total,
+      status,
+      ip,
+      location,
+      device,
+      device_type,
+      browser,
+      os,
+      current_section,
+      current_product_id,
+      current_product_name,
+      subbot_id,
+      subbot_name,
+      screen_resolution,
+      is_online
+    } = data;
     if (!session_id) return null;
     const cleanPhone = phone ? String(phone).replace(/\D/g, '') : null;
     const strItems = Array.isArray(cart_items) ? JSON.stringify(cart_items) : (typeof cart_items === 'string' ? cart_items : '[]');
@@ -5213,15 +8501,47 @@ const models = {
             cart_items = ?,
             cart_total = ?,
             status = COALESCE(?, status),
+            ip = COALESCE(?, ip),
+            location = COALESCE(?, location),
+            device = COALESCE(?, device),
+            device_type = COALESCE(?, device_type),
+            browser = COALESCE(?, browser),
+            os = COALESCE(?, os),
+            current_section = COALESCE(?, current_section),
+            current_product_id = COALESCE(?, current_product_id),
+            current_product_name = COALESCE(?, current_product_name),
+            subbot_id = COALESCE(?, subbot_id),
+            subbot_name = COALESCE(?, subbot_name),
+            screen_resolution = COALESCE(?, screen_resolution),
+            is_online = COALESCE(?, is_online),
+            last_heartbeat_at = CURRENT_TIMESTAMP,
             last_activity_at = CURRENT_TIMESTAMP
         WHERE session_id = ?
-      `).run(cleanPhone, customer_name || null, strItems, Number(cart_total || 0), status || null, session_id);
+      `).run(
+        cleanPhone, customer_name || null, strItems, Number(cart_total || 0), status || null,
+        ip || null, location || null, device || null, device_type || null, browser || null, os || null,
+        current_section || null, current_product_id ? Number(current_product_id) : null, current_product_name || null,
+        subbot_id ? Number(subbot_id) : null, subbot_name || null, screen_resolution || null,
+        is_online !== undefined ? (is_online ? 1 : 0) : null,
+        session_id
+      );
       return models.getCartSession(session_id);
     }
     db.prepare(`
-      INSERT INTO web_cart_sessions (session_id, phone, customer_name, cart_items, cart_total, status)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(session_id, cleanPhone, customer_name || null, strItems, Number(cart_total || 0), status || 'BROWSING');
+      INSERT INTO web_cart_sessions (
+        session_id, phone, customer_name, cart_items, cart_total, status,
+        ip, location, device, device_type, browser, os,
+        current_section, current_product_id, current_product_name,
+        subbot_id, subbot_name, screen_resolution, is_online, last_heartbeat_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(
+      session_id, cleanPhone, customer_name || null, strItems, Number(cart_total || 0), status || 'BROWSING',
+      ip || null, location || null, device || null, device_type || null, browser || null, os || null,
+      current_section || 'Catálogo', current_product_id ? Number(current_product_id) : null, current_product_name || null,
+      subbot_id ? Number(subbot_id) : 1, subbot_name || 'Loja Principal (Matriz)', screen_resolution || null,
+      is_online !== undefined ? (is_online ? 1 : 0) : 1
+    );
     return models.getCartSession(session_id);
   },
 
@@ -5252,6 +8572,84 @@ const models = {
       ...r,
       cart_items: (typeof r.cart_items === 'string' && r.cart_items.startsWith('[')) ? JSON.parse(r.cart_items) : []
     }));
+  },
+
+  /**
+   * Monitoramento em Tempo Real de Lojas e Visitantes Ativos
+   * Permite acompanhar quantas lojas estão abertas, quem está nelas, seção/produto, localização e aparelho.
+   */
+  getLiveStoreSessions(minutesWindow = 10) {
+    const min = Number(minutesWindow) || 10;
+    const rows = db.prepare(`
+      SELECT * FROM web_cart_sessions
+      WHERE datetime(last_activity_at) >= datetime('now', '-' || ? || ' minutes')
+         OR datetime(COALESCE(last_heartbeat_at, last_activity_at)) >= datetime('now', '-' || ? || ' minutes')
+      ORDER BY last_activity_at DESC
+    `).all(min, min);
+
+    const now = Date.now();
+    const parsed = rows.map(r => {
+      let items = [];
+      try {
+        if (typeof r.cart_items === 'string' && r.cart_items.startsWith('[')) {
+          items = JSON.parse(r.cart_items);
+        }
+      } catch (_) {}
+
+      let lastAct = now;
+      if (r.last_activity_at) {
+        lastAct = new Date(String(r.last_activity_at).replace(' ', 'T') + 'Z').getTime();
+        if (isNaN(lastAct)) lastAct = new Date(r.last_activity_at).getTime();
+      }
+      const idleSec = Math.max(0, Math.floor((now - (isNaN(lastAct) ? now : lastAct)) / 1000));
+      const isOnline = idleSec <= (5 * 60); // Considerado online ativo nos últimos 5 minutos
+
+      return {
+        ...r,
+        cart_items: items,
+        idle_seconds: idleSec,
+        is_online: isOnline ? 1 : 0
+      };
+    });
+
+    const storesMap = {};
+    let inCartCount = 0;
+    let inCheckoutCount = 0;
+    let identifiedCount = 0;
+    let anonymousCount = 0;
+
+    for (const s of parsed) {
+      const storeKey = s.subbot_id ? String(s.subbot_id) : '1';
+      const storeName = s.subbot_name || (storeKey === '1' ? 'Loja Principal (Matriz)' : `Sub-Bot #${storeKey}`);
+      if (!storesMap[storeKey]) {
+        storesMap[storeKey] = {
+          id: Number(storeKey) || 1,
+          name: storeName,
+          active_visitors: 0
+        };
+      }
+      storesMap[storeKey].active_visitors++;
+
+      if (s.status === 'IN_CART' || (s.cart_total && s.cart_total > 0)) inCartCount++;
+      if (s.status === 'CHECKOUT_OPEN') inCheckoutCount++;
+      if (s.phone && String(s.phone).replace(/\D/g, '').length >= 8) identifiedCount++;
+      else anonymousCount++;
+    }
+
+    const storesList = Object.values(storesMap);
+
+    return {
+      summary: {
+        openStoresCount: storesList.length,
+        activeVisitorsCount: parsed.length,
+        inCartCount,
+        inCheckoutCount,
+        identifiedCount,
+        anonymousCount,
+        stores: storesList
+      },
+      visitors: parsed
+    };
   },
 
   getAbandonedCartSessions(idleMinutes = 15) {
@@ -5379,12 +8777,32 @@ const models = {
     let effectiveStatus = t.status;
     if (t.status === 'ACTIVE' && isExpired) effectiveStatus = 'EXPIRED';
 
+    let settingsObj = {};
+    if (t.settings) {
+      try {
+        settingsObj = typeof t.settings === 'string' ? JSON.parse(t.settings) : t.settings;
+      } catch (_) {}
+    }
+    if (!settingsObj || typeof settingsObj !== 'object') settingsObj = {};
+
+    let onboardingDataObj = null;
+    if (t.onboarding_data) {
+      try {
+        onboardingDataObj = typeof t.onboarding_data === 'string' ? JSON.parse(t.onboarding_data) : t.onboarding_data;
+      } catch (_) {}
+    }
+
     return {
       ...t,
+      settings: settingsObj,
       days_left: daysLeft,
       is_expired: isExpired,
       effective_status: effectiveStatus,
-      modules_enabled: typeof t.modules_enabled === 'string' ? JSON.parse(t.modules_enabled || '[]') : (t.modules_enabled || [])
+      modules_enabled: typeof t.modules_enabled === 'string' ? JSON.parse(t.modules_enabled || '[]') : (t.modules_enabled || []),
+      niche: t.niche || 'vendedores',
+      interaction_tone: t.interaction_tone || 'consultivo',
+      onboarding_completed: t.onboarding_completed ? 1 : 0,
+      onboarding_data: onboardingDataObj
     };
   },
 
@@ -5425,7 +8843,11 @@ const models = {
       modules_enabled = ['botdeck', 'orders', 'catalog', 'crm', 'zapvoice', 'affiliates'],
       company_id = null,
       custom_domain = null,
-      notes = null
+      notes = null,
+      niche = 'vendedores',
+      interaction_tone = 'consultivo',
+      onboarding_completed = 0,
+      onboarding_data = null
     } = data;
 
     if (!name || !name.trim()) throw new Error('Nome do Tenant é obrigatório.');
@@ -5455,13 +8877,15 @@ const models = {
     }
 
     const strModules = Array.isArray(modules_enabled) ? JSON.stringify(modules_enabled) : String(modules_enabled);
+    const strOnboardingData = onboarding_data && typeof onboarding_data === 'object' ? JSON.stringify(onboarding_data) : (onboarding_data || null);
 
     const info = db.prepare(`
       INSERT INTO saas_tenants (
         slug, name, owner_name, owner_phone, owner_email, password_hash,
         license_key, plan, status, is_lifetime, starts_at, expires_at,
-        max_bots, max_products, max_sellers, modules_enabled, company_id, custom_domain, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+        max_bots, max_products, max_sellers, modules_enabled, company_id, custom_domain, notes,
+        niche, interaction_tone, onboarding_completed, onboarding_data
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       finalSlug,
       name.trim(),
@@ -5480,7 +8904,11 @@ const models = {
       strModules,
       company_id ? Number(company_id) : null,
       custom_domain || null,
-      notes || null
+      notes || null,
+      niche || 'vendedores',
+      interaction_tone || 'consultivo',
+      onboarding_completed ? 1 : 0,
+      strOnboardingData
     );
 
     const tenantId = info.lastInsertRowid;
@@ -5520,7 +8948,22 @@ const models = {
       fields.push('password_hash = ?');
       values.push(crypto.createHash('sha256').update(patch.password.trim()).digest('hex'));
     }
+    if (patch.custom_domain !== undefined) { fields.push('custom_domain = ?'); values.push(patch.custom_domain ? String(patch.custom_domain).trim() : null); }
+    if (patch.settings !== undefined) {
+      const mergedSettings = typeof patch.settings === 'object' && patch.settings !== null
+        ? JSON.stringify({ ...(existing.settings || {}), ...patch.settings })
+        : String(patch.settings);
+      fields.push('settings = ?');
+      values.push(mergedSettings);
+    }
     if (patch.notes !== undefined) { fields.push('notes = ?'); values.push(patch.notes); }
+    if (patch.niche !== undefined) { fields.push('niche = ?'); values.push(patch.niche); }
+    if (patch.interaction_tone !== undefined) { fields.push('interaction_tone = ?'); values.push(patch.interaction_tone); }
+    if (patch.onboarding_completed !== undefined) { fields.push('onboarding_completed = ?'); values.push(patch.onboarding_completed ? 1 : 0); }
+    if (patch.onboarding_data !== undefined) {
+      fields.push('onboarding_data = ?');
+      values.push(patch.onboarding_data && typeof patch.onboarding_data === 'object' ? JSON.stringify(patch.onboarding_data) : (patch.onboarding_data || null));
+    }
     fields.push('updated_at = CURRENT_TIMESTAMP');
 
     if (fields.length > 0) {
@@ -5701,7 +9144,2770 @@ const models = {
 
   getArmyInstancesByTenant(tenantId) {
     return db.prepare('SELECT * FROM whatsapp_army_instances WHERE tenant_id = ? ORDER BY id DESC').all(Number(tenantId));
+  },
+
+  getTenantSettings(tenantId) {
+    const t = models.getTenantById(tenantId);
+    if (!t) return null;
+    return {
+      profile: {
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        owner_name: t.owner_name || '',
+        owner_phone: t.owner_phone || '',
+        owner_email: t.owner_email || '',
+        custom_domain: t.custom_domain || '',
+        plan: t.plan,
+        status: t.effective_status,
+        max_bots: t.max_bots,
+        max_products: t.max_products
+      },
+      settings: t.settings || {}
+    };
+  },
+
+  updateTenantSettings(tenantId, { profile = {}, settings = {}, sync_bots_ai = false }) {
+    const t = models.getTenantById(tenantId);
+    if (!t) throw new Error('Tenant não encontrado');
+
+    const patch = {};
+    if (profile.name !== undefined) patch.name = profile.name;
+    if (profile.owner_name !== undefined) patch.owner_name = profile.owner_name;
+    if (profile.owner_phone !== undefined) patch.owner_phone = profile.owner_phone;
+    if (profile.owner_email !== undefined) patch.owner_email = profile.owner_email;
+    if (profile.custom_domain !== undefined) patch.custom_domain = profile.custom_domain;
+
+    if (settings && typeof settings === 'object') {
+      patch.settings = settings;
+    }
+
+    const updated = models.updateTenant(tenantId, patch);
+
+    // Se solicitado, sincroniza a IA com todos os bots do tenant
+    if (sync_bots_ai && settings) {
+      const bots = models.getArmyInstancesByTenant(tenantId);
+      for (const b of bots) {
+        const botUpdate = {};
+        if (settings.default_ai_provider) botUpdate.ai_provider = settings.default_ai_provider;
+        if (settings.default_ai_model !== undefined) botUpdate.ai_model = settings.default_ai_model;
+        if (settings.default_ai_instruction) botUpdate.ai_instruction = settings.default_ai_instruction;
+        if (Object.keys(botUpdate).length > 0) {
+          models.updateArmyInstance(b.id, botUpdate);
+        }
+      }
+    }
+
+    return models.getTenantSettings(tenantId);
+  },
+
+  // ==========================================
+  // 45. SINCRONIZAÇÃO GOOGLE SHEETS & LINKS EM TEMPO REAL
+  // ==========================================
+  getGoogleSheetsSyncConfig() {
+    let cfg = db.prepare('SELECT * FROM google_sheets_sync_config WHERE id = 1').get();
+    if (!cfg) {
+      const crypto = require('crypto');
+      const secret = 'sec_' + crypto.randomBytes(8).toString('hex');
+      try {
+        db.prepare(`
+          INSERT INTO google_sheets_sync_config (id, sheet_url, sheet_id, sheet_name, sync_enabled, sync_interval_seconds, auto_social_listening, webhook_secret)
+          VALUES (1, '', '', 'Página1', 1, 5, 1, ?)
+        `).run(secret);
+      } catch (_) {}
+      cfg = db.prepare('SELECT * FROM google_sheets_sync_config WHERE id = 1').get();
+    }
+    return cfg;
+  },
+
+  updateGoogleSheetsSyncConfig(data = {}) {
+    const existing = models.getGoogleSheetsSyncConfig();
+    const sheet_url = data.sheet_url !== undefined ? String(data.sheet_url).trim() : (existing?.sheet_url || '');
+    const sheet_id = data.sheet_id !== undefined ? String(data.sheet_id).trim() : (existing?.sheet_id || '');
+    const sheet_name = data.sheet_name !== undefined ? String(data.sheet_name).trim() : (existing?.sheet_name || 'Página1');
+    const sync_enabled = data.sync_enabled !== undefined ? (data.sync_enabled ? 1 : 0) : (existing?.sync_enabled ?? 1);
+    const sync_interval_seconds = data.sync_interval_seconds !== undefined ? Math.max(1, parseInt(data.sync_interval_seconds, 10) || 5) : (existing?.sync_interval_seconds || 5);
+    const auto_social_listening = data.auto_social_listening !== undefined ? (data.auto_social_listening ? 1 : 0) : (existing?.auto_social_listening ?? 1);
+    const webhook_secret = data.webhook_secret !== undefined ? String(data.webhook_secret).trim() : (existing?.webhook_secret || 'sec_default');
+
+    db.prepare(`
+      UPDATE google_sheets_sync_config
+      SET sheet_url = ?, sheet_id = ?, sheet_name = ?, sync_enabled = ?, sync_interval_seconds = ?, auto_social_listening = ?, webhook_secret = ?, updated_at = datetime('now')
+      WHERE id = 1
+    `).run(sheet_url, sheet_id, sheet_name, sync_enabled, sync_interval_seconds, auto_social_listening, webhook_secret);
+
+    return models.getGoogleSheetsSyncConfig();
+  },
+
+  recordGoogleSheetsSyncLog({ event_type = 'POLL_SYNC', links_added = 0, links_updated = 0, total_processed = 0, details = null, error = null }) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO google_sheets_sync_logs (event_type, links_added, links_updated, total_processed, details)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      stmt.run(event_type, Number(links_added) || 0, Number(links_updated) || 0, Number(total_processed) || 0, details || (error ? String(error) : null));
+
+      db.prepare(`
+        UPDATE google_sheets_sync_config
+        SET last_sync_at = datetime('now'),
+            total_synced_count = total_synced_count + ?,
+            last_error = ?,
+            updated_at = datetime('now')
+        WHERE id = 1
+      `).run(Number(links_added) || 0, error ? String(error).slice(0, 500) : null);
+    } catch (_) {}
+
+    return true;
+  },
+
+  getGoogleSheetsSyncLogs(limit = 30) {
+    try {
+      return db.prepare('SELECT * FROM google_sheets_sync_logs ORDER BY id DESC LIMIT ?').all(Number(limit) || 30);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  upsertAffiliateLinkFromSheet(item = {}, options = { auto_social_listening: true }) {
+    if (!item.affiliate_url || !item.title) return null;
+    const cleanUrl = String(item.affiliate_url).trim();
+    const cleanTitle = String(item.title).trim();
+    const platform = item.platform || 'Outro';
+    const commission = parseFloat(item.commission_percent) || 50.0;
+    const price = parseFloat(item.product_price) || 0.0;
+    const currency = item.currency || 'BRL';
+    const pitch = item.pitch_copy || null;
+    const keywords = item.keywords || '';
+
+    const existing = db.prepare('SELECT * FROM affiliate_links WHERE affiliate_url = ?').get(cleanUrl);
+    let linkId;
+    let isNew = false;
+
+    if (existing) {
+      linkId = existing.id;
+      db.prepare(`
+        UPDATE affiliate_links
+        SET title = ?, platform = ?, commission_percent = ?, product_price = ?, currency = ?, pitch_copy = COALESCE(?, pitch_copy), keywords = ?, source = 'google_sheets', last_synced_at = datetime('now')
+        WHERE id = ?
+      `).run(cleanTitle, platform, commission, price, currency, pitch, keywords, existing.id);
+    } else {
+      isNew = true;
+      const res = db.prepare(`
+        INSERT INTO affiliate_links (title, platform, affiliate_url, commission_percent, product_price, currency, pitch_copy, keywords, source, last_synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'google_sheets', datetime('now'))
+      `).run(cleanTitle, platform, cleanUrl, commission, price, currency, pitch, keywords);
+      linkId = Number(res.lastInsertRowid);
+    }
+
+    // Cria/atualiza automaticamente a regra stealth no Social Listening se ativado
+    if (options.auto_social_listening && keywords) {
+      try {
+        const existingRule = db.prepare('SELECT id FROM social_listening_rules WHERE affiliate_url = ?').get(cleanUrl);
+        if (!existingRule) {
+          const templates = JSON.stringify([
+            `{Olá|Oi|Opa|E aí|Fala pessoal|Fala galera|Tudo bem?}! {Comprei o meu por esse link oficial na promoção e recomendo demais|Peguei o meu por esse link com desconto e entrega rápida}: {link} 🚀`,
+            `{Ei|Dica rápida|Passando aqui rapidinho}: Para quem estava procurando por *{produto}*, {encontrei essa oferta com ótimo desconto|achei esse link oficial em promoção hoje}: {link} ⭐`,
+            `{Atenção|Aviso rápido|Alerta de oportunidade}: O produto *{produto}* {está com cupom de desconto liberado|teve o valor reduzido hoje}. {Vale a pena conferir antes que acabe|Recomendo muito}: {link} 🔥`
+          ]);
+          db.prepare(`
+            INSERT INTO social_listening_rules (keywords, product_name, affiliate_url, templates, cooldown_minutes, active)
+            VALUES (?, ?, ?, ?, 15, 1)
+          `).run(keywords, cleanTitle, cleanUrl, templates);
+        } else {
+          db.prepare(`
+            UPDATE social_listening_rules
+            SET keywords = ?, product_name = ?
+            WHERE id = ?
+          `).run(keywords, cleanTitle, existingRule.id);
+        }
+      } catch (_) {}
+    }
+
+    return { id: linkId, isNew };
+  },
+
+  bulkUpsertAffiliateLinksFromSheet(items = [], options = { auto_social_listening: true }) {
+    if (!Array.isArray(items) || items.length === 0) return { added: 0, updated: 0, total: 0 };
+    let added = 0;
+    let updated = 0;
+
+    const runInTransaction = db.transaction((rows) => {
+      for (const item of rows) {
+        const res = models.upsertAffiliateLinkFromSheet(item, options);
+        if (res) {
+          if (res.isNew) added++;
+          else updated++;
+        }
+      }
+    });
+
+    runInTransaction(items);
+    return { added, updated, total: added + updated };
+  },
+
+  // ==========================================
+  // 46. CONSULTA E ACOMPANHAMENTO DE PEDIDOS DE CLIENTES
+  // ==========================================
+  getOrdersByCustomerPhone(phone, limit = 10) {
+    if (!phone) return [];
+    const clean = String(phone).replace(/\D/g, '');
+    const cleanNoDdi = clean.startsWith('55') ? clean.slice(2) : clean;
+    const withDdi = clean.startsWith('55') ? clean : '55' + clean;
+
+    return db.prepare(`
+      SELECT o.*, p.name as product_name, p.type as product_type, p.price_brl, p.price_usdt
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      WHERE o.platform_user_id = ? 
+         OR o.platform_user_id = ? 
+         OR o.platform_user_id = ?
+         OR o.platform_user_id LIKE ?
+         OR o.merchant_trade_no = ?
+      ORDER BY o.id DESC
+      LIMIT ?
+    `).all(clean, cleanNoDdi, withDdi, `%${cleanNoDdi}%`, String(phone).trim(), Number(limit));
+  },
+
+  getOrderByTradeNo(tradeNo) {
+    if (!tradeNo) return null;
+    const cleanTrade = String(tradeNo).trim();
+    return db.prepare(`
+      SELECT o.*, p.name as product_name, p.type as product_type, p.duration_days, p.content as product_content, p.telegram_channel_id as product_channel_id, p.price_brl, p.price_usdt,
+        a.name as affiliate_name, a.ref_code as affiliate_code,
+        s.name as seller_name
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      LEFT JOIN affiliates a ON o.affiliate_id = a.id
+      LEFT JOIN sellers s ON o.seller_id = s.id
+      WHERE o.merchant_trade_no = ? OR o.prepay_id = ? OR o.merchant_trade_no LIKE ?
+    `).get(cleanTrade, cleanTrade, `%${cleanTrade}%`);
+  },
+
+  // ==========================================
+  // 47. GESTÃO DO CHATBOT SIMSIMI (!simi)
+  // ==========================================
+  isSimiEnabledGlobal() {
+    return models.getSetting('SIMI_ENABLED', 'true') === 'true';
+  },
+
+  setSimiEnabledGlobal(enabled) {
+    models.setSetting('SIMI_ENABLED', enabled ? 'true' : 'false');
+  },
+
+  getSimiConfig() {
+    const enabled = models.isSimiEnabledGlobal();
+    const mode = models.getSetting('SIMI_MODE', 'command_only');
+    const personality = models.getSetting('SIMI_PERSONALITY', 'classico');
+    const totalActiveChats = db.prepare('SELECT COUNT(*) as count FROM bot_simi_chats WHERE active = 1').get().count;
+
+    return {
+      enabled,
+      mode,
+      personality,
+      totalActiveChats
+    };
+  },
+
+  updateSimiConfig({ enabled, mode, personality }) {
+    if (typeof enabled !== 'undefined') {
+      models.setSimiEnabledGlobal(enabled);
+    }
+    if (mode) {
+      models.setSetting('SIMI_MODE', mode);
+    }
+    if (personality) {
+      models.setSetting('SIMI_PERSONALITY', personality);
+    }
+    return models.getSimiConfig();
+  },
+
+  isSimiActiveInChat(chatJid) {
+    if (!chatJid) return false;
+    if (!models.isSimiEnabledGlobal()) return false;
+
+    // Se houver configuração específica para este chat, ela tem precedência
+    const row = db.prepare('SELECT active FROM bot_simi_chats WHERE chat_jid = ?').get(String(chatJid));
+    if (row) return row.active === 1;
+
+    const globalMode = models.getSetting('SIMI_MODE', 'command_only');
+    if (globalMode === 'auto_everywhere') return true;
+    if (globalMode === 'always_groups' && String(chatJid).endsWith('@g.us')) return true;
+
+    return false;
+  },
+
+  setSimiActiveInChat(chatJid, active = true, chatName = '', mode = 'auto', personality = 'classico') {
+    if (!chatJid) return false;
+    const cleanJid = String(chatJid).trim();
+    const activeVal = active ? 1 : 0;
+
+    const existing = db.prepare('SELECT id FROM bot_simi_chats WHERE chat_jid = ?').get(cleanJid);
+    if (existing) {
+      db.prepare(`
+        UPDATE bot_simi_chats
+        SET active = ?, chat_name = COALESCE(NULLIF(?, ''), chat_name), mode = ?, personality = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(activeVal, chatName, mode, personality, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO bot_simi_chats (chat_jid, chat_name, active, mode, personality)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(cleanJid, chatName || cleanJid, activeVal, mode, personality);
+    }
+    return true;
+  },
+
+  listSimiActiveChats() {
+    return db.prepare('SELECT * FROM bot_simi_chats ORDER BY updated_at DESC').all();
+  },
+
+  // ==========================================
+  // 48. BASE DE CONHECIMENTO & RAG FAQ DE PRODUTOS
+  // ==========================================
+  getProductFaqs(productId = null) {
+    if (productId !== null && productId !== undefined && productId !== '') {
+      return db.prepare('SELECT f.*, p.name as product_name FROM product_faqs f LEFT JOIN products p ON f.product_id = p.id WHERE f.product_id = ? OR f.product_id IS NULL ORDER BY f.id DESC').all(Number(productId));
+    }
+    return db.prepare('SELECT f.*, p.name as product_name FROM product_faqs f LEFT JOIN products p ON f.product_id = p.id ORDER BY f.id DESC').all();
+  },
+
+  getProductFaqById(id) {
+    return db.prepare('SELECT f.*, p.name as product_name FROM product_faqs f LEFT JOIN products p ON f.product_id = p.id WHERE f.id = ?').get(Number(id));
+  },
+
+  createProductFaq({ product_id = null, question, answer, keywords = '' }) {
+    if (!question || !answer) throw new Error('Pergunta e resposta são obrigatórias.');
+    const res = db.prepare(`
+      INSERT INTO product_faqs (product_id, question, answer, keywords, active)
+      VALUES (?, ?, ?, ?, 1)
+    `).run(product_id ? Number(product_id) : null, String(question).trim(), String(answer).trim(), String(keywords || '').trim());
+    return models.getProductFaqById(Number(res.lastInsertRowid));
+  },
+
+  updateProductFaq(id, data = {}) {
+    const existing = models.getProductFaqById(id);
+    if (!existing) throw new Error('FAQ não encontrado');
+    const question = data.question !== undefined ? String(data.question).trim() : existing.question;
+    const answer = data.answer !== undefined ? String(data.answer).trim() : existing.answer;
+    const keywords = data.keywords !== undefined ? String(data.keywords).trim() : existing.keywords;
+    const product_id = data.product_id !== undefined ? (data.product_id ? Number(data.product_id) : null) : existing.product_id;
+    const active = data.active !== undefined ? (data.active ? 1 : 0) : existing.active;
+
+    db.prepare(`
+      UPDATE product_faqs
+      SET question = ?, answer = ?, keywords = ?, product_id = ?, active = ?
+      WHERE id = ?
+    `).run(question, answer, keywords, product_id, active, id);
+    return models.getProductFaqById(id);
+  },
+
+  deleteProductFaq(id) {
+    return db.prepare('DELETE FROM product_faqs WHERE id = ?').run(Number(id));
+  },
+
+  matchProductFaq(queryText, productId = null) {
+    if (!queryText || typeof queryText !== 'string') return null;
+    const cleanQuery = queryText.toLowerCase().trim();
+    const faqs = models.getProductFaqs(productId).filter(f => f.active === 1);
+    if (faqs.length === 0) return null;
+
+    let bestMatch = null;
+    let highestScore = 0;
+
+    for (const faq of faqs) {
+      let score = 0;
+      const q = faq.question.toLowerCase();
+      const kwList = (faq.keywords || '').toLowerCase().split(',').map(k => k.trim()).filter(Boolean);
+
+      // Exact or partial phrase match
+      if (cleanQuery.includes(q) || q.includes(cleanQuery)) {
+        score += 50;
+      }
+
+      // Keyword matches
+      for (const kw of kwList) {
+        if (cleanQuery.includes(kw)) {
+          score += 20;
+        }
+      }
+
+      // Token overlap
+      const queryTokens = cleanQuery.split(/\s+/).filter(w => w.length > 3);
+      for (const tok of queryTokens) {
+        if (q.includes(tok)) score += 5;
+      }
+
+      if (score > highestScore) {
+        highestScore = score;
+        bestMatch = faq;
+      }
+    }
+
+    if (highestScore >= 15 && bestMatch) {
+      return { match: true, faq: bestMatch, score: highestScore };
+    }
+    return null;
+  },
+
+  seedDefaultFaqsIfEmpty() {
+    try {
+      const count = db.prepare('SELECT COUNT(id) as c FROM product_faqs').get()?.c || 0;
+      if (count === 0) {
+        const defaults = [
+          {
+            question: 'Como recebo o acesso ao produto após o pagamento?',
+            answer: 'A entrega é 100% automática e imediata! Assim que o PIX ou pagamento Cripto é confirmado pela rede, o sistema envia o seu link de acesso, licença e instruções completas diretamente aqui pelo chat.',
+            keywords: 'como recebo, entrega, prazo, envio, acesso, download, liberacao, quando recebo'
+          },
+          {
+            question: 'Quais são as formas de pagamento aceitas?',
+            answer: 'Aceitamos PIX Instantâneo com aprovação em 2 segundos e Carteira Cripto Auto-Custódia (USDT TRC20/BEP20, BTC, ETH, SOL, TON, etc.) direto para a sua segurança sem intermediários.',
+            keywords: 'formas de pagamento, como pagar, aceita pix, aceita cartao, cripto, usdt, bitcoin, boleto'
+          },
+          {
+            question: 'Os produtos possuem garantia e suporte?',
+            answer: 'Sim! Todos os nossos produtos e ferramentas contam com garantia legal de 7 dias e suporte técnico especializado para tirar todas as suas dúvidas.',
+            keywords: 'garantia, suporte, reembolso, devolucao, funciona, confiavel, seguro'
+          },
+          {
+            question: 'Como funciona o programa de afiliados?',
+            answer: 'Você pode faturar comissões de 20% a 50% divulgando nossos produtos! Basta acessar o nosso Portal do Afiliado (/afiliado), pegar seus Magic Paylinks de 1-clique e começar a faturar. Pagamentos via PIX ou USDT.',
+            keywords: 'afiliado, revenda, comissao, parceria, como ser afiliado, ganhar dinheiro'
+          }
+        ];
+        for (const f of defaults) {
+          models.createProductFaq(f);
+        }
+      }
+    } catch (_) {}
+  },
+
+  // ==========================================
+  // 47. ENCURTADOR INTELIGENTE DE LINKS DE VITRINE & IDENTIFICAÇÃO DE CLIENTES
+  // ==========================================
+
+  /**
+   * Cria um link curto exclusivo para o cliente contendo telefone, nome, subbot e cupom.
+   */
+  createStoreShortLink({
+    code = null,
+    phone,
+    name = null,
+    customerName = null,
+    instanceId = 1,
+    refCode = null,
+    couponCode = null,
+    source = 'pv_welcome',
+    targetPath = '/loja'
+  }) {
+    const crypto = require('crypto');
+    const cleanPhone = phone ? String(phone).replace(/\D/g, '') : 'anon';
+    const resolvedName = name || customerName;
+    const cleanName = resolvedName && typeof resolvedName === 'string' && !/^(cliente|lead|amigo|user|undefined|null)$/i.test(resolvedName.trim())
+      ? resolvedName.trim()
+      : null;
+
+    let finalCode = code ? String(code).trim() : '';
+    if (!finalCode) {
+      let attempts = 0;
+      while (attempts < 10) {
+        const rand = crypto.randomBytes(3).toString('hex').slice(0, 5);
+        const candidate = `v${rand}`;
+        const exists = db.prepare('SELECT id FROM store_short_links WHERE code = ?').get(candidate);
+        if (!exists) {
+          finalCode = candidate;
+          break;
+        }
+        attempts++;
+      }
+      if (!finalCode) {
+        finalCode = `v${Date.now().toString(36).slice(-5)}`;
+      }
+    }
+
+    const instId = (instanceId !== null && instanceId !== undefined && !isNaN(Number(instanceId)))
+      ? Number(instanceId)
+      : (instanceId || 1);
+
+    // Se já existir com esse código, atualiza
+    const existing = db.prepare('SELECT * FROM store_short_links WHERE lower(code) = lower(?)').get(finalCode);
+    if (existing) {
+      db.prepare('UPDATE store_short_links SET phone = ?, customer_name = ? WHERE id = ?').run(cleanPhone, cleanName, existing.id);
+      return models.getStoreShortLinkByCode(finalCode, { trackClick: false });
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO store_short_links (
+        code, phone, customer_name, instance_id, ref_code, coupon_code, source, target_path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      finalCode,
+      cleanPhone,
+      cleanName,
+      instId,
+      refCode || null,
+      couponCode || null,
+      source || 'pv_welcome',
+      targetPath || '/loja'
+    );
+
+    return models.getStoreShortLinkByCode(finalCode, { trackClick: false });
+  },
+
+  /**
+   * Obtém ou reaproveita um link curto recente (criado nas últimas 48h) para evitar gerar códigos repetidos
+   */
+  getOrCreateStoreShortLink({
+    phone,
+    name = null,
+    customerName = null,
+    instanceId = 1,
+    refCode = null,
+    couponCode = null,
+    source = 'pv_welcome',
+    targetPath = '/loja'
+  }) {
+    const cleanPhone = phone ? String(phone).replace(/\D/g, '') : 'anon';
+    const instId = (instanceId !== null && instanceId !== undefined && !isNaN(Number(instanceId)))
+      ? Number(instanceId)
+      : (instanceId || 1);
+    const resolvedName = name || customerName;
+
+    const existing = db.prepare(`
+      SELECT * FROM store_short_links
+      WHERE phone = ? AND source = ? AND instance_id = ?
+        AND datetime(created_at) >= datetime('now', '-48 hours')
+      ORDER BY id DESC LIMIT 1
+    `).get(cleanPhone, source || 'pv_welcome', instId);
+
+    if (existing) {
+      const cleanName = resolvedName && typeof resolvedName === 'string' && !/^(cliente|lead|amigo|user|undefined|null)$/i.test(resolvedName.trim())
+        ? resolvedName.trim()
+        : null;
+      if (cleanName && cleanName !== existing.customer_name) {
+        try {
+          db.prepare('UPDATE store_short_links SET customer_name = ? WHERE id = ?').run(cleanName, existing.id);
+          existing.customer_name = cleanName;
+        } catch (_) {}
+      }
+      return existing;
+    }
+
+    return models.createStoreShortLink({
+      phone: cleanPhone,
+      name: resolvedName,
+      instanceId: instId,
+      refCode,
+      couponCode,
+      source,
+      targetPath
+    });
+  },
+
+  /**
+   * Busca os dados do link curto pelo código e opcionalmente incrementa contagem de acessos
+   */
+  getStoreShortLinkByCode(code, options = {}) {
+    if (!code) return null;
+    const cleanCode = String(code).trim().toLowerCase();
+    const row = db.prepare('SELECT * FROM store_short_links WHERE lower(code) = ?').get(cleanCode);
+    if (row && options && options.trackClick) {
+      try {
+        db.prepare('UPDATE store_short_links SET clicks_count = clicks_count + 1, last_clicked_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
+        row.clicks_count = (row.clicks_count || 0) + 1;
+      } catch (_) {}
+    }
+    return row;
+  },
+
+  /**
+   * Lista links curtos criados para um determinado número de telefone
+   */
+  getStoreShortLinksByPhone(phone, limit = 10) {
+    if (!phone) return [];
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    return db.prepare('SELECT * FROM store_short_links WHERE phone = ? ORDER BY id DESC LIMIT ?').all(cleanPhone, limit);
+  },
+
+  // ==========================================
+  // 46b. CÓDIGOS DE ACESSO & OTP DA LOJA PÚBLICA
+  // ==========================================
+
+  createStoreAccessCode({ phone, name = null, instanceId = 1 }) {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    const instId = Number(instanceId) || 1;
+
+    // Gera código de 5 caracteres alfanuméricos em caixa alta (ex: F4G52)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let accessCode = '';
+    for (let i = 0; i < 5; i++) {
+      accessCode += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    // Cria shortlink correspondente para que o link /v/:code funcione instantaneamente
+    const shortLink = models.createStoreShortLink({
+      code: accessCode,
+      phone: cleanPhone,
+      name,
+      instanceId: instId,
+      source: 'store_gate',
+      targetPath: '/loja'
+    });
+
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    const stmt = db.prepare(`
+      INSERT INTO store_access_codes (
+        phone, code, short_code, instance_id, status, expires_at
+      ) VALUES (?, ?, ?, ?, 'PENDING', ?)
+    `);
+
+    stmt.run(cleanPhone, accessCode, shortLink.code, instId, expiresAt);
+
+    return {
+      phone: cleanPhone,
+      code: accessCode,
+      shortCode: shortLink.code,
+      expiresAt
+    };
+  },
+
+  verifyStoreAccessCode(phone, code) {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    const cleanCode = String(code || '').trim().toUpperCase();
+
+    const row = db.prepare(`
+      SELECT * FROM store_access_codes
+      WHERE phone = ? AND UPPER(code) = ?
+        AND status = 'PENDING'
+        AND datetime(expires_at) >= datetime('now')
+      ORDER BY id DESC LIMIT 1
+    `).get(cleanPhone, cleanCode);
+
+    if (!row) {
+      const rowByShort = db.prepare(`
+        SELECT * FROM store_access_codes
+        WHERE phone = ? AND UPPER(short_code) = ?
+          AND datetime(expires_at) >= datetime('now')
+        ORDER BY id DESC LIMIT 1
+      `).get(cleanPhone, cleanCode);
+
+      if (rowByShort) {
+        db.prepare(`UPDATE store_access_codes SET status = 'VERIFIED', verified_at = CURRENT_TIMESTAMP WHERE id = ?`).run(rowByShort.id);
+        return { success: true, record: rowByShort };
+      }
+      return { success: false, error: 'Código inválido ou expirado.' };
+    }
+
+    db.prepare(`UPDATE store_access_codes SET status = 'VERIFIED', verified_at = CURRENT_TIMESTAMP WHERE id = ?`).run(row.id);
+    return { success: true, record: row };
+  },
+
+  isStoreAccessVerified(phone, code = null) {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    let row;
+    if (code) {
+      const cleanCode = String(code).trim().toUpperCase();
+      row = db.prepare(`
+        SELECT * FROM store_access_codes
+        WHERE (phone = ? OR phone = '') AND (UPPER(code) = ? OR UPPER(short_code) = ?) AND status = 'VERIFIED'
+        ORDER BY id DESC LIMIT 1
+      `).get(cleanPhone, cleanCode, cleanCode);
+    } else {
+      row = db.prepare(`
+        SELECT * FROM store_access_codes
+        WHERE phone = ? AND status = 'VERIFIED'
+        ORDER BY id DESC LIMIT 1
+      `).get(cleanPhone);
+    }
+    return !!row;
+  },
+
+  markStoreAccessVerifiedByCode(shortCode) {
+    if (!shortCode) return false;
+    const cleanCode = String(shortCode).trim().toUpperCase();
+    try {
+      db.prepare(`
+        UPDATE store_access_codes
+        SET status = 'VERIFIED', verified_at = CURRENT_TIMESTAMP
+        WHERE (UPPER(code) = ? OR UPPER(short_code) = ?) AND status = 'PENDING'
+      `).run(cleanCode, cleanCode);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  // ==========================================
+  // 47. MENTE DO DONO (MINDSET, TOM DE VOZ, GÍRIAS & INTENÇÕES)
+  // ==========================================
+
+  getOwnerMindsetProfile(ownerPhone) {
+    if (!ownerPhone) return null;
+    const cleanPhone = String(ownerPhone).replace(/\D/g, '');
+    let profile = db.prepare('SELECT * FROM owner_mindset_profile WHERE owner_phone = ?').get(cleanPhone);
+    if (!profile) {
+      db.prepare(`
+        INSERT INTO owner_mindset_profile (
+          owner_phone, primary_tones, speech_style_summary, dominant_intents, learned_traits, total_messages_learned, synchronization_score
+        ) VALUES (?, ?, ?, ?, ?, 1, 75.0)
+      `).run(
+        cleanPhone,
+        JSON.stringify(['Assertivo', 'Estratégico', 'Descontraído']),
+        'Comandante com perfil visionário e ágil. Valoriza comunicação transparente, parcerias leais, escala acelerada e decisões firmes.',
+        JSON.stringify(['ORDEM_OPERACIONAL', 'DIRECAO_ESTRATEGICA', 'CONSULTA_METRICAS']),
+        JSON.stringify(['Respostas rápidas e sem enrolação', 'Foco no faturamento e lucro líquido', 'Tratamento fraternal de confiança mútua'])
+      );
+      profile = db.prepare('SELECT * FROM owner_mindset_profile WHERE owner_phone = ?').get(cleanPhone);
+    }
+
+    try {
+      if (profile && typeof profile.primary_tones === 'string') profile.primary_tones = JSON.parse(profile.primary_tones);
+      if (profile && typeof profile.dominant_intents === 'string') profile.dominant_intents = JSON.parse(profile.dominant_intents);
+      if (profile && typeof profile.learned_traits === 'string') profile.learned_traits = JSON.parse(profile.learned_traits);
+    } catch (_) {}
+
+    return profile;
+  },
+
+  upsertOwnerMindsetProfile(ownerPhone, data = {}) {
+    if (!ownerPhone) return null;
+    const cleanPhone = String(ownerPhone).replace(/\D/g, '');
+    const existing = db.prepare('SELECT * FROM owner_mindset_profile WHERE owner_phone = ?').get(cleanPhone);
+
+    const primaryTones = Array.isArray(data.primary_tones) ? JSON.stringify(data.primary_tones) : (data.primary_tones || null);
+    const dominantIntents = Array.isArray(data.dominant_intents) ? JSON.stringify(data.dominant_intents) : (data.dominant_intents || null);
+    const learnedTraits = Array.isArray(data.learned_traits) ? JSON.stringify(data.learned_traits) : (data.learned_traits || null);
+
+    if (!existing) {
+      db.prepare(`
+        INSERT INTO owner_mindset_profile (
+          owner_phone, primary_tones, speech_style_summary, dominant_intents, learned_traits,
+          total_messages_learned, synchronization_score, last_message_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(
+        cleanPhone,
+        primaryTones || JSON.stringify(['Assertivo', 'Estratégico', 'Descontraído']),
+        data.speech_style_summary || 'Comandante focado em crescimento e vendas.',
+        dominantIntents || JSON.stringify(['ORDEM_OPERACIONAL', 'DIRECAO_ESTRATEGICA']),
+        learnedTraits || JSON.stringify(['Foco em lucro', 'Agilidade']),
+        data.total_messages_learned || 1,
+        data.synchronization_score || 75.0
+      );
+    } else {
+      db.prepare(`
+        UPDATE owner_mindset_profile SET
+          primary_tones = COALESCE(?, primary_tones),
+          speech_style_summary = COALESCE(?, speech_style_summary),
+          dominant_intents = COALESCE(?, dominant_intents),
+          learned_traits = COALESCE(?, learned_traits),
+          total_messages_learned = total_messages_learned + ?,
+          synchronization_score = COALESCE(?, synchronization_score),
+          last_message_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE owner_phone = ?
+      `).run(
+        primaryTones,
+        data.speech_style_summary || null,
+        dominantIntents,
+        learnedTraits,
+        data.incrementMessages ? 1 : 0,
+        data.synchronization_score || null,
+        cleanPhone
+      );
+    }
+
+    return models.getOwnerMindsetProfile(cleanPhone);
+  },
+
+  recordOwnerSlang(ownerPhone, expression, meaningIntent, tone = 'Descontraído', exampleUsage = '') {
+    if (!ownerPhone || !expression) return null;
+    const cleanPhone = String(ownerPhone).replace(/\D/g, '');
+    const cleanExp = String(expression).trim().toLowerCase();
+    const cleanIntent = String(meaningIntent || 'EXPRESSAO_COLOQUIAL').trim().toUpperCase();
+    const cleanTone = String(tone || 'Descontraído').trim();
+
+    const existing = db.prepare('SELECT * FROM owner_slangs_and_expressions WHERE owner_phone = ? AND lower(expression) = ?').get(cleanPhone, cleanExp);
+
+    if (existing) {
+      db.prepare(`
+        UPDATE owner_slangs_and_expressions SET
+          frequency = frequency + 1,
+          meaning_intent = ?,
+          tone = ?,
+          example_usage = COALESCE(NULLIF(?, ''), example_usage),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(cleanIntent, cleanTone, exampleUsage || '', existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO owner_slangs_and_expressions (
+          owner_phone, expression, meaning_intent, tone, frequency, example_usage
+        ) VALUES (?, ?, ?, ?, 1, ?)
+      `).run(cleanPhone, cleanExp, cleanIntent, cleanTone, exampleUsage || '');
+    }
+
+    return db.prepare('SELECT * FROM owner_slangs_and_expressions WHERE owner_phone = ? AND lower(expression) = ?').get(cleanPhone, cleanExp);
+  },
+
+  getOwnerSlangs(ownerPhone, limit = 50) {
+    if (!ownerPhone) return [];
+    const cleanPhone = String(ownerPhone).replace(/\D/g, '');
+    return db.prepare('SELECT * FROM owner_slangs_and_expressions WHERE owner_phone = ? ORDER BY frequency DESC, updated_at DESC LIMIT ?').all(cleanPhone, limit);
+  },
+
+  recordOwnerToneHistory(ownerPhone, messageText, detectedTone, detectedIntent, detectedSlangs = [], sentiment = 'POSITIVO', contextType = 'PRIVATE') {
+    if (!ownerPhone || !messageText) return null;
+    const cleanPhone = String(ownerPhone).replace(/\D/g, '');
+    const slangsJson = Array.isArray(detectedSlangs) ? JSON.stringify(detectedSlangs) : String(detectedSlangs || '[]');
+
+    const res = db.prepare(`
+      INSERT INTO owner_tone_history (
+        owner_phone, message_text, detected_tone, detected_intent, detected_slangs, sentiment, context_type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      cleanPhone,
+      String(messageText).slice(0, 1000),
+      detectedTone || 'Neutro',
+      detectedIntent || 'CONVERSA',
+      slangsJson,
+      sentiment || 'POSITIVO',
+      contextType || 'PRIVATE'
+    );
+
+    return res.lastInsertRowid;
+  },
+
+  getOwnerToneHistory(ownerPhone, limit = 20) {
+    if (!ownerPhone) return [];
+    const cleanPhone = String(ownerPhone).replace(/\D/g, '');
+    const rows = db.prepare('SELECT * FROM owner_tone_history WHERE owner_phone = ? ORDER BY id DESC LIMIT ?').all(cleanPhone, limit);
+    for (const r of rows) {
+      try {
+        if (typeof r.detected_slangs === 'string') r.detected_slangs = JSON.parse(r.detected_slangs);
+      } catch (_) {}
+    }
+    return rows;
+  },
+
+  getOwnerMindsetSummary(ownerPhone) {
+    if (!ownerPhone) return null;
+    const cleanPhone = String(ownerPhone).replace(/\D/g, '');
+    const profile = models.getOwnerMindsetProfile(cleanPhone);
+    const slangs = models.getOwnerSlangs(cleanPhone, 20);
+    const recentHistory = models.getOwnerToneHistory(cleanPhone, 10);
+    const totalInteractions = db.prepare('SELECT COUNT(*) as c FROM owner_tone_history WHERE owner_phone = ?').get(cleanPhone)?.c || 0;
+
+    return {
+      profile,
+      slangs,
+      recentHistory,
+      totalInteractions,
+      synchronizationScore: profile ? profile.synchronization_score : 75.0
+    };
+  },
+
+  // ==========================================
+  // 48. INTELIGÊNCIA PREDITIVA & ANTECIPAÇÃO DE PASSOS
+  // ==========================================
+
+  recordPredictiveInsight(data = {}) {
+    const ownerPhone = String(data.owner_phone || '554884702848').replace(/\D/g, '');
+    const res = db.prepare(`
+      INSERT INTO predictive_intel_insights (
+        owner_phone, insight_type, probability_score, projected_impact_brl,
+        title, recommendation, suggested_action, evidence_data
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      ownerPhone,
+      data.insight_type || 'CONVERSION_OPPORTUNITY',
+      Number(data.probability_score || 0),
+      Number(data.projected_impact_brl || 0),
+      String(data.title || 'Insight Preditivo'),
+      String(data.recommendation || ''),
+      String(data.suggested_action || ''),
+      typeof data.evidence_data === 'object' ? JSON.stringify(data.evidence_data) : String(data.evidence_data || '{}')
+    );
+    return res.lastInsertRowid;
+  },
+
+  getRecentPredictiveInsights(ownerPhone, limit = 10) {
+    const cleanPhone = String(ownerPhone || '554884702848').replace(/\D/g, '');
+    const rows = db.prepare('SELECT * FROM predictive_intel_insights WHERE owner_phone = ? ORDER BY id DESC LIMIT ?').all(cleanPhone, limit);
+    for (const r of rows) {
+      try {
+        if (typeof r.evidence_data === 'string') r.evidence_data = JSON.parse(r.evidence_data);
+      } catch (_) {}
+    }
+    return rows;
+  },
+
+  recordOwnerDecisionPattern(data = {}) {
+    const ownerPhone = String(data.owner_phone || '554884702848').replace(/\D/g, '');
+    const now = new Date();
+    const res = db.prepare(`
+      INSERT INTO owner_decision_patterns (
+        owner_phone, action_type, context_intent, hour_of_day, day_of_week, executed_command
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      ownerPhone,
+      data.action_type || 'GENERAL_COMMAND',
+      data.context_intent || 'OPERATION',
+      now.getHours(),
+      now.getDay(),
+      String(data.executed_command || '').slice(0, 500)
+    );
+    return res.lastInsertRowid;
+  },
+
+  getOwnerDecisionPatterns(ownerPhone, limit = 50) {
+    const cleanPhone = String(ownerPhone || '554884702848').replace(/\D/g, '');
+    return db.prepare('SELECT * FROM owner_decision_patterns WHERE owner_phone = ? ORDER BY id DESC LIMIT ?').all(cleanPhone, limit);
+  },
+
+  // ==========================================
+  // CONTATOS & IDENTIFICAÇÃO WHATSAPP (PUSHNAME & PRIMEIRO NOME)
+  // ==========================================
+  extractFirstName(fullName) {
+    if (!fullName || typeof fullName !== 'string') return '';
+    const clean = fullName
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{1F004}\u{1F0CF}]/gu, ' ')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .trim();
+    if (!clean) return '';
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (!parts.length) return '';
+    const first = parts[0];
+    if (first.length < 2) return '';
+    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+  },
+
+  upsertWhatsAppContact(phone, pushName) {
+    if (!phone) return null;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    if (cleanPhone.length < 8) return null;
+    const cleanPushName = pushName && typeof pushName === 'string' ? pushName.trim().slice(0, 120) : null;
+    const firstName = cleanPushName ? models.extractFirstName(cleanPushName) : null;
+
+    try {
+      const existing = db.prepare('SELECT * FROM whatsapp_contacts WHERE phone = ?').get(cleanPhone);
+      if (existing) {
+        if (cleanPushName && cleanPushName !== 'Cliente') {
+          db.prepare(`
+            UPDATE whatsapp_contacts
+            SET push_name = ?, first_name = COALESCE(?, first_name), last_seen_at = datetime('now'), updated_at = datetime('now')
+            WHERE phone = ?
+          `).run(cleanPushName, firstName, cleanPhone);
+        } else {
+          db.prepare(`
+            UPDATE whatsapp_contacts
+            SET last_seen_at = datetime('now'), updated_at = datetime('now')
+            WHERE phone = ?
+          `).run(cleanPhone);
+        }
+      } else {
+        db.prepare(`
+          INSERT INTO whatsapp_contacts (phone, push_name, first_name, last_seen_at, updated_at, created_at)
+          VALUES (?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+        `).run(cleanPhone, cleanPushName || null, firstName || null);
+      }
+      return models.getWhatsAppContact(cleanPhone);
+    } catch (err) {
+      console.warn('[upsertWhatsAppContact ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  getWhatsAppContact(phone) {
+    if (!phone) return null;
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    try {
+      return db.prepare('SELECT * FROM whatsapp_contacts WHERE phone = ?').get(cleanPhone) || null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  getContactFirstName(phone, fallback = '') {
+    if (!phone) return fallback;
+    const contact = models.getWhatsAppContact(phone);
+    if (contact && contact.first_name && contact.first_name.length >= 2) {
+      return contact.first_name;
+    }
+    return fallback;
+  },
+
+  // ==========================================
+  // RADAR DE LEADS & MINERAÇÃO EM GRUPOS (BOTS & SUB-BOTS)
+  // ==========================================
+  recordRadarLead(data = {}) {
+    try {
+      const group_jid = data.group_jid || null;
+      const group_name = data.group_name || 'Grupo WhatsApp';
+      const sender_phone = String(data.sender_phone || '').replace(/\D/g, '');
+      const sender_name = data.sender_name || null;
+      const keyword_matched = data.keyword_matched || null;
+      const category = data.category || 'Geral';
+      const message_text = data.message_text ? String(data.message_text).slice(0, 1000) : null;
+      const is_audio = data.is_audio ? 1 : 0;
+      const status = data.status || 'NEW';
+      const notes = data.notes || null;
+      const instance_id = Number(data.instance_id || 1);
+      const scout_name = data.scout_name || 'WhatsApp Matriz Principal';
+      const matched_product_id = data.matched_product_id ? Number(data.matched_product_id) : null;
+      const matched_product_name = data.matched_product_name || null;
+      const custom_track_url = data.custom_track_url || null;
+      const ready_message = data.ready_message || null;
+
+      const res = db.prepare(`
+        INSERT INTO radar_captured_leads (
+          group_jid, group_name, sender_phone, sender_name, keyword_matched, category,
+          message_text, is_audio, status, notes, instance_id, scout_name,
+          matched_product_id, matched_product_name, custom_track_url, ready_message, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        group_jid, group_name, sender_phone, sender_name, keyword_matched, category,
+        message_text, is_audio, status, notes, instance_id, scout_name,
+        matched_product_id, matched_product_name, custom_track_url, ready_message
+      );
+
+      return { id: res.lastInsertRowid, ...data };
+    } catch (err) {
+      console.warn('[recordRadarLead ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  listRadarLeads(limit = 50, status = null) {
+    try {
+      if (status) {
+        return db.prepare('SELECT * FROM radar_captured_leads WHERE status = ? ORDER BY id DESC LIMIT ?').all(status, Number(limit));
+      }
+      return db.prepare('SELECT * FROM radar_captured_leads ORDER BY id DESC LIMIT ?').all(Number(limit));
+    } catch (err) {
+      console.warn('[listRadarLeads ⚠️ Erro]:', err.message);
+      return [];
+    }
+  },
+
+  updateRadarLeadStatus(id, status, notes = null) {
+    try {
+      if (notes !== null) {
+        db.prepare('UPDATE radar_captured_leads SET status = ?, notes = ? WHERE id = ?').run(status, notes, Number(id));
+      } else {
+        db.prepare('UPDATE radar_captured_leads SET status = ? WHERE id = ?').run(status, Number(id));
+      }
+      return db.prepare('SELECT * FROM radar_captured_leads WHERE id = ?').get(Number(id));
+    } catch (err) {
+      console.warn('[updateRadarLeadStatus ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  getRadarStats() {
+    try {
+      const total = db.prepare('SELECT COUNT(*) as c FROM radar_captured_leads').get()?.c || 0;
+      const newCount = db.prepare("SELECT COUNT(*) as c FROM radar_captured_leads WHERE status = 'NEW'").get()?.c || 0;
+      const contacted = db.prepare("SELECT COUNT(*) as c FROM radar_captured_leads WHERE status = 'CONTACTED'").get()?.c || 0;
+      const converted = db.prepare("SELECT COUNT(*) as c FROM radar_captured_leads WHERE status = 'CONVERTED'").get()?.c || 0;
+      return { total, new: newCount, contacted, converted };
+    } catch (_) {
+      return { total: 0, new: 0, contacted: 0, converted: 0 };
+    }
+  },
+
+  // =========================================================================
+  // ⚡ JEV DECISION ENGINE (SYSTEM 1 FAST TYPED DECISIONS)
+  // =========================================================================
+  recordJevDecision({
+    contextType,
+    senderPhone = null,
+    chatJid = null,
+    inputExcerpt = '',
+    intent,
+    confidence = 0.95,
+    latencyMs = 15.0,
+    decisionPayload = {},
+    executionMode = 'HYBRID_FAST',
+    tokensSaved = 350
+  }) {
+    try {
+      const cleanPhone = senderPhone ? String(senderPhone).replace(/\D/g, '') : null;
+      const excerpt = inputExcerpt ? String(inputExcerpt).slice(0, 300) : '';
+      const payloadStr = typeof decisionPayload === 'string' ? decisionPayload : JSON.stringify(decisionPayload);
+
+      const res = db.prepare(`
+        INSERT INTO jev_decisions (
+          context_type, sender_phone, chat_jid, input_excerpt, intent,
+          confidence, latency_ms, decision_payload, execution_mode, tokens_saved, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        contextType, cleanPhone, chatJid, excerpt, intent,
+        Number(confidence), Number(latencyMs), payloadStr, executionMode, Number(tokensSaved)
+      );
+
+      return { id: res.lastInsertRowid, intent, confidence, latencyMs };
+    } catch (err) {
+      console.warn('[recordJevDecision ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  getJevTelemetry() {
+    try {
+      const totalRow = db.prepare('SELECT COUNT(*) as c, AVG(latency_ms) as avg_lat, SUM(tokens_saved) as total_tokens FROM jev_decisions').get();
+      const todayRow = db.prepare("SELECT COUNT(*) as c FROM jev_decisions WHERE created_at >= date('now')").get();
+      
+      const intentRows = db.prepare(`
+        SELECT intent, COUNT(*) as count 
+        FROM jev_decisions 
+        GROUP BY intent 
+        ORDER BY count DESC 
+        LIMIT 10
+      `).all();
+
+      const contextRows = db.prepare(`
+        SELECT context_type, COUNT(*) as count 
+        FROM jev_decisions 
+        GROUP BY context_type 
+        ORDER BY count DESC
+      `).all();
+
+      return {
+        totalDecisions: totalRow?.c || 0,
+        decisionsToday: todayRow?.c || 0,
+        avgLatencyMs: Number((totalRow?.avg_lat || 12.4).toFixed(1)),
+        tokensSavedTotal: totalRow?.total_tokens || 0,
+        intentsDistribution: intentRows || [],
+        contextsDistribution: contextRows || [],
+        enabled: this.getSetting('JEV_ENABLED', 'true') === 'true',
+        mode: this.getSetting('JEV_MODE', 'HYBRID'),
+        minConfidence: parseFloat(this.getSetting('JEV_MIN_CONFIDENCE', '0.75')),
+        hasApiKey: !!(this.getSetting('JEV_API_KEY', '') || process.env.JEV_API_KEY)
+      };
+    } catch (err) {
+      console.warn('[getJevTelemetry ⚠️ Erro]:', err.message);
+      return {
+        totalDecisions: 0,
+        decisionsToday: 0,
+        avgLatencyMs: 15.0,
+        tokensSavedTotal: 0,
+        intentsDistribution: [],
+        contextsDistribution: [],
+        enabled: true,
+        mode: 'HYBRID',
+        minConfidence: 0.75,
+        hasApiKey: false
+      };
+    }
+  },
+
+  listRecentJevDecisions(limit = 25, contextType = null) {
+    try {
+      if (contextType) {
+        return db.prepare('SELECT * FROM jev_decisions WHERE context_type = ? ORDER BY id DESC LIMIT ?').all(contextType, Number(limit));
+      }
+      return db.prepare('SELECT * FROM jev_decisions ORDER BY id DESC LIMIT ?').all(Number(limit));
+    } catch (err) {
+      console.warn('[listRecentJevDecisions ⚠️ Erro]:', err.message);
+      return [];
+    }
+  },
+
+  getJevSettings() {
+    return {
+      enabled: this.getSetting('JEV_ENABLED', 'true') === 'true',
+      mode: this.getSetting('JEV_MODE', 'HYBRID'),
+      apiKey: this.getSetting('JEV_API_KEY', '') ? '••••••••' + this.getSetting('JEV_API_KEY', '').slice(-4) : '',
+      endpoint: this.getSetting('JEV_ENDPOINT', 'https://api.typesafe.ai/v1/decide'),
+      minConfidence: parseFloat(this.getSetting('JEV_MIN_CONFIDENCE', '0.75')),
+      fallbackToLlm: this.getSetting('JEV_FALLBACK_TO_LLM', 'true') === 'true',
+      bypassLlmOnDirectAction: this.getSetting('JEV_BYPASS_LLM_DIRECT', 'true') === 'true'
+    };
+  },
+
+  updateJevSettings(settings = {}) {
+    if (settings.enabled !== undefined) this.setSetting('JEV_ENABLED', settings.enabled ? 'true' : 'false');
+    if (settings.mode !== undefined) this.setSetting('JEV_MODE', String(settings.mode).toUpperCase());
+    if (settings.apiKey !== undefined && !settings.apiKey.includes('••••')) {
+      this.setSetting('JEV_API_KEY', String(settings.apiKey).trim());
+    }
+    if (settings.endpoint !== undefined) this.setSetting('JEV_ENDPOINT', String(settings.endpoint).trim());
+    if (settings.minConfidence !== undefined) this.setSetting('JEV_MIN_CONFIDENCE', String(settings.minConfidence));
+    if (settings.fallbackToLlm !== undefined) this.setSetting('JEV_FALLBACK_TO_LLM', settings.fallbackToLlm ? 'true' : 'false');
+    if (settings.bypassLlmOnDirectAction !== undefined) this.setSetting('JEV_BYPASS_LLM_DIRECT', settings.bypassLlmOnDirectAction ? 'true' : 'false');
+    return this.getJevSettings();
+  },
+
+  // =========================================================================
+  // ⚡ 1. FOLLOW-UP AUTÔNOMO ANTI-VÁCUO
+  // =========================================================================
+  recordFollowUpLog({ orderId = null, tradeNo = null, customerPhone, customerName = '', stage = 1, messageSent, status = 'SENT' }) {
+    try {
+      const cleanPhone = String(customerPhone).replace(/\D/g, '');
+      const res = db.prepare(`
+        INSERT INTO autonomous_followup_logs (order_id, trade_no, customer_phone, customer_name, stage, message_sent, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(orderId, tradeNo, cleanPhone, customerName, stage, messageSent, status);
+      return { id: res.lastInsertRowid };
+    } catch (err) {
+      console.warn('[recordFollowUpLog ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  getFollowUpHistory(customerPhone) {
+    try {
+      const cleanPhone = String(customerPhone).replace(/\D/g, '');
+      return db.prepare('SELECT * FROM autonomous_followup_logs WHERE customer_phone = ? ORDER BY id DESC').all(cleanPhone);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  // =========================================================================
+  // ⚡ 2. MULTI-ARMED BANDIT PARA TESTES A/B AUTÔNOMOS
+  // =========================================================================
+  listBanditArms(category = 'PITCH_ANGLE') {
+    try {
+      return db.prepare('SELECT * FROM bandit_arms WHERE category = ? AND active = 1 ORDER BY id ASC').all(category);
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getBestBanditArm(category = 'PITCH_ANGLE') {
+    try {
+      const arms = this.listBanditArms(category);
+      if (!arms || arms.length === 0) return null;
+
+      let bestArm = arms[0];
+      let maxSample = -1;
+
+      for (const arm of arms) {
+        const alpha = (arm.conversions || 0) + 1;
+        const beta = Math.max(1, (arm.impressions || 0) - (arm.conversions || 0) + 1);
+        const sample = (alpha / (alpha + beta)) + (Math.random() * 0.15);
+        if (sample > maxSample) {
+          maxSample = sample;
+          bestArm = arm;
+        }
+      }
+      return bestArm;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  recordBanditImpression(armKey) {
+    try {
+      db.prepare('UPDATE bandit_arms SET impressions = impressions + 1 WHERE arm_key = ?').run(armKey);
+    } catch (_) {}
+  },
+
+  recordBanditConversion(armKey, revenueBrl = 0) {
+    try {
+      db.prepare('UPDATE bandit_arms SET conversions = conversions + 1, revenue_brl = revenue_brl + ? WHERE arm_key = ?').run(Number(revenueBrl || 0), armKey);
+    } catch (_) {}
+  },
+
+  // =========================================================================
+  // ⚡ 3. ENXAME DE SUB-BOTS (SWARM INTELLIGENCE)
+  // =========================================================================
+  recordSwarmMission({ missionType, targetJid = null, prospectPhone = null, scoutInstanceId = 1, proofInstanceId = null, closerInstanceId = null, notes = '' }) {
+    try {
+      const res = db.prepare(`
+        INSERT INTO swarm_missions (mission_type, target_jid, prospect_phone, scout_instance_id, proof_instance_id, closer_instance_id, status, notes)
+        VALUES (?, ?, ?, ?, ?, ?, 'IN_PROGRESS', ?)
+      `).run(missionType, targetJid, prospectPhone, scoutInstanceId, proofInstanceId, closerInstanceId, notes);
+      return { id: res.lastInsertRowid };
+    } catch (err) {
+      console.warn('[recordSwarmMission ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  listSwarmMissions(limit = 20) {
+    try {
+      return db.prepare('SELECT * FROM swarm_missions ORDER BY id DESC LIMIT ?').all(Number(limit));
+    } catch (_) {
+      return [];
+    }
+  },
+
+  // =========================================================================
+  // ⚡ 4. VISÃO COMPUTACIONAL (INSPEÇÃO DE COMPROVANTES & AGENDAMENTOS)
+  // =========================================================================
+  recordVisionInspection({ senderPhone, chatJid, detectedType, summaryText, isScheduled = 0, scheduledDate = null, actionTaken = '' }) {
+    try {
+      const cleanPhone = String(senderPhone || '').replace(/\D/g, '');
+      const res = db.prepare(`
+        INSERT INTO vision_inspections_log (sender_phone, chat_jid, detected_type, summary_text, is_scheduled, scheduled_date, action_taken)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(cleanPhone, chatJid, detectedType, summaryText, isScheduled ? 1 : 0, scheduledDate, actionTaken);
+      return { id: res.lastInsertRowid };
+    } catch (err) {
+      console.warn('[recordVisionInspection ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  listVisionInspections(limit = 25) {
+    try {
+      return db.prepare('SELECT * FROM vision_inspections_log ORDER BY id DESC LIMIT ?').all(Number(limit));
+    } catch (_) {
+      return [];
+    }
+  },
+
+  // =========================================================================
+  // ⚡ 5. CO-PILOTO EXECUTIVO DO DONO
+  // =========================================================================
+  recordExecutiveBriefing({ briefingType, targetPhone, contentText, proposedAction = null }) {
+    try {
+      const cleanPhone = String(targetPhone || '').replace(/\D/g, '');
+      const res = db.prepare(`
+        INSERT INTO executive_briefing_logs (briefing_type, target_phone, content_text, proposed_action)
+        VALUES (?, ?, ?, ?)
+      `).run(briefingType, cleanPhone, contentText, proposedAction);
+      return { id: res.lastInsertRowid };
+    } catch (err) {
+      console.warn('[recordExecutiveBriefing ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  getLatestExecutiveBriefing(targetPhone) {
+    try {
+      const cleanPhone = String(targetPhone || '').replace(/\D/g, '');
+      return db.prepare('SELECT * FROM executive_briefing_logs WHERE target_phone = ? ORDER BY id DESC LIMIT 1').get(cleanPhone);
+    } catch (_) {
+      return null;
+    }
+  },
+
+  markExecutiveActionExecuted(id, ownerResponse = '') {
+    try {
+      db.prepare('UPDATE executive_briefing_logs SET action_executed = 1, owner_response = ? WHERE id = ?').run(ownerResponse, Number(id));
+    } catch (_) {}
+  },
+
+  // =========================================================================
+  // 🌙 55. SISTEMA DE MEMÓRIA NOTURNA & CICLO DE SONO (aydinnyunus/sleep)
+  // =========================================================================
+  recordSleepCycleRun(data = {}) {
+    try {
+      const res = db.prepare(`
+        INSERT INTO sleep_cycle_runs (run_date, conversations_analyzed, orders_analyzed, objections_found, candidates_generated, summary, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        data.run_date || new Date().toISOString().split('T')[0],
+        Number(data.conversations_analyzed || 0),
+        Number(data.orders_analyzed || 0),
+        Number(data.objections_found || 0),
+        Number(data.candidates_generated || 0),
+        data.summary || 'Ciclo de sono noturno executado com sucesso.',
+        data.status || 'COMPLETED'
+      );
+      return Number(res.lastInsertRowid);
+    } catch (err) {
+      console.warn('[SleepCycle ⚠️ recordSleepCycleRun]:', err.message);
+      return null;
+    }
+  },
+
+  listSleepCycleRuns(limit = 10) {
+    try {
+      return db.prepare('SELECT * FROM sleep_cycle_runs ORDER BY id DESC LIMIT ?').all(Number(limit));
+    } catch (_) {
+      return [];
+    }
+  },
+
+  getLatestSleepCycleRun() {
+    try {
+      return db.prepare('SELECT * FROM sleep_cycle_runs ORDER BY id DESC LIMIT 1').get() || null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  saveSleepCycleCandidate(data = {}) {
+    try {
+      const res = db.prepare(`
+        INSERT INTO sleep_cycle_candidates (run_id, type, title, shortcut, trigger_keywords, content, category, confidence_score, occurrences_count, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+      `).run(
+        data.run_id ? Number(data.run_id) : null,
+        data.type || 'ZAPVOICE_SHORTCUT',
+        data.title || 'Candidato a Resposta Rápida',
+        data.shortcut || null,
+        data.trigger_keywords || '',
+        data.content || '',
+        data.category || 'Vendas',
+        Number(data.confidence_score || 0.85),
+        Number(data.occurrences_count || 1)
+      );
+      return Number(res.lastInsertRowid);
+    } catch (err) {
+      console.warn('[SleepCycle ⚠️ saveSleepCycleCandidate]:', err.message);
+      return null;
+    }
+  },
+
+  listSleepCycleCandidates(status = null, limit = 50) {
+    try {
+      if (status) {
+        return db.prepare('SELECT * FROM sleep_cycle_candidates WHERE status = ? ORDER BY confidence_score DESC, id DESC LIMIT ?').all(String(status), Number(limit));
+      }
+      return db.prepare('SELECT * FROM sleep_cycle_candidates ORDER BY id DESC LIMIT ?').all(Number(limit));
+    } catch (_) {
+      return [];
+    }
+  },
+
+  promoteSleepCycleCandidate(candidateId) {
+    try {
+      const candidate = db.prepare('SELECT * FROM sleep_cycle_candidates WHERE id = ?').get(Number(candidateId));
+      if (!candidate) return { success: false, error: 'Candidato não encontrado' };
+
+      // Se for ZAPVOICE_SHORTCUT ou OBJECTION_RULE, promove para Mensagem Rápida Oficial do ZapVoice
+      if (candidate.type === 'ZAPVOICE_SHORTCUT' || candidate.type === 'OBJECTION_RULE') {
+        const cleanShortcut = candidate.shortcut ? (candidate.shortcut.startsWith('/') ? candidate.shortcut : `/${candidate.shortcut}`) : `/resp_${candidate.id}`;
+        models.saveZapVoiceMessage({
+          title: candidate.title,
+          shortcut: cleanShortcut,
+          content: candidate.content,
+          category: candidate.category || 'Vendas',
+          trigger_keywords: candidate.trigger_keywords || ''
+        });
+      }
+
+      // Marca como promovido
+      db.prepare("UPDATE sleep_cycle_candidates SET status = 'PROMOTED', promoted_at = CURRENT_TIMESTAMP WHERE id = ?").run(Number(candidateId));
+      return { success: true, candidate };
+    } catch (err) {
+      console.warn('[SleepCycle ⚠️ promoteSleepCycleCandidate]:', err.message);
+      return { success: false, error: err.message };
+    }
+  },
+
+  rejectSleepCycleCandidate(candidateId) {
+    try {
+      db.prepare("UPDATE sleep_cycle_candidates SET status = 'REJECTED' WHERE id = ?").run(Number(candidateId));
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  },
+
+  autoPromoteHighConfidenceCandidates(minConfidence = 0.88) {
+    try {
+      const candidates = db.prepare("SELECT * FROM sleep_cycle_candidates WHERE status = 'PENDING' AND confidence_score >= ?").all(Number(minConfidence));
+      let promotedCount = 0;
+      for (const c of candidates) {
+        const res = this.promoteSleepCycleCandidate(c.id);
+        if (res && res.success) promotedCount++;
+      }
+      return { success: true, promotedCount };
+    } catch (err) {
+      return { success: false, error: err.message, promotedCount: 0 };
+    }
+  },
+
+  runSleepCycleDoctorScan() {
+    try {
+      const diagnostics = [];
+      const zapVoiceMessages = models.listZapVoiceMessages() || [];
+      const products = models.getAllProducts ? models.getAllProducts() : [];
+
+      // 1. Verifica links desatualizados ou localhost em mensagens do ZapVoice
+      const tunnelService = require('../services/tunnelService');
+      const storeUrl = tunnelService.getStoreUrl ? tunnelService.getStoreUrl() : '';
+
+      zapVoiceMessages.forEach(msg => {
+        if (msg.content && msg.content.includes('http://localhost') && storeUrl && storeUrl.startsWith('https://')) {
+          diagnostics.push({
+            type: 'STALE_URL',
+            severity: 'WARN',
+            item: msg.title,
+            shortcut: msg.shortcut,
+            description: `Mensagem contém link local (${msg.shortcut}). O túnel público oficial é ${storeUrl}.`,
+            fixAvailable: true
+          });
+        }
+      });
+
+      // 2. Verifica divergência de preços mencionados em atalhos
+      products.forEach(p => {
+        const pPrice = Number(p.price_brl || p.price);
+        zapVoiceMessages.forEach(msg => {
+          if (msg.content && msg.content.includes('R$') && p.name && msg.title.toLowerCase().includes(p.name.toLowerCase().slice(0, 10))) {
+            const matchPrice = msg.content.match(/R\$\s*([\d,.]+)/);
+            if (matchPrice) {
+              const mentioned = parseFloat(matchPrice[1].replace(',', '.'));
+              if (!isNaN(mentioned) && Math.abs(mentioned - pPrice) > 5) {
+                diagnostics.push({
+                  type: 'PRICE_MISMATCH',
+                  severity: 'INFO',
+                  item: msg.title,
+                  shortcut: msg.shortcut,
+                  description: `Atalho ${msg.shortcut} cita R$ ${mentioned.toFixed(2)}, mas produto no catálogo oficial custa R$ ${pPrice.toFixed(2)}.`,
+                  fixAvailable: true
+                });
+              }
+            }
+          }
+        });
+      });
+
+      // 3. Verifica atalhos duplicados ou conflitantes
+      const shortcutMap = new Map();
+      zapVoiceMessages.forEach(m => {
+        const sc = (m.shortcut || '').toLowerCase().trim();
+        if (shortcutMap.has(sc)) {
+          diagnostics.push({
+            type: 'DUPLICATE_SHORTCUT',
+            severity: 'ERROR',
+            item: m.title,
+            shortcut: m.shortcut,
+            description: `Atalho ${m.shortcut} duplicado entre '${shortcutMap.get(sc)}' e '${m.title}'.`,
+            fixAvailable: false
+          });
+        } else {
+          shortcutMap.set(sc, m.title);
+        }
+      });
+
+      const unreviewedCount = db.prepare("SELECT COUNT(*) as cnt FROM sleep_cycle_candidates WHERE status = 'PENDING'").get().cnt;
+      if (unreviewedCount > 10) {
+        diagnostics.push({
+          type: 'PENDING_CANDIDATES',
+          severity: 'INFO',
+          item: `${unreviewedCount} Candidatos Pendentes`,
+          description: `Existem ${unreviewedCount} candidatos gerados no ciclo de sono aguardando revisão ou promoção para o ZapVoice.`,
+          fixAvailable: false
+        });
+      }
+
+      return {
+        healthScore: Math.max(70, 100 - (diagnostics.filter(d => d.severity === 'ERROR').length * 20) - (diagnostics.filter(d => d.severity === 'WARN').length * 10)),
+        issuesCount: diagnostics.length,
+        diagnostics
+      };
+    } catch (err) {
+      console.warn('[SleepCycle Doctor ⚠️ Erro]:', err.message);
+      return { healthScore: 100, issuesCount: 0, diagnostics: [] };
+    }
+  },
+
+  // =========================================================================
+  // 🐝 SWARM INTELLIGENCE: COLETA DE LINKS, PRODUTOS EM ALTA E CHAVES DE IA
+  // =========================================================================
+
+  saveSwarmCollectedLink({ url, inviteCode, title = '', sourceGroupJid = '', sourceSenderJid = '', collectedBySubbotId = null, metadata = null }) {
+    try {
+      const cleanUrl = String(url || '').trim();
+      if (!cleanUrl) return null;
+      const cleanCode = String(inviteCode || '').trim();
+      const metaStr = typeof metadata === 'object' && metadata !== null ? JSON.stringify(metadata) : String(metadata || '');
+
+      const existing = db.prepare('SELECT id FROM swarm_collected_links WHERE url = ? OR invite_code = ?').get(cleanUrl, cleanCode);
+      if (existing) {
+        return { id: existing.id, isNew: false, url: cleanUrl };
+      }
+
+      const stmt = db.prepare(`
+        INSERT INTO swarm_collected_links (url, invite_code, title, source_group_jid, source_sender_jid, collected_by_subbot_id, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const res = stmt.run(cleanUrl, cleanCode, title, sourceGroupJid, sourceSenderJid, collectedBySubbotId, metaStr);
+      return { id: res.lastInsertRowid, isNew: true, url: cleanUrl, inviteCode: cleanCode };
+    } catch (err) {
+      console.warn('[Models ⚠️ saveSwarmCollectedLink]:', err.message);
+      return null;
+    }
+  },
+
+  listSwarmCollectedLinks(limit = 50) {
+    try {
+      return db.prepare('SELECT * FROM swarm_collected_links ORDER BY id DESC LIMIT ?').all(Math.max(1, limit));
+    } catch (err) {
+      console.warn('[Models ⚠️ listSwarmCollectedLinks]:', err.message);
+      return [];
+    }
+  },
+
+  saveSwarmCollectedProduct({ url, title = '', platform = 'Outro', price = 0, sourceGroupJid = '', sourceSenderJid = '', collectedBySubbotId = null, buzzIncrement = 1, metadata = null }) {
+    try {
+      const cleanUrl = String(url || '').trim();
+      if (!cleanUrl) return null;
+      const metaStr = typeof metadata === 'object' && metadata !== null ? JSON.stringify(metadata) : String(metadata || '');
+
+      const existing = db.prepare('SELECT id, buzz_score, auto_affiliated FROM swarm_collected_products WHERE url = ?').get(cleanUrl);
+      if (existing) {
+        const newBuzz = existing.buzz_score + buzzIncrement;
+        db.prepare('UPDATE swarm_collected_products SET buzz_score = ?, last_reverberated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newBuzz, existing.id);
+        return { id: existing.id, isNew: false, url: cleanUrl, buzzScore: newBuzz, autoAffiliated: existing.auto_affiliated === 1 };
+      }
+
+      const stmt = db.prepare(`
+        INSERT INTO swarm_collected_products (url, title, platform, price, buzz_score, source_group_jid, source_sender_jid, collected_by_subbot_id, metadata, auto_affiliated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      `);
+      const res = stmt.run(cleanUrl, title, platform, Number(price) || 0, buzzIncrement, sourceGroupJid, sourceSenderJid, collectedBySubbotId, metaStr);
+      return { id: res.lastInsertRowid, isNew: true, url: cleanUrl, buzzScore: buzzIncrement, autoAffiliated: false };
+    } catch (err) {
+      console.warn('[Models ⚠️ saveSwarmCollectedProduct]:', err.message);
+      return null;
+    }
+  },
+
+  markSwarmProductAffiliated(productId, affiliateUrl) {
+    try {
+      db.prepare('UPDATE swarm_collected_products SET auto_affiliated = 1, affiliate_url = ? WHERE id = ?').run(affiliateUrl, Number(productId));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  listSwarmCollectedProducts(limit = 50, minBuzz = 1) {
+    try {
+      return db.prepare('SELECT * FROM swarm_collected_products WHERE buzz_score >= ? ORDER BY buzz_score DESC, id DESC LIMIT ?').all(minBuzz, Math.max(1, limit));
+    } catch (err) {
+      console.warn('[Models ⚠️ listSwarmCollectedProducts]:', err.message);
+      return [];
+    }
+  },
+
+  saveSwarmCollectedApiKey({ provider, apiKey, latencyMs = 0, sourceGroupJid = '', sourceSenderJid = '', collectedBySubbotId = null, status = 'ACTIVE' }) {
+    try {
+      const cleanKey = String(apiKey || '').trim();
+      const prov = String(provider || '').toLowerCase().trim();
+      if (!cleanKey || !prov) return null;
+      const masked = cleanKey.length > 8 ? `${cleanKey.slice(0, 4)}...${cleanKey.slice(-4)}` : `${cleanKey.slice(0, 2)}...`;
+
+      const existing = db.prepare('SELECT id FROM swarm_collected_api_keys WHERE api_key = ?').get(cleanKey);
+      if (existing) {
+        return { id: existing.id, isNew: false, provider: prov, maskedKey: masked };
+      }
+
+      const stmt = db.prepare(`
+        INSERT INTO swarm_collected_api_keys (provider, api_key, masked_key, is_valid, latency_ms, source_group_jid, source_sender_jid, collected_by_subbot_id, status)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+      `);
+      const res = stmt.run(prov, cleanKey, masked, Number(latencyMs) || 0, sourceGroupJid, sourceSenderJid, collectedBySubbotId, status);
+      return { id: res.lastInsertRowid, isNew: true, provider: prov, maskedKey: masked };
+    } catch (err) {
+      console.warn('[Models ⚠️ saveSwarmCollectedApiKey]:', err.message);
+      return null;
+    }
+  },
+
+  listSwarmCollectedApiKeys(limit = 50) {
+    try {
+      return db.prepare('SELECT id, provider, masked_key, is_valid, latency_ms, source_group_jid, source_sender_jid, collected_by_subbot_id, status, created_at FROM swarm_collected_api_keys ORDER BY id DESC LIMIT ?').all(Math.max(1, limit));
+    } catch (err) {
+      console.warn('[Models ⚠️ listSwarmCollectedApiKeys]:', err.message);
+      return [];
+    }
+  },
+
+  saveSwarmCollectedBuyerLead({
+    phone,
+    name = '',
+    intentKeyword = '',
+    interestSummary = '',
+    messageText = '',
+    sourceChatJid = '',
+    isGroup = 0,
+    collectedBySubbotId = null,
+    subbotWasOff = 0
+  }) {
+    try {
+      const cleanPhone = String(phone || '').replace(/\D/g, '');
+      if (!cleanPhone || cleanPhone.length < 8) return null;
+
+      const stmt = db.prepare(`
+        INSERT INTO swarm_collected_buyer_leads (
+          phone, name, intent_keyword, interest_summary, message_text,
+          source_chat_jid, is_group, collected_by_subbot_id, subbot_was_off, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'NEW', datetime('now'))
+      `);
+      const res = stmt.run(
+        cleanPhone,
+        String(name || 'Cliente Potencial').trim(),
+        String(intentKeyword || '').trim(),
+        String(interestSummary || '').trim(),
+        String(messageText || '').trim(),
+        String(sourceChatJid || '').trim(),
+        isGroup ? 1 : 0,
+        collectedBySubbotId ? Number(collectedBySubbotId) : null,
+        subbotWasOff ? 1 : 0
+      );
+
+      // Também alimenta a base central de Leads do Radar (radar_captured_leads)
+      try {
+        models.recordRadarLead({
+          group_jid: sourceChatJid,
+          group_name: isGroup ? 'Grupo de WhatsApp' : 'Conversa Privada (PV)',
+          sender_phone: cleanPhone,
+          sender_name: name || 'Comprador Descoberto',
+          keyword_matched: intentKeyword || 'Intenção de Compra',
+          category: 'COMPRADOR_POTENCIAL',
+          message_text: messageText,
+          status: 'NEW',
+          notes: subbotWasOff ? 'Capturado por Sub-Bot DESLIGADO (Sentinela Silenciosa)' : 'Capturado por Sub-Bot Ativo',
+          instance_id: collectedBySubbotId ? Number(collectedBySubbotId) : 1,
+          scout_name: `Sub-Bot #${collectedBySubbotId || 1} ${subbotWasOff ? '(OFF Sentinela)' : ''}`
+        });
+      } catch (_) {}
+
+      return {
+        id: res.lastInsertRowid,
+        phone: cleanPhone,
+        name,
+        intentKeyword,
+        subbotWasOff: Boolean(subbotWasOff)
+      };
+    } catch (err) {
+      console.warn('[Models ⚠️ saveSwarmCollectedBuyerLead]:', err.message);
+      return null;
+    }
+  },
+
+  listSwarmCollectedBuyerLeads(limit = 50, onlyFromOff = false) {
+    try {
+      if (onlyFromOff) {
+        return db.prepare('SELECT * FROM swarm_collected_buyer_leads WHERE subbot_was_off = 1 ORDER BY id DESC LIMIT ?').all(Math.max(1, limit));
+      }
+      return db.prepare('SELECT * FROM swarm_collected_buyer_leads ORDER BY id DESC LIMIT ?').all(Math.max(1, limit));
+    } catch (err) {
+      console.warn('[Models ⚠️ listSwarmCollectedBuyerLeads]:', err.message);
+      return [];
+    }
+  },
+
+  getSwarmStats() {
+    try {
+      const linksCount = db.prepare('SELECT COUNT(*) as cnt FROM swarm_collected_links').get()?.cnt || 0;
+      const productsCount = db.prepare('SELECT COUNT(*) as cnt FROM swarm_collected_products').get()?.cnt || 0;
+      const highBuzzCount = db.prepare('SELECT COUNT(*) as cnt FROM swarm_collected_products WHERE buzz_score >= 3').get()?.cnt || 0;
+      const keysCount = db.prepare("SELECT COUNT(*) as cnt FROM swarm_collected_api_keys WHERE status = 'ACTIVE'").get()?.cnt || 0;
+      const buyerLeadsCount = db.prepare('SELECT COUNT(*) as cnt FROM swarm_collected_buyer_leads').get()?.cnt || 0;
+      const buyerLeadsFromOffCount = db.prepare('SELECT COUNT(*) as cnt FROM swarm_collected_buyer_leads WHERE subbot_was_off = 1').get()?.cnt || 0;
+
+      return {
+        linksCount,
+        productsCount,
+        highBuzzCount,
+        keysCount,
+        buyerLeadsCount,
+        buyerLeadsFromOffCount
+      };
+    } catch (err) {
+      console.warn('[Models ⚠️ getSwarmStats]:', err.message);
+      return { linksCount: 0, productsCount: 0, highBuzzCount: 0, keysCount: 0, buyerLeadsCount: 0, buyerLeadsFromOffCount: 0 };
+    }
+  },
+
+  // ==========================================
+  // 99. MÓDULO ADICIONAL: INTEGRAÇÃO E-COMMERCE & NUVEMSHOP
+  // ==========================================
+  getTenantEcommerceIntegration(tenantId) {
+    try {
+      const row = db.prepare('SELECT * FROM tenant_ecommerce_integrations WHERE tenant_id = ?').get(tenantId);
+      return row || null;
+    } catch (err) {
+      console.warn('[Models ⚠️ getTenantEcommerceIntegration]:', err.message);
+      return null;
+    }
+  },
+
+  upsertTenantEcommerceIntegration(tenantId, data = {}) {
+    try {
+      const existing = models.getTenantEcommerceIntegration(tenantId);
+      const platform = data.platform || existing?.platform || 'nuvemshop';
+      const store_name = data.store_name !== undefined ? data.store_name : (existing?.store_name || '');
+      const store_url = data.store_url !== undefined ? data.store_url : (existing?.store_url || '');
+      const store_id = data.store_id !== undefined ? data.store_id : (existing?.store_id || '');
+      const access_token = data.access_token !== undefined ? data.access_token : (existing?.access_token || '');
+      const webhook_secret = data.webhook_secret !== undefined ? data.webhook_secret : (existing?.webhook_secret || '');
+      const auto_sync = data.auto_sync !== undefined ? (data.auto_sync ? 1 : 0) : (existing?.auto_sync ?? 1);
+      const abandoned_cart_recovery = data.abandoned_cart_recovery !== undefined ? (data.abandoned_cart_recovery ? 1 : 0) : (existing?.abandoned_cart_recovery ?? 1);
+      const order_notifications = data.order_notifications !== undefined ? (data.order_notifications ? 1 : 0) : (existing?.order_notifications ?? 1);
+      const status = data.status || existing?.status || 'CONFIGURED';
+      const last_sync_at = data.last_sync_at || existing?.last_sync_at || null;
+      const total_products_synced = data.total_products_synced !== undefined ? Number(data.total_products_synced) : (existing?.total_products_synced || 0);
+      const last_error = data.last_error !== undefined ? data.last_error : (existing?.last_error || null);
+
+      if (existing) {
+        db.prepare(`
+          UPDATE tenant_ecommerce_integrations
+          SET platform = ?, store_name = ?, store_url = ?, store_id = ?, access_token = ?, webhook_secret = ?,
+              auto_sync = ?, abandoned_cart_recovery = ?, order_notifications = ?, status = ?,
+              last_sync_at = COALESCE(?, last_sync_at), total_products_synced = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE tenant_id = ?
+        `).run(platform, store_name, store_url, store_id, access_token, webhook_secret, auto_sync, abandoned_cart_recovery, order_notifications, status, last_sync_at, total_products_synced, last_error, tenantId);
+      } else {
+        db.prepare(`
+          INSERT INTO tenant_ecommerce_integrations (
+            tenant_id, platform, store_name, store_url, store_id, access_token, webhook_secret,
+            auto_sync, abandoned_cart_recovery, order_notifications, status, last_sync_at, total_products_synced, last_error
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(tenantId, platform, store_name, store_url, store_id, access_token, webhook_secret, auto_sync, abandoned_cart_recovery, order_notifications, status, last_sync_at, total_products_synced, last_error);
+      }
+      return models.getTenantEcommerceIntegration(tenantId);
+    } catch (err) {
+      console.warn('[Models ⚠️ upsertTenantEcommerceIntegration]:', err.message);
+      throw err;
+    }
+  },
+
+  logTenantEcommerceSync(tenantId, { platform = 'nuvemshop', event_type = 'CATALOG_SYNC', status = 'SUCCESS', items_count = 0, details = '' }) {
+    try {
+      db.prepare(`
+        INSERT INTO tenant_ecommerce_sync_logs (tenant_id, platform, event_type, status, items_count, details)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(tenantId, platform, event_type, status, items_count, typeof details === 'object' ? JSON.stringify(details) : String(details));
+    } catch (err) {
+      console.warn('[Models ⚠️ logTenantEcommerceSync]:', err.message);
+    }
+  },
+
+  getTenantEcommerceSyncLogs(tenantId, limit = 30) {
+    try {
+      return db.prepare('SELECT * FROM tenant_ecommerce_sync_logs WHERE tenant_id = ? ORDER BY id DESC LIMIT ?').all(tenantId, Math.max(1, limit));
+    } catch (err) {
+      console.warn('[Models ⚠️ getTenantEcommerceSyncLogs]:', err.message);
+      return [];
+    }
+  },
+
+  isTenantModuleEnabled(tenantId, moduleKey) {
+    try {
+      const t = models.getTenantById(tenantId);
+      if (!t) return false;
+      let modules = [];
+      try {
+        modules = typeof t.modules_enabled === 'string' ? JSON.parse(t.modules_enabled) : (t.modules_enabled || []);
+      } catch (_) {
+        modules = [];
+      }
+      return modules.includes(moduleKey) || modules.includes('all') || t.plan === 'enterprise' || Boolean(t.is_lifetime && t.plan === 'pro');
+    } catch (err) {
+      return false;
+    }
+  },
+
+  toggleTenantModule(tenantId, moduleKey, enable = null) {
+    try {
+      const t = models.getTenantById(tenantId);
+      if (!t) throw new Error('Tenant não encontrado');
+      let modules = [];
+      try {
+        modules = typeof t.modules_enabled === 'string' ? JSON.parse(t.modules_enabled) : (t.modules_enabled || []);
+      } catch (_) {
+        modules = [];
+      }
+
+      const isCurrentlyEnabled = modules.includes(moduleKey);
+      const shouldEnable = enable !== null ? Boolean(enable) : !isCurrentlyEnabled;
+
+      if (shouldEnable && !isCurrentlyEnabled) {
+        modules.push(moduleKey);
+      } else if (!shouldEnable && isCurrentlyEnabled) {
+        modules = modules.filter(m => m !== moduleKey);
+      }
+
+      db.prepare('UPDATE saas_tenants SET modules_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(JSON.stringify(modules), tenantId);
+
+      return { success: true, tenant_id: tenantId, module: moduleKey, enabled: shouldEnable, modules_enabled: modules };
+    } catch (err) {
+      console.warn('[Models ⚠️ toggleTenantModule]:', err.message);
+      throw err;
+    }
+  },
+
+  createTenantModuleOrder(tenantId, { module_key, module_name, billing_type = 'monthly', price = 49.90, pix_code = '', pix_qr_code = '' }) {
+    try {
+      const res = db.prepare(`
+        INSERT INTO tenant_module_orders (tenant_id, module_key, module_name, billing_type, price, pix_code, pix_qr_code, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+      `).run(tenantId, module_key, module_name, billing_type, price, pix_code, pix_qr_code);
+      return db.prepare('SELECT * FROM tenant_module_orders WHERE id = ?').get(res.lastInsertRowid);
+    } catch (err) {
+      console.warn('[Models ⚠️ createTenantModuleOrder]:', err.message);
+      throw err;
+    }
+  },
+
+  getTenantModuleOrders(tenantId) {
+    try {
+      return db.prepare('SELECT * FROM tenant_module_orders WHERE tenant_id = ? ORDER BY id DESC').all(tenantId);
+    } catch (err) {
+      return [];
+    }
+  },
+
+  markTenantModuleOrderPaid(orderId) {
+    try {
+      const order = db.prepare('SELECT * FROM tenant_module_orders WHERE id = ?').get(orderId);
+      if (!order) return null;
+      db.prepare('UPDATE tenant_module_orders SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?').run('PAID', orderId);
+      models.toggleTenantModule(order.tenant_id, order.module_key, true);
+      return db.prepare('SELECT * FROM tenant_module_orders WHERE id = ?').get(orderId);
+    } catch (err) {
+      console.warn('[Models ⚠️ markTenantModuleOrderPaid]:', err.message);
+      return null;
+    }
+  },
+
+  // =========================================================================
+  // 45. NÚCLEO DE INTELIGÊNCIA COGNITIVA & APRENDIZADO COLETIVO (TODOS OS NICHOS E MODELOS)
+  // =========================================================================
+
+  recordIntelligenceLearning(data = {}) {
+    try {
+      const {
+        tenant_id = 1,
+        niche = 'vendedores',
+        interaction_tone = 'consultivo',
+        ai_provider = 'gemini',
+        ai_model = 'default',
+        lead_phone = '',
+        user_input = '',
+        bot_response = '',
+        detected_intent = null,
+        detected_objection = null,
+        resolved_objection = 0,
+        buying_stage = 'DESCOBERTA',
+        conversion_signal = 0,
+        order_id = null,
+        order_amount = null,
+        feedback_score = 1.0,
+        learned_insight = null,
+        source = 'whatsapp'
+      } = data;
+
+      const cleanPhone = String(lead_phone || '').replace(/\D/g, '');
+      const cleanNiche = String(niche || 'vendedores').toLowerCase().trim();
+
+      const stmt = db.prepare(`
+        INSERT INTO intelligence_core_learnings (
+          tenant_id, niche, interaction_tone, ai_provider, ai_model,
+          lead_phone, user_input, bot_response, detected_intent,
+          detected_objection, resolved_objection, buying_stage,
+          conversion_signal, order_id, order_amount, feedback_score,
+          learned_insight, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const res = stmt.run(
+        tenant_id, cleanNiche, interaction_tone, ai_provider, ai_model,
+        cleanPhone, user_input, bot_response, detected_intent,
+        detected_objection, resolved_objection ? 1 : 0, buying_stage,
+        conversion_signal ? 1 : 0, order_id, order_amount, feedback_score,
+        learned_insight, source
+      );
+
+      return { id: res.lastInsertRowid, ...data };
+    } catch (err) {
+      console.warn('[Models ⚠️ recordIntelligenceLearning]:', err.message);
+      return null;
+    }
+  },
+
+  getIntelligenceLearnings(options = {}) {
+    try {
+      const { niche, model, limit = 50, onlyConversions = false } = options;
+      let sql = 'SELECT * FROM intelligence_core_learnings WHERE 1=1';
+      const params = [];
+
+      if (niche) {
+        sql += ' AND niche = ?';
+        params.push(String(niche).toLowerCase().trim());
+      }
+      if (model) {
+        sql += ' AND (ai_model = ? OR ai_provider = ?)';
+        params.push(model, model);
+      }
+      if (onlyConversions) {
+        sql += ' AND (conversion_signal = 1 OR order_id IS NOT NULL)';
+      }
+
+      sql += ' ORDER BY id DESC LIMIT ?';
+      params.push(Number(limit) || 50);
+
+      return db.prepare(sql).all(...params);
+    } catch (err) {
+      console.warn('[Models ⚠️ getIntelligenceLearnings]:', err.message);
+      return [];
+    }
+  },
+
+  upsertNichePattern(pattern = {}) {
+    try {
+      const {
+        niche = 'vendedores',
+        pattern_type = 'OBJECTION_REVERSAL',
+        trigger_topic = '',
+        canonical_response = '',
+        model = null,
+        confidence = 0.85
+      } = pattern;
+
+      const cleanNiche = String(niche).toLowerCase().trim();
+      const existing = db.prepare(`
+        SELECT * FROM intelligence_niche_patterns
+        WHERE niche = ? AND pattern_type = ? AND trigger_topic = ?
+      `).get(cleanNiche, pattern_type, trigger_topic);
+
+      if (existing) {
+        let testedModels = [];
+        try { testedModels = JSON.parse(existing.tested_models || '[]'); } catch (_) {}
+        if (model && !testedModels.includes(model)) testedModels.push(model);
+
+        const newCount = (existing.success_count || 1) + 1;
+        const newConf = Math.min(0.99, parseFloat((((existing.avg_confidence || 0.85) * (newCount - 1) + confidence) / newCount).toFixed(2)));
+
+        db.prepare(`
+          UPDATE intelligence_niche_patterns
+          SET canonical_response = ?, success_count = ?, tested_models = ?, avg_confidence = ?, last_applied_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(canonical_response || existing.canonical_response, newCount, JSON.stringify(testedModels), newConf, existing.id);
+
+        return { id: existing.id, success_count: newCount, avg_confidence: newConf };
+      } else {
+        const testedModels = model ? [model] : [];
+        const res = db.prepare(`
+          INSERT INTO intelligence_niche_patterns (niche, pattern_type, trigger_topic, canonical_response, success_count, tested_models, avg_confidence)
+          VALUES (?, ?, ?, ?, 1, ?, ?)
+        `).run(cleanNiche, pattern_type, trigger_topic, canonical_response, JSON.stringify(testedModels), confidence);
+
+        return { id: res.lastInsertRowid, success_count: 1, avg_confidence: confidence };
+      }
+    } catch (err) {
+      console.warn('[Models ⚠️ upsertNichePattern]:', err.message);
+      return null;
+    }
+  },
+
+  getNichePatterns(niche, patternType = null, limit = 10) {
+    try {
+      let sql = 'SELECT * FROM intelligence_niche_patterns WHERE 1=1';
+      const params = [];
+      if (niche) {
+        sql += ' AND niche = ?';
+        params.push(String(niche).toLowerCase().trim());
+      }
+      if (patternType) {
+        sql += ' AND pattern_type = ?';
+        params.push(patternType);
+      }
+      sql += ' ORDER BY success_count DESC, avg_confidence DESC LIMIT ?';
+      params.push(Number(limit) || 10);
+
+      const rows = db.prepare(sql).all(...params);
+      return rows.map(r => {
+        try { r.tested_models = JSON.parse(r.tested_models || '[]'); } catch (_) { r.tested_models = []; }
+        return r;
+      });
+    } catch (err) {
+      console.warn('[Models ⚠️ getNichePatterns]:', err.message);
+      return [];
+    }
+  },
+
+  markLearningConversion(leadPhone, orderId, orderAmount, niche = null) {
+    try {
+      const cleanPhone = String(leadPhone || '').replace(/\D/g, '');
+      if (!cleanPhone) return 0;
+
+      // Localiza o aprendizado mais recente deste lead
+      const latest = db.prepare(`
+        SELECT * FROM intelligence_core_learnings
+        WHERE lead_phone = ?
+        ORDER BY id DESC LIMIT 1
+      `).get(cleanPhone);
+
+      const targetNiche = niche || latest?.niche || 'vendedores';
+      const amt = Number(orderAmount) || 0;
+
+      const res = db.prepare(`
+        UPDATE intelligence_core_learnings
+        SET conversion_signal = 1, feedback_score = 5.0, order_id = ?, order_amount = ?
+        WHERE lead_phone = ? AND id = (
+          SELECT MAX(id) FROM intelligence_core_learnings WHERE lead_phone = ?
+        )
+      `).run(orderId, amt, cleanPhone, cleanPhone);
+
+      // Se temos o bot_response que fechou o negócio, promove para padrão canônico de alta conversão
+      if (latest && latest.bot_response) {
+        models.upsertNichePattern({
+          niche: targetNiche,
+          pattern_type: 'WINNING_PITCH',
+          trigger_topic: latest.detected_intent || 'FECHAMENTO_PIX',
+          canonical_response: latest.bot_response,
+          model: latest.ai_model || latest.ai_provider,
+          confidence: 0.98
+        });
+      }
+
+      return res.changes;
+    } catch (err) {
+      console.warn('[Models ⚠️ markLearningConversion]:', err.message);
+      return 0;
+    }
+  },
+
+  getIntelligenceStats() {
+    try {
+      const totalLearnings = db.prepare('SELECT COUNT(*) as count FROM intelligence_core_learnings').get()?.count || 0;
+      const totalConversions = db.prepare('SELECT COUNT(*) as count FROM intelligence_core_learnings WHERE conversion_signal = 1 OR order_id IS NOT NULL').get()?.count || 0;
+      
+      const byNiche = db.prepare(`
+        SELECT niche, COUNT(*) as count, SUM(conversion_signal) as conversions
+        FROM intelligence_core_learnings
+        GROUP BY niche
+        ORDER BY count DESC
+      `).all();
+
+      const byModel = db.prepare(`
+        SELECT COALESCE(ai_provider, 'auto') as provider, COALESCE(ai_model, 'default') as model, COUNT(*) as count, SUM(conversion_signal) as conversions
+        FROM intelligence_core_learnings
+        GROUP BY ai_provider, ai_model
+        ORDER BY count DESC
+      `).all();
+
+      const patternsCount = db.prepare('SELECT COUNT(*) as count FROM intelligence_niche_patterns').get()?.count || 0;
+
+      return {
+        total_learnings: totalLearnings,
+        total_conversions: totalConversions,
+        total_patterns: patternsCount,
+        niches_active_count: byNiche.length,
+        models_active_count: byModel.length,
+        learnings_by_niche: byNiche,
+        learnings_by_model: byModel
+      };
+    } catch (err) {
+      console.warn('[Models ⚠️ getIntelligenceStats]:', err.message);
+      return { total_learnings: 0, total_conversions: 0, total_patterns: 0, learnings_by_niche: [], learnings_by_model: [] };
+    }
+  },
+
+  // ==========================================
+  // 45. INFRAESTRUTURA DE DIVULGAÇÃO & TRÁFEGO ESCALÁVEL (5 PILARES)
+  // ==========================================
+
+  // --- PILAR 1: Cloaking & Roteador de Links Próprio ---
+  createTrackedLink({
+    slug,
+    title,
+    destination_url,
+    platform = 'Outro',
+    cloaking_mode = 'meta_refresh',
+    og_title = null,
+    og_description = null,
+    og_image = null,
+    subbot_id = null,
+    group_jid = null,
+    source = 'achadinhos'
+  }) {
+    const cleanSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const existing = db.prepare('SELECT * FROM tracked_links WHERE slug = ?').get(cleanSlug);
+    if (existing) {
+      db.prepare(`
+        UPDATE tracked_links
+        SET title = ?, destination_url = ?, platform = ?, cloaking_mode = ?,
+            og_title = ?, og_description = ?, og_image = ?, subbot_id = ?, group_jid = ?, source = ?
+        WHERE slug = ?
+      `).run(
+        title, destination_url, platform, cloaking_mode,
+        og_title, og_description, og_image, subbot_id ? Number(subbot_id) : null, group_jid, source, cleanSlug
+      );
+      return db.prepare('SELECT * FROM tracked_links WHERE slug = ?').get(cleanSlug);
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO tracked_links (
+        slug, title, destination_url, platform, cloaking_mode,
+        og_title, og_description, og_image, subbot_id, group_jid, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(
+      cleanSlug, title, destination_url, platform, cloaking_mode,
+      og_title, og_description, og_image, subbot_id ? Number(subbot_id) : null, group_jid, source
+    );
+    return db.prepare('SELECT * FROM tracked_links WHERE id = ?').get(res.lastInsertRowid);
+  },
+
+  getTrackedLinkBySlug(slug) {
+    if (!slug) return null;
+    return db.prepare('SELECT * FROM tracked_links WHERE slug = ? AND active = 1').get(String(slug).trim().toLowerCase());
+  },
+
+  updateTrackedLink(idOrSlug, fields = {}) {
+    if (!idOrSlug || typeof fields !== 'object') return null;
+    const isId = typeof idOrSlug === 'number' || /^\d+$/.test(String(idOrSlug));
+    const whereClause = isId ? 'id = ?' : 'slug = ?';
+    const whereVal = isId ? Number(idOrSlug) : String(idOrSlug).trim().toLowerCase();
+
+    const allowed = ['title', 'destination_url', 'platform', 'cloaking_mode', 'og_title', 'og_description', 'og_image', 'active', 'subbot_id', 'group_jid', 'source'];
+    const updates = [];
+    const values = [];
+
+    for (const [k, v] of Object.entries(fields)) {
+      if (allowed.includes(k)) {
+        updates.push(`${k} = ?`);
+        values.push(v);
+      }
+    }
+
+    if (updates.length === 0) return null;
+    values.push(whereVal);
+
+    db.prepare(`UPDATE tracked_links SET ${updates.join(', ')} WHERE ${whereClause}`).run(...values);
+    return isId ? this.getTrackedLinkById(whereVal) : this.getTrackedLinkBySlug(whereVal);
+  },
+
+  getTrackedLinkById(id) {
+    return db.prepare('SELECT * FROM tracked_links WHERE id = ?').get(Number(id));
+  },
+
+  getAllTrackedLinks(limit = 100) {
+    return db.prepare('SELECT * FROM tracked_links ORDER BY id DESC LIMIT ?').all(Number(limit));
+  },
+
+  recordTrackedLinkClick({ link_id, slug, ip = null, user_agent = null, referrer = null, subbot_id = null, group_jid = null }) {
+    db.prepare('UPDATE tracked_links SET clicks_count = clicks_count + 1 WHERE id = ?').run(Number(link_id));
+    const stmt = db.prepare(`
+      INSERT INTO tracked_link_clicks (link_id, slug, ip, user_agent, referrer, subbot_id, group_jid)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(Number(link_id), slug, ip, user_agent, referrer, subbot_id ? Number(subbot_id) : null, group_jid);
+    return true;
+  },
+
+  getTrackedLinkStats(link_id) {
+    const link = db.prepare('SELECT * FROM tracked_links WHERE id = ?').get(Number(link_id));
+    if (!link) return null;
+    const clicks = db.prepare('SELECT * FROM tracked_link_clicks WHERE link_id = ? ORDER BY id DESC LIMIT 50').all(Number(link_id));
+    return { link, clicks };
+  },
+
+  // --- PILAR 2: Recuperação de Carrinho Abandonado Web ---
+  getAbandonedCartSessionsStep1(delayMinutes = 15) {
+    return db.prepare(`
+      SELECT * FROM web_cart_sessions
+      WHERE status IN ('IN_CART', 'CHECKOUT_OPEN')
+        AND phone IS NOT NULL
+        AND length(phone) >= 8
+        AND cart_total > 0
+        AND (recovery_step1_sent = 0 OR recovery_step1_sent IS NULL)
+        AND (recovered = 0 OR recovered IS NULL)
+        AND datetime(last_activity_at, '+' || ? || ' minutes') <= datetime('now')
+      ORDER BY last_activity_at DESC
+    `).all(Number(delayMinutes)).map(r => ({
+      ...r,
+      cart_items: (typeof r.cart_items === 'string' && r.cart_items.startsWith('[')) ? JSON.parse(r.cart_items) : []
+    }));
+  },
+
+  getAbandonedCartSessionsStep2(delayHours = 20) {
+    return db.prepare(`
+      SELECT * FROM web_cart_sessions
+      WHERE status IN ('IN_CART', 'CHECKOUT_OPEN')
+        AND phone IS NOT NULL
+        AND length(phone) >= 8
+        AND cart_total > 0
+        AND recovery_step1_sent = 1
+        AND (recovery_step2_sent = 0 OR recovery_step2_sent IS NULL)
+        AND (recovered = 0 OR recovered IS NULL)
+        AND datetime(recovery_step1_at, '+' || ? || ' hours') <= datetime('now')
+      ORDER BY last_activity_at DESC
+    `).all(Number(delayHours)).map(r => ({
+      ...r,
+      cart_items: (typeof r.cart_items === 'string' && r.cart_items.startsWith('[')) ? JSON.parse(r.cart_items) : []
+    }));
+  },
+
+  markCartRecoveryStep1(sessionId) {
+    db.prepare(`
+      UPDATE web_cart_sessions
+      SET recovery_step1_sent = 1,
+          recovery_step1_at = datetime('now'),
+          abandoned_recovery_sent = 1
+      WHERE session_id = ?
+    `).run(String(sessionId));
+  },
+
+  markCartRecoveryStep2(sessionId, couponCode = null) {
+    db.prepare(`
+      UPDATE web_cart_sessions
+      SET recovery_step2_sent = 1,
+          recovery_step2_at = datetime('now'),
+          recovery_coupon_code = ?
+      WHERE session_id = ?
+    `).run(couponCode, String(sessionId));
+  },
+
+  markCartRecovered(sessionId) {
+    db.prepare(`
+      UPDATE web_cart_sessions
+      SET recovered = 1,
+          recovered_at = datetime('now'),
+          status = 'ORDER_PLACED'
+      WHERE session_id = ?
+    `).run(String(sessionId));
+  },
+
+  getAbandonedCartRecoveryStats() {
+    const totalAbandoned = db.prepare(`
+      SELECT COUNT(*) as count, COALESCE(SUM(cart_total), 0) as total_value
+      FROM web_cart_sessions
+      WHERE status IN ('IN_CART', 'CHECKOUT_OPEN') AND cart_total > 0
+    `).get();
+
+    const step1Sent = db.prepare('SELECT COUNT(*) as count FROM web_cart_sessions WHERE recovery_step1_sent = 1').get()?.count || 0;
+    const step2Sent = db.prepare('SELECT COUNT(*) as count FROM web_cart_sessions WHERE recovery_step2_sent = 1').get()?.count || 0;
+    const recovered = db.prepare(`
+      SELECT COUNT(*) as count, COALESCE(SUM(cart_total), 0) as recovered_value
+      FROM web_cart_sessions WHERE recovered = 1
+    `).get();
+
+    return {
+      total_abandoned: totalAbandoned?.count || 0,
+      total_abandoned_value: totalAbandoned?.total_value || 0,
+      step1_sent: step1Sent,
+      step2_sent: step2Sent,
+      recovered_count: recovered?.count || 0,
+      recovered_value: recovered?.recovered_value || 0,
+      recovery_rate_percent: (totalAbandoned?.count || 0) > 0 ? Math.round(((recovered?.count || 0) / totalAbandoned.count) * 100) : 0
+    };
+  },
+
+  // --- PILAR 3: Régua de Aquecimento de Chips Novos (Warmup Pipeline) ---
+  getSubBotWarmupInfo(instanceId) {
+    const inst = db.prepare('SELECT * FROM whatsapp_army_instances WHERE id = ?').get(Number(instanceId));
+    if (!inst) return null;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    let log = db.prepare('SELECT * FROM subbot_warmup_logs WHERE instance_id = ? AND date = ?').get(inst.id, todayStr);
+
+    let daysConnected = 7;
+    if (inst.created_at) {
+      const createdTime = new Date(inst.created_at).getTime();
+      const diffDays = Math.floor((Date.now() - createdTime) / (1000 * 60 * 60 * 24)) + 1;
+      daysConnected = Math.max(1, diffDays);
+    }
+
+    let stage = inst.warmup_stage || (daysConnected <= 3 ? 'FRIO' : daysConnected <= 6 ? 'MORNO' : 'MADURO');
+    if (!inst.warmup_mode && daysConnected >= 7) {
+      stage = 'MADURO';
+    }
+
+    let maxPosts = 0;
+    if (stage === 'FRIO') maxPosts = 0;
+    else if (stage === 'MORNO') maxPosts = Math.min(3, daysConnected);
+    else maxPosts = inst.daily_limit || 50;
+
+    if (!log) {
+      try {
+        db.prepare(`
+          INSERT OR IGNORE INTO subbot_warmup_logs (instance_id, day_number, stage, p2p_sent_today, group_posts_today, max_posts_allowed, date)
+          VALUES (?, ?, ?, 0, 0, ?, ?)
+        `).run(inst.id, daysConnected, stage, maxPosts, todayStr);
+        log = db.prepare('SELECT * FROM subbot_warmup_logs WHERE instance_id = ? AND date = ?').get(inst.id, todayStr);
+      } catch (_) {}
+    }
+
+    return {
+      instance_id: inst.id,
+      name: inst.name,
+      phone: inst.phone,
+      days_connected: daysConnected,
+      stage: log?.stage || stage,
+      p2p_sent_today: log?.p2p_sent_today || 0,
+      group_posts_today: log?.group_posts_today || 0,
+      max_posts_allowed: log?.max_posts_allowed || maxPosts,
+      can_post_groups: stage !== 'FRIO' && ((log?.group_posts_today || 0) < maxPosts),
+      status: inst.status
+    };
+  },
+
+  canSubBotPostToGroup(instanceId) {
+    if (!this.isSubBotFeatureEnabled(instanceId, 'group_posts')) {
+      return { allowed: false, reason: 'Função de postagens em grupos desativada para este chip pelo Dono/Bot Master.' };
+    }
+    const info = this.getSubBotWarmupInfo(instanceId);
+    if (!info) return { allowed: false, reason: 'Instância não encontrada' };
+    if (info.stage === 'FRIO') {
+      return { allowed: false, reason: `Chip em Nível Frio (Dia ${info.days_connected}/3). Bloqueado para postar em grupos durante aquecimento inicial.` };
+    }
+    if (info.stage !== 'MADURO' && info.group_posts_today >= info.max_posts_allowed) {
+      return { allowed: false, reason: `Limite diário de aquecimento atingido (${info.group_posts_today}/${info.max_posts_allowed} posts hoje).` };
+    }
+    return { allowed: true, reason: 'Liberado' };
+  },
+
+  recordSubBotGroupPost(instanceId) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    db.prepare(`
+      UPDATE subbot_warmup_logs
+      SET group_posts_today = group_posts_today + 1
+      WHERE instance_id = ? AND date = ?
+    `).run(Number(instanceId), todayStr);
+    return true;
+  },
+
+  recordSubBotP2PExchange(instanceId) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    db.prepare(`
+      UPDATE subbot_warmup_logs
+      SET p2p_sent_today = p2p_sent_today + 1,
+          last_p2p_at = datetime('now')
+      WHERE instance_id = ? AND date = ?
+    `).run(Number(instanceId), todayStr);
+    return true;
+  },
+
+  setSubBotWarmupStage(instanceId, stage) {
+    const valid = ['FRIO', 'MORNO', 'MADURO'].includes(stage) ? stage : 'MADURO';
+    const inst = db.prepare('SELECT daily_limit FROM whatsapp_army_instances WHERE id = ?').get(Number(instanceId));
+    const maxPosts = valid === 'FRIO' ? 0 : valid === 'MORNO' ? 3 : (inst?.daily_limit || 50);
+
+    db.prepare('UPDATE whatsapp_army_instances SET warmup_stage = ? WHERE id = ?').run(valid, Number(instanceId));
+    const todayStr = new Date().toISOString().split('T')[0];
+    db.prepare(`
+      UPDATE subbot_warmup_logs
+      SET stage = ?, max_posts_allowed = ?
+      WHERE instance_id = ? AND date = ?
+    `).run(valid, maxPosts, Number(instanceId), todayStr);
+    return true;
+  },
+
+  getAllSubBotsWarmupStatus() {
+    const instances = db.prepare('SELECT id FROM whatsapp_army_instances WHERE active = 1 ORDER BY id ASC').all();
+    return instances.map(i => this.getSubBotWarmupInfo(i.id)).filter(Boolean);
+  },
+
+  // --- PILAR 4: Repurposing de Vídeos Virais ---
+  createViralRepurposedJob(data) {
+    const stmt = db.prepare(`
+      INSERT INTO viral_repurposed_jobs (
+        source_url, platform, original_title, original_caption, video_path,
+        product_name, product_url, hook_copy, body_copy, cta_copy, final_caption,
+        target_destinations, status, scheduled_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(
+      data.source_url,
+      data.platform || 'instagram',
+      data.original_title || null,
+      data.original_caption || null,
+      data.video_path || null,
+      data.product_name || null,
+      data.product_url || null,
+      data.hook_copy || null,
+      data.body_copy || null,
+      data.cta_copy || null,
+      data.final_caption || null,
+      data.target_destinations || 'status',
+      data.status || 'DRAFT',
+      data.scheduled_at || null
+    );
+    return db.prepare('SELECT * FROM viral_repurposed_jobs WHERE id = ?').get(res.lastInsertRowid);
+  },
+
+  updateViralRepurposedJob(id, data) {
+    const fields = [];
+    const values = [];
+    for (const [k, v] of Object.entries(data)) {
+      fields.push(`${k} = ?`);
+      values.push(v);
+    }
+    if (!fields.length) return false;
+    values.push(Number(id));
+    db.prepare(`UPDATE viral_repurposed_jobs SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return db.prepare('SELECT * FROM viral_repurposed_jobs WHERE id = ?').get(Number(id));
+  },
+
+  getViralRepurposedJobs(limit = 50) {
+    return db.prepare('SELECT * FROM viral_repurposed_jobs ORDER BY id DESC LIMIT ?').all(Number(limit));
+  },
+
+  getPendingScheduledViralJobs() {
+    return db.prepare(`
+      SELECT * FROM viral_repurposed_jobs
+      WHERE status = 'SCHEDULED'
+        AND datetime(scheduled_at) <= datetime('now')
+      ORDER BY id ASC
+    `).all();
+  },
+
+  // --- PILAR 5: Indique & Ganhe (Member-Get-Member nos Grupos) ---
+  recordMemberReferral(groupJid, referrerJid, invitedJid, inviteCode = null) {
+    try {
+      const cleanGroup = String(groupJid).trim();
+      const cleanRef = String(referrerJid).trim();
+      const cleanInvited = String(invitedJid).trim();
+
+      if (cleanRef === cleanInvited) return { recorded: false, reason: 'self_referral' };
+
+      const stmt = db.prepare(`
+        INSERT OR IGNORE INTO group_member_referrals (group_jid, referrer_jid, invited_jid, invite_code)
+        VALUES (?, ?, ?, ?)
+      `);
+      const res = stmt.run(cleanGroup, cleanRef, cleanInvited, inviteCode);
+      if (res.changes === 0) return { recorded: false, reason: 'already_referred' };
+
+      const count = this.getMemberReferralCount(cleanGroup, cleanRef);
+      return { recorded: true, total_referrals: count };
+    } catch (err) {
+      console.warn('[Models ⚠️ recordMemberReferral]:', err.message);
+      return { recorded: false, reason: err.message };
+    }
+  },
+
+  getMemberReferralCount(groupJid, referrerJid) {
+    const row = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM group_member_referrals
+      WHERE group_jid = ? AND referrer_jid = ? AND status = 'CONFIRMED'
+    `).get(String(groupJid).trim(), String(referrerJid).trim());
+    return row?.count || 0;
+  },
+
+  getGroupReferralRanking(groupJid, limit = 5) {
+    return db.prepare(`
+      SELECT referrer_jid, COUNT(*) as referrals_count
+      FROM group_member_referrals
+      WHERE group_jid = ? AND status = 'CONFIRMED'
+      GROUP BY referrer_jid
+      ORDER BY referrals_count DESC
+      LIMIT ?
+    `).all(String(groupJid).trim(), Number(limit));
+  },
+
+  checkAndUnlockMilestoneReward(groupJid, referrerJid, count) {
+    const milestones = [
+      { count: 3, type: 'coupon_15', desc: 'Cupom de 15% OFF VIP' },
+      { count: 5, type: 'vip_access', desc: 'Acesso à Lista VIP de Lançamentos' },
+      { count: 10, type: 'special_gift', desc: 'Brinde Exclusivo da Loja' }
+    ];
+
+    const cleanGroup = String(groupJid).trim();
+    const cleanRef = String(referrerJid).trim();
+    const cleanPhone = cleanRef.split('@')[0].replace(/\D/g, '');
+
+    const unlocked = [];
+
+    for (const m of milestones) {
+      if (count >= m.count) {
+        const existing = db.prepare(`
+          SELECT * FROM group_member_rewards
+          WHERE group_jid = ? AND referrer_jid = ? AND milestone = ?
+        `).get(cleanGroup, cleanRef, m.count);
+
+        if (!existing) {
+          let payload = null;
+          if (m.type === 'coupon_15') {
+            const coupon = this.createOrGetAbandonedCoupon(cleanPhone, null, 15, 72);
+            payload = coupon?.code || 'VIP15_ESPECIAL';
+          } else {
+            payload = `PREMIO_${m.count}_AMIGOS`;
+          }
+
+          db.prepare(`
+            INSERT INTO group_member_rewards (group_jid, referrer_jid, milestone, reward_type, reward_payload)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(cleanGroup, cleanRef, m.count, m.type, payload);
+
+          unlocked.push({
+            milestone: m.count,
+            reward_type: m.type,
+            description: m.desc,
+            payload
+          });
+        }
+      }
+    }
+
+    return unlocked;
+  },
+
+  // =========================================================================
+  // 46. GERENTE GERAL DA OPERAÇÃO & ÁRBITRO DO SISTEMA (NÚCLEO ISOLADO)
+  // =========================================================================
+  recordOperationsAudit({
+    healthScore,
+    verdict,
+    subsystemsStatus,
+    anomaliesDetected = [],
+    autoHealActions = [],
+    aiDiagnosis = null,
+    aiProviderUsed = null
+  }) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO operations_arbiter_audits (
+          health_score, verdict, subsystems_status, anomalies_detected,
+          auto_heal_actions, ai_diagnosis, ai_provider_used
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        Math.max(0, Math.min(100, Math.round(healthScore || 0))),
+        String(verdict || 'PLENO_FUNCIONAMENTO'),
+        typeof subsystemsStatus === 'string' ? subsystemsStatus : JSON.stringify(subsystemsStatus || {}),
+        typeof anomaliesDetected === 'string' ? anomaliesDetected : JSON.stringify(anomaliesDetected || []),
+        typeof autoHealActions === 'string' ? autoHealActions : JSON.stringify(autoHealActions || []),
+        aiDiagnosis ? String(aiDiagnosis) : null,
+        aiProviderUsed ? String(aiProviderUsed) : null
+      );
+      return info.lastInsertRowid;
+    } catch (err) {
+      console.error('[Models ⚠️ recordOperationsAudit]:', err.message);
+      return null;
+    }
+  },
+
+  getLatestOperationsAudit() {
+    try {
+      const audit = db.prepare(`
+        SELECT * FROM operations_arbiter_audits
+        ORDER BY id DESC LIMIT 1
+      `).get();
+      if (!audit) return null;
+      const subsystems = typeof audit.subsystems_status === 'string' ? JSON.parse(audit.subsystems_status || '{}') : (audit.subsystems_status || {});
+      const anomalies = typeof audit.anomalies_detected === 'string' ? JSON.parse(audit.anomalies_detected || '[]') : (audit.anomalies_detected || []);
+      const actions = typeof audit.auto_heal_actions === 'string' ? JSON.parse(audit.auto_heal_actions || '[]') : (audit.auto_heal_actions || []);
+      return {
+        ...audit,
+        healthScore: audit.health_score,
+        global_score: audit.health_score,
+        globalScore: audit.health_score,
+        subsystems,
+        subsystems_status: subsystems,
+        anomalies,
+        anomalies_detected: anomalies,
+        anomalies_count: Array.isArray(anomalies) ? anomalies.length : 0,
+        autoHealActions: actions,
+        auto_heal_actions: actions,
+        aiDiagnosis: audit.ai_diagnosis,
+        aiProviderUsed: audit.ai_provider_used
+      };
+    } catch (err) {
+      console.error('[Models ⚠️ getLatestOperationsAudit]:', err.message);
+      return null;
+    }
+  },
+
+  getOperationsAuditHistory(limit = 20) {
+    try {
+      const rows = db.prepare(`
+        SELECT * FROM operations_arbiter_audits
+        ORDER BY id DESC LIMIT ?
+      `).all(Math.max(1, Math.min(100, parseInt(limit, 10) || 20)));
+      return rows.map(r => {
+        const subsystems = typeof r.subsystems_status === 'string' ? JSON.parse(r.subsystems_status || '{}') : (r.subsystems_status || {});
+        const anomalies = typeof r.anomalies_detected === 'string' ? JSON.parse(r.anomalies_detected || '[]') : (r.anomalies_detected || []);
+        const actions = typeof r.auto_heal_actions === 'string' ? JSON.parse(r.auto_heal_actions || '[]') : (r.auto_heal_actions || []);
+        return {
+          ...r,
+          healthScore: r.health_score,
+          global_score: r.health_score,
+          globalScore: r.health_score,
+          subsystems,
+          subsystems_status: subsystems,
+          anomalies,
+          anomalies_detected: anomalies,
+          anomalies_count: Array.isArray(anomalies) ? anomalies.length : 0,
+          autoHealActions: actions,
+          auto_heal_actions: actions,
+          aiDiagnosis: r.ai_diagnosis,
+          aiProviderUsed: r.ai_provider_used
+        };
+      });
+    } catch (err) {
+      console.error('[Models ⚠️ getOperationsAuditHistory]:', err.message);
+      return [];
+    }
+  },
+
+  recordOperationsEvent({
+    eventType,
+    subsystem,
+    severity = 'INFO',
+    details = '',
+    resolved = 0
+  }) {
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO operations_arbiter_events (event_type, subsystem, severity, details, resolved)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        String(eventType || 'ANOMALY_DETECTED'),
+        String(subsystem || 'general'),
+        String(severity || 'INFO'),
+        typeof details === 'object' ? JSON.stringify(details) : String(details || ''),
+        resolved ? 1 : 0
+      );
+      return info.lastInsertRowid;
+    } catch (err) {
+      console.error('[Models ⚠️ recordOperationsEvent]:', err.message);
+      return null;
+    }
+  },
+
+  getRecentOperationsEvents(limit = 50) {
+    try {
+      return db.prepare(`
+        SELECT * FROM operations_arbiter_events
+        ORDER BY id DESC LIMIT ?
+      `).all(Math.max(1, Math.min(200, parseInt(limit, 10) || 50)));
+    } catch (err) {
+      console.error('[Models ⚠️ getRecentOperationsEvents]:', err.message);
+      return [];
+    }
+  },
+
+  resolveOperationsEvent(id) {
+    try {
+      db.prepare(`
+        UPDATE operations_arbiter_events SET resolved = 1 WHERE id = ?
+      `).run(Number(id));
+      return true;
+    } catch (err) {
+      console.error('[Models ⚠️ resolveOperationsEvent]:', err.message);
+      return false;
+    }
+  },
+
+  cleanOldOperationsAudits(days = 15) {
+    try {
+      const res = db.prepare(`
+        DELETE FROM operations_arbiter_audits
+        WHERE created_at < datetime('now', '-' || ? || ' days')
+      `).run(days);
+      db.prepare(`
+        DELETE FROM operations_arbiter_events
+        WHERE created_at < datetime('now', '-' || ? || ' days')
+      `).run(days);
+      return res.changes;
+    } catch (err) {
+      console.error('[Models ⚠️ cleanOldOperationsAudits]:', err.message);
+      return 0;
+    }
   }
+
+
 
 };
 

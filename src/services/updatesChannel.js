@@ -61,7 +61,7 @@ class UpdatesChannelService {
 
       const dateStr = new Date().toLocaleString('pt-BR');
       const valorStr = order.currency === 'BRL' ? `R$ ${order.amount.toFixed(2)}` : `${order.amount.toFixed(2)} USDT`;
-      const gatewayStr = order.gateway === 'mercadopago' ? 'PIX' : (order.gateway === 'binancepay' ? 'Binance Pay' : 'LivePix');
+      const gatewayStr = (order.gateway === 'mercadopago' || order.gateway === 'livepix' || order.gateway === 'bacen') ? 'PIX' : (order.gateway === 'binancepay' ? 'Binance Pay' : (order.gateway === 'crypto' ? 'Cripto' : 'PIX'));
 
       const message = `⚡ *NOVA TRANSAÇÃO CONFIRMADA!* ⚡\n\n` +
         `📦 *Item:* ${order.product_name || 'Produto Digital'}\n` +

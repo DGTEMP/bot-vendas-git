@@ -10,14 +10,24 @@ class BinancePayService {
   getCredentials() {
     const apiKey = models.getSetting('BINANCE_API_KEY', config.binance.apiKey);
     const secretKey = models.getSetting('BINANCE_SECRET_KEY', config.binance.secretKey);
+    const isProduction = typeof models.isProduction === 'function' ? models.isProduction() : (models.getSetting('ENVIRONMENT_MODE', 'sandbox') === 'production');
     const simulationSetting = models.getSetting('BINANCE_SIMULATION_MODE', null);
     
-    // Se a chave não estiver preenchida ou modo simulação explicitamente ligado
-    const isSimulated = simulationSetting !== null 
-      ? simulationSetting === 'true' 
-      : (config.binance.simulationMode || !apiKey || !secretKey);
+    const hasKeys = Boolean(apiKey && secretKey && apiKey.trim().length > 5 && secretKey.trim().length > 5 && !apiKey.includes('your_') && !apiKey.includes('sua_chave'));
+    let isSimulated;
+    if (process.env.NODE_ENV === 'test') {
+      isSimulated = true;
+    } else if (simulationSetting !== null) {
+      isSimulated = simulationSetting === 'true' || !hasKeys;
+    } else if (!hasKeys) {
+      isSimulated = true;
+    } else if (isProduction) {
+      isSimulated = false;
+    } else {
+      isSimulated = Boolean(config.binance.simulationMode || !hasKeys);
+    }
 
-    return { apiKey, secretKey, isSimulated };
+    return { apiKey, secretKey, isSimulated, isProduction };
   }
 
   generateSignature(timestamp, nonce, bodyString, secretKey) {

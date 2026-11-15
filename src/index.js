@@ -1,3 +1,4 @@
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '32';
 const http = require('http');
 const config = require('./config');
 const models = require('./db/models');
@@ -5,6 +6,24 @@ const { createServer } = require('./server/app');
 const subscriptionCron = require('./services/subscriptionCron');
 const telegramBot = require('./bots/telegramBot');
 const whatsappBot = require('./bots/whatsappBot');
+
+// Escudos Globais de Resiliência 24/7 (Evita quedas por timeouts de rede externos)
+const origExit = process.exit;
+process.exit = function(code) {
+  console.error(`🚨 [Process.exit interceptado com código ${code}]:`, new Error().stack);
+  return origExit.apply(process, arguments);
+};
+
+process.on('exit', (code) => {
+  console.log(`🛑 [Node Process Exit]: código ${code}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('🛡️ [Shield - UncaughtException controlado]:', err?.stack || err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('🛡️ [Shield - UnhandledRejection controlado]:', reason?.stack || reason?.message || reason);
+});
 
 async function bootstrap() {
   console.clear();
@@ -87,19 +106,63 @@ async function bootstrap() {
     console.error('❌ [Exército WhatsApp] Erro ao restaurar chips:', err.message);
   });
 
-  // 6. Monitor & Coletor Automático de Otimização de Memória RAM e Ping
+  // 5.5 Inicia Poller Contínuo de Sincronização Google Sheets (Links de Afiliados)
+  const googleSheetsSyncService = require('./services/googleSheetsSyncService');
+  try {
+    googleSheetsSyncService.start();
+  } catch (sheetErr) {
+    console.warn('⚠️ [Google Sheets] Aviso ao iniciar poller:', sheetErr.message);
+  }
+
+  // 5.6 Inicia Fechamento Diário de Caixa Automático (23h Brasília) e Backup SQLite
+  const dailyClosingReportService = require('./services/dailyClosingReportService');
+  const databaseBackupService = require('./services/databaseBackupService');
+  try {
+    dailyClosingReportService.start();
+    databaseBackupService.start(12);
+  } catch (srvErr) {
+    console.warn('⚠️ [Serviços Diários] Aviso ao iniciar:', srvErr.message);
+  }
+
+  // 5.7 Inicia o Gerente Geral da Operação & Árbitro Supremo (Núcleo Isolado 24/7)
+  const operationsArbiter = require('./services/operationsArbiterService');
+  try {
+    operationsArbiter.startWatchdog();
+  } catch (arbiterErr) {
+    console.warn('⚠️ [Gerente da Operação] Aviso ao iniciar watchdog:', arbiterErr.message);
+  }
+
+  // 6. Monitor & Coletor Automático de Otimização de Memória RAM e Ping (Nitro V15 Performance Suite)
   const db = require('./db/database');
   const spyFeatures = require('./services/spyFeaturesService');
-  const memoryCleanupInterval = setInterval(() => {
+  const whatsappMessageStore = require('./services/whatsappMessageStoreService');
+  
+  const performSystemCleanup = () => {
     try {
       if (typeof db.optimizeDatabaseMemory === 'function') db.optimizeDatabaseMemory();
       if (typeof whatsappBot.cleanupMemory === 'function') whatsappBot.cleanupMemory();
       if (typeof whatsappArmyService.cleanupMemory === 'function') whatsappArmyService.cleanupMemory();
+      if (typeof whatsappMessageStore.cleanupMemory === 'function') whatsappMessageStore.cleanupMemory();
       if (typeof spyFeatures.cleanupMemory === 'function') spyFeatures.cleanupMemory();
       if (typeof global.gc === 'function') global.gc();
     } catch (_) {}
-  }, 180000); // Executa a cada 3 minutos para manter RAM mínima e latência ~1-5ms
+  };
+
+  const memoryCleanupInterval = setInterval(performSystemCleanup, 120000); // Executa a cada 2 minutos no Nitro V15
   memoryCleanupInterval.unref?.();
+
+  // Guardião Ativo de Pressão de Memória (Evita qualquer risco de Out Of Memory em picos)
+  const memoryGuardInterval = setInterval(() => {
+    try {
+      const mem = process.memoryUsage();
+      const heapUsedMb = Math.round(mem.heapUsed / (1024 * 1024));
+      // Se o heap passar de 1.8GB ou 75% do limite usual, força purga emergencial
+      if (heapUsedMb > 1800) {
+        performSystemCleanup();
+      }
+    } catch (_) {}
+  }, 30000); // Checagem leve a cada 30 segundos
+  memoryGuardInterval.unref?.();
 
   // Graceful shutdown
   const shutdown = async () => {
@@ -108,6 +171,10 @@ async function bootstrap() {
     const tunnelService = require('./services/tunnelService');
     tunnelService.stop();
     subscriptionCron.stop();
+    googleSheetsSyncService.stop();
+    dailyClosingReportService.stop();
+    databaseBackupService.stop();
+    try { operationsArbiter.stopWatchdog(); } catch (_) {}
     await telegramBot.stop();
     await whatsappBot.stop();
     await whatsappArmyService.stopAllInstances();

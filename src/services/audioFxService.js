@@ -100,17 +100,19 @@ class AudioFxService {
 
   async checkFFmpeg() {
     if (this._hasFFmpegChecked) return this._ffmpegAvailable;
-    return new Promise((resolve) => {
-      exec('ffmpeg -version', (error) => {
-        this._ffmpegAvailable = !error;
-        this._hasFFmpegChecked = true;
-        resolve(this._ffmpegAvailable);
-      });
-    });
+    try {
+      const audioConverter = require('./audioConverterService');
+      const ffmpegPath = audioConverter.getFFmpegPath();
+      this._ffmpegAvailable = !!ffmpegPath;
+    } catch (_) {
+      this._ffmpegAvailable = false;
+    }
+    this._hasFFmpegChecked = true;
+    return this._ffmpegAvailable;
   }
 
   /**
-   * Aplica um efeito de áudio ao buffer MP3/OGG
+   * Aplica um efeito de áudio ao buffer e formata perfeitamente para WhatsApp PTT
    */
   async applyAudioEffect(buffer, effectName) {
     const cleanEffect = String(effectName || 'bass').toLowerCase().replace(/^[!/#]/, '');
@@ -122,7 +124,7 @@ class AudioFxService {
       return {
         success: true,
         buffer: Buffer.concat([dummyHeader, buffer.slice(0, 50)]),
-        mimetype: 'audio/mp4',
+        mimetype: 'audio/ogg; codecs=opus',
         effect: cleanEffect,
         filter
       };
@@ -134,20 +136,24 @@ class AudioFxService {
       return {
         success: true,
         buffer: buffer,
-        mimetype: 'audio/mp4',
+        mimetype: 'audio/ogg; codecs=opus',
         effect: cleanEffect,
         simulated: true,
         note: 'FFmpeg não detectado no host - áudio mantido em formato padrão.'
       };
     }
 
-    const tmpIn = path.join(os.tmpdir(), `in_fx_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`);
-    const tmpOut = path.join(os.tmpdir(), `out_fx_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`);
+    const audioConverter = require('./audioConverterService');
+    const ffmpeg = audioConverter.getFFmpegPath() || 'ffmpeg';
+
+    const tmpIn = path.join(os.tmpdir(), `in_fx_${Date.now()}_${Math.random().toString(36).substring(7)}.tmp`);
+    const tmpOut = path.join(os.tmpdir(), `out_fx_${Date.now()}_${Math.random().toString(36).substring(7)}.opus`);
 
     try {
       fs.writeFileSync(tmpIn, buffer);
       await new Promise((resolve, reject) => {
-        exec(`ffmpeg -y -i "${tmpIn}" -filter:a "${filter}" "${tmpOut}"`, { timeout: 20000 }, (err) => {
+        const cmd = `"${ffmpeg}" -y -i "${tmpIn}" -filter:a "${filter}" -vn -c:a libopus -b:a 48k -ar 48000 "${tmpOut}"`;
+        exec(cmd, { timeout: 25000 }, (err) => {
           if (err) return reject(err);
           resolve(true);
         });
@@ -157,7 +163,7 @@ class AudioFxService {
       return {
         success: true,
         buffer: outBuffer,
-        mimetype: 'audio/mp4',
+        mimetype: 'audio/ogg; codecs=opus',
         effect: cleanEffect,
         filter
       };
@@ -167,7 +173,7 @@ class AudioFxService {
         success: false,
         error: err.message,
         buffer: buffer,
-        mimetype: 'audio/mp4',
+        mimetype: 'audio/ogg; codecs=opus',
         effect: cleanEffect
       };
     } finally {

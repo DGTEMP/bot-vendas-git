@@ -69,8 +69,19 @@ class TunnelService {
     try {
       const saved = models.getSetting('TUNNEL_STORE_URL', null);
       if (saved && saved.startsWith('https://')) return saved;
+      // Fallback para o túnel ativo global (TUNNEL_URL / TUNNEL_ADMIN_URL) caso não haja túnel exclusivo de loja
+      const globalTunnel = models.getSetting('TUNNEL_URL', null) || models.getSetting('TUNNEL_ADMIN_URL', null);
+      if (globalTunnel && globalTunnel.startsWith('https://')) return globalTunnel;
     } catch (_) {}
+    if (this.currentAdminUrl) return this.currentAdminUrl;
     return null;
+  }
+
+  /**
+   * Retorna a melhor URL pública ativa do túnel (sempre prioriza o link ativo do Cloudflare Tunnel)
+   */
+  getPublicUrl() {
+    return this.getStoreUrl() || this.getAdminUrl() || models.getSetting('TUNNEL_URL', null) || 'http://localhost:3000';
   }
 
   /**

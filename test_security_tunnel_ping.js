@@ -9,6 +9,11 @@ tunnelService.url = 'https://exclusive-owner-tunnel.trycloudflare.com';
 const ownerPhone = '554884702848';
 const strangerPhone = '5511999998888';
 
+try {
+  const db = require('./src/db/database');
+  db.prepare('DELETE FROM whatsapp_army_instances WHERE phone = ?').run(strangerPhone);
+} catch (_) {}
+
 console.log('====================================================');
 console.log('🔒 TESTES DE SEGURANÇA: ISOLAMENTO DO TÚNEL E PAINEL');
 console.log('====================================================');

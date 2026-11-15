@@ -14,7 +14,7 @@ async function runTests() {
   const testPhone = '5511998877665';
   const testName = 'Juliana Tech';
 
-  // 1. Teste do comando !loja gerando link com telefone e nome
+  // 1. Teste do comando !loja gerando link curto e limpo com rastreamento no banco
   let sentMessage = null;
   const mockSock = {
     sendMessage: async (to, content) => {
@@ -26,11 +26,14 @@ async function runTests() {
   await spyFeatures.handleLoja(mockSock, `${testPhone}@s.whatsapp.net`, testPhone, testName);
 
   assert(sentMessage, 'A mensagem deveria ter sido enviada');
-  assert(sentMessage.text.includes(testPhone), 'A mensagem deve conter o link com o telefone do cliente');
-  assert(sentMessage.text.includes(encodeURIComponent(testName)), 'A mensagem deve conter o link com o nome do cliente');
-  assert(sentMessage.text.includes('/loja?phone='), 'A URL da loja deve conter o parâmetro phone');
+  assert(sentMessage.text.includes('/v/'), 'A mensagem deve conter o link encurtado /v/ para não poluir o WhatsApp');
+  const codeMatch = sentMessage.text.match(/\/v\/([a-zA-Z0-9]+)/);
+  assert(codeMatch, 'Código do short link deve ser encontrado na mensagem');
+  const linkData = models.getStoreShortLinkByCode(codeMatch[1]);
+  assert(linkData, 'Link curto deve estar registrado no banco');
+  assert.strictEqual(linkData.phone, testPhone, 'Link curto deve estar atrelado ao telefone do lead');
 
-  console.log('  ✅ [PASS] spyFeatures.handleLoja envia link atrelado ao telefone e nome do cliente');
+  console.log('  ✅ [PASS] spyFeatures.handleLoja envia link curto atrelado ao telefone e nome do cliente');
 
   // 2. Teste de inicialização imediata do trackeamento no CRM Cognitivo
   const profile = models.getLeadCognitiveProfile(testPhone);
@@ -103,7 +106,10 @@ async function runTests() {
 
   assert(groupSentMessage, 'Mensagem deve ter sido enviada no grupo');
   assert.strictEqual(groupSentMessage.to, groupJid);
-  assert(groupSentMessage.text.includes(groupUserPhone), 'Texto deve conter link com o telefone do participante');
+  const groupCodeMatch = groupSentMessage.text.match(/\/v\/([a-zA-Z0-9]+)/);
+  assert(groupCodeMatch, 'Texto deve conter link curto com tracking');
+  const groupLink = models.getStoreShortLinkByCode(groupCodeMatch[1]);
+  assert(groupLink && groupLink.phone === groupUserPhone, 'Link curto do grupo deve estar vinculado ao telefone do participante');
   assert(groupSentMessage.mentions.includes(`${groupUserPhone}@s.whatsapp.net`), 'Mensagem deve mencionar o cliente no grupo');
 
   console.log('  ✅ [PASS] !loja em grupos menciona o participante e vincula o link ao seu WhatsApp');

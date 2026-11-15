@@ -26,20 +26,71 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 8000);
 });
 
-// 1. NAVEGAÇÃO DE ABAS
+// 1. NAVEGAÇÃO DE ABAS (Mobile & Desktop)
+function toggleMobileSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  if (sidebar) sidebar.classList.toggle('mobile-open');
+  if (backdrop) backdrop.classList.toggle('active');
+}
+
+function closeMobileSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  if (sidebar) sidebar.classList.remove('mobile-open');
+  if (backdrop) backdrop.classList.remove('active');
+}
+
+async function openPublicStore(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  try {
+    const res = await fetch('/api/store/url').then(r => r.json()).catch(() => null);
+    if (res && res.url) {
+      window.open(res.url, '_blank');
+      return;
+    }
+  } catch (_) {}
+  window.open('/loja', '_blank');
+}
+window.openPublicStore = openPublicStore;
+
+function openModal(id) {
+  const m = document.getElementById(id);
+  if (m) m.classList.add('active');
+}
+window.openModal = openModal;
+
+function closeModal(id) {
+  const m = document.getElementById(id);
+  if (m) m.classList.remove('active');
+}
+window.closeModal = closeModal;
+
 function initNav() {
   const navItems = document.querySelectorAll('.nav-item');
   navItems.forEach(item => {
     item.addEventListener('click', (e) => {
-      e.preventDefault();
       const tabName = item.getAttribute('data-tab');
+      if (!tabName) {
+        // Link comum ou acao personalizada (ex: /loja)
+        return;
+      }
+      e.preventDefault();
       switchTab(tabName);
     });
   });
 }
 
 function switchTab(tabName) {
+  closeMobileSidebar();
   document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.mobile-nav-btn').forEach(b => {
+    if (b.getAttribute('data-tab') === tabName) {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
 
   const targetLink = document.querySelector(`.nav-item[data-tab="${tabName}"]`);
@@ -94,10 +145,23 @@ function switchTab(tabName) {
   if (tabName === 'rentals') loadRentalsOverview();
   if (tabName === 'notices') loadNotices();
   if (tabName === 'zapvoice') loadZapVoiceOverview();
+  if (tabName === 'operations-manager') {
+    loadOperationsManager(true);
+    loadArbiterHistory();
+  }
+  if (tabName === 'connection-lab') {
+    loadConnectionLab();
+  }
   if (tabName === 'social-listening') {
-    loadSocialListening();
-    loadStoreTelemetry();
+    switchSlSubtab(typeof currentSlSubtab !== 'undefined' ? currentSlSubtab : 'rules');
+    loadGroupManagers();
+    loadRadarLeads();
+    loadHeatingData();
     loadCartSessions();
+    loadStoreTelemetry();
+  }
+  if (tabName === 'comfyart') {
+    loadComfyArtStudio();
   }
 }
 
@@ -106,6 +170,7 @@ async function loadAllData() {
   await Promise.all([
     loadMetrics(),
     loadWhatsAppStatus(),
+    loadOperationsManager(false),
     loadCognitiveOverview(),
     loadRentalsOverview(),
     loadCompanies(),
@@ -238,10 +303,10 @@ function switchWppConnectTab(tab) {
 async function requestWppPairingCode(btnEl) {
   const phoneInput = document.getElementById('wppPairingPhone');
   const rawPhone = phoneInput ? phoneInput.value.trim() : '';
-  const cleanPhone = rawPhone.replace(/\D/g, '');
+  const cleanDigits = rawPhone.replace(/\D/g, '');
 
-  if (!cleanPhone || cleanPhone.length < 10) {
-    alert('Informe o número com DDD. Ex: 5548984702848 ou 48984702848');
+  if (!cleanDigits || cleanDigits.length < 8) {
+    alert('Informe o número com código do país (DDI). Ex: +55 48 98470-2848 ou +1 202 555-0199');
     phoneInput?.focus();
     return;
   }
@@ -262,7 +327,7 @@ async function requestWppPairingCode(btnEl) {
     const res = await fetch('/api/whatsapp/pairing-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: cleanPhone })
+      body: JSON.stringify({ phone: rawPhone })
     });
     const data = await res.json();
     if (res.ok && data.pairingCode) {
@@ -1036,7 +1101,7 @@ async function loadOffers() {
     if (!tbody) return;
 
     if (!offers || offers.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center">Nenhuma oferta publicada ainda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhuma oferta publicada ainda.</td></tr>';
       return;
     }
 
@@ -1502,7 +1567,7 @@ async function loadProductKeys() {
 
     const tbody = document.querySelector('#tableKeys tbody');
     if (data.keys.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center">Nenhuma chave cadastrada neste produto.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">Nenhuma chave cadastrada neste produto.</td></tr>';
       return;
     }
 
@@ -1743,8 +1808,22 @@ async function loadSettings() {
     document.getElementById('cfgWelcomeMessage').value = cfg.WELCOME_MESSAGE || '';
 
     // Gateways Keys
+    if (document.getElementById('cfgPixPrimaryProvider')) {
+      document.getElementById('cfgPixPrimaryProvider').value = cfg.PIX_PRIMARY_PROVIDER || 'livepix';
+    }
+    if (document.getElementById('cfgPixKey')) {
+      document.getElementById('cfgPixKey').value = cfg.PIX_KEY || '';
+      updatePixKeyPreview(cfg.PIX_KEY || '');
+    }
+    if (document.getElementById('cfgPixMerchantName')) {
+      document.getElementById('cfgPixMerchantName').value = cfg.PIX_MERCHANT_NAME || 'PAYBOT';
+    }
+    if (document.getElementById('cfgPixMerchantCity')) {
+      document.getElementById('cfgPixMerchantCity').value = cfg.PIX_MERCHANT_CITY || 'SAO PAULO';
+    }
     document.getElementById('cfgMercadoPagoToken').value = cfg.MERCADO_PAGO_ACCESS_TOKEN || '';
     document.getElementById('cfgLivepixUsername').value = cfg.LIVEPIX_USERNAME || '';
+    if (typeof setLivepixPerfModeUI === 'function') { setLivepixPerfModeUI(cfg.LIVEPIX_PERF_MODE || 'balanced'); }
     document.getElementById('cfgBinanceApiKey').value = cfg.BINANCE_API_KEY || '';
     document.getElementById('cfgBinanceSecretKey').value = cfg.BINANCE_SECRET_KEY || '';
 
@@ -1851,6 +1930,9 @@ async function loadSettings() {
     if (document.getElementById('cfgAntiPrivadoGlobal')) {
       document.getElementById('cfgAntiPrivadoGlobal').checked = cfg.ANTIPRIVADO_GLOBAL === true;
     }
+    if (document.getElementById('cfgGlobalSoDivu')) {
+      document.getElementById('cfgGlobalSoDivu').checked = cfg.GLOBAL_SODIVU === true;
+    }
     if (document.getElementById('cfgOwnerPhone')) {
       document.getElementById('cfgOwnerPhone').value = cfg.OWNER_PHONE || '';
     }
@@ -1920,8 +2002,13 @@ async function saveSettings(e) {
     WELCOME_MESSAGE: document.getElementById('cfgWelcomeMessage').value,
     SUPPORT_CONTACT: document.getElementById('cfgSupportContact').value,
 
+    PIX_PRIMARY_PROVIDER: document.getElementById('cfgPixPrimaryProvider')?.value || 'livepix',
+    PIX_KEY: document.getElementById('cfgPixKey')?.value?.trim() || '',
+    PIX_MERCHANT_NAME: document.getElementById('cfgPixMerchantName')?.value?.trim() || 'PAYBOT',
+    PIX_MERCHANT_CITY: document.getElementById('cfgPixMerchantCity')?.value?.trim() || 'SAO PAULO',
     MERCADO_PAGO_ACCESS_TOKEN: document.getElementById('cfgMercadoPagoToken').value,
     LIVEPIX_USERNAME: document.getElementById('cfgLivepixUsername').value,
+    LIVEPIX_PERF_MODE: typeof getLivepixPerfModeUI === 'function' ? getLivepixPerfModeUI() : 'balanced',
     BINANCE_API_KEY: document.getElementById('cfgBinanceApiKey').value,
     BINANCE_SECRET_KEY: document.getElementById('cfgBinanceSecretKey').value,
     TELEGRAM_BOT_TOKEN: document.getElementById('cfgTelegramToken').value,
@@ -1948,6 +2035,7 @@ async function saveSettings(e) {
     ANTIFLOOD_DEFAULT: document.getElementById('cfgAntiFloodDefault')?.checked ?? true,
     ANTIVIEWONCE_DEFAULT: document.getElementById('cfgAntiViewOnceDefault')?.checked ?? true,
     ANTIPRIVADO_GLOBAL: document.getElementById('cfgAntiPrivadoGlobal')?.checked ?? false,
+    GLOBAL_SODIVU: document.getElementById('cfgGlobalSoDivu')?.checked ?? false,
     OWNER_PHONE: document.getElementById('cfgOwnerPhone')?.value?.trim() || '',
     AI_API_KEY: document.getElementById('cfgAiApiKey')?.value?.trim() || '',
     WELCOME_MSG_DEFAULT: document.getElementById('cfgWelcomeMsgDefault')?.value?.trim() || '',
@@ -2154,7 +2242,8 @@ async function loadArmyInstances() {
     if (!tbody) return;
 
     if (currentArmyInstances.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center">Nenhum chip conectado ainda. Clique em "Conectar Novo Chip" acima.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center">Nenhum chip conectado ainda. Clique em "Conectar Novo Chip" acima.</td></tr>';
+      updateArmySubbotSelectionCount();
       return;
     }
 
@@ -2173,17 +2262,52 @@ async function loadArmyInstances() {
       const mainBadge = inst.is_main ? '<span class="badge" style="background:#f0b90b20; color:#f0b90b; margin-left: 6px;"><i class="fa-solid fa-crown"></i> Matriz</span>' : '';
       const warmupBadge = inst.warmup_mode ? '<span class="badge" style="background:#10b98120; color:#10b981">Aquecimento</span>' : '<span style="color:var(--text-muted); font-size:12px;">Normal</span>';
 
+      const feats = inst.features || {
+        ai: true, group_posts: true, pv_chat: true, audio_voice: true,
+        media_dl: true, stickers: true, games: true, moderation: true, auto_heating: true
+      };
+      const featureKeys = ['ai', 'group_posts', 'pv_chat', 'audio_voice', 'media_dl', 'stickers', 'games', 'moderation', 'auto_heating'];
+      const activeCount = featureKeys.filter(k => feats[k] !== false).length;
+      const totalCount = featureKeys.length;
+
+      const featureBadgesHtml = `
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span class="badge" style="background: ${activeCount === totalCount ? 'rgba(16,185,129,0.15)' : (activeCount === 0 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)')}; color: ${activeCount === totalCount ? '#10b981' : (activeCount === 0 ? '#ef4444' : '#f59e0b')}; font-size: 11px; font-weight: 600;">
+              <i class="fa-solid fa-sliders"></i> ${activeCount}/${totalCount} ativas
+            </span>
+            <button class="btn btn-xs btn-outline" onclick="openSubBotFeaturesModal(${inst.id})" title="Configurar funções deste chip" style="padding: 2px 7px; font-size: 11px; border-color: rgba(245,158,11,0.4); color: #f59e0b;">
+              <i class="fa-solid fa-gear"></i> Ajustar
+            </button>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 3px;">
+            <span title="IA (!ia, Simi): ${feats.ai !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.ai !== false ? 'rgba(56,189,248,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.ai !== false ? '#38bdf8' : '#64748b'}; text-decoration: ${feats.ai !== false ? 'none' : 'line-through'};">IA</span>
+            <span title="Divulgação em Grupos: ${feats.group_posts !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.group_posts !== false ? 'rgba(16,185,129,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.group_posts !== false ? '#10b981' : '#64748b'}; text-decoration: ${feats.group_posts !== false ? 'none' : 'line-through'};">Grupos</span>
+            <span title="Atendimento PV: ${feats.pv_chat !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.pv_chat !== false ? 'rgba(168,85,247,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.pv_chat !== false ? '#a855f7' : '#64748b'}; text-decoration: ${feats.pv_chat !== false ? 'none' : 'line-through'};">PV</span>
+            <span title="Áudios/Voz: ${feats.audio_voice !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.audio_voice !== false ? 'rgba(234,179,8,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.audio_voice !== false ? '#eab308' : '#64748b'}; text-decoration: ${feats.audio_voice !== false ? 'none' : 'line-through'};">Voz</span>
+            <span title="Downloads: ${feats.media_dl !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.media_dl !== false ? 'rgba(59,130,246,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.media_dl !== false ? '#3b82f6' : '#64748b'}; text-decoration: ${feats.media_dl !== false ? 'none' : 'line-through'};">Mídia</span>
+            <span title="Stickers: ${feats.stickers !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.stickers !== false ? 'rgba(236,72,153,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.stickers !== false ? '#ec4899' : '#64748b'}; text-decoration: ${feats.stickers !== false ? 'none' : 'line-through'};">Stickers</span>
+            <span title="Jogos: ${feats.games !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.games !== false ? 'rgba(249,115,22,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.games !== false ? '#f97316' : '#64748b'}; text-decoration: ${feats.games !== false ? 'none' : 'line-through'};">Jogos</span>
+            <span title="Moderação: ${feats.moderation !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.moderation !== false ? 'rgba(20,184,166,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.moderation !== false ? '#14b8a6' : '#64748b'}; text-decoration: ${feats.moderation !== false ? 'none' : 'line-through'};">Mod</span>
+            <span title="Aquecimento P2P: ${feats.auto_heating !== false ? 'Ativa' : 'Desativada'}" style="font-size: 10px; padding: 1px 5px; border-radius: 4px; background: ${feats.auto_heating !== false ? 'rgba(239,68,68,0.2)' : 'rgba(100,116,139,0.2)'}; color: ${feats.auto_heating !== false ? '#ef4444' : '#64748b'}; text-decoration: ${feats.auto_heating !== false ? 'none' : 'line-through'};">Aquec</span>
+          </div>
+        </div>
+      `;
+
       return `
         <tr>
+          <td style="text-align: center;">
+            <input type="checkbox" class="chk-army-subbot" data-id="${inst.id}" onchange="updateArmySubbotSelectionCount()">
+          </td>
           <td>#${inst.id}</td>
           <td><b>${inst.name}</b>${mainBadge}</td>
           <td>${inst.phone ? `<b>${inst.phone}</b>` : '<span style="color:var(--text-muted)">Aguardando leitura</span>'}</td>
           <td>${statusBadge}</td>
-          <td><b>${inst.messages_sent_today || 0}</b> envios</td>
-          <td>${inst.daily_limit} / dia</td>
+          <td><b>${inst.messages_sent_today || 0}</b> <span style="font-size: 11px; color: var(--text-muted);">/ ${inst.daily_limit || 50}</span></td>
+          <td>${featureBadgesHtml}</td>
           <td>${warmupBadge}</td>
           <td>
-            <div style="display: flex; gap: 6px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
               <button class="btn btn-sm btn-secondary" onclick="openArmyQrModal(${inst.id})" title="Ver QR Code / Status">
                 <i class="fa-solid fa-qrcode"></i> QR
               </button>
@@ -2196,6 +2320,9 @@ async function loadArmyInstances() {
                   <i class="fa-solid fa-pause"></i>
                 </button>
               `}
+              <button class="btn btn-sm btn-outline" onclick="openSubBotFeaturesModal(${inst.id})" title="Configurar Funções" style="color: #f59e0b; border-color: rgba(245,158,11,0.4);">
+                <i class="fa-solid fa-sliders"></i>
+              </button>
               ${!inst.is_main ? `
                 <button class="btn btn-sm btn-danger" onclick="deleteArmyInstance(${inst.id})" title="Excluir Chip">
                   <i class="fa-solid fa-trash"></i>
@@ -2206,6 +2333,8 @@ async function loadArmyInstances() {
         </tr>
       `;
     }).join('');
+
+    updateArmySubbotSelectionCount();
   } catch (err) {
     console.error('Erro ao carregar instâncias do exército:', err);
   }
@@ -2324,10 +2453,10 @@ async function requestArmyPairingCode(btnEl) {
   if (!currentArmyQrInstanceId) return;
   const phoneInput = document.getElementById('armyPairingPhone');
   const rawPhone = phoneInput ? phoneInput.value.trim() : '';
-  const cleanPhone = rawPhone.replace(/\D/g, '');
+  const cleanDigits = rawPhone.replace(/\D/g, '');
 
-  if (!cleanPhone || cleanPhone.length < 10) {
-    showBotToast('Atenção', 'Informe o número com DDD. Ex: 5548984702848 ou 48984702848', 'warning');
+  if (!cleanDigits || cleanDigits.length < 8) {
+    showBotToast('Atenção', 'Informe o número com código do país (DDI). Ex: +55 48 98470-2848 ou +1 202 555-0199', 'warning');
     phoneInput?.focus();
     return;
   }
@@ -2348,7 +2477,7 @@ async function requestArmyPairingCode(btnEl) {
     const res = await fetch(`/api/army/instances/${currentArmyQrInstanceId}/pairing-code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: cleanPhone })
+      body: JSON.stringify({ phone: rawPhone })
     });
     const data = await res.json();
     if (res.ok && data.pairingCode) {
@@ -2455,6 +2584,229 @@ function closeArmyQrModal() {
   document.getElementById('modalArmyQr').classList.remove('active');
   loadArmyInstances();
   updateArmyMetrics();
+}
+
+// =========================================================================
+// 🎛️ CONTROLE DE FUNÇÕES DOS SUB-BOTS (DONO, DEVS & BOT MASTER)
+// =========================================================================
+
+const SUBBOT_FEATURE_CATALOG = [
+  { id: 'ai', name: 'Inteligência Artificial', desc: 'Respostas com IA (!ia, Simi, atendimento cognitivo)', emoji: '🤖', icon: 'fa-brain' },
+  { id: 'group_posts', name: 'Postagens em Grupos', desc: 'Disparo de ofertas, catálogo e achadinhos em grupos', emoji: '📢', icon: 'fa-bullhorn' },
+  { id: 'pv_chat', name: 'Atendimento no PV', desc: 'Respostas e vendas 1-a-1 no chat privado do WhatsApp', emoji: '💬', icon: 'fa-comment-dots' },
+  { id: 'audio_voice', name: 'Áudios & Voz', desc: 'Disparo de mensagens humanizadas de voz e ZapVoice', emoji: '🎙️', icon: 'fa-microphone' },
+  { id: 'media_dl', name: 'Downloads de Mídia', desc: 'Comandos de download de músicas e vídeos (!play, !video)', emoji: '📥', icon: 'fa-download' },
+  { id: 'stickers', name: 'Figurinhas & Stickers', desc: 'Criação de figurinhas estáticas e animadas (!s, !brat)', emoji: '🎨', icon: 'fa-icons' },
+  { id: 'games', name: 'Jogos & Gamificação', desc: 'Gamificação, roleta, palpites e jogos de interação', emoji: '🎲', icon: 'fa-gamepad' },
+  { id: 'moderation', name: 'Moderação de Grupos', desc: 'Anti-link, anti-fake, anti-delete e gestão de grupos', emoji: '🛡️', icon: 'fa-shield-halved' },
+  { id: 'auto_heating', name: 'Aquecimento P2P', desc: 'Participação nas trocas de mensagens para maturação de chip', emoji: '🔥', icon: 'fa-fire' }
+];
+
+let activeModalSubBotInstance = null;
+
+function getSelectedArmySubbotIds() {
+  const checkboxes = document.querySelectorAll('.chk-army-subbot:checked');
+  return Array.from(checkboxes).map(cb => parseInt(cb.dataset.id, 10)).filter(id => !isNaN(id));
+}
+
+function toggleSelectAllArmySubbots(checked) {
+  const checkboxes = document.querySelectorAll('.chk-army-subbot');
+  checkboxes.forEach(cb => { cb.checked = checked; });
+  updateArmySubbotSelectionCount();
+}
+
+function updateArmySubbotSelectionCount() {
+  const selected = getSelectedArmySubbotIds();
+  const count = selected.length;
+  const bar = document.getElementById('armyBatchActionBar');
+  const badge = document.getElementById('armySelectedCountBadge');
+  const chkAll = document.getElementById('chkArmySelectAll');
+  const allCheckboxes = document.querySelectorAll('.chk-army-subbot');
+
+  if (badge) {
+    badge.innerHTML = `<i class="fa-solid fa-check-double"></i> ${count} sub-bot${count === 1 ? '' : 's'} selecionado${count === 1 ? '' : 's'}`;
+  }
+
+  if (bar) {
+    bar.style.display = count > 0 ? 'flex' : 'none';
+  }
+
+  if (chkAll && allCheckboxes.length > 0) {
+    chkAll.checked = (count === allCheckboxes.length);
+    chkAll.indeterminate = (count > 0 && count < allCheckboxes.length);
+  }
+}
+
+function clearArmySubbotSelection() {
+  const checkboxes = document.querySelectorAll('.chk-army-subbot');
+  checkboxes.forEach(cb => { cb.checked = false; });
+  const chkAll = document.getElementById('chkArmySelectAll');
+  if (chkAll) {
+    chkAll.checked = false;
+    chkAll.indeterminate = false;
+  }
+  updateArmySubbotSelectionCount();
+}
+
+async function applyBatchFeatureToggle(enabled) {
+  const selectedIds = getSelectedArmySubbotIds();
+  if (selectedIds.length === 0) {
+    alert('Nenhum sub-bot selecionado. Marque as caixas de seleção na tabela.');
+    return;
+  }
+
+  const selectEl = document.getElementById('selBatchFeatureKey');
+  const featureKey = selectEl?.value || 'all';
+  const actionText = enabled ? 'ATIVAR' : 'DESATIVAR';
+  const featureLabel = selectEl?.selectedOptions[0]?.text || featureKey;
+
+  const confirmMsg = `Deseja realmente ${actionText} a função "${featureLabel}" em ${selectedIds.length} sub-bot(s) selecionado(s)?`;
+  if (!confirm(confirmMsg)) return;
+
+  try {
+    const payload = {
+      targetIds: selectedIds,
+      featureKey: featureKey,
+      enabled: Boolean(enabled)
+    };
+
+    const res = await fetch('/api/subbots/features', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(`Sucesso! ${data.message || 'Funções atualizadas nos sub-bots selecionados.'}`);
+      await loadArmyInstances();
+    } else {
+      alert('Erro ao atualizar funções: ' + (data.error || 'Falha na requisição'));
+    }
+  } catch (err) {
+    alert('Erro de conexão ao salvar funções em massa: ' + err.message);
+  }
+}
+
+async function openSubBotFeaturesModal(instanceId) {
+  const modal = document.getElementById('modalSubBotFeatures');
+  const nameEl = document.getElementById('modalSubBotFeaturesName');
+  const idEl = document.getElementById('modalSubBotFeaturesId');
+  const gridEl = document.getElementById('subBotFeaturesListGrid');
+  const statusEl = document.getElementById('subBotFeaturesSaveStatus');
+
+  if (!modal || !gridEl) return;
+
+  if (statusEl) statusEl.innerText = '';
+  if (idEl) idEl.value = instanceId;
+
+  const inst = currentArmyInstances.find(i => i.id === instanceId) || { id: instanceId, name: `Chip #${instanceId}` };
+  activeModalSubBotInstance = inst;
+  if (nameEl) {
+    nameEl.innerText = `${inst.name || 'Chip #' + instanceId} ${inst.phone ? `(${inst.phone})` : ''}`;
+  }
+
+  let currentFeatures = inst.features;
+  try {
+    const res = await fetch(`/api/subbots/${instanceId}/features`);
+    if (res.ok) {
+      const data = await res.json();
+      currentFeatures = data.features || currentFeatures;
+    }
+  } catch (e) {
+    console.warn('Usando features em cache para modal:', e);
+  }
+
+  currentFeatures = currentFeatures || {
+    ai: true, group_posts: true, pv_chat: true, audio_voice: true,
+    media_dl: true, stickers: true, games: true, moderation: true, auto_heating: true
+  };
+
+  gridEl.innerHTML = SUBBOT_FEATURE_CATALOG.map(feat => {
+    const isChecked = currentFeatures[feat.id] !== false;
+    return `
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+        <div style="flex: 1;">
+          <div style="font-weight: 700; font-size: 13px; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+            <span>${feat.emoji}</span>
+            <span>${feat.name}</span>
+          </div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px; line-height: 1.3;">
+            ${feat.desc}
+          </div>
+        </div>
+        <label class="toggle-switch-sm" title="Ativar ou desativar ${feat.name}">
+          <input type="checkbox" id="chkModalFeature_${feat.id}" class="chk-modal-subbot-feat" data-feature="${feat.id}" ${isChecked ? 'checked' : ''}>
+          <span class="toggle-slider-sm"></span>
+        </label>
+      </div>
+    `;
+  }).join('');
+
+  modal.classList.add('active');
+}
+
+function closeSubBotFeaturesModal() {
+  const modal = document.getElementById('modalSubBotFeatures');
+  if (modal) modal.classList.remove('active');
+  activeModalSubBotInstance = null;
+}
+
+function toggleAllSubBotModalFeatures(enabled) {
+  const inputs = document.querySelectorAll('.chk-modal-subbot-feat');
+  inputs.forEach(inp => {
+    inp.checked = enabled;
+  });
+}
+
+async function saveSubBotFeaturesModal() {
+  const idEl = document.getElementById('modalSubBotFeaturesId');
+  const statusEl = document.getElementById('subBotFeaturesSaveStatus');
+  const instanceId = parseInt(idEl?.value, 10);
+  if (!instanceId) return;
+
+  const featuresPatch = {};
+  SUBBOT_FEATURE_CATALOG.forEach(feat => {
+    const chk = document.getElementById(`chkModalFeature_${feat.id}`);
+    if (chk) {
+      featuresPatch[feat.id] = chk.checked;
+    }
+  });
+
+  if (statusEl) {
+    statusEl.style.color = '#38bdf8';
+    statusEl.innerText = 'Salvando permissões...';
+  }
+
+  try {
+    const res = await fetch(`/api/subbots/${instanceId}/features`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ features: featuresPatch })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      if (statusEl) {
+        statusEl.style.color = '#10b981';
+        statusEl.innerText = '✓ Funções atualizadas com sucesso!';
+      }
+      setTimeout(async () => {
+        closeSubBotFeaturesModal();
+        await loadArmyInstances();
+      }, 700);
+    } else {
+      if (statusEl) {
+        statusEl.style.color = '#ef4444';
+        statusEl.innerText = 'Erro: ' + (data.error || 'Falha ao salvar');
+      }
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.color = '#ef4444';
+      statusEl.innerText = 'Erro de conexão: ' + err.message;
+    }
+  }
 }
 
 // --- 2. LINKS DE AFILIADO ---
@@ -4007,6 +4359,12 @@ async function fetchGroupSettings() {
     if (chkView) chkView.checked = data.antiviewonce !== false;
     if (chkBye) chkBye.checked = !!data.bye;
     if (txtBye) txtBye.value = data.byeMsg || '';
+    const chkBot = document.getElementById('chkGroupBotActive');
+    const chkPost = document.getElementById('chkGroupPostingActive');
+    const chkSoDivu = document.getElementById('chkGroupSoDivu');
+    if (chkBot) chkBot.checked = data.botActive !== false && data.bot_active !== 0;
+    if (chkPost) chkPost.checked = data.postingActive !== false && data.posting_active !== 0;
+    if (chkSoDivu) chkSoDivu.checked = !!data.soDivu;
   } catch (_) {}
 }
 
@@ -4022,6 +4380,9 @@ async function saveGroupSettings(e) {
   const antiviewonce = document.getElementById('chkGroupAntiviewonce')?.checked;
   const bye = document.getElementById('chkGroupBye')?.checked;
   const byeMsg = document.getElementById('txtGroupByeMsg')?.value?.trim();
+  const botActive = document.getElementById('chkGroupBotActive')?.checked;
+  const postingActive = document.getElementById('chkGroupPostingActive')?.checked;
+  const soDivu = document.getElementById('chkGroupSoDivu')?.checked;
 
   if (!groupId) {
     return alert('Informe o ID do Grupo.');
@@ -4040,7 +4401,10 @@ async function saveGroupSettings(e) {
         antidelete,
         antiviewonce,
         bye,
-        byeMsg
+        byeMsg,
+        botActive,
+        postingActive,
+        soDivu
       })
     });
     const data = await res.json();
@@ -4049,6 +4413,7 @@ async function saveGroupSettings(e) {
     alert('Configurações do grupo salvas com sucesso!');
     closeGroupSettingsModal();
     loadGroupAuditLogs();
+    loadWhatsappGroupsList(false);
   } catch (err) {
     alert('Erro ao salvar: ' + err.message);
   }
@@ -5018,7 +5383,7 @@ function renderCommandsTable() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">Nenhum comando encontrado para este filtro.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);">Nenhum comando encontrado para este filtro.</td></tr>`;
     return;
   }
 
@@ -5979,6 +6344,7 @@ function copyMeteoricGroupLink(url) {
 // 15. RADAR VIRAL & CRIADOR DE POSTS COM IA
 // ==========================================
 let globalViralCapturedCache = [];
+let globalViralGeneratedCache = [];
 
 async function loadViralRadarAll() {
   await Promise.all([
@@ -6129,6 +6495,9 @@ async function loadViralCapturedPosts() {
               <button class="btn btn-sm btn-primary flex-1" onclick="openGenerateViralPostModal(${p.id})" style="background: #10b981; border-color: #10b981; font-weight: 600;">
                 <i class="fa-solid fa-wand-magic-sparkles"></i> Gerar Nosso Post
               </button>
+              <button class="btn btn-sm btn-secondary" onclick="downloadViralMediaFromUrl('${p.post_url}')" title="Baixar Vídeo/Mídia Original">
+                <i class="fa-solid fa-download"></i> Baixar Mídia
+              </button>
               <a href="${p.post_url}" target="_blank" class="btn btn-sm btn-outline" title="Ver post original">
                 <i class="fa-solid fa-arrow-up-right-from-square"></i>
               </a>
@@ -6164,6 +6533,7 @@ async function loadViralGeneratedPosts() {
     const res = await fetch('/api/viral/generated');
     if (!res.ok) return;
     const list = await res.json();
+    globalViralGeneratedCache = list;
 
     if (list.length === 0) {
       container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 30px;">Nenhum post gerado ainda. Selecione qualquer viral acima e clique em "Gerar Nosso Post com IA"!</div>`;
@@ -6194,6 +6564,9 @@ async function loadViralGeneratedPosts() {
               <button class="btn btn-sm btn-primary" onclick="copyViralContent(${JSON.stringify(g.full_content).replace(/"/g, '&quot;')})" style="background: #10b981; border-color: #10b981; font-weight: 600;">
                 <i class="fa-solid fa-copy"></i> Copiar Copy
               </button>
+              <button class="btn btn-sm btn-primary" onclick="openPublishViralSocialModal(${g.id})" style="background: #3b82f6; border-color: #3b82f6; font-weight: 600;" title="Postar nas Redes Sociais Conectadas">
+                <i class="fa-solid fa-share-nodes"></i> Postar na Rede
+              </button>
               <button class="btn btn-sm btn-primary" onclick="broadcastViralPost(${g.id}, 'subbots')" style="background: #25d366; border-color: #25d366; font-weight: 600;" title="Disparar via Exército de Sub-Bots WhatsApp">
                 <i class="fa-solid fa-tower-broadcast"></i> Disparar Sub-Bots
               </button>
@@ -6206,6 +6579,26 @@ async function loadViralGeneratedPosts() {
           <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin-bottom: 12px; white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: #cbd5e1; font-family: inherit;">
 ${g.full_content}
           </div>
+
+          ${g.media_url ? `
+            <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px; background: rgba(168,85,247,0.06); padding: 10px; border-radius: 8px; border: 1px solid rgba(168,85,247,0.25);">
+              <img src="${g.media_url}" style="width: 76px; height: 76px; object-fit: cover; border-radius: 6px; border: 1px solid #a855f7; cursor: pointer;" onclick="window.open('${g.media_url}', '_blank')" alt="Arte do Post ComfyArt" />
+              <div style="flex: 1;">
+                <div style="font-size: 13px; color: #c084fc; font-weight: 700;"><i class="fa-solid fa-palette"></i> Criativo Visual ComfyArt</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Arte HD gerada pronta para Story, Feed e WhatsApp.</div>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <a href="${g.media_url}" target="_blank" download class="btn btn-sm btn-outline" style="border-color: #a855f7; color: #c084fc;"><i class="fa-solid fa-download"></i> Baixar Arte</a>
+                <button class="btn btn-sm btn-outline" onclick="openInComfyArtStudio(${g.id})"><i class="fa-solid fa-pen-ruler"></i> Abrir no Studio</button>
+              </div>
+            </div>
+          ` : `
+            <div style="margin-bottom: 12px; display: flex; justify-content: flex-end;">
+              <button class="btn btn-sm btn-outline" style="border-color: #a855f7; color: #c084fc;" onclick="createComfyArtForViralPost(${g.id})">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Gerar Arte no ComfyArt Studio
+              </button>
+            </div>
+          `}
 
           ${g.media_suggestion ? `
             <div style="background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.2); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #93c5fd;">
@@ -6435,6 +6828,160 @@ function copyViralContent(text) {
   });
 }
 
+async function downloadViralMediaFromUrl(postUrl) {
+  if (!postUrl) {
+    alert('URL do post não informada.');
+    return;
+  }
+  
+  const confirmed = confirm('Deseja extrair e baixar a mídia/vídeo viral deste post?\n\nURL: ' + postUrl);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch('/api/viral/download-media?url=' + encodeURIComponent(postUrl));
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Falha ao baixar mídia');
+    }
+
+    if (data.downloadUrl) {
+      const a = document.createElement('a');
+      a.href = data.downloadUrl;
+      a.download = data.filename || 'viral-video.mp4';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      alert('🎉 Mídia viral encontrada!\n\nTítulo: ' + (data.title || 'Vídeo Viral') + '\nO download foi iniciado.');
+    } else {
+      alert('ℹ️ ' + (data.message || 'Mídia processada com sucesso.'));
+    }
+  } catch (err) {
+    alert('Erro ao extrair mídia viral: ' + err.message);
+  }
+}
+
+async function openPublishViralSocialModal(postId) {
+  const m = document.getElementById('modalPublishViralSocial');
+  if (!m) return;
+
+  const idInput = document.getElementById('pubViralPostId');
+  const txtInput = document.getElementById('pubViralText');
+  const accSelect = document.getElementById('pubViralAccountId');
+  const mediaInput = document.getElementById('pubViralMediaUrl');
+
+  if (idInput) idInput.value = postId;
+
+  // Carregar dados do post gerado
+  let post = (globalViralGeneratedCache || []).find(p => String(p.id) === String(postId));
+  if (!post) {
+    try {
+      const res = await fetch('/api/viral/generated');
+      if (res.ok) {
+        const list = await res.json();
+        globalViralGeneratedCache = list;
+        post = list.find(p => String(p.id) === String(postId));
+      }
+    } catch (_) {}
+  }
+
+  if (post && txtInput) {
+    txtInput.value = post.full_content || '';
+  }
+
+  // Carregar contas sociais conectadas
+  if (accSelect) {
+    accSelect.innerHTML = '<option value="">Carregando contas sociais...</option>';
+    try {
+      const res = await fetch('/api/social/accounts');
+      if (res.ok) {
+        const accounts = await res.json();
+        if (accounts.length === 0) {
+          accSelect.innerHTML = '<option value="">Nenhuma conta social conectada. Conecte uma na aba Social!</option>';
+        } else {
+          const platformNames = {
+            instagram: 'Instagram',
+            facebook: 'Facebook',
+            threads: 'Threads',
+            x: 'X (Twitter)',
+            tiktok: 'TikTok',
+            olx: 'OLX',
+            marketplace_facebook: 'Marketplace FB',
+            snapchat: 'Snapchat',
+            shopee: 'Shopee',
+            mercadolivre: 'Mercado Livre',
+            shein: 'Shein',
+            reddit: 'Reddit',
+            blog: 'Blog / CMS'
+          };
+          accSelect.innerHTML = '<option value="">Selecione a conta de destino...</option>' + accounts.map(acc => {
+            const pName = platformNames[acc.platform] || acc.platform;
+            return '<option value="' + acc.id + '">[' + pName + '] ' + acc.name + ' (' + acc.account_id + ')</option>';
+          }).join('');
+        }
+      }
+    } catch (e) {
+      accSelect.innerHTML = '<option value="">Erro ao carregar contas</option>';
+    }
+  }
+
+  if (mediaInput) mediaInput.value = '';
+
+  m.classList.add('active');
+}
+
+function closePublishViralSocialModal() {
+  const m = document.getElementById('modalPublishViralSocial');
+  if (m) m.classList.remove('active');
+}
+
+async function executePublishViralSocial(event) {
+  event.preventDefault();
+  const btn = document.getElementById('btnSubmitPubViralSocial');
+  const postId = document.getElementById('pubViralPostId').value;
+  const socialAccountId = document.getElementById('pubViralAccountId').value;
+  const customText = document.getElementById('pubViralText').value;
+  const mediaUrl = document.getElementById('pubViralMediaUrl').value;
+
+  if (!socialAccountId) {
+    alert('Por favor, selecione uma conta social de destino.');
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Publicando na rede...';
+  }
+
+  try {
+    const res = await fetch('/api/viral/generated/' + postId + '/publish-social', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        socialAccountId: Number(socialAccountId),
+        customText,
+        mediaUrl
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Falha ao publicar post na rede social');
+    }
+
+    closePublishViralSocialModal();
+    alert('🎉 Sucesso! Post publicado na rede ' + (data.platform || '') + ' (@' + (data.accountName || '') + ')!\nID do Post: ' + (data.publishedPostId || data.post_id || 'OK'));
+    await loadViralGeneratedPosts();
+  } catch (err) {
+    alert('Erro ao publicar: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Publicar Agora';
+    }
+  }
+}
+
 // ==========================================
 // 17. GESTÃO CENTRAL DE GRUPOS WHATSAPP & EXTRAÇÃO DE LEADS (ZERO CELULAR)
 // ==========================================
@@ -6453,7 +7000,7 @@ async function loadWhatsappGroupsList(forceRefresh = false) {
   if (!tbody) return;
 
   try {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Buscando grupos do WhatsApp...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Buscando grupos do WhatsApp...</td></tr>`;
     const res = await fetch(`/api/whatsapp/groups?refresh=${forceRefresh ? 'true' : 'false'}`);
     if (!res.ok) throw new Error('Falha ao carregar grupos');
     const groups = await res.json();
@@ -6461,7 +7008,7 @@ async function loadWhatsappGroupsList(forceRefresh = false) {
     populateGroupSettingsDropdown();
 
     if (!groups || groups.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 24px; color: var(--text-muted);">Nenhum grupo encontrado. Conecte o WhatsApp Matriz para listar os grupos reais.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 24px; color: var(--text-muted);">Nenhum grupo encontrado. Conecte o WhatsApp Matriz para listar os grupos reais.</td></tr>`;
       return;
     }
 
@@ -6477,6 +7024,23 @@ async function loadWhatsappGroupsList(forceRefresh = false) {
         ? `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3);"><i class="fa-solid fa-crown"></i> Admin</span>`
         : `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8;"><i class="fa-solid fa-user"></i> Membro</span>`;
 
+      const isBotActive = g.botActive !== false;
+      const isPostingActive = g.postingActive !== false;
+      const isSoDivu = Boolean(g.soDivu || g.isSoDivu);
+      const isGlobalSoDivu = Boolean(g.isGlobalSoDivu);
+
+      const botBadge = isBotActive
+        ? `<button class="btn btn-xs" onclick="quickToggleGroupBot(\'${g.id}\', true)" title="Clique para pausar comandos e IA neste grupo" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #10b981; font-weight: 700; cursor: pointer; border-radius: 6px; padding: 4px 8px;"><i class="fa-solid fa-robot"></i> 🟢 Ativo</button>`
+        : `<button class="btn btn-xs" onclick="quickToggleGroupBot(\'${g.id}\', false)" title="Clique para reativar comandos e IA neste grupo" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #ef4444; font-weight: 700; cursor: pointer; border-radius: 6px; padding: 4px 8px;"><i class="fa-solid fa-robot"></i> 🔴 Pausado</button>`;
+
+      const postingBadge = isPostingActive
+        ? `<button class="btn btn-xs" onclick="quickToggleGroupPosting(\'${g.id}\', true)" title="Clique para pausar ofertas e achadinhos neste grupo" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-weight: 700; cursor: pointer; border-radius: 6px; padding: 4px 8px;"><i class="fa-solid fa-bullhorn"></i> 🟢 Ativo</button>`
+        : `<button class="btn btn-xs" onclick="quickToggleGroupPosting(\'${g.id}\', false)" title="Clique para reativar ofertas e achadinhos neste grupo" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #f59e0b; font-weight: 700; cursor: pointer; border-radius: 6px; padding: 4px 8px;"><i class="fa-solid fa-bullhorn"></i> 🔴 Pausado</button>`;
+
+      const soDivuBadge = isSoDivu
+        ? `<button class="btn btn-xs" onclick="quickToggleGroupSoDivu(\'${g.id}\', true)" title="Clique para desativar Só Divulgação e voltar ao modo normal" style="background: rgba(236, 72, 153, 0.15); border: 1px solid rgba(236, 72, 153, 0.4); color: #ec4899; font-weight: 700; cursor: pointer; border-radius: 6px; padding: 4px 8px;"><i class="fa-solid fa-bullhorn"></i> 🟢 Só Divu${isGlobalSoDivu ? ' (Global)' : ''}</button>`
+        : `<button class="btn btn-xs" onclick="quickToggleGroupSoDivu(\'${g.id}\', false)" title="Clique para ativar Modo Só Divulgação (apenas postagens e ofertas)" style="background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.3); color: #94a3b8; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 4px 8px;"><i class="fa-solid fa-bullhorn"></i> ⚪ Padrão</button>`;
+
       return `
         <tr>
           <td>
@@ -6487,7 +7051,9 @@ async function loadWhatsappGroupsList(forceRefresh = false) {
             <span style="font-weight: 700; color: #38bdf8;">${g.participantsCount || 0}</span> membros
           </td>
           <td>${modeBadge}</td>
-          <td>${adminBadge}</td>
+          <td style="text-align: center;">${botBadge}</td>
+          <td style="text-align: center;">${postingBadge}</td>
+          <td style="text-align: center;">${soDivuBadge}</td>
           <td style="text-align: center;">
             <div style="display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;">
               <button class="btn btn-sm btn-secondary" onclick="openGroupSettingsModal('${g.id}')" title="Configurar Anti-Link, Boas-Vindas e Segurança" style="color: #3b82f6;">
@@ -6506,9 +7072,61 @@ async function loadWhatsappGroupsList(forceRefresh = false) {
     }).join('');
   } catch (err) {
     console.error('Erro ao listar grupos WhatsApp:', err);
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 24px; color: #ef4444;">Erro ao carregar grupos: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="padding: 24px; color: #ef4444;">Erro ao carregar grupos: ${err.message}</td></tr>`;
   }
 }
+
+async function quickToggleGroupBot(groupId, currentActive) {
+  try {
+    const res = await fetch('/api/whatsapp/groups/' + encodeURIComponent(groupId) + '/toggle-bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !currentActive })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Falha ao alterar status');
+    }
+    await loadWhatsappGroupsList(false);
+  } catch (err) {
+    alert('Erro ao alternar bot no grupo: ' + err.message);
+  }
+}
+
+async function quickToggleGroupPosting(groupId, currentActive) {
+  try {
+    const res = await fetch('/api/whatsapp/groups/' + encodeURIComponent(groupId) + '/toggle-posting', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !currentActive })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Falha ao alterar status de postagens');
+    }
+    await loadWhatsappGroupsList(false);
+  } catch (err) {
+    alert('Erro ao alternar postagens no grupo: ' + err.message);
+  }
+}
+
+async function quickToggleGroupSoDivu(groupId, currentActive) {
+  try {
+    const res = await fetch('/api/whatsapp/groups/' + encodeURIComponent(groupId) + '/toggle-sodivu', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !currentActive })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Falha ao alterar status de Só Divulgação');
+    }
+    await loadWhatsappGroupsList(false);
+  } catch (err) {
+    alert('Erro ao alternar Só Divulgação no grupo: ' + err.message);
+  }
+}
+window.quickToggleGroupSoDivu = quickToggleGroupSoDivu;
 
 async function toggleWhatsappGroupMode(groupId, isCurrentlyAnnounce) {
   const newMode = isCurrentlyAnnounce ? 'open' : 'closed';
@@ -9379,12 +9997,100 @@ function convertCalculationToProposal() {
 // CENTRAL ZAPVOICE 2025 & RECURSOS AVANÇADOS NAZUNA / SPY BOT
 // ==========================================
 
+let currentZapVoiceMessages = [];
+let currentZapVoiceAudios = [];
+let currentZapVoiceFunnels = [];
+let currentZvSubtab = 'messages';
+
+function switchZvSubtab(subtabName) {
+  currentZvSubtab = subtabName || 'messages';
+  const subtabs = ['messages', 'audios', 'funnels', 'settings'];
+  const paneMap = {
+    messages: 'zvSubtabMessagesPane',
+    audios: 'zvSubtabAudiosPane',
+    funnels: 'zvSubtabFunnelsPane',
+    settings: 'zvSubtabSettingsPane'
+  };
+  const btnMap = {
+    messages: 'btnZvTabMessages',
+    audios: 'btnZvTabAudios',
+    funnels: 'btnZvTabFunnels',
+    settings: 'btnZvTabSettings'
+  };
+
+  subtabs.forEach(t => {
+    const pane = document.getElementById(paneMap[t]);
+    const btn = document.getElementById(btnMap[t]);
+    const isActive = (t === currentZvSubtab);
+    if (pane) {
+      pane.style.display = isActive ? 'block' : 'none';
+    }
+    if (btn) {
+      if (isActive) {
+        btn.classList.add('active');
+        btn.classList.remove('btn-outline');
+        btn.style.background = 'rgba(236, 72, 153, 0.15)';
+        btn.style.color = '#ec4899';
+        btn.style.borderColor = '#ec4899';
+        btn.style.fontWeight = '600';
+      } else {
+        btn.classList.remove('active');
+        btn.classList.add('btn-outline');
+        btn.style.background = '';
+        btn.style.color = '';
+        btn.style.borderColor = '';
+        btn.style.fontWeight = 'normal';
+      }
+    }
+  });
+
+  if (currentZvSubtab === 'messages') loadZapVoiceMessages();
+  else if (currentZvSubtab === 'audios') loadZapVoiceAudios();
+  else if (currentZvSubtab === 'funnels') loadZapVoiceFunnels();
+  else if (currentZvSubtab === 'settings') loadZapVoiceSettings();
+}
+window.switchZvSubtab = switchZvSubtab;
+
+function copyZvVar(varName) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(varName).then(() => {
+      showToastNotification('Copiado: ' + varName);
+    }).catch(() => {
+      prompt('Copie a variável:', varName);
+    });
+  } else {
+    prompt('Copie a variável:', varName);
+  }
+}
+window.copyZvVar = copyZvVar;
+
+function insertZvVarIntoContent(varName) {
+  const textarea = document.getElementById('zvMsgContent');
+  if (!textarea) return;
+  const start = textarea.selectionStart || 0;
+  const end = textarea.selectionEnd || 0;
+  const text = textarea.value;
+  textarea.value = text.substring(0, start) + varName + text.substring(end);
+  textarea.focus();
+  textarea.selectionStart = textarea.selectionEnd = start + varName.length;
+}
+window.insertZvVarIntoContent = insertZvVarIntoContent;
+
+function showToastNotification(msg) {
+  const toast = document.createElement('div');
+  toast.innerText = msg;
+  toast.style.cssText = 'position: fixed; bottom: 24px; right: 24px; background: #ec4899; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 99999; font-size: 13px; font-weight: 600; pointer-events: none; transition: opacity 0.3s ease;';
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => { toast.remove(); }, 300);
+  }, 2200);
+}
+
 async function loadZapVoiceOverview() {
   try {
-    const [resStats, resMsgs, resFuns, resVerif] = await Promise.all([
+    const [resStats, resVerif] = await Promise.all([
       fetch('/api/zapvoice/stats').then(r => r.json()).catch(() => ({ stats: {} })),
-      fetch('/api/zapvoice/messages').then(r => r.json()).catch(() => ({ messages: [] })),
-      fetch('/api/zapvoice/funnels').then(r => r.json()).catch(() => ({ funnels: [] })),
       fetch('/api/features/verificado-global').then(r => r.json()).catch(() => ({ config: {} }))
     ]);
 
@@ -9400,16 +10106,853 @@ async function loadZapVoiceOverview() {
       badgeEl.innerText = verif.enabled ? 'Ativado' : 'Desativado';
       badgeEl.className = 'badge ' + (verif.enabled ? 'badge-success' : 'badge-secondary');
     }
+
+    if (currentZvSubtab === 'messages') await loadZapVoiceMessages();
+    else if (currentZvSubtab === 'audios') await loadZapVoiceAudios();
+    else if (currentZvSubtab === 'funnels') await loadZapVoiceFunnels();
+    else if (currentZvSubtab === 'settings') await loadZapVoiceSettings();
   } catch (err) {
     console.error('Erro ao carregar ZapVoice overview:', err);
   }
 }
+window.loadZapVoiceOverview = loadZapVoiceOverview;
+
+// 1. Mensagens Rápidas
+async function loadZapVoiceMessages() {
+  try {
+    const res = await fetch('/api/zapvoice/messages').then(r => r.json());
+    currentZapVoiceMessages = res.messages || [];
+    renderZapVoiceMessagesTable();
+  } catch (err) {
+    console.error('Erro ao carregar mensagens ZapVoice:', err);
+  }
+}
+window.loadZapVoiceMessages = loadZapVoiceMessages;
+
+function renderZapVoiceMessagesTable() {
+  const tbody = document.getElementById('zvMessagesTableBody');
+  if (!tbody) return;
+  const search = (document.getElementById('zvSearchMessages')?.value || '').toLowerCase().trim();
+
+  const filtered = currentZapVoiceMessages.filter(m => {
+    if (!search) return true;
+    return (m.title && m.title.toLowerCase().includes(search)) ||
+           (m.shortcut && m.shortcut.toLowerCase().includes(search)) ||
+           (m.content && m.content.toLowerCase().includes(search)) ||
+           (m.category && m.category.toLowerCase().includes(search));
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94a3b8; padding: 24px;">Nenhuma mensagem rápida cadastrada. Clique em "+ Nova Mensagem" para cadastrar.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(m => {
+    const preview = (m.content || '').length > 65 ? (m.content.substring(0, 65) + '...') : (m.content || '');
+    return `
+      <tr>
+        <td><span style="color:#64748b; font-size:12px;">#${m.id}</span></td>
+        <td><span class="badge" style="background: rgba(236,72,153,0.15); color: #ec4899; font-weight:700;">${m.shortcut || '-'}</span></td>
+        <td><b>${escapeHtml(m.title || 'Sem título')}</b></td>
+        <td><span style="font-size:13px; color:#cbd5e1;">${escapeHtml(preview)}</span></td>
+        <td><span class="badge badge-secondary">${escapeHtml(m.category || 'Geral')}</span></td>
+        <td style="text-align: right; white-space: nowrap;">
+          <button class="btn btn-xs btn-outline" onclick="openZvTestModal(\'message\', ${m.id})" title="Disparar teste via WhatsApp" style="margin-right:4px;"><i class="fa-solid fa-paper-plane" style="color:#10b981;"></i></button>
+          <button class="btn btn-xs btn-outline" onclick="editZapVoiceMessage(${m.id})" title="Editar" style="margin-right:4px;"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn-xs btn-danger" onclick="deleteZapVoiceMessage(${m.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+window.renderZapVoiceMessagesTable = renderZapVoiceMessagesTable;
+
+function openNewZvMessageModal() {
+  const form = document.getElementById('formZvMessage');
+  if (form) form.reset();
+  const idEl = document.getElementById('zvMsgId');
+  if (idEl) idEl.value = '';
+  const titleEl = document.getElementById('modalZvMsgTitleText');
+  if (titleEl) titleEl.innerText = 'Nova Mensagem Rápida ZapVoice';
+  openModal('modalZvMessage');
+}
+window.openNewZvMessageModal = openNewZvMessageModal;
+
+function editZapVoiceMessage(id) {
+  const msg = currentZapVoiceMessages.find(m => m.id === id);
+  if (!msg) return;
+  document.getElementById('zvMsgId').value = msg.id;
+  document.getElementById('zvMsgTitle').value = msg.title || '';
+  document.getElementById('zvMsgShortcut').value = msg.shortcut || '';
+  document.getElementById('zvMsgCategory').value = msg.category || 'Vendas';
+  document.getElementById('zvMsgKeywords').value = (msg.trigger_keywords && Array.isArray(msg.trigger_keywords)) ? msg.trigger_keywords.join(', ') : (msg.trigger_keywords || '');
+  document.getElementById('zvMsgContent').value = msg.content || '';
+  document.getElementById('modalZvMsgTitleText').innerText = 'Editar Mensagem: ' + (msg.title || msg.shortcut);
+  openModal('modalZvMessage');
+}
+window.editZapVoiceMessage = editZapVoiceMessage;
+
+async function saveZapVoiceMessageForm(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const idVal = document.getElementById('zvMsgId').value;
+  const kwRaw = document.getElementById('zvMsgKeywords').value;
+  const keywords = kwRaw ? kwRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+
+  let shortcut = document.getElementById('zvMsgShortcut').value.trim();
+  if (shortcut && !shortcut.startsWith('/')) shortcut = '/' + shortcut;
+
+  const payload = {
+    title: document.getElementById('zvMsgTitle').value.trim(),
+    shortcut,
+    category: document.getElementById('zvMsgCategory').value.trim() || 'Vendas',
+    content: document.getElementById('zvMsgContent').value,
+    trigger_keywords: keywords
+  };
+  if (idVal) payload.id = Number(idVal);
+
+  try {
+    const res = await fetch('/api/zapvoice/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res.success) {
+      closeModal('modalZvMessage');
+      showToastNotification('Mensagem rápida salva com sucesso!');
+      await loadZapVoiceMessages();
+      loadZapVoiceOverview();
+    } else {
+      alert('Erro ao salvar mensagem: ' + (res.error || 'Erro desconhecido'));
+    }
+  } catch (err) {
+    alert('Falha na requisição: ' + err.message);
+  }
+}
+window.saveZapVoiceMessageForm = saveZapVoiceMessageForm;
+
+async function deleteZapVoiceMessage(id) {
+  if (!confirm('Deseja realmente excluir esta mensagem rápida?')) return;
+  try {
+    const res = await fetch('/api/zapvoice/messages/' + id, { method: 'DELETE' }).then(r => r.json());
+    if (res.success) {
+      showToastNotification('Mensagem rápida excluída!');
+      await loadZapVoiceMessages();
+      loadZapVoiceOverview();
+    } else {
+      alert('Erro: ' + (res.error || 'Não foi possível excluir'));
+    }
+  } catch (err) {
+    alert('Falha: ' + err.message);
+  }
+}
+window.deleteZapVoiceMessage = deleteZapVoiceMessage;
+
+// 2. Áudios PTT Neurais
+async function loadZapVoiceAudios() {
+  try {
+    const res = await fetch('/api/zapvoice/audios').then(r => r.json());
+    currentZapVoiceAudios = res.audios || [];
+    renderZapVoiceAudiosTable();
+  } catch (err) {
+    console.error('Erro ao carregar áudios ZapVoice:', err);
+  }
+}
+window.loadZapVoiceAudios = loadZapVoiceAudios;
+
+function renderZapVoiceAudiosTable() {
+  const tbody = document.getElementById('zvAudiosTableBody');
+  if (!tbody) return;
+
+  if (currentZapVoiceAudios.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94a3b8; padding: 24px;">Nenhum áudio PTT gerado. Clique em "Sintetizar / Adicionar Áudio" para criar o primeiro.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = currentZapVoiceAudios.map(a => {
+    return `
+      <tr>
+        <td><span style="color:#64748b; font-size:12px;">#${a.id}</span></td>
+        <td><span class="badge" style="background: rgba(6,182,212,0.15); color: #06b6d4; font-weight:700;">${a.shortcut || '-'}</span></td>
+        <td>
+          <b>${escapeHtml(a.title || 'Áudio PTT')}</b>
+          <div style="font-size:11px; color:#10b981; margin-top:2px;"><i class="fa-solid fa-waveform-lines"></i> PTT Gravado na Hora (WhatsApp Waveform)</div>
+        </td>
+        <td><span class="badge badge-secondary">${a.duration_seconds || 5}s</span></td>
+        <td>
+          <audio controls preload="none" src="/api/zapvoice/audios/${a.id}/stream" style="height: 32px; width: 100%; max-width: 240px;"></audio>
+        </td>
+        <td style="text-align: right; white-space: nowrap;">
+          <button class="btn btn-xs btn-outline" onclick="openZvTestModal(\'audio\', ${a.id})" title="Enviar teste no WhatsApp" style="margin-right:4px;"><i class="fa-solid fa-paper-plane" style="color:#10b981;"></i></button>
+          <button class="btn btn-xs btn-danger" onclick="deleteZapVoiceAudio(${a.id})" title="Excluir áudio"><i class="fa-solid fa-trash"></i></button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+window.renderZapVoiceAudiosTable = renderZapVoiceAudiosTable;
+
+function openNewZvAudioModal() {
+  const form = document.getElementById('formZvAudio');
+  if (form) form.reset();
+  openModal('modalZvAudio');
+}
+window.openNewZvAudioModal = openNewZvAudioModal;
+
+async function synthesizeZapVoiceAudio(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const btn = document.getElementById('btnSubmitZvAudio');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sintetizando com Voz Neural...';
+  }
+
+  const payload = {
+    title: document.getElementById('zvAudioTitle').value.trim(),
+    shortcut: document.getElementById('zvAudioShortcut').value.trim(),
+    voice: document.getElementById('zvAudioVoice').value,
+    text: document.getElementById('zvAudioText').value.trim()
+  };
+
+  try {
+    const res = await fetch('/api/zapvoice/audios/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res.success) {
+      closeModal('modalZvAudio');
+      showToastNotification('Áudio PTT sintetizado e pronto para envio!');
+      await loadZapVoiceAudios();
+      loadZapVoiceOverview();
+    } else {
+      alert('Erro ao sintetizar áudio: ' + (res.error || 'Erro desconhecido'));
+    }
+  } catch (err) {
+    alert('Falha na requisição de síntese: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+window.synthesizeZapVoiceAudio = synthesizeZapVoiceAudio;
+
+async function deleteZapVoiceAudio(id) {
+  if (!confirm('Deseja realmente excluir este áudio PTT?')) return;
+  try {
+    const res = await fetch('/api/zapvoice/audios/' + id, { method: 'DELETE' }).then(r => r.json());
+    if (res.success) {
+      showToastNotification('Áudio excluído com sucesso!');
+      await loadZapVoiceAudios();
+      loadZapVoiceOverview();
+    } else {
+      alert('Erro: ' + (res.error || 'Falha ao excluir'));
+    }
+  } catch (err) {
+    alert('Falha: ' + err.message);
+  }
+}
+window.deleteZapVoiceAudio = deleteZapVoiceAudio;
+
+// 3. Funis Sequenciais
+async function loadZapVoiceFunnels() {
+  try {
+    const res = await fetch('/api/zapvoice/funnels').then(r => r.json());
+    currentZapVoiceFunnels = res.funnels || [];
+    await renderZapVoiceFunnels();
+  } catch (err) {
+    console.error('Erro ao carregar funis ZapVoice:', err);
+  }
+}
+window.loadZapVoiceFunnels = loadZapVoiceFunnels;
+
+async function renderZapVoiceFunnels() {
+  const container = document.getElementById('zvFunnelsContainer');
+  if (!container) return;
+
+  if (currentZapVoiceFunnels.length === 0) {
+    container.innerHTML = '<div style="text-align:center; color:#94a3b8; padding: 24px;">Nenhum funil configurado. Clique em "+ Novo Funil" para criar sua primeira automação sequencial.</div>';
+    return;
+  }
+
+  const funnelsWithSteps = await Promise.all(
+    currentZapVoiceFunnels.map(async (f) => {
+      try {
+        const stepRes = await fetch('/api/zapvoice/funnels/' + f.id + '/steps').then(r => r.json());
+        return { ...f, steps: stepRes.steps || [] };
+      } catch (_) {
+        return { ...f, steps: [] };
+      }
+    })
+  );
+
+  container.innerHTML = funnelsWithSteps.map(f => {
+    let triggers = [];
+    if (Array.isArray(f.trigger_keywords)) triggers = f.trigger_keywords;
+    else if (typeof f.trigger_keywords === 'string') {
+      try { triggers = JSON.parse(f.trigger_keywords); } catch (_) { triggers = f.trigger_keywords.split(','); }
+    }
+
+    const stepsHtml = (f.steps && f.steps.length > 0)
+      ? f.steps.map((st, idx) => {
+          const isAudio = (st.step_type === 'audio_ptt');
+          const typeIcon = isAudio ? '<i class="fa-solid fa-microphone" style="color:#06b6d4;"></i> Áudio PTT' : '<i class="fa-solid fa-comment-dots" style="color:#a855f7;"></i> Texto';
+          const contentPreview = (st.content || '').length > 70 ? (st.content.substring(0, 70) + '...') : (st.content || '');
+          return `
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background: rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; margin-bottom:6px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span class="badge badge-secondary" style="font-weight:700;">Etapa #${idx + 1}</span>
+                <span style="font-size:12px; font-weight:600;">${typeIcon}</span>
+                <span style="font-size:12px; color:#94a3b8;"><i class="fa-regular fa-clock"></i> Delay: ${st.delay_seconds || 3}s</span>
+                <span style="font-size:13px; color:#cbd5e1; margin-left: 6px;">"${escapeHtml(contentPreview)}"</span>
+              </div>
+              <div>
+                <button class="btn btn-xs btn-outline" onclick="deleteZvStep(${st.id})" title="Excluir etapa"><i class="fa-solid fa-trash" style="color:#ef4444;"></i></button>
+              </div>
+            </div>
+          `;
+        }).join('')
+      : '<div style="color:#94a3b8; font-size:13px; padding:8px 0;">Nenhuma etapa cadastrada ainda neste funil.</div>';
+
+    return `
+      <div class="card" style="border: 1px solid rgba(168,85,247,0.25); background: rgba(30, 41, 59, 0.5);">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <h3 style="font-size:16px; margin:0; color:#fff;">${escapeHtml(f.name)}</h3>
+              <span class="badge ${f.is_active ? 'badge-success' : 'badge-secondary'}">${f.is_active ? 'Ativo' : 'Inativo'}</span>
+            </div>
+            <p style="margin:4px 0 0 0; font-size:13px; color:#94a3b8;">${escapeHtml(f.description || 'Sem descrição')}</p>
+            <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <span style="font-size:12px; color:#a855f7; font-weight:600;">Gatilhos:</span>
+              ${triggers.map(t => `<span class="badge" style="background:rgba(168,85,247,0.15); color:#c084fc; font-size:11px;">${escapeHtml(String(t).trim())}</span>`).join('')}
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="btn btn-sm btn-outline" onclick="openZvAddStepModal(${f.id})" style="border-color:#a855f7; color:#c084fc;">
+              <i class="fa-solid fa-plus"></i> Adicionar Etapa
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="openZvTestModal(\'funnel\', ${f.id})" style="border-color:#10b981; color:#34d399;" title="Disparar teste do funil">
+              <i class="fa-solid fa-play"></i> Testar Funil
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteZapVoiceFunnel(${f.id})" title="Excluir funil">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </div>
+        <div class="card-body" style="padding-top:12px;">
+          <h4 style="font-size:13px; color:#94a3b8; text-transform:uppercase; margin-bottom:8px; letter-spacing:0.5px;">Linha do Tempo das Etapas:</h4>
+          ${stepsHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+window.renderZapVoiceFunnels = renderZapVoiceFunnels;
+
+function openNewZvFunnelModal() {
+  const form = document.getElementById('formZvFunnel');
+  if (form) form.reset();
+  const idEl = document.getElementById('zvFunnelId');
+  if (idEl) idEl.value = '';
+  openModal('modalZvFunnel');
+}
+window.openNewZvFunnelModal = openNewZvFunnelModal;
+
+async function saveZapVoiceFunnelForm(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const idVal = document.getElementById('zvFunnelId').value;
+  const trRaw = document.getElementById('zvFunnelTriggers').value;
+  const triggers = trRaw ? trRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+
+  const payload = {
+    name: document.getElementById('zvFunnelName').value.trim(),
+    description: document.getElementById('zvFunnelDescription').value.trim(),
+    trigger_keywords: triggers,
+    is_active: 1
+  };
+  if (idVal) payload.id = Number(idVal);
+
+  try {
+    const res = await fetch('/api/zapvoice/funnels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res.success) {
+      closeModal('modalZvFunnel');
+      showToastNotification('Funil salvo com sucesso!');
+      await loadZapVoiceFunnels();
+      loadZapVoiceOverview();
+    } else {
+      alert('Erro ao salvar funil: ' + (res.error || 'Erro desconhecido'));
+    }
+  } catch (err) {
+    alert('Falha: ' + err.message);
+  }
+}
+window.saveZapVoiceFunnelForm = saveZapVoiceFunnelForm;
+
+async function deleteZapVoiceFunnel(id) {
+  if (!confirm('Deseja realmente excluir este funil e todas as suas etapas?')) return;
+  try {
+    const res = await fetch('/api/zapvoice/funnels/' + id, { method: 'DELETE' }).then(r => r.json());
+    if (res.success) {
+      showToastNotification('Funil excluído com sucesso!');
+      await loadZapVoiceFunnels();
+      loadZapVoiceOverview();
+    } else {
+      alert('Erro: ' + (res.error || 'Falha ao excluir'));
+    }
+  } catch (err) {
+    alert('Falha: ' + err.message);
+  }
+}
+window.deleteZapVoiceFunnel = deleteZapVoiceFunnel;
+
+function openZvAddStepModal(funnelId) {
+  document.getElementById('zvStepFunnelId').value = funnelId;
+  const form = document.getElementById('formZvStep');
+  if (form) form.reset();
+  toggleZvStepTypeFields();
+  openModal('modalZvStep');
+}
+window.openZvAddStepModal = openZvAddStepModal;
+
+function toggleZvStepTypeFields() {
+  const type = document.getElementById('zvStepType').value;
+  const label = document.getElementById('zvStepContentLabel');
+  const txt = document.getElementById('zvStepContent');
+  if (type === 'audio_ptt') {
+    if (label) label.innerText = 'Texto que será narrado no Áudio PTT Neural (ou atalho de áudio ex: /audio1):';
+    if (txt) txt.placeholder = 'Digite o texto humanizado a ser falado pelo bot com tom consultivo ou o atalho do áudio...';
+  } else {
+    if (label) label.innerText = 'Conteúdo do Texto (suporta variáveis {primeiro_nome}, {valor}, etc.):';
+    if (txt) txt.placeholder = 'Digite a mensagem de texto com variáveis dinâmicas...';
+  }
+}
+window.toggleZvStepTypeFields = toggleZvStepTypeFields;
+
+async function saveZapVoiceStepForm(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const funnelId = document.getElementById('zvStepFunnelId').value;
+  const type = document.getElementById('zvStepType').value;
+  const delay = parseInt(document.getElementById('zvStepDelay').value, 10) || 3;
+  const content = document.getElementById('zvStepContent').value.trim();
+
+  const payload = {
+    step_type: type,
+    delay_seconds: delay,
+    content: content
+  };
+
+  try {
+    const res = await fetch('/api/zapvoice/funnels/' + funnelId + '/steps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res.success) {
+      closeModal('modalZvStep');
+      showToastNotification('Etapa adicionada ao funil com sucesso!');
+      await loadZapVoiceFunnels();
+    } else {
+      alert('Erro ao salvar etapa: ' + (res.error || 'Falha'));
+    }
+  } catch (err) {
+    alert('Falha: ' + err.message);
+  }
+}
+window.saveZapVoiceStepForm = saveZapVoiceStepForm;
+
+async function deleteZvStep(stepId) {
+  if (!confirm('Deseja excluir esta etapa do funil?')) return;
+  try {
+    const res = await fetch('/api/zapvoice/funnels/steps/' + stepId, { method: 'DELETE' }).then(r => r.json());
+    if (res.success) {
+      showToastNotification('Etapa excluída!');
+      await loadZapVoiceFunnels();
+    } else {
+      alert('Erro: ' + (res.error || 'Falha ao excluir'));
+    }
+  } catch (err) {
+    alert('Falha: ' + err.message);
+  }
+}
+window.deleteZvStep = deleteZvStep;
+
+// 4. Modal de Teste de Disparo
+function openZvTestModal(type, targetId) {
+  document.getElementById('zvTestType').value = type;
+  document.getElementById('zvTestTargetId').value = targetId;
+  const titleEl = document.getElementById('zvTestModalTitle');
+  if (titleEl) {
+    if (type === 'message') titleEl.innerText = 'Disparar Teste de Mensagem Rápida';
+    else if (type === 'audio') titleEl.innerText = 'Disparar Teste de Áudio PTT';
+    else if (type === 'funnel') titleEl.innerText = 'Disparar Teste de Funil Sequencial';
+  }
+  openModal('modalZvTestSend');
+}
+window.openZvTestModal = openZvTestModal;
+
+async function executeZapVoiceTestSend(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  const type = document.getElementById('zvTestType').value;
+  const targetId = document.getElementById('zvTestTargetId').value;
+  const phone = document.getElementById('zvTestPhone').value.trim();
+  const btn = document.getElementById('btnSubmitZvTest');
+
+  if (!phone) {
+    alert('Informe o número de telefone com DDI + DDD.');
+    return;
+  }
+
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Disparando...';
+  }
+
+  try {
+    let res;
+    if (type === 'message') {
+      res = await fetch('/api/zapvoice/messages/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: targetId, targetPhone: phone })
+      }).then(r => r.json());
+    } else if (type === 'audio') {
+      res = await fetch('/api/zapvoice/audios/' + targetId + '/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetPhone: phone })
+      }).then(r => r.json());
+    } else if (type === 'funnel') {
+      const targetJid = phone.includes('@') ? phone : (phone.replace(/\D/g, '') + '@s.whatsapp.net');
+      res = await fetch('/api/zapvoice/funnels/' + targetId + '/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetJid })
+      }).then(r => r.json());
+    }
+
+    if (res && res.success) {
+      closeModal('modalZvTestSend');
+      showToastNotification('Disparo de teste executado com sucesso!');
+    } else {
+      alert('Resultado do envio: ' + (res?.error || res?.message || 'Verifique se o WhatsApp está conectado.'));
+    }
+  } catch (err) {
+    alert('Falha na execução do teste: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+window.executeZapVoiceTestSend = executeZapVoiceTestSend;
+
+// ==========================================
+// 5. ESTÚDIO DE VOZ HUMANA & CONFIGURAÇÕES ZAPVOICE
+// ==========================================
+const PERSONA_EDGE_MAP = {
+  marcos: { voice: 'pt-BR-AntonioNeural', emotion: 'consultivo', desc: '👨‍💼 Firme & Executivo — Ideal para Advogados, Imóveis, Consórcios e Negócios B2B.' },
+  lucas: { voice: 'en-US-BrianMultilingualNeural', emotion: 'entusiasmado', desc: '⚡ Jovem Vendedor Dinâmico — Energia comercial contagiante, ideal para Lanches, Pizzas e Academia.' },
+  rodrigo: { voice: 'en-US-AndrewMultilingualNeural', emotion: 'acolhedor', desc: '🤝 Atendente Acolhedor & Empático — Caloroso e paciente, ideal para Marmitas, Sushi e Suporte.' },
+  camila: { voice: 'pt-BR-FranciscaNeural', emotion: 'acolhedor', desc: '🌸 Atendente Acolhedora & Doce — Voz suave e humana, perfeita para Nails Design, Lashes e Beleza.' },
+  juliana: { voice: 'en-US-AvaMultilingualNeural', emotion: 'consultivo', desc: '👩‍💼 Especialista Confiante & Persuasiva — Articulada e firme, excelente para Advocacia e Consultoria.' },
+  thalita: { voice: 'pt-BR-ThalitaMultilingualNeural', emotion: 'entusiasmado', desc: '🚀 Jovem Espontânea & Vibrante — Conexão moderna com público de estética, academia e moda.' },
+  larissa: { voice: 'en-US-EmmaMultilingualNeural', emotion: 'entusiasmado', desc: '✨ Entusiasta & Comunicativa — Expressiva e rápida, ótima para varejo e delivery.' },
+  duarte: { voice: 'pt-PT-DuarteNeural', emotion: 'consultivo', desc: '🏛️ Consultor Internacional PT — Postura formal com sotaque português europeu.' },
+  raquel: { voice: 'pt-PT-RaquelNeural', emotion: 'consultivo', desc: '👑 Executiva Internacional PT — Refinamento e elegância com sotaque português europeu.' }
+};
+
+function onPersonaSelectChange(personaKey) {
+  const p = PERSONA_EDGE_MAP[personaKey];
+  if (!p) return;
+  const descEl = document.getElementById('zvPersonaDesc');
+  if (descEl) descEl.textContent = p.desc;
+  const voiceSelect = document.getElementById('zvCfgVoice');
+  if (voiceSelect) voiceSelect.value = p.voice;
+  const emotionSelect = document.getElementById('zvCfgEmotion');
+  if (emotionSelect && p.emotion) emotionSelect.value = p.emotion;
+}
+window.onPersonaSelectChange = onPersonaSelectChange;
+
+async function playVoicePreviewLive() {
+  const btn = document.getElementById('btnZvPlayPreview');
+  const player = document.getElementById('zvPreviewPlayer');
+  const text = document.getElementById('zvPreviewCustomText')?.value?.trim() || 'Opa, tudo bem? Olha só, tava analisando aqui o seu caso e garanto que consigo te atender com total segurança e agilidade.';
+  const persona = document.getElementById('zvCfgPersona')?.value || 'marcos';
+  const emotion = document.getElementById('zvCfgEmotion')?.value || 'consultivo';
+  const voice = document.getElementById('zvCfgVoice')?.value || 'pt-BR-AntonioNeural';
+  const organicBreath = document.getElementById('zvCfgOrganicBreath')?.checked !== false;
+  const phoneWarmth = document.getElementById('zvCfgPhoneWarmth')?.checked !== false;
+
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando voz...';
+  }
+
+  try {
+    const res = await fetch('/api/voice/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, persona, emotion, voice, organicBreath, phoneWarmth })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || 'Falha ao sintetizar áudio');
+    }
+
+    const blob = await res.blob();
+    const audioUrl = URL.createObjectURL(blob);
+    if (player) {
+      player.src = audioUrl;
+      player.style.display = 'block';
+      await player.play();
+    }
+  } catch (err) {
+    alert('Erro ao reproduzir áudio de amostra: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+window.playVoicePreviewLive = playVoicePreviewLive;
+
+async function loadZapVoiceSettings() {
+  try {
+    const [settingsRes, voiceRes] = await Promise.all([
+      fetch('/api/settings').then(r => r.json()).catch(() => ({})),
+      fetch('/api/voice/settings').then(r => r.json()).catch(() => ({}))
+    ]);
+    const settings = settingsRes.settings || {};
+    const vSettings = voiceRes.settings || {};
+
+    const personaSelect = document.getElementById('zvCfgPersona');
+    if (personaSelect && (vSettings.persona || settings.SALES_BOT_PERSONA)) {
+      personaSelect.value = vSettings.persona || settings.SALES_BOT_PERSONA;
+      onPersonaSelectChange(personaSelect.value);
+    }
+    const emotionSelect = document.getElementById('zvCfgEmotion');
+    if (emotionSelect && (vSettings.emotion || settings.SALES_BOT_EMOTION)) {
+      emotionSelect.value = vSettings.emotion || settings.SALES_BOT_EMOTION;
+    }
+    const voiceSelect = document.getElementById('zvCfgVoice');
+    if (voiceSelect && (vSettings.voice || settings.ZAPVOICE_TTS_VOICE || settings.SALES_BOT_VOICE)) {
+      voiceSelect.value = vSettings.voice || settings.ZAPVOICE_TTS_VOICE || settings.SALES_BOT_VOICE;
+    }
+    const breathCheckbox = document.getElementById('zvCfgOrganicBreath');
+    if (breathCheckbox && (vSettings.organicBreath !== undefined || settings.SALES_BOT_ORGANIC_BREATH !== undefined)) {
+      breathCheckbox.checked = (vSettings.organicBreath !== false && settings.SALES_BOT_ORGANIC_BREATH !== 'false');
+    }
+    const warmthCheckbox = document.getElementById('zvCfgPhoneWarmth');
+    if (warmthCheckbox && (vSettings.phoneWarmth !== undefined || settings.SALES_BOT_PHONE_WARMTH !== undefined)) {
+      warmthCheckbox.checked = (vSettings.phoneWarmth !== false && settings.SALES_BOT_PHONE_WARMTH !== 'false');
+    }
+    const delayInput = document.getElementById('zvCfgDefaultDelay');
+    if (delayInput && settings.ZAPVOICE_DEFAULT_DELAY_SEC) {
+      delayInput.value = settings.ZAPVOICE_DEFAULT_DELAY_SEC;
+    }
+    const simTyping = document.getElementById('zvCfgSimulateTyping');
+    if (simTyping && settings.ZAPVOICE_SIMULATE_TYPING !== undefined) {
+      simTyping.checked = (settings.ZAPVOICE_SIMULATE_TYPING !== 'false');
+    }
+  } catch (err) {
+    console.error('Erro ao carregar configurações ZapVoice:', err);
+  }
+}
+window.loadZapVoiceSettings = loadZapVoiceSettings;
+
+async function saveZapVoiceSettings() {
+  const persona = document.getElementById('zvCfgPersona')?.value || 'marcos';
+  const emotion = document.getElementById('zvCfgEmotion')?.value || 'consultivo';
+  const voice = document.getElementById('zvCfgVoice')?.value || 'pt-BR-AntonioNeural';
+  const organicBreath = document.getElementById('zvCfgOrganicBreath')?.checked !== false;
+  const phoneWarmth = document.getElementById('zvCfgPhoneWarmth')?.checked !== false;
+  const defaultDelay = document.getElementById('zvCfgDefaultDelay')?.value || '3';
+  const simulateTyping = document.getElementById('zvCfgSimulateTyping')?.checked !== false;
+
+  const payload = {
+    SALES_BOT_PERSONA: persona,
+    SALES_BOT_EMOTION: emotion,
+    SALES_BOT_VOICE: voice,
+    ZAPVOICE_TTS_VOICE: voice,
+    SALES_BOT_ORGANIC_BREATH: organicBreath ? 'true' : 'false',
+    SALES_BOT_PHONE_WARMTH: phoneWarmth ? 'true' : 'false',
+    ZAPVOICE_DEFAULT_DELAY_SEC: defaultDelay,
+    ZAPVOICE_SIMULATE_TYPING: simulateTyping ? 'true' : 'false'
+  };
+
+  try {
+    const [resSettings, resVoice] = await Promise.all([
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(r => r.json()),
+      fetch('/api/voice/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          persona,
+          emotion,
+          voice,
+          organicBreath,
+          phoneWarmth
+        })
+      }).then(r => r.json())
+    ]);
+
+    if (resSettings.success || resVoice.success) {
+      const fb = document.getElementById('zvSaveFeedback');
+      if (fb) {
+        fb.style.display = 'inline-block';
+        setTimeout(() => { fb.style.display = 'none'; }, 3500);
+      }
+      showToastNotification('Voz e configurações salvas com sucesso!');
+    } else {
+      alert('Erro ao salvar: ' + (resSettings.error || resVoice.error || 'Erro desconhecido'));
+    }
+  } catch (err) {
+    alert('Falha: ' + err.message);
+  }
+}
+window.saveZapVoiceSettings = saveZapVoiceSettings;
+
+// ==========================================
+// CENTRAL SOCIAL LISTENING (STEALTH EM GRUPOS) & TELEMETRIA DA VITRINE WEB
+// ==========================================
 
 // ==========================================
 // CENTRAL SOCIAL LISTENING (STEALTH EM GRUPOS) & TELEMETRIA DA VITRINE WEB
 // ==========================================
 
 let currentSocialRules = [];
+let currentSocialFilter = 'ALL';
+let currentSlSubtab = 'rules';
+
+function switchSlSubtab(subtabName) {
+  currentSlSubtab = subtabName || 'rules';
+  const subtabs = ['rules', 'heating', 'managers', 'store', 'radarLeads'];
+  const paneMap = {
+    rules: 'slSubtabRulesPane',
+    heating: 'slSubtabHeatingPane',
+    managers: 'slSubtabManagersPane',
+    store: 'slSubtabStorePane',
+    radarLeads: 'slSubtabRadarLeadsPane'
+  };
+  const btnMap = {
+    rules: 'btnSlTabRules',
+    heating: 'btnSlTabHeating',
+    managers: 'btnSlTabManagers',
+    store: 'btnSlTabStore',
+    radarLeads: 'btnSlTabRadarLeads'
+  };
+
+  subtabs.forEach(t => {
+    const pane = document.getElementById(paneMap[t]);
+    const btn = document.getElementById(btnMap[t]);
+    const isActive = (t === currentSlSubtab);
+    if (pane) {
+      pane.style.display = isActive ? 'block' : 'none';
+    }
+    if (btn) {
+      if (isActive) {
+        btn.classList.add('active');
+        btn.classList.remove('btn-outline');
+      } else {
+        btn.classList.remove('active');
+        btn.classList.add('btn-outline');
+      }
+    }
+  });
+
+  // Carregamento reativo sob demanda da sub-aba
+  if (currentSlSubtab === 'rules') loadSocialListening();
+  else if (currentSlSubtab === 'heating') loadHeatingData();
+  else if (currentSlSubtab === 'managers') loadGroupManagers();
+  else if (currentSlSubtab === 'store') {
+    loadCartSessions();
+    loadStoreTelemetry();
+  } else if (currentSlSubtab === 'radarLeads') {
+    loadRadarLeads();
+  }
+}
+
+function filterSocialRules(type) {
+  currentSocialFilter = type || 'ALL';
+  ['btnFilterRuleAll', 'btnFilterRuleReply', 'btnFilterRuleAlert'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.remove('active');
+  });
+
+  if (type === 'REPLY') {
+    const b = document.getElementById('btnFilterRuleReply');
+    if (b) b.classList.add('active');
+  } else if (type === 'ALERT') {
+    const b = document.getElementById('btnFilterRuleAlert');
+    if (b) b.classList.add('active');
+  } else {
+    const b = document.getElementById('btnFilterRuleAll');
+    if (b) b.classList.add('active');
+  }
+
+  renderSocialRulesTable();
+}
+
+function renderSocialRulesTable() {
+  const table = document.getElementById('socialListeningRulesTable');
+  if (!table) return;
+
+  let rules = currentSocialRules;
+  if (currentSocialFilter === 'REPLY') {
+    rules = rules.filter(r => r.action_type !== 'ALERT');
+  } else if (currentSocialFilter === 'ALERT') {
+    rules = rules.filter(r => r.action_type === 'ALERT');
+  }
+
+  if (rules.length === 0) {
+    table.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-ear-listen" style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;"></i><br>Nenhuma regra cadastrada para este filtro.</td></tr>';
+    return;
+  }
+
+  table.innerHTML = rules.map(r => {
+    const isAlert = r.action_type === 'ALERT';
+    const typeBadge = isAlert
+      ? '<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171;"><i class="fa-solid fa-bell"></i> 🚨 Sentinela</span>'
+      : '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399;"><i class="fa-solid fa-bag-shopping"></i> 🛍️ Afiliado</span>';
+    const templates = Array.isArray(r.templates) ? r.templates : (typeof r.templates === 'string' ? JSON.parse(r.templates || '[]') : []);
+    const kwBadges = (r.keywords || '').split(',').map(k => '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; margin-right: 4px; font-size: 11px;">' + k.trim() + '</span>').join('');
+    const linkStr = r.affiliate_url ? '<a href="' + r.affiliate_url + '" target="_blank" style="color: #38bdf8; text-decoration: underline; font-size: 12px;"><i class="fa-solid fa-arrow-up-right-from-square"></i> ' + r.affiliate_url.slice(0, 28) + '...</a>' : '-';
+
+    return '<tr>' +
+      '<td>' + typeBadge + '</td>' +
+      '<td><strong>' + (r.product_name || 'Sem nome') + '</strong></td>' +
+      '<td>' + (kwBadges || '-') + '</td>' +
+      '<td>' + linkStr + '</td>' +
+      '<td><small style="color: var(--text-muted);">' + templates.length + ' template(s)</small></td>' +
+      '<td><span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-weight: 700;">' + (r.triggered_count || 0) + ' envios</span></td>' +
+      '<td>' + (r.active ? '<span class="badge badge-success">🟢 Ativo</span>' : '<span class="badge badge-secondary">⚪ Pausado</span>') + '</td>' +
+      '<td>' +
+        '<button class="btn btn-xs btn-outline" onclick="editSocialRule(' + r.id + ')" title="Editar" style="margin-right: 4px;"><i class="fa-solid fa-pen"></i></button>' +
+        '<button class="btn btn-xs btn-danger" onclick="deleteSocialRule(' + r.id + ')" title="Excluir"><i class="fa-solid fa-trash"></i></button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
 
 async function loadSocialListening() {
   try {
@@ -9417,29 +10960,10 @@ async function loadSocialListening() {
     const data = await res.json();
     currentSocialRules = data.rules || [];
 
-    const table = document.getElementById('socialListeningRulesTable');
-    if (!table) return;
+    renderSocialRulesTable();
 
-    if (currentSocialRules.length === 0) {
-      table.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-ear-listen" style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;"></i><br>Nenhuma regra de escuta cadastrada ainda. Clique em "Nova Regra de Escuta".</td></tr>';
-    } else {
-      table.innerHTML = currentSocialRules.map(r => {
-        const templates = Array.isArray(r.templates) ? r.templates : (typeof r.templates === 'string' ? JSON.parse(r.templates || '[]') : []);
-        const kwBadges = (r.keywords || '').split(',').map(k => '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; margin-right: 4px; font-size: 11px;">' + k.trim() + '</span>').join('');
-        return '<tr>' +
-          '<td><strong>' + (r.product_name || 'Sem nome') + '</strong></td>' +
-          '<td>' + (kwBadges || '-') + '</td>' +
-          '<td><a href="' + r.affiliate_url + '" target="_blank" style="color: #38bdf8; text-decoration: underline; font-size: 12px;"><i class="fa-solid fa-arrow-up-right-from-square"></i> ' + (r.affiliate_url ? r.affiliate_url.slice(0, 30) + '...' : '-') + '</a></td>' +
-          '<td><small style="color: var(--text-muted);">' + templates.length + ' template(s)</small></td>' +
-          '<td><span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-weight: 700;">' + (r.triggered_count || 0) + ' envios</span></td>' +
-          '<td>' + (r.active ? '<span class="badge badge-success">🟢 Ativo</span>' : '<span class="badge badge-secondary">⚪ Pausado</span>') + '</td>' +
-          '<td>' +
-            '<button class="btn btn-xs btn-outline" onclick="editSocialRule(' + r.id + ')" title="Editar" style="margin-right: 4px;"><i class="fa-solid fa-pen"></i></button>' +
-            '<button class="btn btn-xs btn-danger" onclick="deleteSocialRule(' + r.id + ')" title="Excluir"><i class="fa-solid fa-trash"></i></button>' +
-          '</td>' +
-        '</tr>';
-      }).join('');
-    }
+    const pillRules = document.getElementById('slPillRulesCount');
+    if (pillRules) pillRules.innerText = currentSocialRules.length;
 
     const statRules = document.getElementById('slStatRules');
     if (statRules) statRules.innerText = currentSocialRules.length;
@@ -9448,10 +10972,463 @@ async function loadSocialListening() {
     const statTriggers = document.getElementById('slStatTriggers');
     if (statTriggers) statTriggers.innerText = totalTriggers;
 
+    const affCount = currentSocialRules.filter(r => r.action_type !== 'ALERT').length;
+    const sentCount = currentSocialRules.filter(r => r.action_type === 'ALERT').length;
+    const elAff = document.getElementById('slStatAffiliateCount');
+    if (elAff) elAff.innerText = affCount;
+    const elSent = document.getElementById('slStatSentinelCount');
+    if (elSent) elSent.innerText = sentCount;
   } catch (err) {
     console.error('Erro ao carregar social listening:', err);
   }
 }
+
+// ==========================================
+// AQUECIMENTO ENTRE SUB-BOTS (DIÁLOGOS EM GRUPOS)
+// ==========================================
+
+async function loadHeatingData() {
+  try {
+    const res = await fetch('/api/group-heating/status');
+    const data = await res.json();
+    if (!data || !data.success) return;
+
+    const statusEl = document.getElementById('heatingGlobalStatus');
+    if (statusEl) {
+      statusEl.innerHTML = data.enabled
+        ? '<span style="color: #34d399; font-weight: 700;">🟢 Ativo</span>'
+        : '<span style="color: #f87171; font-weight: 700;">⚪ Pausado</span>';
+    }
+
+    const tableSummaries = document.getElementById('heatingSummariesTable');
+    if (tableSummaries) {
+      const summaries = data.summaries || [];
+      if (summaries.length === 0) {
+        tableSummaries.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-muted);"><i class="fa-solid fa-fire" style="font-size: 24px; opacity: 0.3; margin-bottom: 8px;"></i><br>Nenhum assunto aquecido nas últimas 24h. O motor atua automaticamente quando múltiplos chips estão no mesmo grupo.</td></tr>';
+      } else {
+        tableSummaries.innerHTML = summaries.map(s => {
+          const count = s.interaction_count || s.count || 0;
+          const badgeClass = count >= 9 ? 'badge-danger' : (count >= 5 ? 'badge-warning' : 'badge-success');
+          const lastTime = s.last_interaction_at ? new Date(s.last_interaction_at).toLocaleTimeString('pt-BR') : '-';
+          const grpJid = s.group_jid || '';
+          const topic = s.topic_key || s.topic || '';
+          return '<tr>' +
+            '<td><strong>' + topic + '</strong><br><small style="color: var(--text-muted); font-size: 11px;">' + grpJid + '</small></td>' +
+            '<td><span class="badge ' + badgeClass + '">' + count + ' / 9 interações</span></td>' +
+            '<td><small style="color: #60a5fa;">' + (s.flows_used || 'Automático') + '</small></td>' +
+            '<td><small style="color: var(--text-muted);">' + lastTime + '</small></td>' +
+            '<td><button class="btn btn-xs btn-outline" onclick="resetHeatingTopic(\'' + grpJid + '\', \'' + topic + '\')" title="Resetar cota de 24h"><i class="fa-solid fa-rotate-left"></i> Resetar</button></td>' +
+          '</tr>';
+        }).join('');
+      }
+    }
+
+    const tableLogs = document.getElementById('heatingRecentLogsTable');
+    if (tableLogs) {
+      const logs = data.recentLogs || [];
+      if (logs.length === 0) {
+        tableLogs.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-muted);"><i class="fa-solid fa-comments" style="font-size: 24px; opacity: 0.3; margin-bottom: 8px;"></i><br>Aguardando diálogos automáticos entre sub-bots...</td></tr>';
+      } else {
+        tableLogs.innerHTML = logs.map(l => {
+          const time = l.created_at ? new Date(l.created_at).toLocaleTimeString('pt-BR') : '-';
+          const linkHtml = l.link_sent ? '<a href="' + l.link_sent + '" target="_blank" style="color: #38bdf8; font-size: 11px;"><i class="fa-solid fa-arrow-up-right-from-square"></i> Link</a>' : '-';
+          return '<tr>' +
+            '<td><small style="color: var(--text-muted);">' + time + '</small></td>' +
+            '<td><code style="font-size: 11px;">' + (l.group_jid ? l.group_jid.split('@')[0] : '-') + '</code></td>' +
+            '<td><span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa;">Chip #' + (l.instance_id || 1) + '</span></td>' +
+            '<td><span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; font-size: 10px;">' + (l.flow_type || 'DIÁLOGO') + '</span></td>' +
+            '<td><small style="color: #fff;">' + (l.message_text || '') + '</small></td>' +
+            '<td>' + linkHtml + '</td>' +
+          '</tr>';
+        }).join('');
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao carregar dados de aquecimento:', err);
+  }
+}
+
+async function toggleHeatingGlobal() {
+  try {
+    const res = await fetch('/api/group-heating/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    const data = await res.json();
+    if (data.success) {
+      showBotToast('Aquecimento', data.enabled ? '🟢 Motor de aquecimento ativado!' : '⚪ Motor de aquecimento pausado.', 'info');
+      loadHeatingData();
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao alterar status do aquecimento.', 'error');
+  }
+}
+
+async function resetHeatingTopic(groupJid, topicKey) {
+  if (!confirm('Deseja zerar a cota de 24h para o tópico "' + topicKey + '" neste grupo?')) return;
+  try {
+    const res = await fetch('/api/group-heating/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupJid, topicKey })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showBotToast('Sucesso', 'Cota do tópico zerada com sucesso!', 'success');
+      loadHeatingData();
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao resetar cota.', 'error');
+  }
+}
+
+function openSimulateHeatingModal() {
+  document.getElementById('simGroupJid').value = '';
+  document.getElementById('simTopic').value = '';
+  document.getElementById('simLinkA').value = '';
+  document.getElementById('simLinkB').value = '';
+  const modal = document.getElementById('modalSimulateHeating');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeSimulateHeatingModal() {
+  const modal = document.getElementById('modalSimulateHeating');
+  if (modal) modal.style.display = 'none';
+}
+
+async function executeSimulateHeating(e) {
+  if (e) e.preventDefault();
+  const groupJid = document.getElementById('simGroupJid').value.trim();
+  const topic = document.getElementById('simTopic').value.trim();
+  const flowType = document.getElementById('simFlowType').value || null;
+  const affiliateUrl = document.getElementById('simLinkA').value.trim() || null;
+  const affiliateUrlAlt = document.getElementById('simLinkB').value.trim() || null;
+
+  if (!groupJid || !topic) {
+    showBotToast('Atenção', 'Informe o JID do grupo e o assunto.', 'warning');
+    return;
+  }
+
+  try {
+    showBotToast('Simulação', 'Disparando diálogo entre sub-bots no grupo...', 'info');
+    const res = await fetch('/api/group-heating/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupJid, topic, flowType, affiliateUrl, affiliateUrlAlt })
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeSimulateHeatingModal();
+      showBotToast('Sucesso', 'Diálogo de aquecimento iniciado com sucesso!', 'success');
+      loadHeatingData();
+    } else {
+      showBotToast('Aviso', data.error || 'Falha ao iniciar simulação.', 'warning');
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao conectar com o servidor.', 'error');
+  }
+}
+
+// ==========================================
+// SUB-BOTS GERENTES DE GRUPOS (DELEGAÇÃO OFICIAL)
+// ==========================================
+
+async function loadGroupManagers() {
+  try {
+    const res = await fetch('/api/group-managers');
+    const data = await res.json();
+    const managers = data.managers || [];
+
+    const pill = document.getElementById('slPillManagersCount');
+    if (pill) pill.innerText = managers.length;
+
+    const stat = document.getElementById('slStatManagersCount');
+    if (stat) stat.innerText = managers.length;
+
+    const table = document.getElementById('groupManagersTable');
+    if (!table) return;
+
+    if (managers.length === 0) {
+      table.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-crown" style="font-size: 24px; color: #f59e0b; opacity: 0.4; margin-bottom: 8px;"></i><br>Nenhum grupo delegado no momento. Todos os grupos operam sob a Matriz Principal.</td></tr>';
+      return;
+    }
+
+    table.innerHTML = managers.map(m => {
+      const isOnline = m.instance_status === 'CONNECTED';
+      const statusBadge = isOnline
+        ? '<span class="badge badge-success">🟢 Conectado</span>'
+        : '<span class="badge badge-secondary">⚪ ' + (m.instance_status || 'Desconectado') + '</span>';
+      const dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR') : '-';
+
+      return '<tr>' +
+        '<td><strong><code>' + (m.group_jid || '-') + '</code></strong></td>' +
+        '<td><span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fa-solid fa-robot"></i> ' + (m.instance_name || 'Sub-Bot #' + m.instance_id) + '</span></td>' +
+        '<td><small style="color: #fff;">' + (m.instance_phone ? '+' + m.instance_phone : '-') + '</small></td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td><small style="color: var(--text-muted);">' + (m.delegated_by || 'Dono') + '</small></td>' +
+        '<td><small style="color: var(--text-muted);">' + dateStr + '</small></td>' +
+        '<td><button class="btn btn-xs btn-danger" onclick="removeGroupManager(\'' + m.group_jid + '\')" title="Revogar gerência"><i class="fa-solid fa-user-xmark"></i> Revogar</button></td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar gerentes de grupos:', err);
+  }
+}
+
+async function openDelegateManagerModal() {
+  document.getElementById('dlgGroupJid').value = '';
+  const select = document.getElementById('dlgSubBotSelect');
+  if (select) {
+    select.innerHTML = '<option value="">Carregando chips do exército...</option>';
+    try {
+      const res = await fetch('/api/subbot/list');
+      const data = await res.json();
+      const subbots = data.subbots || [];
+      if (subbots.length === 0) {
+        select.innerHTML = '<option value="">Nenhum sub-bot cadastrado. Crie um no Exército.</option>';
+      } else {
+        select.innerHTML = '<option value="">Selecione o Sub-Bot Gerente...</option>' +
+          subbots.map(b => '<option value="' + b.id + '">#' + b.id + ' - ' + b.name + ' (' + (b.phone ? '+' + b.phone : 'Sem número') + ')</option>').join('');
+      }
+    } catch (_) {
+      select.innerHTML = '<option value="">Erro ao carregar chips.</option>';
+    }
+  }
+
+  const modal = document.getElementById('modalDelegateManager');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeDelegateManagerModal() {
+  const modal = document.getElementById('modalDelegateManager');
+  if (modal) modal.style.display = 'none';
+}
+
+async function saveDelegateManager(e) {
+  if (e) e.preventDefault();
+  const groupJid = document.getElementById('dlgGroupJid').value.trim();
+  const instanceId = document.getElementById('dlgSubBotSelect').value;
+
+  if (!groupJid || !instanceId) {
+    showBotToast('Atenção', 'Preencha o JID do grupo e escolha o Sub-Bot.', 'warning');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/group-managers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupJid, instanceId, delegatedBy: 'Painel Web' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      closeDelegateManagerModal();
+      showBotToast('Sucesso', 'Sub-Bot nomeado gerente do grupo com sucesso!', 'success');
+      loadGroupManagers();
+    } else {
+      showBotToast('Erro', data.error || 'Falha ao delegar gerente.', 'error');
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao conectar com o servidor.', 'error');
+  }
+}
+
+async function removeGroupManager(groupJid) {
+  if (!confirm('Deseja realmente revogar o Sub-Bot gerente deste grupo? O grupo voltará a ser atendido pelo Bot Master.')) return;
+  try {
+    const res = await fetch('/api/group-managers/' + encodeURIComponent(groupJid), { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showBotToast('Sucesso', 'Gerência revogada com sucesso.', 'success');
+      loadGroupManagers();
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao revogar gerência.', 'error');
+  }
+}
+
+// ==========================================
+// RADAR DE LEADS & MINERAÇÃO DE OPORTUNIDADES EM GRUPOS
+// ==========================================
+
+let currentRadarLeads = [];
+
+async function loadRadarLeads() {
+  try {
+    const res = await fetch('/api/radar/leads?limit=60');
+    const data = await res.json();
+    currentRadarLeads = data.leads || [];
+
+    const pill = document.getElementById('slPillRadarCount');
+    if (pill) pill.innerText = currentRadarLeads.length;
+
+    const statusEl = document.getElementById('radarAutoApproachStatus');
+    if (statusEl && data.stats) {
+      statusEl.innerHTML = data.stats.auto_approach
+        ? '<span style="color: #34d399; font-weight: 700;">🟢 Ativada</span>'
+        : '<span style="color: #f87171; font-weight: 700;">⚪ Desativada</span>';
+    }
+
+    const table = document.getElementById('radarLeadsTableBody');
+    if (!table) return;
+
+    if (currentRadarLeads.length === 0) {
+      table.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 24px; color: var(--text-muted);"><i class="fa-solid fa-radar" style="font-size: 24px; color: #10b981; opacity: 0.4; margin-bottom: 8px;"></i><br>Nenhum lead de compra minerado nos grupos ainda. O radar está ativo monitorando conversas.</td></tr>';
+      return;
+    }
+
+    table.innerHTML = currentRadarLeads.map(lead => {
+      const time = lead.created_at ? new Date(lead.created_at).toLocaleTimeString('pt-BR') : '-';
+      const cleanPhone = String(lead.sender_phone || lead.sender_jid || '').replace(/\D/g, '');
+      const leadName = lead.sender_name || 'Lead';
+      const cleanMsg = (lead.message_text || '').slice(0, 70);
+
+      const statusBadge = (s) => {
+        if (s === 'CONVERTED') return '<span class="badge badge-success">Convertido</span>';
+        if (s === 'CONTACTED') return '<span class="badge badge-info">Contatado</span>';
+        if (s === 'DISMISSED') return '<span class="badge badge-secondary">Descartado</span>';
+        return '<span class="badge badge-warning">Pendente</span>';
+      };
+
+      const waMsg = encodeURIComponent('Olá, ' + leadName + '! Vi sua mensagem no grupo sobre ' + (lead.matched_trigger || 'nossas soluções') + '. Posso te mandar os detalhes e uma condição especial por aqui?');
+      const waLink = cleanPhone ? 'https://wa.me/' + cleanPhone + '?text=' + waMsg : '#';
+
+      return '<tr>' +
+        '<td><small style="color: var(--text-muted);">' + time + '</small></td>' +
+        '<td><span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">' + (lead.scout_type || 'Scout') + '</span></td>' +
+        '<td><small style="color: #94a3b8;">' + (lead.group_name || (lead.group_jid ? lead.group_jid.split('@')[0] : 'Grupo')) + '</small></td>' +
+        '<td><strong>' + leadName + '</strong><br><small style="color: var(--text-muted); font-size: 11px;">+' + cleanPhone + '</small></td>' +
+        '<td><small style="color: #fbbf24;">🎯 ' + (lead.matched_trigger || '-') + '</small><br><span style="color: #cbd5e1; font-size: 11px;">"' + cleanMsg + '"</span></td>' +
+        '<td><small style="color: #38bdf8;">' + (lead.recommended_product || 'PayBot Vendas') + '</small></td>' +
+        '<td>' + statusBadge(lead.status) + '</td>' +
+        '<td>' +
+          (cleanPhone
+            ? '<a href="' + waLink + '" target="_blank" class="btn btn-xs btn-outline" style="color: #25d366; border-color: #25d366; text-decoration: none; margin-right: 4px;" onclick="updateRadarLeadStatus(' + lead.id + ', \'CONTACTED\')"><i class="fa-brands fa-whatsapp"></i> Chamar PV</a>'
+            : '-') +
+          '<button class="btn btn-xs btn-outline" onclick="updateRadarLeadStatus(' + lead.id + ', \'CONVERTED\')" title="Marcar como Convertido"><i class="fa-solid fa-check"></i></button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao carregar leads do radar:', err);
+  }
+}
+
+async function toggleRadarAutoApproach() {
+  try {
+    const current = document.getElementById('radarAutoApproachStatus')?.innerText?.includes('Ativada');
+    const res = await fetch('/api/radar/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_approach: !current })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showBotToast('Radar de Leads', !current ? '🟢 Abordagem automática no PV ativada!' : '⚪ Abordagem automática desativada.', 'info');
+      loadRadarLeads();
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha ao alterar configuração do radar.', 'error');
+  }
+}
+
+async function updateRadarLeadStatus(id, newStatus) {
+  try {
+    const res = await fetch('/api/radar/leads/' + id + '/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    });
+    const data = await res.json();
+    if (data.success) {
+      loadRadarLeads();
+    }
+  } catch (_) {}
+}
+
+// ==========================================
+// IMPORTAÇÃO EM MASSA (BULK IMPORT) DE REGRAS E LINKS
+// ==========================================
+
+function openBulkImportModal() {
+  const modal = document.getElementById('modalBulkImport');
+  if (modal) {
+    document.getElementById('bulkImportContent').value = '';
+    const resEl = document.getElementById('bulkImportResult');
+    if (resEl) resEl.style.display = 'none';
+    modal.style.display = 'flex';
+  }
+}
+
+function closeBulkImportModal() {
+  const modal = document.getElementById('modalBulkImport');
+  if (modal) modal.style.display = 'none';
+}
+
+function insertBulkExample() {
+  const textarea = document.getElementById('bulkImportContent');
+  if (textarea) {
+    textarea.value =
+      'Airfryer Oster | airfryer, fritadeira, oster | https://amzn.to/airfryer1 | https://shope.ee/airfryer2 | Menina, comprei essa aqui e recomendo demais: {link}\n' +
+      'Robô Aspirador WAP | robo aspirador, wap, aspirador | https://amzn.to/robo1 | | Esse robo mudou minha vida, peguei nessa promo: {link}\n' +
+      '[sentinela] Reclamações e Golpe | golpe, fraude, procon, processo, estelionato, policia\n' +
+      'Fone Bluetooth QCY | fone bluetooth, fone sem fio, fone qcy | https://shope.ee/foneqcy | | O melhor fone custo-benefício que já usei: {link}';
+  }
+}
+
+function handleBulkFileSelect(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const content = e.target.result;
+    const textarea = document.getElementById('bulkImportContent');
+    if (textarea) textarea.value = content;
+    showBotToast('Arquivo Carregado', 'Arquivo ' + file.name + ' lido com sucesso!', 'info');
+  };
+  reader.readAsText(file);
+}
+
+async function processBulkImport() {
+  const content = document.getElementById('bulkImportContent').value.trim();
+  if (!content) {
+    showBotToast('Atenção', 'Insira ou solte um arquivo com as regras para importar.', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('btnProcessBulkImport');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/social-listening/import-bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    const data = await res.json();
+    const resEl = document.getElementById('bulkImportResult');
+    if (resEl) {
+      resEl.style.display = 'block';
+      if (data.success) {
+        resEl.style.background = 'rgba(16, 185, 129, 0.15)';
+        resEl.style.border = '1px solid #10b981';
+        resEl.style.color = '#34d399';
+        resEl.innerHTML = '<strong><i class="fa-solid fa-check"></i> Importação Concluída com Sucesso!</strong><br>' +
+          '• Importadas: ' + (data.imported || 0) + ' regras<br>' +
+          '• Ignoradas / Inválidas: ' + (data.skipped || 0);
+        showBotToast('Sucesso', (data.imported || 0) + ' regras importadas com sucesso!', 'success');
+        loadSocialListening();
+      } else {
+        resEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        resEl.style.border = '1px solid #ef4444';
+        resEl.style.color = '#f87171';
+        resEl.innerHTML = '<strong><i class="fa-solid fa-xmark"></i> Falha na Importação:</strong> ' + (data.error || 'Erro desconhecido');
+      }
+    }
+  } catch (err) {
+    showBotToast('Erro', 'Falha na requisição de importação.', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 
 async function toggleSocialListeningGlobal() {
   try {
@@ -9611,7 +11588,7 @@ async function loadCartSessions() {
     if (!table) return;
 
     if (sessions.length === 0) {
-      table.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">Nenhum carrinho ativo no momento.</td></tr>';
+      table.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-muted);">Nenhum carrinho ativo no momento.</td></tr>';
       return;
     }
 
@@ -9710,7 +11687,7 @@ async function loadRentalsOverview() {
     const tableCodes = document.getElementById('tableRentalCodesBody');
     if (tableCodes) {
       if (!data.codes || data.codes.length === 0) {
-        tableCodes.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b; padding: 20px;">Nenhum código gerado ainda.</td></tr>';
+        tableCodes.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #64748b; padding: 20px;">Nenhum código gerado ainda.</td></tr>';
       } else {
         tableCodes.innerHTML = data.codes.slice(0, 30).map(c => {
           const isUsed = !!c.used_at;
@@ -9907,7 +11884,7 @@ async function loadTaskQueue() {
 
     const orders = data.pendingOrders || [];
     if (orders.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding: 20px; color: var(--text-muted);"><i class="fa-solid fa-check-circle" style="color: #10b981;"></i> Nenhum pedido pendente na fila no momento.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding: 20px; color: var(--text-muted);"><i class="fa-solid fa-check-circle" style="color: #10b981;"></i> Nenhum pedido pendente na fila no momento.</td></tr>';
       return;
     }
 
@@ -10207,6 +12184,11 @@ function renderSaasTenants(list) {
     }
 
     const planBadge = `<span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; text-transform: uppercase; font-weight: 700;">${t.plan || 'PRO'}</span>`;
+    let hasEcom = false;
+    try {
+      const mods = typeof t.modules_enabled === 'string' ? JSON.parse(t.modules_enabled || '[]') : (t.modules_enabled || []);
+      hasEcom = mods.includes('ecommerce_sync') || mods.includes('all');
+    } catch (_) {}
 
     return `
       <tr>
@@ -10233,6 +12215,9 @@ function renderSaasTenants(list) {
         <td>${statusBadge}</td>
         <td>
           <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button class="btn btn-xs ${hasEcom ? 'btn-success' : 'btn-outline'}" onclick="toggleTenantModuleMaster(${t.id}, 'ecommerce_sync')" title="${hasEcom ? 'Módulo E-commerce Ativo (Clique para desativar)' : 'Ativar Módulo E-commerce'}" style="${hasEcom ? 'background: rgba(16, 185, 129, 0.2); color: #10b981; border-color: #10b981;' : 'color: #94a3b8;'}">
+              <i class="fa-solid fa-plug"></i> ${hasEcom ? 'E-com ON' : 'E-com OFF'}
+            </button>
             <button class="btn btn-xs btn-primary" onclick="openRenewTenantModal(${t.id}, '${escapeJsString(t.name)}', '${t.expires_at || ''}')" title="Renovar Período de Licença" style="background: #10b981; border-color: #10b981;">
               <i class="fa-solid fa-arrows-rotate"></i> Renovar
             </button>
@@ -10302,7 +12287,11 @@ async function submitCreateTenant(e) {
         max_bots: maxBots,
         max_products: maxProds,
         password: password || null,
-        notes: notes || null
+        notes: notes || null,
+        niche: document.getElementById('tenantNewNiche')?.value || 'vendedores',
+        interaction_tone: document.getElementById('tenantNewTone')?.value || 'consultivo',
+        populate_catalog: document.getElementById('tenantNewPopulateCatalog')?.checked !== false,
+        apply_onboarding: true
       })
     });
     const data = await res.json();
@@ -10434,3 +12423,1645 @@ function formatDateOnly(dt) {
 function escapeJsString(str) {
   return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
+
+async function toggleTenantModuleMaster(tenantId, moduleKey = 'ecommerce_sync') {
+  try {
+    const res = await fetch(`/api/saas/tenants/${tenantId}/toggle-module`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ module_key: moduleKey })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Módulo ${moduleKey} ${data.enabled ? 'ATIVADO' : 'DESATIVADO'} com sucesso!`, 'success');
+      loadSaasTenants();
+    } else {
+      showToast('Erro ao alterar módulo: ' + (data.error || 'Falha'), 'error');
+    }
+  } catch (err) {
+    showToast('Erro: ' + err.message, 'error');
+  }
+}
+
+
+// ==========================================
+// CONTROLE DO MOTOR LIVEPIX (SAVE MODE / TURBO CONVERSÃO)
+// ==========================================
+function setLivepixPerfModeUI(mode) {
+  const normMode = ['save', 'turbo'].includes(mode) ? mode : 'balanced';
+  const saveRadio = document.getElementById('modeLivepixSave');
+  const balancedRadio = document.getElementById('modeLivepixBalanced');
+  const turboRadio = document.getElementById('modeLivepixTurbo');
+  if (normMode === 'save' && saveRadio) saveRadio.checked = true;
+  else if (normMode === 'turbo' && turboRadio) turboRadio.checked = true;
+  else if (balancedRadio) balancedRadio.checked = true;
+  updateLivepixPerfCardStyles(normMode);
+}
+
+function updateLivepixPerfUI(mode) {
+  updateLivepixPerfCardStyles(mode);
+  showToast(
+    mode === 'save'
+      ? '🍃 Save Mode ativado: O navegador desliga após cada Pix e roda anti-crash leve.'
+      : (mode === 'turbo'
+          ? '⚡ Conversão Full ativada: Pool 24/7 pré-aquecido e concorrência máxima para picos de ads!'
+          : '⚙️ Modo Balanceado: Desliga após 15 minutos sem novos pedidos.'),
+    'info'
+  );
+}
+
+function getLivepixPerfModeUI() {
+  if (document.getElementById('modeLivepixSave')?.checked) return 'save';
+  if (document.getElementById('modeLivepixTurbo')?.checked) return 'turbo';
+  return 'balanced';
+}
+
+function updateLivepixPerfCardStyles(mode) {
+  const cardSave = document.getElementById('cardLivepixSave');
+  const cardBalanced = document.getElementById('cardLivepixBalanced');
+  const cardTurbo = document.getElementById('cardLivepixTurbo');
+  const badge = document.getElementById('badgeLivepixPerfMode');
+
+  if (cardSave) {
+    cardSave.style.borderColor = (mode === 'save') ? '#10b981' : 'var(--border-color)';
+    cardSave.style.background = (mode === 'save') ? 'rgba(16, 185, 129, 0.14)' : 'rgba(0,0,0,0.3)';
+  }
+  if (cardBalanced) {
+    cardBalanced.style.borderColor = (mode === 'balanced') ? '#38bdf8' : 'var(--border-color)';
+    cardBalanced.style.background = (mode === 'balanced') ? 'rgba(56, 189, 248, 0.14)' : 'rgba(0,0,0,0.3)';
+  }
+  if (cardTurbo) {
+    cardTurbo.style.borderColor = (mode === 'turbo') ? '#f59e0b' : 'var(--border-color)';
+    cardTurbo.style.background = (mode === 'turbo') ? 'rgba(245, 158, 11, 0.18)' : 'rgba(0,0,0,0.3)';
+  }
+
+  if (badge) {
+    if (mode === 'save') {
+      badge.innerText = '🍃 Save Mode (Econômico)';
+      badge.style.color = '#34d399';
+      badge.style.background = 'rgba(16, 185, 129, 0.2)';
+      badge.style.borderColor = '#10b981';
+    } else if (mode === 'turbo') {
+      badge.innerText = '⚡ Conversão Full (Turbo Ads)';
+      badge.style.color = '#fef08a';
+      badge.style.background = 'rgba(245, 158, 11, 0.25)';
+      badge.style.borderColor = '#f59e0b';
+    } else {
+      badge.innerText = '⚙️ Modo Inteligente (Balanceado)';
+      badge.style.color = '#bae6fd';
+      badge.style.background = 'rgba(56, 189, 248, 0.2)';
+      badge.style.borderColor = '#38bdf8';
+    }
+  }
+}
+
+async function shutdownLivepixBrowserNow() {
+  try {
+    showToast('Encerrando Chrome em background e liberando RAM...', 'info');
+    const res = await fetch('/api/livepix/shutdown-browser', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('✅ Navegador encerrado! Memória RAM liberada com sucesso.', 'success');
+    } else {
+      showToast('Erro ao liberar RAM: ' + (data.error || 'Falha'), 'error');
+    }
+  } catch (err) {
+    showToast('Erro ao comunicar com servidor: ' + err.message, 'error');
+  }
+}
+
+async function testLivepixScraper() {
+  const username = (document.getElementById('cfgLivepixUsername')?.value || 'luizaa').trim().replace(/^@/, '');
+  showToast(`⚡ Disparando teste para @${username}... Aguarde cerca de 6 a 15 segundos.`, 'info');
+  try {
+    const t0 = Date.now();
+    const res = await fetch('/api/livepix/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, amount: '5.00' })
+    });
+    const data = await res.json();
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    if (data.success && data.pixCode) {
+      const engineName = data.engine === 'turbo' ? '⚡ Turbo Alta Velocidade' : '🛡️ Clássico (Fallback Seguro)';
+      showToast(`🎉 PIX Gerado com sucesso em ${elapsed}s via ${engineName}!`, 'success');
+    } else {
+      showToast('Falha no teste: ' + (data.error || data.reason || 'Não foi possível extrair o Pix'), 'error');
+    }
+  } catch (err) {
+    showToast('Erro na requisição: ' + err.message, 'error');
+  }
+}
+
+
+// ==========================================
+// CENTRAL DE DIAGNÓSTICO & VALIDAÇÃO PIX BACEN
+// ==========================================
+function updatePixKeyPreview(rawKey) {
+  const badge = document.getElementById('pixKeyTypeBadge');
+  if (!badge) return;
+  const clean = String(rawKey || '').trim();
+  if (!clean) {
+    badge.innerHTML = '<i class="fa-solid fa-circle-info"></i> Digite sua chave Pix (telefone, CPF, CNPJ, e-mail ou aleatória).';
+    badge.style.color = '#94a3b8';
+    return;
+  }
+  if (clean.includes('@')) {
+    badge.innerHTML = '✅ <b style="color:#10b981;">Tipo Identificado: E-mail</b> (minúsculo e sem espaços)';
+    badge.style.color = '#10b981';
+    return;
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean)) {
+    badge.innerHTML = '✅ <b style="color:#10b981;">Tipo Identificado: Chave Aleatória (EVP/UUID)</b>';
+    badge.style.color = '#10b981';
+    return;
+  }
+  const digits = clean.replace(/\D/g, '');
+  if (digits.length === 14) {
+    badge.innerHTML = '✅ <b style="color:#10b981;">Tipo Identificado: CNPJ</b> (14 dígitos)';
+    badge.style.color = '#10b981';
+    return;
+  }
+  if (digits.length === 11 && !clean.startsWith('+')) {
+    const ddd = parseInt(digits.slice(0, 2), 10);
+    const third = digits[2];
+    if (ddd >= 11 && ddd <= 99 && third === '9') {
+      badge.innerHTML = '✅ <b style="color:#10b981;">Tipo Identificado: Telefone Celular (+55' + digits + ')</b>';
+      badge.style.color = '#10b981';
+      return;
+    }
+    badge.innerHTML = '✅ <b style="color:#10b981;">Tipo Identificado: CPF</b> (11 dígitos)';
+    badge.style.color = '#10b981';
+    return;
+  }
+  if (digits.length >= 10) {
+    badge.innerHTML = '✅ <b style="color:#10b981;">Tipo Identificado: Telefone Nacional</b> (Formato BACEN E.164)';
+    badge.style.color = '#10b981';
+    return;
+  }
+  badge.innerHTML = 'ℹ️ Digitando chave Pix...';
+  badge.style.color = '#38bdf8';
+}
+
+async function runPixDiagnosticsUI() {
+  const card = document.getElementById('pixDiagResultCard');
+  if (card) card.style.display = 'block';
+  showToast('🔍 Executando bateria de testes e conformidade EMV BACEN...', 'info');
+
+  try {
+    const res = await fetch('/api/pix/diagnostics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: 1.00 })
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      showToast('Erro no teste de Pix: ' + (data.error || 'Falha ao gerar'), 'error');
+      return;
+    }
+
+    const d = data.diagnostics;
+    document.getElementById('pixDiagQrImg').src = data.qrCodeBase64;
+    document.getElementById('pixDiagStatus').innerText = d.isCompliant ? '100% Homologado BACEN' : 'Atenção';
+    document.getElementById('pixDiagStatus').className = d.isCompliant ? 'badge badge-paid' : 'badge badge-expired';
+    document.getElementById('pixDiagType').innerText = d.type + (d.poi ? ' (' + d.poi + ')' : '');
+    document.getElementById('pixDiagKey').innerText = data.settings?.pixKey || 'N/A';
+    document.getElementById('pixDiagMerchant').innerText = d.merchantName + ' - ' + d.merchantCity;
+    document.getElementById('pixDiagCrc').innerText = d.crc16;
+    document.getElementById('pixDiagCopyCode').value = data.sampleCopiaECola;
+
+    showToast('🎉 Código Pix validado com sucesso! Compatível com 100% dos bancos.', 'success');
+  } catch (err) {
+    showToast('Erro na requisição: ' + err.message, 'error');
+  }
+}
+
+function copyPixDiagCode() {
+  const input = document.getElementById('pixDiagCopyCode');
+  if (!input || !input.value) return;
+  navigator.clipboard.writeText(input.value).then(() => {
+    showToast('📋 Código Pix Copia e Cola copiado com sucesso!', 'success');
+  }).catch(() => {
+    input.select();
+    document.execCommand('copy');
+    showToast('📋 Código Pix copiado!', 'success');
+  });
+}
+
+// ==========================================
+// GERENTE GERAL DA OPERAÇÃO & ÁRBITRO SUPREMO
+// ==========================================
+
+async function loadOperationsManager(forceRefresh = false) {
+  try {
+    const url = forceRefresh ? '/api/operations-manager/arbitrate' : '/api/operations-manager/status';
+    const method = forceRefresh ? 'POST' : 'GET';
+    const res = await fetch(url, { method });
+    const data = await res.json();
+    if (!data.success || !data.audit) return;
+    const audit = data.audit;
+
+    const score = typeof audit.globalScore === 'number' ? audit.globalScore : (audit.global_score || 0);
+    const statusColor = score >= 90 ? '#10b981' : (score >= 70 ? '#38bdf8' : (score >= 50 ? '#f59e0b' : '#ef4444'));
+    const statusBg = score >= 90 ? 'rgba(16, 185, 129, 0.2)' : (score >= 70 ? 'rgba(56, 189, 248, 0.2)' : (score >= 50 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)'));
+
+    // 1. Atualizar Badge do Sidebar Nav
+    const navHealthBadge = document.getElementById('navHealthBadge');
+    if (navHealthBadge) {
+      navHealthBadge.innerText = `${score}%`;
+      navHealthBadge.style.color = statusColor;
+      navHealthBadge.style.background = statusBg;
+    }
+
+    // 2. Atualizar Cockpit do Overview
+    const overviewBadge = document.getElementById('overviewArbiterVerdictBadge');
+    const overviewScore = document.getElementById('overviewArbiterScoreText');
+    const overviewSub = document.getElementById('overviewArbiterSubtext');
+
+    if (overviewBadge) {
+      overviewBadge.style.color = statusColor;
+      overviewBadge.style.background = statusBg;
+      overviewBadge.style.borderColor = statusColor;
+      overviewBadge.innerHTML = `<span class="env-status-pulse" style="background:${statusColor}; display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px;"></span> ${audit.verdictLabel || audit.verdict || 'PLENO FUNCIONAMENTO'}`;
+    }
+
+    if (overviewScore) {
+      overviewScore.innerText = `${score} / 100`;
+      overviewScore.style.color = statusColor;
+    }
+
+    if (overviewSub) {
+      const anomCount = audit.anomaliesCount ?? audit.anomalies_count ?? 0;
+      const anomText = anomCount === 0 ? 'Nenhuma anomalia detectada' : `${anomCount} anomalia(s) sob monitoramento`;
+      const timeStr = audit.timestamp ? new Date(audit.timestamp).toLocaleTimeString() : 'agora';
+      overviewSub.innerText = `${anomText} • Última auditoria às ${timeStr}`;
+    }
+
+    // 3. Atualizar Tab Dedicado do Árbitro
+    const arbiterVerdictBadgeBig = document.getElementById('arbiterVerdictBadgeBig');
+    const arbiterScoreNumber = document.getElementById('arbiterScoreNumber');
+    const arbiterScoreProgressBar = document.getElementById('arbiterScoreProgressBar');
+    const arbiterLastCheckText = document.getElementById('arbiterLastCheckText');
+    const arbiterAnomaliesCountText = document.getElementById('arbiterAnomaliesCountText');
+    const arbiterAiProviderBadge = document.getElementById('arbiterAiProviderBadge');
+    const arbiterAiDiagnosisText = document.getElementById('arbiterAiDiagnosisText');
+
+    if (arbiterVerdictBadgeBig) {
+      arbiterVerdictBadgeBig.style.color = statusColor;
+      arbiterVerdictBadgeBig.style.background = statusBg;
+      const icon = score >= 90 ? '🟢' : (score >= 70 ? '🔵' : (score >= 50 ? '🟡' : '🔴'));
+      arbiterVerdictBadgeBig.innerHTML = `${icon} ${audit.verdictLabel || audit.verdict || 'PLENO FUNCIONAMENTO'}`;
+    }
+
+    if (arbiterScoreNumber) {
+      arbiterScoreNumber.innerText = `${score}%`;
+      arbiterScoreNumber.style.color = statusColor;
+    }
+
+    if (arbiterScoreProgressBar) {
+      arbiterScoreProgressBar.style.width = `${score}%`;
+      arbiterScoreProgressBar.style.background = statusColor;
+    }
+
+    if (arbiterLastCheckText) {
+      const dateObj = audit.timestamp ? new Date(audit.timestamp) : new Date();
+      arbiterLastCheckText.innerText = `Última auditoria: ${dateObj.toLocaleTimeString()} (${dateObj.toLocaleDateString()})`;
+    }
+
+    if (arbiterAnomaliesCountText) {
+      const anomCount = audit.anomaliesCount ?? audit.anomalies_count ?? 0;
+      arbiterAnomaliesCountText.innerText = `${anomCount} anomalias detectadas`;
+      arbiterAnomaliesCountText.style.color = anomCount === 0 ? '#10b981' : '#f59e0b';
+    }
+
+    if (arbiterAiProviderBadge) {
+      const prov = audit.aiProvider || audit.ai_provider || 'Núcleo de Inteligência';
+      const mod = audit.aiModel || audit.ai_model || '';
+      arbiterAiProviderBadge.innerText = `${prov}${mod ? ' (' + mod + ')' : ''}`;
+    }
+
+    if (arbiterAiDiagnosisText) {
+      const diag = audit.aiDiagnosis || audit.ai_diagnosis;
+      arbiterAiDiagnosisText.innerText = diag || 'Todos os subsistemas vitais operando em estabilidade.';
+    }
+
+    // 4. Renderizar Grid dos 8 Subsistemas
+    let subs = audit.subsystems;
+    if (typeof subs === 'string') {
+      try { subs = JSON.parse(subs); } catch (_) { subs = null; }
+    }
+    if (subs) {
+      renderArbiterSubsystemsGrid(subs);
+    }
+  } catch (err) {
+    console.error('Erro ao carregar status do Gerente da Operação:', err);
+  }
+}
+
+function renderArbiterSubsystemsGrid(subsystems) {
+  const container = document.getElementById('arbiterSubsystemsGrid');
+  if (!container) return;
+
+  const metadata = {
+    whatsapp_master: { name: 'WhatsApp Matriz', icon: 'fa-brands fa-whatsapp', color: '#25d366' },
+    whatsapp_subbots: { name: 'Exército de Sub-bots', icon: 'fa-solid fa-tower-broadcast', color: '#38bdf8' },
+    telegram: { name: 'Bot Telegram', icon: 'fa-brands fa-telegram', color: '#0088cc' },
+    gateways_financial: { name: 'Gateways Financeiros', icon: 'fa-solid fa-credit-card', color: '#10b981' },
+    web_servers_tunnels: { name: 'Servidores & Túneis', icon: 'fa-solid fa-network-wired', color: '#a855f7' },
+    database_storage: { name: 'Banco de Dados SQLite', icon: 'fa-solid fa-database', color: '#f59e0b' },
+    ai_intelligence_core: { name: 'Núcleo de Inteligência IA', icon: 'fa-solid fa-brain', color: '#ec4899' },
+    queues_and_workflows: { name: 'Filas & Workflows', icon: 'fa-solid fa-list-check', color: '#6366f1' }
+  };
+
+  const keys = Object.keys(subsystems);
+  let html = '';
+
+  for (const key of keys) {
+    const sub = subsystems[key] || {};
+    const meta = metadata[key] || { name: key, icon: 'fa-solid fa-microchip', color: '#94a3b8' };
+    const score = typeof sub.score === 'number' ? sub.score : 0;
+    const isOk = score >= 90;
+    const isWarning = score >= 50 && score < 90;
+    const statusColor = isOk ? '#10b981' : (isWarning ? '#f59e0b' : '#ef4444');
+    const statusBg = isOk ? 'rgba(16, 185, 129, 0.15)' : (isWarning ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)');
+
+    let detailsList = [];
+    if (sub.details && typeof sub.details === 'object') {
+      for (const [k, v] of Object.entries(sub.details)) {
+        if (typeof v === 'boolean') {
+          detailsList.push(`<span>${k}: <b>${v ? 'Sim' : 'Não'}</b></span>`);
+        } else if (typeof v === 'string' || typeof v === 'number') {
+          detailsList.push(`<span>${k}: <b>${v}</b></span>`);
+        }
+      }
+    }
+
+    const anomaliesHtml = (sub.anomalies && sub.anomalies.length > 0)
+      ? `<div style="margin-top: 8px; font-size: 11px; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 4px 8px; border-radius: 4px;">⚠️ ${escapeHtml(sub.anomalies.join(' | '))}</div>`
+      : '';
+
+    html += `
+      <div class="card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); padding: 14px; border-radius: 10px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <i class="${meta.icon}" style="font-size: 16px; color: ${meta.color};"></i>
+              <span style="font-weight: 700; font-size: 13px; color: #fff;">${meta.name}</span>
+            </div>
+            <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-size: 11px; font-weight: 700;">
+              ${score}%
+            </span>
+          </div>
+
+          <!-- Mini Barra de Saúde -->
+          <div style="background: rgba(255, 255, 255, 0.08); border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 10px;">
+            <div style="width: ${score}%; height: 100%; background: ${statusColor}; transition: width 0.3s ease;"></div>
+          </div>
+
+          <div style="font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 3px;">
+            ${detailsList.slice(0, 3).join('')}
+          </div>
+
+          ${anomaliesHtml}
+        </div>
+
+        <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: flex-end;">
+          <button class="btn btn-xs btn-outline" onclick="healSpecificSubsystem('${key}')" style="border-color: rgba(255,255,255,0.2); font-size: 11px;" title="Executar auto-cura ou re-sondagem deste núcleo">
+            <i class="fa-solid fa-wrench"></i> Reparar / Testar
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
+async function loadArbiterHistory() {
+  try {
+    const res = await fetch('/api/operations-manager/history?limit=15');
+    const data = await res.json();
+    if (!data.success) return;
+
+    const countBadge = document.getElementById('badgeArbiterAuditsCount');
+    if (countBadge) {
+      countBadge.innerText = `${(data.history || []).length} registros`;
+    }
+
+    const tbody = document.getElementById('tableArbiterAuditsBody');
+    if (!tbody) return;
+
+    if (!data.history || data.history.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding: 16px; color: var(--text-muted);">Nenhuma auditoria registrada ainda.</td></tr>';
+      return;
+    }
+
+    let rows = '';
+    for (const h of data.history) {
+      const score = typeof h.global_score === 'number' ? h.global_score : (h.globalScore || 0);
+      const statusColor = score >= 90 ? '#10b981' : (score >= 70 ? '#38bdf8' : (score >= 50 ? '#f59e0b' : '#ef4444'));
+      const statusBg = score >= 90 ? 'rgba(16, 185, 129, 0.15)' : (score >= 70 ? 'rgba(56, 189, 248, 0.15)' : (score >= 50 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)'));
+      const dateStr = h.timestamp ? (new Date(h.timestamp).toLocaleTimeString() + ' ' + new Date(h.timestamp).toLocaleDateString()) : 'N/A';
+
+      let actionsCount = 0;
+      if (h.healing_actions) {
+        try {
+          const act = typeof h.healing_actions === 'string' ? JSON.parse(h.healing_actions) : h.healing_actions;
+          actionsCount = Array.isArray(act) ? act.length : 0;
+        } catch (_) {}
+      }
+
+      const anomCount = h.anomalies_count ?? 0;
+
+      rows += `
+        <tr>
+          <td style="font-size: 12px; color: var(--text-muted);">${dateStr}</td>
+          <td>
+            <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-weight: 700;">
+              ${score}%
+            </span>
+          </td>
+          <td style="font-weight: 600; font-size: 12px;">${escapeHtml(h.verdict || 'PLENO_FUNCIONAMENTO')}</td>
+          <td>
+            <span style="font-size: 12px; color: ${anomCount > 0 ? '#ef4444' : '#10b981'}; font-weight: 600;">
+              ${anomCount}
+            </span>
+          </td>
+          <td>
+            <span class="badge" style="background: ${actionsCount > 0 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.05)'}; color: ${actionsCount > 0 ? '#f59e0b' : 'var(--text-muted)'}; font-size: 11px;">
+              ${actionsCount > 0 ? actionsCount + ' ação(ões) aplicada(s)' : 'Sem intervenção'}
+            </span>
+          </td>
+          <td style="font-size: 11px; color: var(--text-muted);">
+            ${escapeHtml(h.ai_provider || 'Heurístico')}
+          </td>
+        </tr>
+      `;
+    }
+
+    tbody.innerHTML = rows;
+  } catch (err) {
+    console.error('Erro ao carregar histórico do árbitro:', err);
+  }
+}
+
+async function triggerManualArbitration() {
+  try {
+    showToast('⚖️ Executando auditoria completa com Núcleo de Inteligência...', 'info');
+    const res = await fetch('/api/operations-manager/arbitrate', { method: 'POST' });
+    const data = await res.json();
+    if (data.success && data.audit) {
+      showToast(`✅ Auditoria concluída: Score ${data.audit.globalScore}% (${data.audit.verdictLabel})`, 'success');
+      loadOperationsManager(false);
+      loadArbiterHistory();
+    } else {
+      showToast('Erro ao arbitrar: ' + (data.error || 'Falha desconhecida'), 'error');
+    }
+  } catch (err) {
+    showToast('Erro na requisição do árbitro: ' + err.message, 'error');
+  }
+}
+
+async function triggerAutoHealNow() {
+  try {
+    showToast('🛠️ Acionando protocolo de autocura em todos os subsistemas...', 'info');
+    const res = await fetch('/api/operations-manager/auto-heal', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      const actionsCount = (data.actions || []).length;
+      showToast(`🎉 Autocura concluída: ${actionsCount} ações preventivas/corretivas aplicadas!`, 'success');
+      loadOperationsManager(false);
+      loadArbiterHistory();
+    } else {
+      showToast('Erro na autocura: ' + (data.error || 'Falha desconhecida'), 'error');
+    }
+  } catch (err) {
+    showToast('Erro na autocura: ' + err.message, 'error');
+  }
+}
+
+async function healSpecificSubsystem(subsystemKey) {
+  try {
+    showToast(`🔧 Executando autocura/reparo do núcleo: ${subsystemKey}...`, 'info');
+    const res = await fetch(`/api/operations-manager/heal/${encodeURIComponent(subsystemKey)}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✅ Núcleo ${subsystemKey} reparado/testado com sucesso!`, 'success');
+      loadOperationsManager(false);
+      loadArbiterHistory();
+    } else {
+      showToast('Erro ao reparar: ' + (data.error || 'Falha desconhecida'), 'error');
+    }
+  } catch (err) {
+    showToast('Erro na ação de reparo: ' + err.message, 'error');
+  }
+}
+
+// Exportações para escopo global do navegador
+window.loadOperationsManager = loadOperationsManager;
+window.renderArbiterSubsystemsGrid = renderArbiterSubsystemsGrid;
+window.loadArbiterHistory = loadArbiterHistory;
+window.triggerManualArbitration = triggerManualArbitration;
+window.triggerAutoHealNow = triggerAutoHealNow;
+window.healSpecificSubsystem = healSpecificSubsystem;
+
+// ==========================================
+// 🧪 LAB OPERACIONAL DE CONEXÕES & COMANDOS
+// ==========================================
+
+let currentLabConnectionId = null;
+let cachedLabConnections = [];
+let cachedLabCatalog = [];
+
+async function loadConnectionLab() {
+  try {
+    const [connRes, cmdRes] = await Promise.all([
+      fetch('/api/lab/connections').then(r => r.json()).catch(() => ({ connections: [] })),
+      fetch('/api/lab/commands').then(r => r.json()).catch(() => ({ catalog: [] }))
+    ]);
+
+    cachedLabConnections = connRes.connections || [];
+    cachedLabCatalog = cmdRes.catalog || [];
+
+    // Atualiza badge de conexões ativas no sidebar
+    const activeCount = cachedLabConnections.filter(c => c.status === 'CONNECTED').length;
+    const navBadge = document.getElementById('navLabActiveConnBadge');
+    if (navBadge) {
+      navBadge.innerText = activeCount > 0 ? `${activeCount} ON` : 'LAB';
+      navBadge.style.background = activeCount > 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(168, 85, 247, 0.2)';
+      navBadge.style.color = activeCount > 0 ? '#10b981' : '#c084fc';
+    }
+
+    // Se o usuário ainda não entrou em uma conexão específica, renderiza a tela de seleção
+    if (!currentLabConnectionId) {
+      renderLabConnectionsGrid(cachedLabConnections);
+      const selView = document.getElementById('labSelectConnectionView');
+      const workView = document.getElementById('labActiveWorkspaceView');
+      if (selView) selView.style.display = 'block';
+      if (workView) workView.style.display = 'none';
+    } else {
+      // Atualiza os metadados da conexão ativa no cabeçalho
+      const currentConn = cachedLabConnections.find(c => c.id === currentLabConnectionId);
+      if (currentConn) {
+        updateLabActiveHeader(currentConn);
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao carregar Lab de Conexões:', err);
+  }
+}
+
+function renderLabConnectionsGrid(connections) {
+  const container = document.getElementById('labConnectionsCardsGrid');
+  if (!container) return;
+
+  if (!connections || connections.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-muted);">
+        <i class="fa-solid fa-triangle-exclamation" style="font-size: 32px; color: #f59e0b; margin-bottom: 10px;"></i><br>
+        Nenhuma conexão identificada no momento.
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  for (const conn of connections) {
+    const isOnline = conn.status === 'CONNECTED';
+    const statusBg = isOnline ? 'rgba(16, 185, 129, 0.15)' : (conn.status === 'CONNECTING' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.05)');
+    const statusColor = isOnline ? '#10b981' : (conn.status === 'CONNECTING' ? '#38bdf8' : 'var(--text-muted)');
+    const borderColor = isOnline ? 'rgba(16, 185, 129, 0.35)' : 'rgba(255, 255, 255, 0.08)';
+
+    html += `
+      <div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid ${borderColor}; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.2s, border-color 0.2s;">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="width: 42px; height: 42px; border-radius: 50%; background: ${conn.color ? conn.color + '22' : 'rgba(255,255,255,0.08)'}; display: flex; align-items: center; justify-content: center; font-size: 20px; color: ${conn.color || '#fff'}; border: 1px solid ${conn.color ? conn.color + '44' : 'transparent'};">
+                <i class="${conn.icon || 'fa-solid fa-robot'}"></i>
+              </div>
+              <div>
+                <h4 style="margin: 0; font-size: 14px; font-weight: 800; color: #fff;">${escapeHtml(conn.name)}</h4>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                  ${conn.phone ? escapeHtml(conn.phone) : 'Sem número'}
+                </div>
+              </div>
+            </div>
+            <span class="badge" style="background: ${statusBg}; color: ${statusColor}; font-weight: 700; font-size: 11px;">
+              ${escapeHtml(conn.statusLabel || conn.status)}
+            </span>
+          </div>
+
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; font-size: 12px; color: var(--text-muted);">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+              <span>Função / Perfil:</span>
+              <span style="font-weight: 700; color: #e2e8f0;">${escapeHtml(conn.role || 'Geral')}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span>Plataforma:</span>
+              <span style="font-weight: 700; color: ${conn.platform === 'telegram' ? '#0088cc' : '#25d366'}; text-transform: capitalize;">${conn.platform}</span>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="enterConnectionLab('${conn.id}')" style="width: 100%; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); border: none; font-weight: 700; font-size: 13px; padding: 10px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
+          <i class="fa-solid fa-flask-vial"></i> Entrar no Lab Desta Conexão
+        </button>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
+function enterConnectionLab(connId) {
+  currentLabConnectionId = connId;
+  const conn = cachedLabConnections.find(c => c.id === connId) || {
+    id: connId,
+    name: 'Conexão Selecionada',
+    phone: '',
+    role: 'Operação',
+    status: 'CONNECTED',
+    platform: 'whatsapp',
+    icon: 'fa-brands fa-whatsapp'
+  };
+
+  // Alterna as visualizações
+  const selView = document.getElementById('labSelectConnectionView');
+  const workView = document.getElementById('labActiveWorkspaceView');
+  if (selView) selView.style.display = 'none';
+  if (workView) workView.style.display = 'block';
+
+  // Atualiza cabeçalho do Lab ativo
+  updateLabActiveHeader(conn);
+
+  // Popula o seletor de comandos a partir do catálogo
+  populateLabCommandSelect(cachedLabCatalog);
+
+  // Reseta a área de resultado para estado inicial limpo (sem histórico acumulado)
+  resetLabResultState();
+
+  showToast(`🧪 Entrou no Lab da conexão: ${conn.name}`, 'info');
+}
+
+function exitConnectionLab() {
+  currentLabConnectionId = null;
+  const selView = document.getElementById('labSelectConnectionView');
+  const workView = document.getElementById('labActiveWorkspaceView');
+  if (selView) selView.style.display = 'block';
+  if (workView) workView.style.display = 'none';
+
+  loadConnectionLab();
+}
+
+function updateLabActiveHeader(conn) {
+  const titleEl = document.getElementById('labActiveConnName');
+  const metaEl = document.getElementById('labActiveConnMeta');
+  const badgeEl = document.getElementById('labActiveConnStatusBadge');
+  const iconEl = document.getElementById('labActiveConnIcon');
+
+  if (titleEl) titleEl.innerText = conn.name;
+  if (metaEl) metaEl.innerText = `${conn.phone || 'Sem telefone'} • ${conn.role || 'Operação'}`;
+  if (badgeEl) {
+    const isOnline = conn.status === 'CONNECTED';
+    badgeEl.innerText = conn.statusLabel || (isOnline ? '🟢 Conectado' : '🟡 Standby');
+    badgeEl.style.background = isOnline ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)';
+    badgeEl.style.color = isOnline ? '#10b981' : 'var(--text-muted)';
+  }
+  if (iconEl) {
+    iconEl.className = conn.icon || 'fa-solid fa-robot';
+  }
+}
+
+function populateLabCommandSelect(catalog) {
+  const select = document.getElementById('labSelectCommand');
+  if (!select) return;
+
+  if (!catalog || catalog.length === 0) {
+    select.innerHTML = '<option value="menu">!menu - Menu Principal</option>';
+    return;
+  }
+
+  let html = '';
+  for (const cat of catalog) {
+    html += `<optgroup label="${escapeHtml(cat.category)}">`;
+    for (const cmd of cat.commands) {
+      html += `<option value="${escapeHtml(cmd.cmd)}" data-desc="${escapeHtml(cmd.desc)}" data-placeholder="${escapeHtml(cmd.placeholder)}" data-default="${escapeHtml(cmd.defaultInput || '')}">${escapeHtml(cmd.name)} - ${escapeHtml(cmd.title)}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+
+  select.innerHTML = html;
+  onLabCommandChanged();
+}
+
+function onLabCommandChanged() {
+  const select = document.getElementById('labSelectCommand');
+  const descEl = document.getElementById('labCommandDesc');
+  const inputEl = document.getElementById('labCommandInput');
+  const pillsEl = document.getElementById('labQuickPills');
+  if (!select) return;
+
+  const selectedOpt = select.options[select.selectedIndex];
+  if (!selectedOpt) return;
+
+  const desc = selectedOpt.getAttribute('data-desc') || '';
+  const placeholder = selectedOpt.getAttribute('data-placeholder') || 'Digite os parâmetros...';
+  const defaultVal = selectedOpt.getAttribute('data-default') || '';
+  const cmdVal = select.value;
+
+  if (descEl) descEl.innerText = desc;
+  if (inputEl) {
+    inputEl.placeholder = placeholder;
+    inputEl.value = defaultVal;
+  }
+
+  // Atalhos rápidos dinâmicos de exemplo
+  if (pillsEl) {
+    let pills = [];
+    if (cmdVal === 'pix') {
+      pills = ['19.90', '49.90', '99.90', '199.00'];
+    } else if (cmdVal === 'ia') {
+      pills = ['Quais são os produtos?', 'Como funciona a garantia?', 'Me dê um resumo das vendas'];
+    } else if (cmdVal === 'menu') {
+      pills = ['vendas', 'audio', 'bot', 'admin'];
+    } else if (cmdVal === 'custom') {
+      pills = ['!menu', '!ping', '!dono', '!chavefree'];
+    }
+
+    if (pills.length > 0) {
+      pillsEl.innerHTML = pills.map(p => `
+        <span onclick="setLabInputPill('${escapeHtml(p)}')" style="font-size: 11px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 4px; padding: 2px 8px; cursor: pointer; user-select: none;">
+          ${escapeHtml(p)}
+        </span>
+      `).join('');
+    } else {
+      pillsEl.innerHTML = '';
+    }
+  }
+}
+
+function setLabInputPill(val) {
+  const inputEl = document.getElementById('labCommandInput');
+  if (inputEl) {
+    inputEl.value = val;
+    inputEl.focus();
+  }
+}
+
+function toggleLabRecipientField() {
+  const chk = document.getElementById('labSendDirectlyCheckbox');
+  const container = document.getElementById('labRecipientContainer');
+  if (chk && container) {
+    container.style.display = chk.checked ? 'block' : 'none';
+    if (chk.checked) {
+      const recIn = document.getElementById('labRecipientInput');
+      if (recIn) recIn.focus();
+    }
+  }
+}
+
+function resetLabResultState() {
+  const idleEl = document.getElementById('labResultIdlePlaceholder');
+  const contentEl = document.getElementById('labResultContentContainer');
+  const badgeEl = document.getElementById('labResultStatusBadge');
+  const copyBtn = document.getElementById('btnCopyLabResult');
+  const extraPayload = document.getElementById('labResultExtraPayload');
+
+  if (idleEl) idleEl.style.display = 'flex';
+  if (contentEl) contentEl.style.display = 'none';
+  if (badgeEl) {
+    badgeEl.innerText = 'Aguardando comando...';
+    badgeEl.style.background = 'rgba(255,255,255,0.08)';
+    badgeEl.style.color = 'var(--text-muted)';
+  }
+  if (copyBtn) copyBtn.style.display = 'none';
+  if (extraPayload) {
+    extraPayload.style.display = 'none';
+    extraPayload.innerHTML = '';
+  }
+}
+
+async function triggerExecuteLabCommand() {
+  if (!currentLabConnectionId) {
+    showToast('Por favor, selecione uma conexão ativa primeiro.', 'warning');
+    return;
+  }
+
+  const select = document.getElementById('labSelectCommand');
+  const inputEl = document.getElementById('labCommandInput');
+  const sendChk = document.getElementById('labSendDirectlyCheckbox');
+  const recInput = document.getElementById('labRecipientInput');
+  const btn = document.getElementById('btnExecuteLabCommand');
+
+  const command = select ? select.value : 'menu';
+  const input = inputEl ? inputEl.value : '';
+  const sendDirectly = sendChk ? sendChk.checked : false;
+  const targetRecipient = recInput ? recInput.value.trim() : null;
+
+  if (sendDirectly && !targetRecipient) {
+    showToast('Informe o número ou grupo de destino para envio direto.', 'warning');
+    if (recInput) recInput.focus();
+    return;
+  }
+
+  const origBtnHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Executando na conexão...';
+  }
+
+  try {
+    const res = await fetch('/api/lab/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        connectionId: currentLabConnectionId,
+        command,
+        input,
+        targetRecipient,
+        sendDirectly
+      })
+    });
+
+    const data = await res.json();
+
+    if (!data.success) {
+      showToast('Falha na execução: ' + (data.error || 'Erro desconhecido'), 'error');
+      renderLabResultError(data.error || 'Falha ao processar comando');
+      return;
+    }
+
+    // Renderiza O RESULTADO DIRETO da conexão (sem histórico de comandos executados)
+    renderLabDirectResult(data);
+    showToast(`✅ Comando ${data.command} executado com sucesso (${data.executionTimeMs}ms)!`, 'success');
+  } catch (err) {
+    showToast('Erro na requisição ao Lab: ' + err.message, 'error');
+    renderLabResultError(err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+}
+
+function renderLabDirectResult(data) {
+  const idleEl = document.getElementById('labResultIdlePlaceholder');
+  const contentEl = document.getElementById('labResultContentContainer');
+  const badgeEl = document.getElementById('labResultStatusBadge');
+  const connPill = document.getElementById('labResultConnPill');
+  const latencyPill = document.getElementById('labResultLatencyPill');
+  const textEl = document.getElementById('labResultFormattedText');
+  const copyBtn = document.getElementById('btnCopyLabResult');
+  const extraPayload = document.getElementById('labResultExtraPayload');
+
+  if (idleEl) idleEl.style.display = 'none';
+  if (contentEl) contentEl.style.display = 'flex';
+
+  if (badgeEl) {
+    badgeEl.innerText = data.sentDirectly ? '🟢 Resposta Enviada & Retornada' : '🟢 Resposta Recebida com Sucesso';
+    badgeEl.style.background = 'rgba(16, 185, 129, 0.2)';
+    badgeEl.style.color = '#10b981';
+  }
+
+  if (connPill) {
+    connPill.innerText = `📡 ${data.connectionName || 'Conexão'} (${data.command})`;
+  }
+
+  if (latencyPill) {
+    latencyPill.innerText = `⚡ ${data.executionTimeMs}ms`;
+  }
+
+  if (textEl) {
+    textEl.innerText = data.resultText || 'Comando executado sem texto de resposta.';
+  }
+
+  if (copyBtn) copyBtn.style.display = 'inline-block';
+
+  // Renderiza payload extra (ex: se gerou Pix Copia e Cola)
+  if (extraPayload) {
+    extraPayload.innerHTML = '';
+    extraPayload.style.display = 'none';
+
+    if (data.resultPayload && data.resultPayload.pixCopiaECola) {
+      extraPayload.style.display = 'block';
+      extraPayload.innerHTML = `
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: 700; color: #10b981; font-size: 12px;">💰 Código Pix Copia e Cola Gerado:</span>
+            <button class="btn btn-xs btn-primary" onclick="navigator.clipboard.writeText('${escapeHtml(data.resultPayload.pixCopiaECola)}'); showToast('Código Pix copiado!', 'success');" style="background: #10b981; border: none; font-size: 11px;">
+              <i class="fa-solid fa-copy"></i> Copiar Pix
+            </button>
+          </div>
+          <input type="text" readonly value="${escapeHtml(data.resultPayload.pixCopiaECola)}" class="form-control" style="background: rgba(0,0,0,0.5); font-size: 12px; font-family: monospace;">
+        </div>
+      `;
+    }
+  }
+}
+
+function renderLabResultError(errorMessage) {
+  const idleEl = document.getElementById('labResultIdlePlaceholder');
+  const contentEl = document.getElementById('labResultContentContainer');
+  const badgeEl = document.getElementById('labResultStatusBadge');
+  const textEl = document.getElementById('labResultFormattedText');
+  const copyBtn = document.getElementById('btnCopyLabResult');
+
+  if (idleEl) idleEl.style.display = 'none';
+  if (contentEl) contentEl.style.display = 'flex';
+
+  if (badgeEl) {
+    badgeEl.innerText = '🔴 Falha na Execução';
+    badgeEl.style.background = 'rgba(239, 68, 68, 0.2)';
+    badgeEl.style.color = '#ef4444';
+  }
+
+  if (textEl) {
+    textEl.innerText = `Erro retornado:\n${errorMessage}`;
+  }
+
+  if (copyBtn) copyBtn.style.display = 'none';
+}
+
+function copyLabResultText() {
+  const textEl = document.getElementById('labResultFormattedText');
+  if (!textEl || !textEl.innerText) return;
+  navigator.clipboard.writeText(textEl.innerText).then(() => {
+    showToast('📋 Resposta da conexão copiada com sucesso!', 'success');
+  }).catch(() => {
+    showToast('Resposta selecionada para cópia.', 'info');
+  });
+}
+
+// Exportações globais para HTML onclick
+window.loadConnectionLab = loadConnectionLab;
+window.enterConnectionLab = enterConnectionLab;
+window.exitConnectionLab = exitConnectionLab;
+window.onLabCommandChanged = onLabCommandChanged;
+window.setLabInputPill = setLabInputPill;
+window.toggleLabRecipientField = toggleLabRecipientField;
+window.triggerExecuteLabCommand = triggerExecuteLabCommand;
+window.copyLabResultText = copyLabResultText;
+
+// ==========================================
+// 🎨 COMFYART STUDIO (GERADOR DE POSTS & BANNERS IA)
+// ==========================================
+
+let currentComfyPostData = null;
+let comfyTemplatesCache = [];
+
+async function loadComfyArtStudio() {
+  await Promise.all([
+    checkComfyArtStatus(),
+    checkCreativeFieldStatus(),
+    loadComfyTemplates(),
+    populateComfyProductsDropdown(),
+    loadComfyRecentPosts()
+  ]);
+  onComfyFieldChange();
+}
+
+async function checkCreativeFieldStatus() {
+  const badge = document.getElementById('creativeFieldStatusBadge');
+  const link = document.getElementById('linkOpenCreativeField');
+  const fotoLink = document.getElementById('linkOpenFotoField');
+  try {
+    const res = await fetch('/api/creativefield/status');
+    if (!res.ok) throw new Error('Status error');
+    const data = await res.json();
+    if (badge) {
+      if (data.online) {
+        badge.style.background = 'rgba(16, 185, 129, 0.2)';
+        badge.style.color = '#10b981';
+        badge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Online na Porta 8787`;
+      } else {
+        badge.style.background = 'rgba(56, 189, 248, 0.2)';
+        badge.style.color = '#38bdf8';
+        badge.innerHTML = `<i class="fa-solid fa-power-off"></i> Pronto (Clique em Iniciar)`;
+      }
+    }
+    if (link && data.endpoint) {
+      link.href = `${data.endpoint}/`;
+    }
+    if (fotoLink && data.fotoFieldUrl) {
+      fotoLink.href = data.fotoFieldUrl;
+    }
+  } catch (err) {
+    if (badge) {
+      badge.style.background = 'rgba(56, 189, 248, 0.2)';
+      badge.style.color = '#38bdf8';
+      badge.innerHTML = `<i class="fa-solid fa-power-off"></i> Pronto (Porta 8787)`;
+    }
+  }
+}
+
+async function startCreativeFieldServer() {
+  const btn = document.getElementById('btnStartCreativeField');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Iniciando...';
+  }
+
+  try {
+    const res = await fetch('/api/creativefield/start', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('🚀 CreativeField iniciando! Abrindo porta 8787 em instantes...', 'success');
+      setTimeout(() => {
+        checkCreativeFieldStatus();
+        window.open('http://127.0.0.1:8787/#video', '_blank');
+      }, 4000);
+    } else {
+      showToast(`Aviso: ${data.message || 'Não foi possível iniciar'}`, 'warning');
+    }
+  } catch (err) {
+    showToast(`Erro ao iniciar CreativeField: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
+async function checkComfyArtStatus() {
+  const badge = document.getElementById('comfyStatusBadge');
+  const link = document.getElementById('linkOpenComfyArtCanvas');
+  try {
+    const res = await fetch('/api/comfyart/status');
+    if (!res.ok) throw new Error('Status error');
+    const data = await res.json();
+    if (badge) {
+      if (data.serviceOnline) {
+        badge.style.background = 'rgba(16, 185, 129, 0.2)';
+        badge.style.color = '#10b981';
+        badge.innerHTML = `<i class="fa-solid fa-circle-check"></i> ComfyArt Online (${data.officialWorkflowsCount || 33} Workflows)`;
+      } else {
+        badge.style.background = 'rgba(59, 130, 246, 0.2)';
+        badge.style.color = '#38bdf8';
+        badge.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Motor Criativo HD Ativo`;
+      }
+    }
+    if (link && data.endpoint) {
+      link.href = `${data.endpoint}/comfyart/`;
+    }
+  } catch (err) {
+    if (badge) {
+      badge.style.background = 'rgba(59, 130, 246, 0.2)';
+      badge.style.color = '#38bdf8';
+      badge.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Motor Criativo HD Ativo`;
+    }
+  }
+}
+
+async function loadComfyTemplates() {
+  try {
+    const res = await fetch('/api/comfyart/templates');
+    if (res.ok) {
+      const data = await res.json();
+      comfyTemplatesCache = data.templates || [];
+    }
+  } catch (err) {
+    console.warn('Erro ao carregar templates ComfyArt:', err);
+  }
+}
+
+async function populateComfyProductsDropdown() {
+  const sel = document.getElementById('comfyProductSelect');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/products');
+    if (!res.ok) return;
+    const products = await res.json();
+    const currentVal = sel.value;
+    sel.innerHTML = '<option value="">Selecione um produto para auto-preencher...</option>' +
+      products.map(p => `<option value="${p.id}" data-title="${encodeURIComponent(p.name || '')}" data-price="${p.price || ''}" data-desc="${encodeURIComponent(p.description || '')}">${p.name} - R$ ${Number(p.price || 0).toFixed(2).replace('.', ',')}</option>`).join('');
+    if (currentVal) sel.value = currentVal;
+  } catch (err) {
+    console.warn('Erro ao popular produtos no ComfyArt:', err);
+  }
+}
+
+function onComfyProductSelect() {
+  const sel = document.getElementById('comfyProductSelect');
+  if (!sel || !sel.value) return;
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt) return;
+
+  const title = decodeURIComponent(opt.getAttribute('data-title') || '');
+  const price = opt.getAttribute('data-price') || '';
+  const desc = decodeURIComponent(opt.getAttribute('data-desc') || '');
+
+  if (title) document.getElementById('comfyTitle').value = title.toUpperCase();
+  if (price) document.getElementById('comfyPrice').value = `R$ ${Number(price).toFixed(2).replace('.', ',')}`;
+  if (desc) document.getElementById('comfySubtitle').value = desc.slice(0, 140);
+  document.getElementById('comfyDiscountBadge').value = 'OFERTA ESPECIAL';
+
+  onComfyFieldChange();
+}
+
+function getComfyFormInputs() {
+  return {
+    template: document.getElementById('comfyTemplate')?.value || 'square',
+    theme: document.getElementById('comfyTheme')?.value || 'cyber_dark',
+    title: document.getElementById('comfyTitle')?.value || 'BOT DE VENDAS AUTOMÁTICO',
+    subtitle: document.getElementById('comfySubtitle')?.value || 'Venda 24 horas no WhatsApp com entrega imediata via Pix',
+    price: document.getElementById('comfyPrice')?.value || 'R$ 49,90',
+    discount_badge: document.getElementById('comfyDiscountBadge')?.value || 'OFERTA ESPECIAL',
+    cta_text: document.getElementById('comfyCtaText')?.value || 'GARANTA SEU ACESSO HOJE',
+    footer_text: document.getElementById('comfyFooterText')?.value || 'PayBot Tech • Automação Comercial'
+  };
+}
+
+function onComfyFieldChange() {
+  const inputs = getComfyFormInputs();
+  const dimEl = document.getElementById('comfyPreviewDimensions');
+  const container = document.getElementById('comfyPreviewContainer');
+  if (!container) return;
+
+  let width = 1080;
+  let height = 1080;
+  let formatDesc = '1080 x 1080 px • Formato Quadrado (Feed/Zap)';
+
+  if (inputs.template === 'story') {
+    width = 1080;
+    height = 1920;
+    formatDesc = '1080 x 1920 px • Formato Story / Status (9:16)';
+  } else if (inputs.template === 'banner') {
+    width = 1200;
+    height = 675;
+    formatDesc = '1200 x 675 px • Formato Banner Horizontal (16:9)';
+  } else if (inputs.template === 'viral_hook') {
+    width = 1080;
+    height = 1350;
+    formatDesc = '1080 x 1350 px • Formato Retrato Feed (4:5)';
+  }
+
+  if (dimEl) dimEl.innerText = formatDesc;
+
+  const palette = getComfyPaletteClient(inputs.theme);
+  const svgMarkup = buildClientComfySvg(inputs, width, height, palette);
+
+  container.innerHTML = `
+    <div style="width: 100%; display: flex; justify-content: center; align-items: center;">
+      ${svgMarkup}
+    </div>
+  `;
+}
+
+function getComfyPaletteClient(theme) {
+  const palettes = {
+    cyber_dark: { bg1: '#070b19', bg2: '#131b38', accent: '#38bdf8', secondary: '#a855f7', text: '#ffffff', subtext: '#94a3b8', badgeBg: '#a855f7', ctaBg: '#38bdf8', ctaText: '#070b19' },
+    emerald_pay: { bg1: '#03170e', bg2: '#0b2e1f', accent: '#10b981', secondary: '#34d399', text: '#ffffff', subtext: '#a7f3d0', badgeBg: '#10b981', ctaBg: '#10b981', ctaText: '#03170e' },
+    gold_luxury: { bg1: '#120f06', bg2: '#241d0b', accent: '#f59e0b', secondary: '#fbbf24', text: '#ffffff', subtext: '#fde68a', badgeBg: '#f59e0b', ctaBg: '#fbbf24', ctaText: '#120f06' },
+    fire_viral: { bg1: '#1c0707', bg2: '#381010', accent: '#ef4444', secondary: '#f97316', text: '#ffffff', subtext: '#fecaca', badgeBg: '#ef4444', ctaBg: '#f97316', ctaText: '#ffffff' },
+    clean_minimal: { bg1: '#0f172a', bg2: '#1e293b', accent: '#60a5fa', secondary: '#38bdf8', text: '#ffffff', subtext: '#cbd5e1', badgeBg: '#3b82f6', ctaBg: '#60a5fa', ctaText: '#0f172a' }
+  };
+  return palettes[theme] || palettes.cyber_dark;
+}
+
+function buildClientComfySvg(p, width, height, pal) {
+  const isTall = height > width;
+  const isWide = width > height;
+
+  const headerY = isTall ? Math.round(height * 0.16) : (isWide ? Math.round(height * 0.22) : Math.round(height * 0.20));
+  const titleY = isTall ? Math.round(height * 0.30) : (isWide ? Math.round(height * 0.38) : Math.round(height * 0.36));
+  const descY = isTall ? Math.round(height * 0.44) : (isWide ? Math.round(height * 0.54) : Math.round(height * 0.52));
+  const priceY = isTall ? Math.round(height * 0.62) : (isWide ? Math.round(height * 0.70) : Math.round(height * 0.68));
+  const ctaY = isTall ? Math.round(height * 0.78) : (isWide ? Math.round(height * 0.84) : Math.round(height * 0.82));
+  const footerY = Math.round(height - 40);
+
+  const titleFontSize = isWide ? 44 : (isTall ? 58 : 52);
+  const descFontSize = isWide ? 22 : (isTall ? 30 : 26);
+
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const maxDisplayH = 460;
+  const displayW = Math.round((width / height) * maxDisplayH);
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" style="width: ${displayW}px; max-width: 100%; height: auto; display: block; border-radius: 8px;">
+      <defs>
+        <linearGradient id="bgGradClient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="${pal.bg1}" />
+          <stop offset="100%" stop-color="${pal.bg2}" />
+        </linearGradient>
+        <radialGradient id="glowGradClient" cx="50%" cy="35%" r="60%">
+          <stop offset="0%" stop-color="${pal.accent}" stop-opacity="0.32" />
+          <stop offset="100%" stop-color="${pal.bg1}" stop-opacity="0" />
+        </radialGradient>
+        <linearGradient id="borderGradClient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="${pal.accent}" />
+          <stop offset="100%" stop-color="${pal.secondary}" />
+        </linearGradient>
+      </defs>
+
+      <rect width="${width}" height="${height}" fill="url(#bgGradClient)" />
+      <circle cx="${Math.round(width * 0.5)}" cy="${Math.round(height * 0.35)}" r="${Math.round(width * 0.55)}" fill="url(#glowGradClient)" />
+
+      <rect x="24" y="24" width="${width - 48}" height="${height - 48}" rx="28" fill="none" stroke="url(#borderGradClient)" stroke-width="4" stroke-opacity="0.75" />
+
+      <g transform="translate(${Math.round(width / 2)}, ${headerY})">
+        <rect x="-160" y="-24" width="320" height="48" rx="24" fill="${pal.badgeBg}" opacity="0.9" />
+        <text x="0" y="8" fill="#ffffff" font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="20" text-anchor="middle" letter-spacing="2">
+          ${esc(p.discount_badge)}
+        </text>
+      </g>
+
+      <text x="${Math.round(width / 2)}" y="${titleY}" fill="${pal.text}" font-family="'Segoe UI', Arial, sans-serif" font-weight="900" font-size="${titleFontSize}" text-anchor="middle">
+        ${esc(p.title)}
+      </text>
+
+      <text x="${Math.round(width / 2)}" y="${descY}" fill="${pal.subtext}" font-family="'Segoe UI', Arial, sans-serif" font-weight="500" font-size="${descFontSize}" text-anchor="middle">
+        ${esc(p.subtitle)}
+      </text>
+
+      <g transform="translate(${Math.round(width / 2)}, ${priceY})">
+        <rect x="-210" y="-46" width="420" height="92" rx="22" fill="#000000" fill-opacity="0.55" stroke="${pal.accent}" stroke-width="2.5" />
+        <text x="0" y="16" fill="${pal.accent}" font-family="'Segoe UI', Arial, sans-serif" font-weight="900" font-size="46" text-anchor="middle">
+          ${esc(p.price)}
+        </text>
+      </g>
+
+      <g transform="translate(${Math.round(width / 2)}, ${ctaY})">
+        <rect x="-250" y="-36" width="500" height="72" rx="36" fill="${pal.ctaBg}" />
+        <text x="0" y="10" fill="${pal.ctaText}" font-family="'Segoe UI', Arial, sans-serif" font-weight="900" font-size="22" text-anchor="middle" letter-spacing="1">
+          ${esc(p.cta_text)}
+        </text>
+      </g>
+
+      <text x="${Math.round(width / 2)}" y="${footerY}" fill="${pal.subtext}" font-family="'Segoe UI', Arial, sans-serif" font-weight="600" font-size="16" text-anchor="middle" opacity="0.8">
+        ${esc(p.footer_text)} • Criado via ComfyArt
+      </text>
+    </svg>
+  `;
+}
+
+async function generateComfyArtPost() {
+  const btn = document.getElementById('btnGenerateComfyPost');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando Post em Alta Resolução (ComfyArt)...';
+  }
+
+  try {
+    const payload = getComfyFormInputs();
+    const res = await fetch('/api/comfyart/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.message || 'Falha ao gerar post');
+    }
+
+    const post = await res.json();
+    currentComfyPostData = post;
+
+    const container = document.getElementById('comfyPreviewContainer');
+    if (container) {
+      container.innerHTML = `
+        <img src="${post.media_url}?t=${Date.now()}" alt="${post.title}" style="max-width: 100%; max-height: 480px; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);" />
+      `;
+    }
+
+    document.getElementById('btnDownloadComfyPost')?.removeAttribute('disabled');
+    document.getElementById('btnDispatchWhatsapp')?.removeAttribute('disabled');
+    document.getElementById('btnDispatchTelegram')?.removeAttribute('disabled');
+    document.getElementById('btnCopyComfyLink')?.removeAttribute('disabled');
+
+    showToast('✨ Post criado com sucesso com ComfyArt!', 'success');
+    await loadComfyRecentPosts();
+  } catch (err) {
+    showToast(`Erro ao gerar post: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+
+function downloadCurrentComfyPost() {
+  if (!currentComfyPostData || !currentComfyPostData.media_url) {
+    showToast('Nenhum post gerado para download.', 'warning');
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = currentComfyPostData.media_url;
+  a.download = `comfyart_post_${Date.now()}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('Download do post iniciado!', 'success');
+}
+
+function copyComfyPostImageUrl() {
+  if (!currentComfyPostData || !currentComfyPostData.media_url) {
+    showToast('Nenhum criativo gerado ainda.', 'warning');
+    return;
+  }
+  const fullUrl = window.location.origin + currentComfyPostData.media_url;
+  navigator.clipboard.writeText(fullUrl).then(() => {
+    showToast('🔗 Link da imagem copiado!', 'success');
+  }).catch(() => {
+    prompt('Copie o link da imagem:', fullUrl);
+  });
+}
+
+async function cloneOrUpdateComfyArtRepo() {
+  const btn = document.getElementById('btnComfyGitSync');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Atualizando Git...';
+  }
+
+  try {
+    const res = await fetch('/api/comfyart/clone', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Repositório ComfyArt sincronizado com sucesso!', 'success');
+      checkComfyArtStatus();
+    } else {
+      showToast(`Aviso: ${data.message || 'Falha no git clone/pull'}`, 'warning');
+    }
+  } catch (err) {
+    showToast(`Erro na sincronização: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+
+async function openComfyArtSettingsModal() {
+  try {
+    const res = await fetch('/api/comfyart/status');
+    const data = await res.json();
+    if (data.endpoint) document.getElementById('settingComfyEndpoint').value = data.endpoint;
+    if (data.repoUrl) document.getElementById('settingComfyRepoUrl').value = data.repoUrl;
+    if (data.enabled !== undefined) document.getElementById('settingComfyEnabled').checked = data.enabled;
+    openModal('modalComfySettings');
+  } catch (err) {
+    openModal('modalComfySettings');
+  }
+}
+
+async function saveComfyArtSettings(e) {
+  e.preventDefault();
+  const endpoint = document.getElementById('settingComfyEndpoint').value.trim();
+  const repoUrl = document.getElementById('settingComfyRepoUrl').value.trim();
+  const enabled = document.getElementById('settingComfyEnabled').checked;
+
+  try {
+    const res = await fetch('/api/comfyart/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, repoUrl, enabled })
+    });
+    if (!res.ok) throw new Error('Falha ao salvar configurações');
+    closeModal('modalComfySettings');
+    showToast('Configurações do ComfyArt salvas com sucesso!', 'success');
+    await checkComfyArtStatus();
+  } catch (err) {
+    showToast(`Erro ao salvar: ${err.message}`, 'error');
+  }
+}
+
+function openComfyArtDispatchModal(channel) {
+  if (!currentComfyPostData || !currentComfyPostData.media_url) {
+    showToast('Gere um post primeiro antes de disparar.', 'warning');
+    return;
+  }
+
+  const isWa = channel === 'whatsapp';
+  document.getElementById('dispatchComfyChannel').value = channel;
+  document.getElementById('dispatchComfyMediaUrl').value = currentComfyPostData.media_url;
+
+  const titleEl = document.getElementById('comfyDispatchModalTitle');
+  const badgeEl = document.getElementById('dispatchComfyChannelBadge');
+  const labelEl = document.getElementById('dispatchComfyTargetLabel');
+  const targetEl = document.getElementById('dispatchComfyTarget');
+  const thumbEl = document.getElementById('dispatchComfyThumb');
+  const headEl = document.getElementById('dispatchComfyHeadline');
+  const captionEl = document.getElementById('dispatchComfyCaption');
+
+  if (titleEl) {
+    titleEl.innerHTML = isWa
+      ? '<i class="fa-brands fa-whatsapp" style="color: #25d366;"></i> Enviar Criativo no WhatsApp'
+      : '<i class="fa-brands fa-telegram" style="color: #229ed9;"></i> Publicar Criativo no Telegram';
+  }
+
+  if (badgeEl) {
+    badgeEl.style.background = isWa ? 'rgba(37, 211, 102, 0.2)' : 'rgba(34, 158, 217, 0.2)';
+    badgeEl.style.color = isWa ? '#25d366' : '#229ed9';
+    badgeEl.innerText = isWa ? 'Canal WhatsApp' : 'Canal Telegram';
+  }
+
+  if (labelEl) {
+    labelEl.innerText = isWa ? 'Número de WhatsApp ou Grupo (JID):' : 'Chat ID ou Canal Telegram (@canal):';
+  }
+
+  if (targetEl) {
+    targetEl.placeholder = isWa ? 'Ex: 5511999999999 ou 120363xxx@g.us' : 'Ex: @meucanal ou -1001234567890';
+  }
+
+  if (thumbEl) thumbEl.src = currentComfyPostData.media_url;
+  if (headEl) headEl.innerText = currentComfyPostData.title || 'Post ComfyArt';
+
+  if (captionEl) {
+    captionEl.value = `🔥 *${currentComfyPostData.title}*\n\n${currentComfyPostData.subtitle || ''}\n\n💰 *${currentComfyPostData.price || ''}*\n👉 ${currentComfyPostData.cta_text || 'Compre agora no WhatsApp!'}`;
+  }
+
+  openModal('modalComfyDispatch');
+}
+
+async function submitComfyArtDispatch(e) {
+  e.preventDefault();
+  const channel = document.getElementById('dispatchComfyChannel').value;
+  const mediaUrl = document.getElementById('dispatchComfyMediaUrl').value;
+  const target = document.getElementById('dispatchComfyTarget').value.trim();
+  const caption = document.getElementById('dispatchComfyCaption').value.trim();
+
+  const btn = document.getElementById('btnSubmitComfyDispatch');
+  const origText = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Disparando...';
+  }
+
+  try {
+    const res = await fetch('/api/comfyart/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel, target, caption, media_url: mediaUrl })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Falha no disparo');
+
+    closeModal('modalComfyDispatch');
+    showToast(`✅ Post disparado com sucesso via ${channel.toUpperCase()}!`, 'success');
+  } catch (err) {
+    showToast(`Erro ao disparar: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+    }
+  }
+}
+
+async function loadComfyRecentPosts() {
+  const container = document.getElementById('comfyRecentGallery');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/comfyart/recent');
+    if (!res.ok) return;
+    const posts = await res.json();
+
+    if (!posts || posts.length === 0) {
+      container.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 30px;">Nenhum criativo gerado ainda. Crie seu primeiro post no formulário acima!</div>';
+      return;
+    }
+
+    container.innerHTML = posts.map(p => `
+      <div class="card" style="margin: 0; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.25);">
+        <div style="position: relative; width: 100%; height: 180px; background: #070b13; overflow: hidden; cursor: pointer;" onclick="previewRecentComfyPost('${p.id}')">
+          <img src="${p.media_url}" alt="${p.title}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'" />
+          <span class="badge" style="position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; font-size: 11px;">
+            ${p.template || 'square'}
+          </span>
+        </div>
+        <div style="padding: 12px;">
+          <h4 style="margin: 0 0 4px 0; font-size: 13px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.title}</h4>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+            <span>${p.price || ''}</span>
+            <span>${p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : ''}</span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <a href="${p.media_url}" download target="_blank" class="btn btn-sm btn-outline" style="flex: 1; text-align: center; padding: 4px;" title="Baixar">
+              <i class="fa-solid fa-download"></i> Baixar
+            </a>
+            <button class="btn btn-sm btn-primary" onclick="setAndDispatchComfyRecent('${p.id}')" style="background: #25d366; border-color: #25d366; padding: 4px 8px;" title="Enviar no WhatsApp">
+              <i class="fa-brands fa-whatsapp"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #ef4444; padding: 20px;">Falha ao carregar galeria: ${err.message}</div>`;
+  }
+}
+
+async function previewRecentComfyPost(postId) {
+  try {
+    const res = await fetch('/api/comfyart/recent');
+    const posts = await res.json();
+    const found = posts.find(p => String(p.id) === String(postId));
+    if (!found) return;
+
+    currentComfyPostData = found;
+    const container = document.getElementById('comfyPreviewContainer');
+    if (container) {
+      container.innerHTML = `
+        <img src="${found.media_url}" alt="${found.title}" style="max-width: 100%; max-height: 480px; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);" />
+      `;
+    }
+
+    if (found.title) document.getElementById('comfyTitle').value = found.title;
+    if (found.subtitle) document.getElementById('comfySubtitle').value = found.subtitle;
+    if (found.price) document.getElementById('comfyPrice').value = found.price;
+    if (found.discount_badge) document.getElementById('comfyDiscountBadge').value = found.discount_badge;
+    if (found.cta_text) document.getElementById('comfyCtaText').value = found.cta_text;
+
+    document.getElementById('btnDownloadComfyPost')?.removeAttribute('disabled');
+    document.getElementById('btnDispatchWhatsapp')?.removeAttribute('disabled');
+    document.getElementById('btnDispatchTelegram')?.removeAttribute('disabled');
+    document.getElementById('btnCopyComfyLink')?.removeAttribute('disabled');
+
+    showToast('Post selecionado para visualização e envio!', 'info');
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function setAndDispatchComfyRecent(postId) {
+  await previewRecentComfyPost(postId);
+  openComfyArtDispatchModal('whatsapp');
+}
+
+function openInComfyArtStudio(viralPostId) {
+  if (typeof globalViralGeneratedCache !== 'undefined') {
+    const post = globalViralGeneratedCache.find(p => Number(p.id) === Number(viralPostId));
+    if (post) {
+      switchTab('comfyart');
+      if (post.title) document.getElementById('comfyTitle').value = post.title;
+      if (post.full_content) document.getElementById('comfySubtitle').value = post.full_content.slice(0, 140);
+      if (post.media_url) {
+        currentComfyPostData = {
+          title: post.title,
+          subtitle: post.full_content.slice(0, 140),
+          media_url: post.media_url
+        };
+        const container = document.getElementById('comfyPreviewContainer');
+        if (container) {
+          container.innerHTML = `<img src="${post.media_url}" style="max-width: 100%; max-height: 480px; object-fit: contain; border-radius: 8px;" />`;
+        }
+        document.getElementById('btnDownloadComfyPost')?.removeAttribute('disabled');
+        document.getElementById('btnDispatchWhatsapp')?.removeAttribute('disabled');
+        document.getElementById('btnDispatchTelegram')?.removeAttribute('disabled');
+        document.getElementById('btnCopyComfyLink')?.removeAttribute('disabled');
+      } else {
+        onComfyFieldChange();
+      }
+      return;
+    }
+  }
+  switchTab('comfyart');
+}
+
+async function createComfyArtForViralPost(viralPostId) {
+  if (typeof globalViralGeneratedCache === 'undefined') return;
+  const post = globalViralGeneratedCache.find(p => Number(p.id) === Number(viralPostId));
+  if (!post) return;
+
+  switchTab('comfyart');
+  if (post.title) document.getElementById('comfyTitle').value = post.title.toUpperCase();
+  if (post.full_content) document.getElementById('comfySubtitle').value = post.full_content.slice(0, 140);
+  document.getElementById('comfyDiscountBadge').value = 'VIRAL RADAR IA';
+
+  onComfyFieldChange();
+  showToast('Iniciando geração da arte no ComfyArt Studio...', 'info');
+  await generateComfyArtPost();
+}
+
+// Exportações globais para HTML onclick
+window.loadComfyArtStudio = loadComfyArtStudio;
+window.checkComfyArtStatus = checkComfyArtStatus;
+window.onComfyFieldChange = onComfyFieldChange;
+window.onComfyProductSelect = onComfyProductSelect;
+window.generateComfyArtPost = generateComfyArtPost;
+window.downloadCurrentComfyPost = downloadCurrentComfyPost;
+window.copyComfyPostImageUrl = copyComfyPostImageUrl;
+window.cloneOrUpdateComfyArtRepo = cloneOrUpdateComfyArtRepo;
+window.openComfyArtSettingsModal = openComfyArtSettingsModal;
+window.saveComfyArtSettings = saveComfyArtSettings;
+window.openComfyArtDispatchModal = openComfyArtDispatchModal;
+window.submitComfyArtDispatch = submitComfyArtDispatch;
+window.loadComfyRecentPosts = loadComfyRecentPosts;
+window.previewRecentComfyPost = previewRecentComfyPost;
+window.setAndDispatchComfyRecent = setAndDispatchComfyRecent;
+window.openInComfyArtStudio = openInComfyArtStudio;
+window.createComfyArtForViralPost = createComfyArtForViralPost;
+window.checkCreativeFieldStatus = checkCreativeFieldStatus;
+window.startCreativeFieldServer = startCreativeFieldServer;

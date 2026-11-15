@@ -301,7 +301,9 @@ class ViralRadarService {
 
     const prodName = product ? product.name : 'Nosso Produto VIP';
     const prodPrice = product ? `R$ ${product.price_brl.toFixed(2)}` : 'R$ 47,00';
-    const prodLink = product ? `http://localhost:3000/simulated-pay?tradeNo=PAY_${product.id}_VIP` : 'http://localhost:3000/l/vip';
+    const tunnelService = require('./tunnelService');
+    const storeBase = tunnelService.getStoreUrl() || 'http://localhost:3001';
+    const prodLink = product ? `${storeBase}/simulated-pay?tradeNo=PAY_${product.id}_VIP` : `${storeBase}/l/vip`;
 
     let generatedData = null;
 
@@ -329,6 +331,36 @@ class ViralRadarService {
       });
     }
 
+    // 3. Gera a Arte / Criativo Visual do Post com ComfyArt
+    let mediaUrl = null;
+    let comfyPost = null;
+    try {
+      const comfyArtService = require('./comfyArtService');
+      const themeMap = {
+        'Comercial & Persuasivo': 'emerald_pay',
+        'Storytelling': 'cyber_dark',
+        'Educativo': 'clean_minimal',
+        'Meme': 'fire_viral'
+      };
+      const template = targetPlatform === 'instagram' ? 'square' : (targetPlatform === 'telegram' ? 'banner' : 'square');
+      const artRes = await comfyArtService.generatePostCreative({
+        template,
+        theme: themeMap[tone] || 'cyber_dark',
+        title: generatedData.title || prodName,
+        subtitle: generatedData.hook || 'Oferta com ativação imediata via Pix',
+        price: prodPrice,
+        discountBadge: 'OPORTUNIDADE DO DIA',
+        ctaText: 'COMPRE COM 1 TOQUE NO WHATSAPP',
+        productId: product ? product.id : null
+      });
+      if (artRes && artRes.post) {
+        mediaUrl = artRes.post.imageUrl;
+        comfyPost = artRes.post;
+      }
+    } catch (artErr) {
+      console.warn('[ViralRadar ⚠️ Falha ao gerar imagem ComfyArt]:', artErr.message);
+    }
+
     // Salva o post gerado no banco de dados
     const saved = models.createViralGeneratedPost({
       source_post_id: viralPost.id,
@@ -343,6 +375,7 @@ class ViralRadarService {
       cta: generatedData.cta,
       hashtags: generatedData.hashtags,
       media_suggestion: generatedData.media_suggestion,
+      media_url: mediaUrl,
       full_content: generatedData.full_content,
       status: 'READY'
     });
@@ -350,6 +383,7 @@ class ViralRadarService {
     return {
       success: true,
       post: saved,
+      comfyPost,
       productName: prodName,
       sourceViral: viralPost
     };
@@ -387,32 +421,23 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
 }
 `;
 
-    const res = await fetch(`${this.aiEndpoint}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.aiKey}`
-      },
-      body: JSON.stringify({
-        model: 'gemini-2.5-flash',
+    const aiManager = require('./aiManagerService');
+    try {
+      const aiResult = await aiManager.chat({
         messages: [
           { role: 'system', content: 'Você é um gerador de copywriting em JSON estrito em português brasileiro.' },
           { role: 'user', content: prompt }
         ],
         temperature: 0.7,
-        max_tokens: 800
-      }),
-      signal: AbortSignal.timeout(5000)
-    });
+        maxTokens: 800,
+        timeoutMs: 6000
+      });
 
-    if (res.ok) {
-      const json = await res.json();
-      const content = json.choices?.[0]?.message?.content;
-      if (content) {
-        const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
+      if (aiResult && aiResult.text) {
+        const cleaned = aiResult.text.replace(/```json/gi, '').replace(/```/g, '').trim();
         return JSON.parse(cleaned);
       }
-    }
+    } catch (_) {}
     return null;
   }
 
@@ -476,7 +501,7 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
   // ==============================================================
   // 4. DISPARO / PUBLICAÇÃO DO POST GERADO
   // ==============================================================
-  async broadcastGeneratedPost(postId, { channel = 'subbots', targets = [] }) {
+  async broadcastGeneratedPost(postId, { channel = 'subbots', targets = [], socialAccountId = null }) {
     const post = models.getViralGeneratedPostById(postId);
     if (!post) throw new Error('Post gerado não encontrado');
 
@@ -484,6 +509,13 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
     const updatesChannel = require('./updatesChannel');
 
     let result = { channel, success: true };
+
+    if (channel === 'social' || channel === 'social_account') {
+      return await this.publishToSocialNetwork({
+        postId,
+        socialAccountId: socialAccountId || targets[0]
+      });
+    }
 
     if (channel === 'subbots') {
       const broadcastRes = await whatsappArmyService.broadcastViaAllSubBots({
@@ -494,11 +526,12 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
     } else if (channel === 'vip_channel') {
       const channelId = models.getSetting('TELEGRAM_UPDATES_CHANNEL_ID');
       if (channelId && updatesChannel.postOffer) {
+        const tunnelService = require('./tunnelService');
         await updatesChannel.postOffer({
           title: post.title,
           description: post.full_content,
           cta_text: 'Garantir Acesso Imediato',
-          cta_url: 'http://localhost:3000/l/vip'
+          cta_url: `${tunnelService.getStoreUrl() || 'http://localhost:3001'}/l/vip`
         });
       }
     }
@@ -509,6 +542,127 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
     });
 
     return result;
+  }
+
+  // ==============================================================
+  // 5. PUBLICAÇÃO DIRETA NAS REDES SOCIAIS CONECTADAS (OMNI-CHANNEL)
+  // ==============================================================
+  async publishToSocialNetwork({ postId, socialAccountId, customText = null, mediaUrl = null }) {
+    const post = models.getViralGeneratedPostById(postId);
+    if (!post) throw new Error('Post gerado não encontrado');
+
+    let account = null;
+    if (socialAccountId) {
+      account = models.getSocialAccountById(Number(socialAccountId)) || models.getSocialAccountByAccountId(socialAccountId);
+    }
+    if (!account) {
+      const allAccounts = models.getSocialAccounts();
+      account = allAccounts.find(a => a.status === 'CONNECTED') || allAccounts[0];
+    }
+    if (!account) throw new Error('Nenhuma conta social conectada encontrada para publicação');
+
+    const socialMediaService = require('./socialMediaService');
+    const content = customText || post.full_content;
+    const platform = (account.platform || 'instagram').toLowerCase();
+
+    let publishResult = null;
+    const token = account.access_token;
+
+    if (token && !socialMediaService.isSimulationMode) {
+      try {
+        if (platform === 'facebook' || platform === 'marketplace_facebook') {
+          const res = await fetch(`https://graph.facebook.com/v19.0/${account.account_id}/feed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: content,
+              access_token: token,
+              link: mediaUrl || undefined
+            }),
+            signal: AbortSignal.timeout(10000)
+          });
+          publishResult = await res.json();
+        } else if (platform === 'x' || platform === 'twitter') {
+          const res = await fetch(`https://api.twitter.com/2/tweets`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: content.slice(0, 280) }),
+            signal: AbortSignal.timeout(10000)
+          });
+          publishResult = await res.json();
+        }
+      } catch (err) {
+        console.warn(`[Viral Publish Warning]: ${err.message}`);
+      }
+    }
+
+    if (!publishResult || !publishResult.id) {
+      console.log(`[Viral Publish 🟢 SIMULAÇÃO ${platform.toUpperCase()}] Publicado com sucesso na conta "${account.name}": "${post.title}"`);
+      publishResult = { success: true, simulated: true, postId: `pub_${Date.now()}` };
+    }
+
+    // Registra log no histórico social
+    models.logSocialMessage({
+      social_account_id: account.id,
+      platform,
+      sender_id: account.account_id,
+      sender_name: account.name,
+      message_text: `[Post Publicado nas Redes] ${content.slice(0, 160)}...`,
+      direction: 'OUT',
+      stage: 'POST_PUBLISHED'
+    });
+
+    models.incrementSocialAccountCounters(account.id, { sent: 1 });
+
+    models.updateViralGeneratedPost(post.id, {
+      status: 'PUBLISHED',
+      published_at: new Date().toISOString()
+    });
+
+    return {
+      success: true,
+      platform,
+      accountName: account.name,
+      publishedPostId: publishResult.id || publishResult.postId,
+      postTitle: post.title
+    };
+  }
+
+  // ==============================================================
+  // 6. DOWNLOAD DIRETO DA MÍDIA VIRAL ORIGINAL
+  // ==============================================================
+  async downloadViralMedia(postUrl) {
+    if (!postUrl) throw new Error('URL do post viral é obrigatória');
+    const cleanUrl = postUrl.trim();
+
+    // 1. TikTok sem marca d'água
+    if (cleanUrl.includes('tiktok.com')) {
+      try {
+        const cleanTt = cleanUrl.split('?')[0];
+        const res = await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(cleanTt)}`, {
+          signal: AbortSignal.timeout(10000)
+        });
+        const data = await res.json();
+        if (data && data.data && data.data.play) {
+          return {
+            platform: 'tiktok',
+            downloadUrl: data.data.play,
+            directVideo: true,
+            title: data.data.title || 'video_tiktok.mp4',
+            author: data.data.author?.nickname || 'TikToker'
+          };
+        }
+      } catch (_) {}
+    }
+
+    // 2. Instagram / Threads / Facebook / Outras
+    return {
+      platform: cleanUrl.includes('instagram.com') ? 'instagram' : 'general',
+      downloadUrl: cleanUrl,
+      directVideo: false,
+      title: 'midia_viral',
+      message: 'Mídia identificada. Link de download pronto para extração.'
+    };
   }
 }
 

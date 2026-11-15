@@ -1,0 +1,2023 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PAYBOT // Terminal de Sub-Bots & Painel do Sistema</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Fira+Code:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            /* Paleta Next-Gen / Cyberpunk */
+            --bg-deep: #030409;
+            --panel-bg: rgba(12, 14, 25, 0.72);
+            --neon-blue: #00e5ff;
+            --neon-purple: #b537f2;
+            --neon-pink: #f23788;
+            --neon-gold: #f59e0b;
+            --neon-green: #10b981;
+            --text-main: #e2e8f0;
+            --text-dim: #64748b;
+            
+            --glow-blue: 0 0 15px rgba(0, 229, 255, 0.45);
+            --glow-purple: 0 0 15px rgba(181, 55, 242, 0.45);
+            --glow-gold: 0 0 15px rgba(245, 158, 11, 0.45);
+            
+            --font-main: 'Rajdhani', sans-serif;
+            --font-code: 'Fira Code', monospace;
+            
+            /* Recortes Sci-Fi HUD */
+            --clip-card: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px);
+            --clip-btn: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+        }
+
+        /* Temas Dinâmicos */
+        body[data-theme="purple"] {
+            --neon-blue: #b537f2;
+            --neon-purple: #00e5ff;
+            --glow-blue: 0 0 15px rgba(181, 55, 242, 0.45);
+        }
+        body[data-theme="gold"] {
+            --neon-blue: #f59e0b;
+            --neon-purple: #ef4444;
+            --neon-pink: #fbbf24;
+            --glow-blue: 0 0 15px rgba(245, 158, 11, 0.45);
+        }
+
+        * {
+            margin: 0; padding: 0; box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+            padding-bottom: 95px;
+        }
+
+        /* --- FONDO ANIMADO (CANVAS) --- */
+        #bg-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: -2;
+            pointer-events: none;
+        }
+
+        .bg-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at 50% 0%, rgba(181,55,242,0.12) 0%, transparent 55%),
+                        radial-gradient(circle at 50% 100%, rgba(0,229,255,0.08) 0%, transparent 55%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .grid-floor {
+            position: fixed;
+            bottom: 0; left: 0; width: 100vw; height: 35vh;
+            background: linear-gradient(to bottom, transparent, rgba(0, 229, 255, 0.05)),
+                        repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(0, 229, 255, 0.03) 40px, rgba(0, 229, 255, 0.03) 41px);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .spotlight {
+            position: fixed;
+            width: 500px; height: 500px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 229, 255, 0.08) 0%, transparent 70%);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        /* --- BOOT SCREEN (INICIALIZAÇÃO RETRO) --- */
+        .boot {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #020307;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.6s ease, visibility 0.6s ease;
+        }
+        .boot.done {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+        .boot-inner {
+            width: 90%; max-width: 480px;
+            font-family: var(--font-code);
+            font-size: 0.85rem;
+            color: var(--neon-blue);
+        }
+        .boot-log {
+            min-height: 140px;
+            margin-bottom: 20px;
+            line-height: 1.6;
+            text-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+        }
+        .boot-bar {
+            width: 100%; height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .boot-bar-fill {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
+            box-shadow: 0 0 10px var(--neon-blue);
+            transition: width 0.2s ease;
+        }
+        .boot-hint {
+            margin-top: 25px;
+            font-family: var(--font-code);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            cursor: pointer;
+            animation: pulse 1.5s infinite;
+        }
+
+        /* --- SELETOR DE TEMAS --- */
+        .theme-switch {
+            position: fixed;
+            top: 18px; right: 18px;
+            display: flex; gap: 8px;
+            z-index: 100;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(8px);
+            padding: 6px 10px;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .swatch {
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        .swatch:hover { transform: scale(1.2); }
+        .swatch.active { border-color: #fff; box-shadow: 0 0 10px currentColor; }
+        .swatch[data-theme="cyan"] { background: #00e5ff; }
+        .swatch[data-theme="purple"] { background: #b537f2; }
+        .swatch[data-theme="gold"] { background: #f59e0b; }
+
+        /* --- CONTENEDOR PRINCIPAL --- */
+        .app-shell {
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 1.5rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* --- HERO & AVATAR ORBITAL 3D --- */
+        .hero {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            margin-top: 0.5rem;
+            animation: slideDown 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .orbital-avatar {
+            width: 160px; height: 160px;
+            position: relative;
+            margin-bottom: 1rem;
+            perspective: 800px;
+        }
+        .oa-ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            border: 1px dashed rgba(0, 229, 255, 0.25);
+            transform-style: preserve-3d;
+        }
+        .oa-outer {
+            border: 1px solid rgba(0, 229, 255, 0.35);
+            animation: spin 20s linear infinite;
+        }
+        .oa-inner {
+            inset: 18px;
+            border: 1px dashed rgba(181, 55, 242, 0.4);
+            animation: spinReverse 15s linear infinite;
+        }
+        .oa-gyro-a {
+            border: 1.5px solid var(--neon-blue);
+            animation: gyroA 6s linear infinite;
+        }
+        .oa-gyro-b {
+            border: 1.5px solid var(--neon-purple);
+            animation: gyroB 8s linear infinite;
+        }
+        .oa-node {
+            position: absolute;
+            top: 0; left: 50%;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 10px var(--neon-blue);
+            transform: translate(-50%, -50%);
+        }
+        .oa-pulse {
+            position: absolute;
+            inset: 35px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 229, 255, 0.4) 0%, transparent 70%);
+            animation: pulse 2.5s ease-in-out infinite;
+        }
+        .oa-core {
+            position: absolute;
+            inset: 48px;
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.2), rgba(181, 55, 242, 0.2));
+            backdrop-filter: blur(5px);
+            border: 2px solid var(--neon-blue);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--glow-blue);
+            color: #fff;
+            font-size: 1.8rem;
+        }
+
+        .sys-title {
+            font-size: 2.8rem;
+            font-weight: 700;
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple), var(--neon-pink));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.3rem;
+            position: relative;
+            text-align: center;
+        }
+        .sys-subtitle {
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 4px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 0.8rem;
+            text-align: center;
+        }
+
+        .sys-badges {
+            display: flex;
+            gap: 10px;
+            font-family: var(--font-code);
+            font-size: 0.75rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .badge {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--neon-blue);
+            padding: 4px 12px;
+            color: var(--neon-blue);
+            clip-path: var(--clip-btn);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .badge.online .dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--neon-green);
+            box-shadow: 0 0 8px var(--neon-green);
+            animation: pulseDot 1.5s infinite;
+        }
+        .badge.purple { border-color: var(--neon-purple); color: var(--neon-purple); }
+        .badge.gold { border-color: var(--neon-gold); color: var(--neon-gold); }
+
+        /* --- COMPONENTES SCI-FI --- */
+        .sci-card {
+            background: var(--panel-bg);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border-left: 3px solid var(--neon-blue);
+            border-right: 1px solid rgba(255,255,255,0.06);
+            border-top: 1px solid rgba(255,255,255,0.06);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 1.5rem;
+            clip-path: var(--clip-card);
+            position: relative;
+            transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+            transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s ease, border-left-color 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            margin-bottom: 1.2rem;
+        }
+        .sci-card:hover {
+            box-shadow: 0 15px 35px rgba(0, 229, 255, 0.15);
+        }
+        .sci-card.grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 15px;
+            text-align: center;
+        }
+        .stat-block {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .stat-label {
+            font-size: 0.75rem;
+            font-family: var(--font-code);
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .stat-val {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255,255,255,0.3);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: var(--font-code);
+            font-size: 0.95rem;
+            letter-spacing: 2px;
+            color: var(--neon-blue);
+            margin-bottom: 1.2rem;
+            font-weight: 700;
+        }
+
+        /* --- TERMINAL SUB-BOT --- */
+        .terminal-box {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .hacker-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255,255,255,0.15);
+            padding: 14px 16px;
+            color: #fff;
+            font-family: var(--font-code);
+            font-size: 1.05rem;
+            letter-spacing: 2px;
+            clip-path: var(--clip-btn);
+            outline: none;
+            transition: all 0.3s ease;
+        }
+        .hacker-input:focus {
+            border-color: var(--neon-pink);
+            box-shadow: 0 0 15px rgba(242, 55, 136, 0.4);
+            background: rgba(0, 0, 0, 0.75);
+        }
+        .hacker-input::placeholder {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .cyber-btn {
+            width: 100%;
+            background: transparent;
+            border: 1.5px solid var(--neon-pink);
+            color: var(--neon-pink);
+            padding: 14px;
+            font-family: var(--font-code);
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            cursor: pointer;
+            clip-path: var(--clip-btn);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .cyber-btn:hover {
+            background: var(--neon-pink);
+            color: #000;
+            box-shadow: 0 0 20px var(--neon-pink);
+        }
+        .cyber-btn:active {
+            transform: scale(0.98);
+        }
+        .cyber-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Resultado do Código */
+        .code-display {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(0,0,0,0.65);
+            border: 2px dashed var(--neon-purple);
+            padding: 20px;
+            margin-top: 15px;
+            clip-path: var(--clip-card);
+            animation: fadeIn 0.5s ease;
+        }
+        .code-display.active {
+            display: flex;
+        }
+        .token-text {
+            font-family: var(--font-code);
+            font-size: 2.4rem;
+            font-weight: 700;
+            letter-spacing: 8px;
+            color: var(--neon-blue);
+            text-shadow: 0 0 15px var(--neon-blue);
+            margin: 10px 0 15px 0;
+            user-select: all;
+        }
+
+        /* Passo a Passo Sci-Fi */
+        .step-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .step-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 0.95rem;
+            color: var(--text-main);
+            background: rgba(255,255,255,0.02);
+            padding: 10px 12px;
+            border-left: 2px solid var(--neon-blue);
+        }
+        .step-num {
+            font-family: var(--font-code);
+            font-weight: 700;
+            color: var(--neon-blue);
+            background: rgba(0, 229, 255, 0.15);
+            padding: 2px 7px;
+            border-radius: 3px;
+        }
+
+        /* --- SPARKLINE TELEMETRIA --- */
+        #sparkline {
+            width: 100%;
+            height: 90px;
+            margin: 10px 0;
+        }
+        .spark-meta {
+            display: flex;
+            justify-content: space-between;
+            font-family: var(--font-code);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+        }
+
+        /* Barras de Top Comandos */
+        .bar-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .bar-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .bar-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        .bar-track {
+            height: 8px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
+            box-shadow: 0 0 8px var(--neon-blue);
+            border-radius: 4px;
+            transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* --- TABS --- */
+        .tab {
+            display: none;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+        .tab.active {
+            display: block;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* --- ESTILOS DE CHAVES DE IA DO SUB-BOT --- */
+        .ai-key-card {
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-left: 3px solid var(--neon-blue);
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            clip-path: var(--clip-btn);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            transition: all 0.3s ease;
+        }
+        .ai-key-card:hover {
+            border-color: rgba(0, 229, 255, 0.4);
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.15);
+        }
+        .ai-key-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 220px;
+        }
+        .ai-provider-pill {
+            font-family: var(--font-code);
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--neon-blue);
+            color: var(--neon-blue);
+            clip-path: var(--clip-btn);
+            text-transform: uppercase;
+        }
+        .ai-key-code {
+            font-family: var(--font-code);
+            font-size: 0.95rem;
+            color: #fff;
+            letter-spacing: 2px;
+        }
+        .ai-key-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .ai-btn-sm {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            background: transparent;
+            font-family: var(--font-code);
+            letter-spacing: 1px;
+            clip-path: var(--clip-btn);
+            border: 1px solid var(--neon-blue);
+            color: var(--neon-blue);
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .ai-btn-sm:hover {
+            background: var(--neon-blue);
+            color: #000;
+            box-shadow: 0 0 10px var(--neon-blue);
+        }
+        .ai-btn-sm.delete {
+            border-color: var(--neon-pink);
+            color: var(--neon-pink);
+        }
+        .ai-btn-sm.delete:hover {
+            background: var(--neon-pink);
+            color: #fff;
+            box-shadow: 0 0 10px var(--neon-pink);
+        }
+        .ai-btn-sm:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .ai-free-tip {
+            background: rgba(0, 229, 255, 0.05);
+            border: 1px dashed rgba(0, 229, 255, 0.3);
+            padding: 12px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            margin-top: 10px;
+            border-radius: 4px;
+            color: var(--text-main);
+        }
+        .ai-free-tip a {
+            color: var(--neon-blue);
+            text-decoration: underline;
+            font-weight: 600;
+        }
+        .ai-free-tip a:hover {
+            color: #fff;
+            text-shadow: var(--glow-blue);
+        }
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* --- FLOATING NAV DOCK --- */
+        .nav-dock {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(8, 10, 20, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.12);
+            padding: 8px 16px;
+            border-radius: 35px;
+            display: flex;
+            gap: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6), 0 0 20px rgba(0, 229, 255, 0.15);
+            z-index: 999;
+        }
+        .nav-item {
+            width: 48px; height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            text-decoration: none;
+            font-size: 1.15rem;
+        }
+        .nav-item:hover {
+            color: #fff;
+            transform: translateY(-2px);
+        }
+        .nav-item.active {
+            color: #000;
+            background: var(--neon-blue);
+            box-shadow: 0 0 18px var(--neon-blue);
+        }
+
+        /* --- HOLOGRAPHIC TOAST --- */
+        .holo-toast {
+            position: fixed;
+            top: 25px; left: 50%;
+            transform: translate(-50%, -100px);
+            background: rgba(3, 4, 9, 0.92);
+            border: 1px solid var(--neon-blue);
+            box-shadow: 0 0 25px rgba(0, 229, 255, 0.4);
+            padding: 12px 24px;
+            font-family: var(--font-code);
+            font-size: 0.9rem;
+            color: #fff;
+            clip-path: var(--clip-btn);
+            z-index: 10000;
+            pointer-events: none;
+            transition: transform 0.4s cubic-bezier(0.16,1,0.3,1);
+        }
+        .holo-toast.show {
+            transform: translate(-50%, 0);
+        }
+        .holo-toast.error {
+            border-color: var(--neon-pink);
+            box-shadow: 0 0 25px rgba(242, 55, 136, 0.4);
+            color: var(--neon-pink);
+        }
+
+        /* --- SCI-FI MODAL DE TERMOS --- */
+        .sci-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(3, 5, 12, 0.88);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 10001;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease;
+        }
+        .sci-modal-overlay.active {
+            display: flex;
+        }
+        .sci-modal-content {
+            background: var(--panel-bg);
+            border: 1.5px solid var(--neon-blue);
+            box-shadow: 0 0 40px rgba(0, 229, 255, 0.35);
+            max-width: 620px;
+            width: 100%;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 1.8rem;
+            clip-path: var(--clip-card);
+            position: relative;
+            color: var(--text-main);
+        }
+
+        /* --- KEYFRAMES --- */
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes spinReverse { 100% { transform: rotate(-360deg); } }
+        @keyframes gyroA { from { transform: rotateX(74deg) rotateZ(0deg); } to { transform: rotateX(74deg) rotateZ(360deg); } }
+        @keyframes gyroB { from { transform: rotateX(70deg) rotateY(58deg) rotateZ(360deg); } to { transform: rotateX(70deg) rotateY(58deg) rotateZ(0deg); } }
+        @keyframes pulse { 0%, 100% { transform: scale(0.95); opacity: 0.6; } 50% { transform: scale(1.05); opacity: 1; } }
+        @keyframes pulseDot { 0%, 100% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body data-theme="cyan">
+
+    <!-- BOOT SEQUENCE ANIMATION -->
+    <div id="boot" class="boot">
+        <div class="boot-inner">
+            <div class="boot-log" id="bootLog"></div>
+            <div class="boot-bar"><div class="boot-bar-fill" id="bootBar"></div></div>
+        </div>
+        <div class="boot-hint" onclick="skipBoot()">[ CLIQUE PARA ENTRAR // SALTAR ]</div>
+    </div>
+
+    <!-- SELETOR DE TEMAS CYBERPUNK -->
+    <div class="theme-switch" id="themeSwitch">
+        <button class="swatch active" data-theme="cyan" title="Cyber Cyan" onclick="setTheme('cyan')"></button>
+        <button class="swatch" data-theme="purple" title="Neon Purple" onclick="setTheme('purple')"></button>
+        <button class="swatch" data-theme="gold" title="PayBot Gold" onclick="setTheme('gold')"></button>
+    </div>
+
+    <!-- BACKGROUND NEURAL CANVAS & SPOTLIGHT -->
+    <canvas id="bg-canvas"></canvas>
+    <div class="bg-overlay"></div>
+    <div class="grid-floor"></div>
+    <div class="spotlight" id="spotlight"></div>
+
+    <!-- APP SHELL -->
+    <div class="app-shell">
+        
+        <!-- HERO & ORBITAL AVATAR -->
+        <header class="hero">
+            <div class="orbital-avatar">
+                <div class="oa-ring oa-outer"></div>
+                <div class="oa-ring oa-inner"></div>
+                <div class="oa-ring oa-gyro-a"><span class="oa-node"></span></div>
+                <div class="oa-ring oa-gyro-b"><span class="oa-node"></span></div>
+                <div class="oa-pulse"></div>
+                <div class="oa-core">
+                    <i class="fa-solid fa-robot"></i>
+                </div>
+            </div>
+
+            <h1 class="sys-title">PAYBOT</h1>
+            <div class="sys-subtitle">// NEXT-GEN SUB-BOT TERMINAL &amp; COMMERCE ENGINE</div>
+            
+            <div class="sys-badges">
+                <span class="badge online"><span class="dot"></span>SYS ONLINE</span>
+                <span class="badge purple" id="badgeUptime"><i class="fa-solid fa-clock"></i> <span id="valUptime">00:00:00</span></span>
+                <span class="badge" id="badgePing"><i class="fa-solid fa-bolt"></i> <span id="valPing">-- ms</span></span>
+                <span class="badge gold" id="badgeClock"><i class="fa-solid fa-globe"></i> <span id="valClock">--:--:--</span></span>
+            </div>
+        </header>
+
+        <!-- CONTEÚDO PRINCIPAL (TABS) -->
+        <main>
+            
+            <!-- TAB 1: CORE / TERMINAL DE SUB-BOT -->
+            <div id="tab-core" class="tab active">
+                
+                <!-- MÉTRICAS PRINCIPAIS -->
+                <div class="sci-card grid-2">
+                    <div class="stat-block">
+                        <span class="stat-label">Sub-Bots Ativos</span>
+                        <span class="stat-val counter" id="valSubBots">0</span>
+                    </div>
+                    <div class="stat-block">
+                        <span class="stat-label">Disparos Hoje</span>
+                        <span class="stat-val counter" id="valMessages">0</span>
+                    </div>
+                    <div class="stat-block">
+                        <span class="stat-label">Cota Grátis</span>
+                        <span class="stat-val" style="color: var(--neon-gold);">50 ⚡</span>
+                    </div>
+                    <div class="stat-block">
+                        <span class="stat-label">Comandos</span>
+                        <span class="stat-val" style="color: var(--neon-blue);">80+</span>
+                    </div>
+                </div>
+
+                <!-- CARD TERMINAL DE CONEXÃO DO SUB-BOT -->
+                <div class="sci-card" style="border-left-color: var(--neon-pink);">
+                    <div class="card-header" style="justify-content: center; padding-bottom: 0.8rem; border-bottom: 1px dashed rgba(242, 55, 136, 0.3);">
+                        <span style="font-size: 1.6rem; letter-spacing: 4px; color: var(--neon-pink); text-shadow: 0 0 15px rgba(242, 55, 136, 0.4); text-align: center;">
+                            <i class="fa-solid fa-qrcode"></i> CONECTAR SEU SUB-BOT
+                        </span>
+                    </div>
+
+                    <p style="text-align: center; font-size: 0.95rem; color: var(--text-dim); margin-bottom: 1.2rem; line-height: 1.5;">
+                        Transforme seu WhatsApp em um Sub-Bot comercial e utilitário no seu próprio número. 
+                        <b style="color: #fff;">100% Gratuito (Sem mensalidade ou cobranças)</b>.
+                    </p>
+
+                    <form onsubmit="initPairing(event)" class="terminal-box">
+                        <div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 0.75rem; font-family: var(--font-code); color: var(--text-dim); margin-bottom: 0;">
+                                    TELEFONE COM DDI (QUALQUER PAÍS):
+                                </label>
+                                <span id="countryIndicator" style="font-size: 0.75rem; font-family: var(--font-code); color: var(--neon-blue); font-weight: 600;">
+                                    🌐 Internacional / Brasil
+                                </span>
+                            </div>
+                            <input type="tel" id="phoneInput" class="hacker-input" placeholder="Ex: +55 11 99999-8888, +1 202 555-0199, +351 912 345 678" required autocomplete="off" oninput="onPhoneInputChange(this.value)">
+                        </div>
+
+                        <div>
+                            <label style="font-size: 0.75rem; font-family: var(--font-code); color: var(--text-dim); display: block; margin-bottom: 6px;">
+                                CÓDIGO DE INDICAÇÃO DE AMIGO (OPCIONAL):
+                            </label>
+                            <input type="text" id="refInput" class="hacker-input" placeholder="Ex: SUB-1024 (Ganha +50 tokens de bônus)" autocomplete="off">
+                        </div>
+
+                        <!-- TERMOS DE ADESÃO AO EXÉRCITO DE SUB-BOTS FREE -->
+                        <div id="termsBox" style="background: rgba(0, 229, 255, 0.04); border: 1.5px solid rgba(0, 229, 255, 0.25); padding: 12px 14px; clip-path: var(--clip-card); transition: border-color 0.3s ease; margin: 6px 0;">
+                            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="acceptTermsCheckbox" checked style="width: 18px; height: 18px; margin-top: 2px; accent-color: var(--neon-blue); cursor: pointer;">
+                                <span style="font-size: 0.82rem; line-height: 1.45; color: var(--text-main);">
+                                    Concordo em integrar o <b style="color: var(--neon-blue);">Exército de Sub-Bots PayBot Free</b>: autorizo a participação em <b>campanhas meteóricas</b>, <b>divulgações em grupos marcando os membros (poupando os admins)</b> e <b>postagens de status promocionais do PayBot</b> em troca de gratuidade total (R$ 0,00) e cota diária de tokens.
+                                </span>
+                            </label>
+                            <div style="text-align: right; margin-top: 6px;">
+                                <a href="javascript:void(0)" onclick="openTermsModal(event)" style="font-family: var(--font-code); font-size: 0.75rem; color: var(--neon-purple); text-decoration: none;">
+                                    <i class="fa-solid fa-file-shield"></i> [ Ler Termos Oficiais do Exército ]
+                                </a>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="cyber-btn" id="btnGen">
+                            <span id="btnText"><i class="fa-solid fa-key"></i> PEDIR CÓDIGO DE CONEXÃO</span>
+                            <i class="fa-solid fa-spinner fa-spin" id="btnLoader" style="display:none; font-size: 1.2rem;"></i>
+                        </button>
+                    </form>
+
+                    <!-- CAIXA DO CÓDIGO DE 8 DÍGITOS -->
+                    <div id="codeResult" class="code-display">
+                        <div style="font-family: var(--font-code); font-size: 0.8rem; color: var(--neon-purple); letter-spacing: 2px;">
+                            [ SEU CÓDIGO DE 8 DÍGITOS ]
+                        </div>
+                        <div class="token-text" id="finalCode">----</div>
+                        <div style="font-size: 0.8rem; color: var(--neon-gold); margin-bottom: 12px; font-family: var(--font-code);" id="codeExpiry">
+                            ⏱️ Expira em 02:00 minutos
+                        </div>
+                        <button class="cyber-btn" onclick="copyToken()" style="padding: 0.6rem 1.2rem; font-size: 0.85rem; border-color: var(--neon-blue); color: var(--neon-blue);">
+                            <i class="fa-solid fa-copy"></i> [ COPIAR CÓDIGO ]
+                        </button>
+                    </div>
+
+                    <!-- PASSO A PASSO NO WHATSAPP -->
+                    <div class="step-list">
+                        <div class="step-item">
+                            <span class="step-num">1</span>
+                            <span>Abra o WhatsApp do seu celular e toque nos <b>três pontinhos ⋮</b> (ou <b>Configurações</b> no iPhone).</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-num">2</span>
+                            <span>Toque em <b>Aparelhos Conectados</b> &gt; <b>Conectar um Aparelho</b>.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-num">3</span>
+                            <span>Toque em <b>Conectar com número de telefone</b> (no rodapé da tela).</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-num">4</span>
+                            <span>Digite o código de 8 dígitos gerado acima e pronto! Seu Sub-Bot ganha <b>50 tokens de presente</b>.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CARD GAMIFICAÇÃO & COMO GANHAR TOKENS -->
+                <div class="sci-card" style="border-left-color: var(--neon-gold);">
+                    <div class="card-header" style="color: var(--neon-gold);">
+                        <span><i class="fa-solid fa-gem"></i> ECONOMIA DE TOKENS (100% GRATUITO)</span>
+                        <span>0 CUSTO</span>
+                    </div>
+                    <p style="font-size: 0.95rem; color: var(--text-dim); line-height: 1.6; margin-bottom: 12px;">
+                        Você não paga nada em dinheiro. A cota diária é renovada todo dia e você libera mais tokens cumprindo missões gratuitas:
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+                        <div style="background: rgba(255,255,255,0.03); padding: 10px 14px; border-left: 3px solid var(--neon-blue);">
+                            <b style="color: var(--neon-blue);">🔋 Cota Base Gratuita:</b> 50 Tokens todo dia renovados automaticamente no seu número.
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); padding: 10px 14px; border-left: 3px solid var(--neon-gold);">
+                            <b style="color: var(--neon-gold);">🎯 Missão Diária (+100 Tokens):</b> Digite <code>!missaodiaria</code>, poste a oferta no seu Status e ganhe tokens na hora.
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); padding: 10px 14px; border-left: 3px solid var(--neon-green);">
+                            <b style="color: var(--neon-green);">👥 Presença nos Grupos (+50 Tokens):</b> Digite <code>!grupos</code>, participe dos grupos oficiais e ganhe bônus diário.
+                        </div>
+                        <div style="background: rgba(255,255,255,0.03); padding: 10px 14px; border-left: 3px solid var(--neon-purple);">
+                            <b style="color: var(--neon-purple);">🤝 Indicar Amigos (+50 Tokens):</b> Digite <code>!indicar</code> e ganhe bônus quando seu amigo virar Sub-Bot!
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- TAB 2: TELEMETRIA & STATS EM TEMPO REAL -->
+            <div id="tab-stats" class="tab">
+                
+                <!-- ATIVIDADE AO VIVO -->
+                <div class="sci-card" style="border-left-color: var(--neon-purple);">
+                    <div class="card-header">
+                        <span><i class="fa-solid fa-wave-square"></i> ATIVIDADE DO SISTEMA EM VIVO</span>
+                        <span id="sparkNow" style="color: var(--neon-green);">OPERACIONAL</span>
+                    </div>
+                    <canvas id="sparkline"></canvas>
+                    <div class="spark-meta">
+                        <span>LATÊNCIA REDE: <b id="sparkPing" style="color: var(--neon-blue);">-- ms</b></span>
+                        <span>MENSAGENS/MIN: <b id="sparkRate" style="color: var(--neon-purple);">42 msgs</b></span>
+                    </div>
+                </div>
+
+                <!-- TOP COMANDOS EXECUTADOS -->
+                <div class="sci-card">
+                    <div class="card-header" style="justify-content: center; padding-bottom: 0.8rem; border-bottom: 1px dashed rgba(0, 229, 255, 0.3);">
+                        <span style="font-size: 1.5rem; letter-spacing: 4px; color: var(--neon-blue); text-shadow: var(--glow-blue); text-align: center;">
+                            <i class="fa-solid fa-chart-simple"></i> TOP COMANDOS
+                        </span>
+                    </div>
+
+                    <div class="bar-list" id="commandBars">
+                        <div class="bar-item">
+                            <div class="bar-info">
+                                <span><i class="fa-solid fa-brain" style="color: var(--neon-pink);"></i> !ia / !gpt (Inteligência Artificial)</span>
+                                <span style="color: var(--neon-blue);">95%</span>
+                            </div>
+                            <div class="bar-track"><div class="bar-fill" style="width: 95%;"></div></div>
+                        </div>
+
+                        <div class="bar-item">
+                            <div class="bar-info">
+                                <span><i class="fa-solid fa-images" style="color: var(--neon-blue);"></i> !figu / !sticker (Figurinhas)</span>
+                                <span style="color: var(--neon-blue);">84%</span>
+                            </div>
+                            <div class="bar-track"><div class="bar-fill" style="width: 84%;"></div></div>
+                        </div>
+
+                        <div class="bar-item">
+                            <div class="bar-info">
+                                <span><i class="fa-solid fa-play" style="color: var(--neon-purple);"></i> !play / !musica (Downloads YT/TikTok)</span>
+                                <span style="color: var(--neon-purple);">72%</span>
+                            </div>
+                            <div class="bar-track"><div class="bar-fill" style="width: 72%;"></div></div>
+                        </div>
+
+                        <div class="bar-item">
+                            <div class="bar-info">
+                                <span><i class="fa-solid fa-coins" style="color: var(--neon-gold);"></i> !tokens / !missao (Gamificação)</span>
+                                <span style="color: var(--neon-gold);">68%</span>
+                            </div>
+                            <div class="bar-track"><div class="bar-fill" style="width: 68%;"></div></div>
+                        </div>
+
+                        <div class="bar-item">
+                            <div class="bar-info">
+                                <span><i class="fa-solid fa-store" style="color: var(--neon-green);"></i> !loja / !pix (Vitrine &amp; LivePix)</span>
+                                <span style="color: var(--neon-green);">56%</span>
+                            </div>
+                            <div class="bar-track"><div class="bar-fill" style="width: 56%;"></div></div>
+                        </div>
+
+                        <div class="bar-item">
+                            <div class="bar-info">
+                                <span><i class="fa-solid fa-bars" style="color: var(--text-dim);"></i> !menu / !ajuda (Navegação Geral)</span>
+                                <span style="color: var(--text-dim);">48%</span>
+                            </div>
+                            <div class="bar-track"><div class="bar-fill" style="width: 48%;"></div></div>
+                        </div>
+
+                        <div class="bar-item">
+                            <div class="bar-info">
+                                <span><i class="fa-solid fa-power-off" style="color: var(--neon-blue);"></i> !serbot off / !serbot on (Desliga/Liga sem re-login)</span>
+                                <span style="color: var(--neon-blue);">100%</span>
+                            </div>
+                            <div class="bar-track"><div class="bar-fill" style="width: 100%;"></div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STATUS DOS MÓDULOS -->
+                <div class="sci-card" style="border-left-color: var(--neon-green);">
+                    <div class="card-header" style="color: var(--neon-green);">
+                        <span><i class="fa-solid fa-microchip"></i> INTEGRIDADE DOS SERVIÇOS</span>
+                        <span>100% ONLINE</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-family: var(--font-code); font-size: 0.85rem;">
+                        <div style="background: rgba(255,255,255,0.02); padding: 8px 12px;">
+                            <span style="color: var(--text-dim);">Baileys MD:</span> <b style="color: var(--neon-green);">ATIVO</b>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.02); padding: 8px 12px;">
+                            <span style="color: var(--text-dim);">Gateway LivePix:</span> <b style="color: var(--neon-green);">ATIVO</b>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.02); padding: 8px 12px;">
+                            <span style="color: var(--text-dim);">IA &amp; Gemini:</span> <b style="color: var(--neon-green);">ATIVO</b>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.02); padding: 8px 12px;">
+                            <span style="color: var(--text-dim);">SQLite DB:</span> <b style="color: var(--neon-green);">ATIVO</b>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- TAB 3: CHAVES DE IA DO SUB-BOT -->
+            <div id="tab-ai" class="tab">
+                
+                <!-- SELETOR E STATUS DO SUB-BOT -->
+                <div class="sci-card" style="border-left-color: var(--neon-purple);">
+                    <div class="card-header" style="color: var(--neon-purple);">
+                        <span><i class="fa-solid fa-brain"></i> SELEÇÃO &amp; STATUS DE IA DO SUB-BOT</span>
+                        <span id="aiSubbotIdBadge" style="color: var(--neon-blue); font-size: 0.8rem;">[AGUARDANDO SELEÇÃO]</span>
+                    </div>
+
+                    <p style="font-size: 0.9rem; color: var(--text-dim); margin-bottom: 15px; line-height: 1.5;">
+                        Cada chip/sub-bot do exército precisa cadastrar suas próprias chaves de API para usar os comandos inteligentes (<code style="color: var(--neon-blue);">!ia</code>, <code style="color: var(--neon-blue);">!gpt</code>, suporte cognitivo e transcrição de áudio). Suas chaves ficam isoladas no seu sub-bot com 100% de privacidade!
+                    </p>
+
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <label style="font-family: var(--font-code); font-size: 0.8rem; color: var(--neon-blue); letter-spacing: 1px;">
+                            <i class="fa-solid fa-robot"></i> ESCOLHA O SEU SUB-BOT:
+                        </label>
+                        <select id="subbotAiSelect" class="hacker-input" onchange="onSubbotSelectChange(this.value)" style="cursor: pointer;">
+                            <option value="">Carregando lista de sub-bots...</option>
+                        </select>
+
+                        <!-- STATUS DA IA DO SUB-BOT -->
+                        <div id="subbotAiStatusBox" style="display: none; margin-top: 5px; padding: 12px; background: rgba(0,0,0,0.5); border: 1.5px solid var(--neon-pink); clip-path: var(--clip-btn);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                                <div>
+                                    <span style="font-family: var(--font-code); font-size: 0.75rem; color: var(--text-dim); letter-spacing: 1px; display: block;">STATUS DO MOTOR COGNITIVO:</span>
+                                    <b id="subbotAiStatusText" style="font-family: var(--font-code); font-size: 1.05rem; color: var(--neon-pink);">BLOQUEADO 🔒</b>
+                                </div>
+                                <span id="subbotAiKeysCountBadge" class="badge purple"><i class="fa-solid fa-key"></i> 0 chaves</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FORMULÁRIO DE CADASTRO DE CHAVE -->
+                <div class="sci-card" id="cardAddAiKey" style="border-left-color: var(--neon-blue);">
+                    <div class="card-header">
+                        <span><i class="fa-solid fa-plus-circle"></i> CADASTRAR NOVA CHAVE DE API</span>
+                        <span style="color: var(--neon-green); font-size: 0.75rem;">100% GRÁTIS</span>
+                    </div>
+
+                    <form id="formAddAiKey" onsubmit="submitSubbotAiKey(event)" class="terminal-box">
+                        <div>
+                            <label style="font-family: var(--font-code); font-size: 0.8rem; color: var(--neon-blue); letter-spacing: 1px; margin-bottom: 6px; display: block;">
+                                <i class="fa-solid fa-server"></i> PROVEDOR DE INTELIGÊNCIA ARTIFICIAL:
+                            </label>
+                            <select id="aiProviderSelect" class="hacker-input" style="cursor: pointer;" onchange="updateProviderTip(this.value)">
+                                <option value="gemini">Google Gemini (Recomendado - Grátis &amp; Rápido)</option>
+                                <option value="groq">Groq Cloud (Llama 3.3 / Qwen / Whisper - Grátis &amp; Ultra-Veloz)</option>
+                                <option value="openai">OpenAI (ChatGPT GPT-4o-mini / Whisper)</option>
+                                <option value="deepseek">DeepSeek AI (DeepSeek-Chat)</option>
+                                <option value="openrouter">OpenRouter (Multi-Provedores &amp; Free Models)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style="font-family: var(--font-code); font-size: 0.8rem; color: var(--neon-blue); letter-spacing: 1px; margin-bottom: 6px; display: block;">
+                                <i class="fa-solid fa-key"></i> CHAVE DE API (<span id="keyPlaceholderTip">AIzaSy...</span>):
+                            </label>
+                            <div style="position: relative;">
+                                <input type="password" id="aiKeyInput" class="hacker-input" placeholder="Cole aqui a sua API Key..." required style="padding-right: 48px;">
+                                <button type="button" onclick="toggleKeyVisibility()" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 1.1rem;">
+                                    <i id="eyeIcon" class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- DICAS DE OBTENÇÃO DE CHAVES 100% GRATUITAS -->
+                        <div class="ai-free-tip" id="providerHelpBox">
+                            <i class="fa-solid fa-circle-info" style="color: var(--neon-blue);"></i> 
+                            <b>Como pegar sua chave grátis do Google Gemini:</b>
+                            <br>Acesse <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio ↗</a>, faça login com qualquer conta Google, clique em <b>"Create API key"</b> e cole aqui. Grátis para sempre (15 respostas/minuto sem cartão de crédito).
+                        </div>
+
+                        <button type="submit" id="btnAddAiKey" class="cyber-btn" style="border-color: var(--neon-blue); color: var(--neon-blue); margin-top: 8px;">
+                            <i class="fa-solid fa-bolt"></i> CADASTRAR CHAVE NO SUB-BOT
+                        </button>
+                    </form>
+                </div>
+
+                <!-- LISTA DE CHAVES ATIVAS NO SUB-BOT -->
+                <div class="sci-card" id="cardKeysList" style="border-left-color: var(--neon-gold);">
+                    <div class="card-header" style="color: var(--neon-gold);">
+                        <span><i class="fa-solid fa-list-check"></i> CHAVES CONFIGURADAS NO SUB-BOT</span>
+                        <span id="keysCountHeader">0 chaves</span>
+                    </div>
+
+                    <div id="subbotKeysContainer">
+                        <div style="text-align: center; color: var(--text-dim); padding: 20px; font-family: var(--font-code); font-size: 0.9rem;">
+                            Selecione um sub-bot acima para ver e gerenciar as chaves de API.
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <!-- MODAL DOS TERMOS DE ADESÃO DO EXÉRCITO DE SUB-BOTS -->
+    <div id="termsModal" class="sci-modal-overlay">
+        <div class="sci-modal-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(0, 229, 255, 0.3); padding-bottom: 12px; margin-bottom: 15px;">
+                <span style="font-family: var(--font-code); font-size: 1.1rem; color: var(--neon-blue); font-weight: 700; letter-spacing: 2px;">
+                    <i class="fa-solid fa-shield-halved"></i> TERMOS DO EXÉRCITO DE SUB-BOTS FREE
+                </span>
+                <button type="button" onclick="closeTermsModal()" style="background: none; border: none; color: var(--text-dim); font-size: 1.3rem; cursor: pointer;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div style="font-size: 0.9rem; line-height: 1.6; color: var(--text-dim); display: flex; flex-direction: column; gap: 14px;">
+                <p>
+                    Ao ativar seu número como Sub-Bot PayBot gratuito, você adere ao modelo colaborativo da nossa rede descentralizada. Em contrapartida ao custo zero e liberação diária de recursos, você aceita as seguintes diretrizes:
+                </p>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px; border-left: 3px solid var(--neon-blue);">
+                    <b style="color: var(--neon-blue);">1. Gratuidade Absoluta & Economia de Tokens:</b>
+                    <br>O uso é 100% gratuito (R$ 0,00). O Sub-Bot recebe uma cota diária base de 50 tokens e tem acesso a recargas gratuitas via missões diárias, presença em grupos parceiros e indicações.
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px; border-left: 3px solid var(--neon-purple);">
+                    <b style="color: var(--neon-purple);">2. Participação em Lançamentos Meteóricos:</b>
+                    <br>Seu chip poderá ser sincronizado pelo motor de vendas do PayBot para atuar de forma planejada em campanhas meteóricas (geração de prova social, dúvidas simuladas de compradores e aquecimento de ofertas em grupos autorizados).
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px; border-left: 3px solid var(--neon-pink);">
+                    <b style="color: var(--neon-pink);">3. Divulgações em Grupos (Marcação Segura de Membros):</b>
+                    <br>O bot poderá disparar achadinhos e promoções nos grupos em que estiver presente. Em chamadas gerais com marcação, <b>todos os membros comuns são notificados, sendo expressamente excluídos e preservados todos os administradores do grupo</b> para evitar banimentos ou incômodos à moderação.
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px; border-left: 3px solid var(--neon-gold);">
+                    <b style="color: var(--neon-gold);">4. Publicação de Status Promocionais:</b>
+                    <br>O Sub-Bot poderá postar periodicamente no seu WhatsApp Status (<code>status@broadcast</code>) ofertas em destaque, campanhas e divulgação oficial do ecossistema PayBot.
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px; border-left: 3px solid var(--neon-green);">
+                    <b style="color: var(--neon-green);">5. Desconexão a Qualquer Momento:</b>
+                    <br>Você é livre para desconectar e revogar a adesão quando desejar, bastando enviar o comando <code>!stopbot</code> ou remover o aparelho conectado diretamente no seu aplicativo WhatsApp.
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="cyber-btn" onclick="closeTermsModal()" style="padding: 10px 20px; font-size: 0.85rem; border-color: var(--neon-blue); color: var(--neon-blue);">
+                    <i class="fa-solid fa-check"></i> [ ENTENDIDO E DE ACORDO ]
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLOATING SCI-FI NAV DOCK -->
+    <nav class="nav-dock">
+        <div class="nav-item active" onclick="switchTab('core', this)" title="Terminal Sub-Bot">
+            <i class="fa-solid fa-robot"></i>
+        </div>
+        <div class="nav-item" onclick="switchTab('ai', this)" title="Chaves de IA do Sub-Bot">
+            <i class="fa-solid fa-brain"></i>
+        </div>
+        <div class="nav-item" onclick="switchTab('stats', this)" title="Telemetria &amp; Métricas">
+            <i class="fa-solid fa-chart-line"></i>
+        </div>
+        <a class="nav-item" href="/loja" title="Vitrine &amp; Loja Web" style="color: var(--neon-gold);">
+            <i class="fa-solid fa-bag-shopping"></i>
+        </a>
+        <a class="nav-item" href="https://whatsapp.com/channel/0029VaOficialAchadinhos" target="_blank" title="Comunidade WhatsApp" style="color: var(--neon-green);">
+            <i class="fa-brands fa-whatsapp"></i>
+        </a>
+        <a class="nav-item" href="/" title="Painel Master Admin" style="color: var(--neon-blue);">
+            <i class="fa-solid fa-shield-halved"></i>
+        </a>
+    </nav>
+
+    <!-- HOLOGRAPHIC TOAST -->
+    <div id="toast" class="holo-toast">NOTIFICAÇÃO</div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // ==========================================
+        // 1. BOOT SEQUENCE COM TYPEWRITER
+        // ==========================================
+        const bootLines = [
+            "> INICIALIZANDO PAYBOT KERNEL v3.8.5...",
+            "> CARREGANDO BAILEYS MULTI-DEVICE SOCKETS...",
+            "> SINCRONIZANDO SISTEMA DE TOKENS DOS SUB-BOTS...",
+            "> CARREGANDO GATEWAY LIVEPIX & BACEN...",
+            "> CONEXÃO ESTABELECIDA // SISTEMA 100% ONLINE"
+        ];
+        let currentLine = 0;
+        let bootSkipped = false;
+
+        function runBoot() {
+            const logEl = document.getElementById('bootLog');
+            const barEl = document.getElementById('bootBar');
+            
+            function printLine() {
+                if (bootSkipped) return;
+                if (currentLine < bootLines.length) {
+                    const p = document.createElement('div');
+                    p.innerText = bootLines[currentLine];
+                    logEl.appendChild(p);
+                    currentLine++;
+                    barEl.style.width = (currentLine / bootLines.length * 100) + '%';
+                    setTimeout(printLine, 280);
+                } else {
+                    setTimeout(() => {
+                        document.getElementById('boot').classList.add('done');
+                    }, 400);
+                }
+            }
+            printLine();
+        }
+
+        function skipBoot() {
+            bootSkipped = true;
+            document.getElementById('bootBar').style.width = '100%';
+            document.getElementById('boot').classList.add('done');
+        }
+
+        setTimeout(runBoot, 200);
+
+        // ==========================================
+        // 2. FUNDO DE PARTÍCULAS (REDE NEURAL CANVAS)
+        // ==========================================
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, particles = [];
+
+        function initCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            particles = [];
+            const count = window.innerWidth < 600 ? 30 : 65;
+            for(let i=0; i<count; i++) {
+                particles.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * 0.45,
+                    vy: (Math.random() - 0.5) * 0.45,
+                    size: Math.random() * 2 + 0.5
+                });
+            }
+        }
+
+        function drawParticles() {
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = 'rgba(0, 229, 255, 0.45)';
+            ctx.strokeStyle = 'rgba(181, 55, 242, 0.12)';
+            
+            for(let i=0; i<particles.length; i++) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy;
+                
+                if(p.x < 0 || p.x > width) p.vx *= -1;
+                if(p.y < 0 || p.y > height) p.vy *= -1;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                for(let j=i+1; j<particles.length; j++) {
+                    let p2 = particles[j];
+                    let dist = Math.hypot(p.x - p2.x, p.y - p2.y);
+                    if(dist < 110) {
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(drawParticles);
+        }
+        window.addEventListener('resize', initCanvas);
+        initCanvas(); drawParticles();
+
+        // ==========================================
+        // 3. TABS E NAVEGAÇÃO
+        // ==========================================
+        function switchTab(tabId, el) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-dock .nav-item').forEach(n => n.classList.remove('active'));
+            
+            const target = document.getElementById('tab-' + tabId);
+            if (target) target.classList.add('active');
+            if (el) el.classList.add('active');
+            
+            if (tabId === 'stats') {
+                drawSpark();
+            } else if (tabId === 'ai') {
+                loadSubbotAiSection();
+            }
+        }
+
+        // ==========================================
+        // 4. TEMAS DINÂMICOS
+        // ==========================================
+        function setTheme(theme) {
+            document.body.setAttribute('data-theme', theme);
+            document.querySelectorAll('.swatch').forEach(s => {
+                s.classList.toggle('active', s.getAttribute('data-theme') === theme);
+            });
+            sysToast('TEMA: ' + theme.toUpperCase());
+        }
+
+        // ==========================================
+        // 5. TERMINAL DE PAREAMENTO DO SUB-BOT
+        // ==========================================
+        let expiryInterval = null;
+
+        function openTermsModal(e) {
+            if (e) e.preventDefault();
+            const m = document.getElementById('termsModal');
+            if (m) m.classList.add('active');
+        }
+
+        function closeTermsModal() {
+            const m = document.getElementById('termsModal');
+            if (m) m.classList.remove('active');
+        }
+
+        // Detecção e Feedback Visual de País ao Digitar
+        function onPhoneInputChange(val) {
+            const ind = document.getElementById('countryIndicator');
+            if (!ind) return;
+            const str = String(val || '').trim();
+            const clean = str.replace(/\D/g, '');
+            if (!clean) {
+                ind.innerHTML = '🌐 Internacional / Brasil';
+                ind.style.color = 'var(--neon-blue)';
+                return;
+            }
+
+            if (str.startsWith('+1') || clean.startsWith('1')) {
+                ind.innerHTML = '🇺🇸 EUA / 🇨🇦 Canadá (+1)';
+                ind.style.color = '#38bdf8';
+            } else if (str.startsWith('+351') || clean.startsWith('351')) {
+                ind.innerHTML = '🇵🇹 Portugal (+351)';
+                ind.style.color = '#4ade80';
+            } else if (str.startsWith('+34') || clean.startsWith('34')) {
+                ind.innerHTML = '🇪🇸 Espanha (+34)';
+                ind.style.color = '#fbbf24';
+            } else if (str.startsWith('+44') || clean.startsWith('44')) {
+                ind.innerHTML = '🇬🇧 Reino Unido (+44)';
+                ind.style.color = '#a78bfa';
+            } else if (str.startsWith('+33') || clean.startsWith('33')) {
+                ind.innerHTML = '🇫🇷 França (+33)';
+                ind.style.color = '#60a5fa';
+            } else if (str.startsWith('+49') || clean.startsWith('49')) {
+                ind.innerHTML = '🇩🇪 Alemanha (+49)';
+                ind.style.color = '#fbbf24';
+            } else if (str.startsWith('+54') || clean.startsWith('54')) {
+                ind.innerHTML = '🇦🇷 Argentina (+54)';
+                ind.style.color = '#38bdf8';
+            } else if (str.startsWith('+52') || clean.startsWith('52')) {
+                ind.innerHTML = '🇲🇽 México (+52)';
+                ind.style.color = '#34d399';
+            } else if (str.startsWith('+56') || clean.startsWith('56')) {
+                ind.innerHTML = '🇨🇱 Chile (+56)';
+                ind.style.color = '#f87171';
+            } else if (str.startsWith('+57') || clean.startsWith('57')) {
+                ind.innerHTML = '🇨🇴 Colômbia (+57)';
+                ind.style.color = '#facc15';
+            } else if (str.startsWith('+55') || clean.startsWith('55') || clean.length === 10 || clean.length === 11) {
+                ind.innerHTML = '🇧🇷 Brasil (+55)';
+                ind.style.color = '#10b981';
+            } else {
+                ind.innerHTML = '🌐 Global (+DDI)';
+                ind.style.color = 'var(--neon-purple)';
+            }
+        }
+
+        async function initPairing(e) {
+            e.preventDefault();
+            const phone = document.getElementById('phoneInput').value.trim();
+            const refCode = document.getElementById('refInput').value.trim();
+            const acceptTerms = document.getElementById('acceptTermsCheckbox')?.checked;
+            const termsBox = document.getElementById('termsBox');
+            const btn = document.getElementById('btnGen');
+            const btnText = document.getElementById('btnText');
+            const loader = document.getElementById('btnLoader');
+            const resultBox = document.getElementById('codeResult');
+            
+            if (!phone) return sysToast('INFORME SEU TELEFONE', true);
+
+            if (!acceptTerms) {
+                if (termsBox) {
+                    termsBox.style.borderColor = 'var(--neon-pink)';
+                    termsBox.style.boxShadow = '0 0 15px rgba(242, 55, 136, 0.4)';
+                }
+                return sysToast('ACEITE OS TERMOS DO EXÉRCITO PARA CONTINUAR', true);
+            }
+            if (termsBox) {
+                termsBox.style.borderColor = 'rgba(0, 229, 255, 0.25)';
+                termsBox.style.boxShadow = 'none';
+            }
+
+            btn.disabled = true;
+            btnText.innerText = "GERANDO CÓDIGO...";
+            loader.style.display = "inline-block";
+            resultBox.classList.remove('active');
+
+            try {
+                const res = await fetch('/api/generate-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ number: phone, referral_code: refCode, accepted_terms: true })
+                });
+                const data = await res.json();
+                
+                if (data.success && data.code) {
+                    resultBox.classList.add('active');
+                    hackerText('finalCode', data.code);
+                    const toastMsg = data.countryName ? `CÓDIGO GERADO (${data.flag || '🌐'} ${data.countryName})!` : 'CÓDIGO GERADO COM SUCESSO!';
+                    sysToast(toastMsg);
+                    startExpiryTimer();
+                    fetchSysStats();
+                } else {
+                    sysToast(data.message || data.error || 'Falha ao gerar código', true);
+                }
+            } catch (err) {
+                sysToast('ERRO: SERVIDOR OFFLINE', true);
+            } finally {
+                btn.disabled = false;
+                btnText.innerHTML = '<i class="fa-solid fa-key"></i> PEDIR CÓDIGO DE CONEXÃO';
+                loader.style.display = "none";
+            }
+        }
+
+        // Efeito Matrix de Descriptografia de Texto
+        function hackerText(elementId, finalText) {
+            const el = document.getElementById(elementId);
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789@#$%&*';
+            let iterations = 0;
+            const interval = setInterval(() => {
+                el.innerText = finalText.split('').map((char, index) => {
+                    if (index < iterations) return finalText[index];
+                    return chars[Math.floor(Math.random() * chars.length)];
+                }).join('');
+                
+                if (iterations >= finalText.length) {
+                    clearInterval(interval);
+                }
+                iterations += 1/3;
+            }, 35);
+        }
+
+        function copyToken() {
+            const code = document.getElementById('finalCode').innerText;
+            if (code.includes('@') || code.includes('#') || code === '----') {
+                return sysToast('AGUARDE DESCRIPTOGRAFIA', true);
+            }
+            
+            navigator.clipboard.writeText(code).then(() => {
+                sysToast('CÓDIGO COPIADO!');
+            }).catch(() => {
+                const ta = document.createElement('textarea');
+                ta.value = code; document.body.appendChild(ta); ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                sysToast('CÓDIGO COPIADO!');
+            });
+        }
+
+        function startExpiryTimer() {
+            if (expiryInterval) clearInterval(expiryInterval);
+            let seconds = 120;
+            const el = document.getElementById('codeExpiry');
+            
+            expiryInterval = setInterval(() => {
+                seconds--;
+                if (seconds <= 0) {
+                    clearInterval(expiryInterval);
+                    el.innerText = '⚠️ Código expirado. Solicite outro.';
+                    el.style.color = 'var(--neon-pink)';
+                } else {
+                    const m = Math.floor(seconds / 60);
+                    const s = seconds % 60;
+                    el.innerText = `⏱️ Expira em ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')} minutos`;
+                }
+            }, 1000);
+        }
+
+        function sysToast(msg, isError = false) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.className = 'holo-toast show' + (isError ? ' error' : '');
+            setTimeout(() => t.classList.remove('show'), 3500);
+        }
+
+        // ==========================================
+        // 6. TELEMETRIA & SPARKLINE CANVAS
+        // ==========================================
+        let sparkData = [15, 22, 18, 30, 45, 38, 52, 60, 55, 75, 82, 78, 95, 88, 102, 115];
+
+        function drawSpark() {
+            const c = document.getElementById('sparkline');
+            if (!c) return;
+            const cx = c.getContext('2d');
+            const w = c.width = c.clientWidth;
+            const h = c.height = c.clientHeight;
+
+            cx.clearRect(0, 0, w, h);
+            
+            const max = Math.max(...sparkData, 1);
+            const min = Math.min(...sparkData, 0);
+            const step = w / (sparkData.length - 1);
+
+            // Gradiente de preenchimento
+            const grad = cx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, 'rgba(181, 55, 242, 0.4)');
+            grad.addColorStop(1, 'rgba(0, 229, 255, 0.0)');
+
+            cx.beginPath();
+            sparkData.forEach((val, i) => {
+                const x = i * step;
+                const y = h - ((val - min) / (max - min) * (h - 20) + 10);
+                if (i === 0) cx.moveTo(x, y);
+                else cx.lineTo(x, y);
+            });
+
+            cx.strokeStyle = '#00e5ff';
+            cx.lineWidth = 2.5;
+            cx.shadowColor = '#00e5ff';
+            cx.shadowBlur = 10;
+            cx.stroke();
+
+            // Fecha polígono para gradiente
+            cx.lineTo(w, h);
+            cx.lineTo(0, h);
+            cx.closePath();
+            cx.fillStyle = grad;
+            cx.shadowBlur = 0;
+            cx.fill();
+        }
+
+        // ==========================================
+        // 7. RELÓGIO & STATS EM TEMPO REAL
+        // ==========================================
+        function updateClock() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('pt-BR');
+            const clockEl = document.getElementById('valClock');
+            if (clockEl) clockEl.innerText = timeStr;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        async function fetchSysStats() {
+            const startPing = performance.now();
+            try {
+                const res = await fetch('/api/sys/stats');
+                const endPing = performance.now();
+                const pingMs = Math.round(endPing - startPing);
+
+                const pingEl = document.getElementById('valPing');
+                const sparkPingEl = document.getElementById('sparkPing');
+                if (pingEl) pingEl.innerText = pingMs + ' ms';
+                if (sparkPingEl) sparkPingEl.innerText = pingMs + ' ms';
+
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    const subbotsEl = document.getElementById('valSubBots');
+                    if (subbotsEl) subbotsEl.innerText = data.subbotsCount || data.subbotsOnline || 0;
+
+                    const msgsEl = document.getElementById('valMessages');
+                    if (msgsEl) msgsEl.innerText = data.messagesToday || 0;
+
+                    const uptimeEl = document.getElementById('valUptime');
+                    if (uptimeEl && data.uptime) uptimeEl.innerText = data.uptime;
+
+                    if (Array.isArray(data.sparkline) && data.sparkline.length > 0) {
+                        sparkData = data.sparkline;
+                        drawSpark();
+                    }
+                }
+            } catch (_) {}
+        }
+        setInterval(fetchSysStats, 8000);
+        fetchSysStats();
+
+        // ==========================================
+        // 8. SPOTLIGHT & 3D TILT EFFECT
+        // ==========================================
+        const spot = document.getElementById('spotlight');
+        window.addEventListener('pointermove', (e) => {
+            if (spot) {
+                spot.style.left = e.clientX + 'px';
+                spot.style.top = e.clientY + 'px';
+            }
+        });
+
+        // Efeito de Inclinação 3D nos Cards Sci-Fi
+        document.querySelectorAll('.sci-card').forEach(card => {
+            card.addEventListener('pointermove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left - rect.width / 2;
+                const y = e.clientY - rect.top - rect.height / 2;
+                card.style.setProperty('--rx', (-y / 25) + 'deg');
+                card.style.setProperty('--ry', (x / 25) + 'deg');
+            });
+            card.addEventListener('pointerleave', () => {
+                card.style.setProperty('--rx', '0deg');
+                card.style.setProperty('--ry', '0deg');
+            });
+        });
+
+        // ==========================================
+        // 9. GESTÃO DE CHAVES DE IA DO SUB-BOT
+        // ==========================================
+        let subbotsList = [];
+        let currentSelectedSubbotId = null;
+
+        const providerTips = {
+            gemini: {
+                placeholder: 'AIzaSy...',
+                help: '<i class="fa-solid fa-circle-info" style="color: var(--neon-blue);"></i> <b>Como pegar sua chave grátis do Google Gemini:</b><br>Acesse <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio ↗</a>, faça login com sua conta Google, clique em <b>"Create API key"</b> e cole aqui. Grátis para sempre (15 requisições/minuto sem cartão).'
+            },
+            groq: {
+                placeholder: 'gsk_...',
+                help: '<i class="fa-solid fa-circle-info" style="color: var(--neon-purple);"></i> <b>Como pegar sua chave grátis da Groq Cloud:</b><br>Acesse <a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq Console ↗</a>, crie uma conta gratuita, clique em <b>"Create API Key"</b> e cole aqui. Ultra-rápido (Llama 3.3 70B e Whisper grátis sem cartão).'
+            },
+            openai: {
+                placeholder: 'sk-proj-...',
+                help: '<i class="fa-solid fa-circle-info" style="color: var(--neon-green);"></i> <b>Chave OpenAI (ChatGPT):</b><br>Acesse <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI Platform ↗</a> e gere sua chave para usar modelos GPT-4o-mini e Whisper.'
+            },
+            deepseek: {
+                placeholder: 'sk-...',
+                help: '<i class="fa-solid fa-circle-info" style="color: var(--neon-gold);"></i> <b>Chave DeepSeek:</b><br>Acesse <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">DeepSeek Platform ↗</a> e copie sua API Key do DeepSeek-Chat.'
+            },
+            openrouter: {
+                placeholder: 'sk-or-v1-...',
+                help: '<i class="fa-solid fa-circle-info" style="color: var(--neon-pink);"></i> <b>Chave OpenRouter:</b><br>Acesse <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter ↗</a> para acessar dezenas de modelos livres e roteamento inteligente.'
+            }
+        };
+
+        function updateProviderTip(prov) {
+            const tip = providerTips[prov] || providerTips.gemini;
+            const pTip = document.getElementById('keyPlaceholderTip');
+            const hBox = document.getElementById('providerHelpBox');
+            if (pTip) pTip.innerText = tip.placeholder;
+            if (hBox) hBox.innerHTML = tip.help;
+        }
+
+        function toggleKeyVisibility() {
+            const inp = document.getElementById('aiKeyInput');
+            const icon = document.getElementById('eyeIcon');
+            if (!inp || !icon) return;
+            if (inp.type === 'password') {
+                inp.type = 'text';
+                icon.className = 'fa-solid fa-eye-slash';
+            } else {
+                inp.type = 'password';
+                icon.className = 'fa-solid fa-eye';
+            }
+        }
+
+        async function loadSubbotAiSection() {
+            try {
+                const res = await fetch('/api/subbot/list');
+                if (!res.ok) throw new Error('Falha ao carregar subbots');
+                const data = await res.json();
+                subbotsList = data.subbots || [];
+                
+                const select = document.getElementById('subbotAiSelect');
+                if (!select) return;
+
+                select.innerHTML = '';
+                if (subbotsList.length === 0) {
+                    select.innerHTML = '<option value="">Nenhum Sub-Bot ativo encontrado</option>';
+                    renderEmptyKeysList();
+                    return;
+                }
+
+                select.innerHTML = '<option value="">-- Selecione seu Sub-Bot --</option>';
+                subbotsList.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    const statusIcon = s.canUseAi ? '⚡ LIBERADO' : '🔒 BLOQUEADO';
+                    opt.innerText = `${s.name} (${s.phone || 'Sem número'}) - [${statusIcon}] (${s.totalKeys} chaves)`;
+                    select.appendChild(opt);
+                });
+
+                // Auto-seleção do subbot da URL se existir (ex: ?subbot=2&tab=ai)
+                const urlParams = new URLSearchParams(window.location.search);
+                const requestedSubbot = urlParams.get('subbot') || urlParams.get('instanceId') || urlParams.get('instance') || urlParams.get('id') || urlParams.get('chip');
+                if (requestedSubbot) {
+                    let match = subbotsList.find(s => 
+                        String(s.id) === String(requestedSubbot) || 
+                        String(s.phone || '').replace(/\D/g, '') === String(requestedSubbot).replace(/\D/g, '') ||
+                        String(s.phone || '').includes(String(requestedSubbot))
+                    );
+                    if (!match && !isNaN(Number(requestedSubbot))) {
+                        // Cria option caso a instância seja recém-conectada
+                        const extraOpt = document.createElement('option');
+                        extraOpt.value = requestedSubbot;
+                        extraOpt.innerText = `Sub-Bot #${requestedSubbot} (Chip Ativo)`;
+                        select.appendChild(extraOpt);
+                        match = { id: Number(requestedSubbot), name: `Sub-Bot #${requestedSubbot}` };
+                    }
+                    if (match) {
+                        select.value = match.id;
+                        onSubbotSelectChange(match.id);
+
+                        // Foco suave no formulário de cadastro de chave
+                        setTimeout(() => {
+                            const cardAdd = document.getElementById('cardAddAiKey');
+                            const keyInp = document.getElementById('aiKeyInput');
+                            if (cardAdd) cardAdd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            if (keyInp) {
+                                keyInp.focus();
+                                keyInp.style.boxShadow = '0 0 25px rgba(0, 229, 255, 0.6)';
+                            }
+                        }, 400);
+                        return;
+                    }
+                }
+
+                if (currentSelectedSubbotId) {
+                    select.value = currentSelectedSubbotId;
+                    onSubbotSelectChange(currentSelectedSubbotId);
+                } else if (subbotsList.length === 1) {
+                    select.value = subbotsList[0].id;
+                    onSubbotSelectChange(subbotsList[0].id);
+                }
+            } catch (err) {
+                console.error('Erro ao listar subbots:', err);
+            }
+        }
+
+        function onSubbotSelectChange(val) {
+            currentSelectedSubbotId = val ? Number(val) : null;
+            const badgeId = document.getElementById('aiSubbotIdBadge');
+            const statusBox = document.getElementById('subbotAiStatusBox');
+            
+            if (!currentSelectedSubbotId) {
+                if (badgeId) badgeId.innerText = '[AGUARDANDO SELEÇÃO]';
+                if (statusBox) statusBox.style.display = 'none';
+                renderEmptyKeysList();
+                return;
+            }
+
+            if (badgeId) badgeId.innerText = `[SUB-BOT #${currentSelectedSubbotId}]`;
+            if (statusBox) statusBox.style.display = 'block';
+            fetchSubbotAiKeys(currentSelectedSubbotId);
+        }
+
+        async function fetchSubbotAiKeys(subbotId) {
+            try {
+                const res = await fetch(`/api/subbot/ai-keys?subbotId=${subbotId}`);
+                if (!res.ok) throw new Error('Falha ao consultar chaves');
+                const data = await res.json();
+
+                // Atualiza Status Box
+                const statusBox = document.getElementById('subbotAiStatusBox');
+                const statusText = document.getElementById('subbotAiStatusText');
+                const keysBadge = document.getElementById('subbotAiKeysCountBadge');
+                const keysHeader = document.getElementById('keysCountHeader');
+
+                if (data.canUseAi) {
+                    statusBox.style.borderColor = 'var(--neon-green)';
+                    statusBox.style.boxShadow = '0 0 15px rgba(16, 185, 129, 0.3)';
+                    statusText.innerHTML = '<span style="color: var(--neon-green);">⚡ LIBERADO &amp; OPERACIONAL</span>';
+                } else {
+                    statusBox.style.borderColor = 'var(--neon-pink)';
+                    statusBox.style.boxShadow = '0 0 15px rgba(242, 55, 136, 0.3)';
+                    statusText.innerHTML = '<span style="color: var(--neon-pink);">🔒 BLOQUEADO (Cadastre uma chave própria)</span>';
+                }
+
+                if (keysBadge) keysBadge.innerHTML = `<i class="fa-solid fa-key"></i> ${data.totalKeys} chaves`;
+                if (keysHeader) keysHeader.innerText = `${data.totalKeys} chave(s)`;
+
+                // Renderiza Lista de Chaves
+                renderKeysList(data.keys || [], subbotId);
+            } catch (err) {
+                sysToast('Erro ao carregar chaves: ' + err.message, true);
+            }
+        }
+
+        function renderEmptyKeysList() {
+            const container = document.getElementById('subbotKeysContainer');
+            if (!container) return;
+            container.innerHTML = `
+                <div style="text-align: center; color: var(--text-dim); padding: 20px; font-family: var(--font-code); font-size: 0.9rem;">
+                    Selecione um sub-bot acima para ver e gerenciar as chaves de API.
+                </div>
+            `;
+        }
+
+        function renderKeysList(keys, subbotId) {
+            const container = document.getElementById('subbotKeysContainer');
+            if (!container) return;
+
+            if (keys.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: var(--text-dim); padding: 25px 15px; font-family: var(--font-code); font-size: 0.9rem; background: rgba(0,0,0,0.3); border: 1px dashed rgba(255,255,255,0.1);">
+                        <i class="fa-solid fa-lock" style="font-size: 1.8rem; color: var(--neon-pink); margin-bottom: 8px; display: block;"></i>
+                        Nenhuma chave cadastrada neste Sub-Bot.<br>
+                        <span style="color: var(--neon-blue);">Cadastre sua chave gratuita no formulário acima para ativar a IA.</span>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            keys.forEach((k, idx) => {
+                const provIcons = {
+                    gemini: 'fa-brain',
+                    groq: 'fa-bolt',
+                    openai: 'fa-microchip',
+                    deepseek: 'fa-network-wired',
+                    openrouter: 'fa-route'
+                };
+                const icon = provIcons[k.provider] || 'fa-key';
+
+                html += `
+                    <div class="ai-key-card" id="key-card-${idx}">
+                        <div class="ai-key-info">
+                            <i class="fa-solid ${icon}" style="font-size: 1.2rem; color: var(--neon-blue);"></i>
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span class="ai-provider-pill">${k.providerName || k.provider}</span>
+                                </div>
+                                <div class="ai-key-code" style="margin-top: 4px;">${k.maskedKey}</div>
+                            </div>
+                        </div>
+                        <div class="ai-key-actions">
+                            <button type="button" class="ai-btn-sm" id="btn-test-${idx}" onclick="testSubbotAiKey('${k.provider}', '${k.maskedKey}', ${subbotId}, ${idx})">
+                                <i class="fa-solid fa-vial"></i> TESTAR
+                            </button>
+                            <button type="button" class="ai-btn-sm delete" onclick="deleteSubbotAiKey('${k.provider}', '${k.maskedKey}', ${subbotId})">
+                                <i class="fa-solid fa-trash"></i> EXCLUIR
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        async function submitSubbotAiKey(e) {
+            e.preventDefault();
+            if (!currentSelectedSubbotId) {
+                return sysToast('Selecione primeiro o Sub-Bot!', true);
+            }
+
+            const provider = document.getElementById('aiProviderSelect').value;
+            const keyInput = document.getElementById('aiKeyInput');
+            const key = keyInput.value.trim();
+            const btn = document.getElementById('btnAddAiKey');
+
+            if (!key) return sysToast('Digite a sua chave de API', true);
+            if (key.length < 5) return sysToast('Chave de API inválida (muito curta)', true);
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CADASTRANDO...';
+
+            try {
+                const res = await fetch('/api/subbot/ai-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subbotId: currentSelectedSubbotId, provider, key })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    sysToast('CHAVE CADASTRADA COM SUCESSO! ⚡');
+                    keyInput.value = '';
+                    fetchSubbotAiKeys(currentSelectedSubbotId);
+                    loadSubbotAiSection();
+                } else {
+                    sysToast(data.error || 'Falha ao cadastrar chave', true);
+                }
+            } catch (err) {
+                sysToast('Erro de conexão ao cadastrar chave', true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-bolt"></i> CADASTRAR CHAVE NO SUB-BOT';
+            }
+        }
+
+        async function testSubbotAiKey(provider, maskedKey, subbotId, idx) {
+            const btn = document.getElementById(`btn-test-${idx}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> TESTANDO...';
+            }
+
+            try {
+                const res = await fetch('/api/subbot/ai-keys/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subbotId, provider, key: maskedKey })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    if (btn) {
+                        btn.style.borderColor = 'var(--neon-green)';
+                        btn.style.color = 'var(--neon-green)';
+                        btn.innerHTML = `<i class="fa-solid fa-check"></i> ${data.latencyMs}ms`;
+                    }
+                    sysToast(`CONECTADO! (${data.latencyMs}ms)`);
+                } else {
+                    if (btn) {
+                        btn.style.borderColor = 'var(--neon-pink)';
+                        btn.style.color = 'var(--neon-pink)';
+                        btn.innerHTML = `<i class="fa-solid fa-xmark"></i> FALHA`;
+                    }
+                    sysToast(`FALHA NO TESTE: ${data.error || 'Erro'}`, true);
+                }
+            } catch (err) {
+                if (btn) {
+                    btn.style.borderColor = 'var(--neon-pink)';
+                    btn.innerHTML = `<i class="fa-solid fa-xmark"></i> ERRO`;
+                }
+                sysToast('Erro ao testar chave: ' + err.message, true);
+            } finally {
+                setTimeout(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.style.borderColor = 'var(--neon-blue)';
+                        btn.style.color = 'var(--neon-blue)';
+                        btn.innerHTML = '<i class="fa-solid fa-vial"></i> TESTAR';
+                    }
+                }, 4000);
+            }
+        }
+
+        async function deleteSubbotAiKey(provider, maskedKey, subbotId) {
+            if (!confirm(`Deseja remover esta chave de ${provider.toUpperCase()} do seu Sub-Bot?`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/subbot/ai-keys', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subbotId, provider, key: maskedKey })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    sysToast('CHAVE REMOVIDA COM SUCESSO');
+                    fetchSubbotAiKeys(subbotId);
+                    loadSubbotAiSection();
+                } else {
+                    sysToast(data.error || 'Falha ao excluir chave', true);
+                }
+            } catch (err) {
+                sysToast('Erro ao excluir chave: ' + err.message, true);
+            }
+        }
+
+        // Inicialização de Tabs por URL (ex: ?tab=ai ou ?subbot=2 ou #tab-ai)
+        const subbotUrlParams = new URLSearchParams(window.location.search);
+        const hash = window.location.hash || '';
+        const requestedSubbotParam = subbotUrlParams.get('subbot') || subbotUrlParams.get('instanceId') || subbotUrlParams.get('instance') || subbotUrlParams.get('id') || subbotUrlParams.get('chip');
+        const shouldOpenAiTab = subbotUrlParams.get('tab') === 'ai' || hash.includes('tab-ai') || hash.includes('ai') || !!requestedSubbotParam;
+
+        if (shouldOpenAiTab) {
+            setTimeout(() => {
+                const aiNavItem = document.querySelector('.nav-dock .nav-item[onclick*="ai"]');
+                switchTab('ai', aiNavItem);
+            }, 250);
+        } else {
+            loadSubbotAiSection();
+        }
+    </script>
+</body>
+</html>

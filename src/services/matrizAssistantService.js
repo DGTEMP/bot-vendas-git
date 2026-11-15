@@ -15,12 +15,31 @@ class MatrizAssistantService {
     const rawText = String(text || '').trim();
     if (!rawText) return false;
 
+    // 0. APRENDIZADO COGNITIVO ATIVO: Alimenta o tom de fala, gírias e intenções do Dono na base de dados
+    const ownerMindsetService = require('./ownerMindsetService');
+    try {
+      await ownerMindsetService.learnFromOwnerMessage(senderPhone, rawText, { isGroup });
+    } catch (_) {}
+
+    // 0.1 Execução de Ações em Linguagem Natural (Pix, Painel, Métricas, Mindset sem comandos)
+    try {
+      const handledNatural = await ownerMindsetService.tryExecuteNaturalAction({
+        sock,
+        from,
+        text: rawText,
+        senderName,
+        senderPhone,
+        isGroup,
+        whatsappBotInstance: this.whatsappBotInstance || null
+      });
+      if (handledNatural) return true;
+    } catch (_) {}
+
     const lower = rawText.toLowerCase();
 
     // 1. Relatório Operacional e Status dos Sub-Bots
     if (
-      /^(?:!|\/)?(?:status\s*dos?\s*sub-?bots?|painel\s*sub-?bots?|como\s*est[aã]o\s*os\s*sub-?bots?|quem\s*t[aá]\s*online|quem\s*est[aá]\s*online|sub-?bots?\s*status|situa[cç][aã]o\s*do\s*ex[eé]rcito|relat[oó]rio\s*dos?\s*bots?)$/i.test(lower) ||
-      lower === '!painelsubbots' || lower === '!subbots' || lower === '!bots' || lower === '!statusbots'
+      /^(?:!|\/)?(?:status\s*dos?\s*sub-?bots?|painel\s+dos?\s*sub-?bots?|como\s*est[aã]o\s*os\s*sub-?bots?|quem\s*t[aá]\s*online|quem\s*est[aá]\s*online|sub-?bots?\s*status|situa[cç][aã]o\s*do\s*ex[eé]rcito|relat[oó]rio\s*dos?\s*bots?)$/i.test(lower)
     ) {
       return this.handleSubBotsStatusReport(sock, from);
     }
@@ -39,6 +58,22 @@ class MatrizAssistantService {
       const action = controlMatch[1].toLowerCase();
       const instanceId = parseInt(controlMatch[2], 10);
       return this.handleSubBotControl(sock, from, instanceId, action);
+    }
+
+    // 3.1 Delegação de Grupo para Sub-Bot Gerente
+    // Ex: "Subbot 2 gerencie este grupo" ou "Delegar grupo para o subbot 2" ou "Mande o subbot 2 ser gerente do grupo"
+    const groupManagerMatch = rawText.match(
+      /^(?:!|\/)?(?:delegar\s*(?:este\s*)?grupo\s*(?:para\s*(?:o\s*)?)?sub-?bot\s*#?(\d+)|sub-?bot\s*#?(\d+)\s*(?:seja\s*o\s*)?gerente\s*(?:deste\s*grupo|do\s*grupo)|mande\s*(?:o\s*)?sub-?bot\s*#?(\d+)\s*gerenciar\s*(?:este\s*)?grupo|!gerente\s*#?(\d+))/i
+    );
+    if (groupManagerMatch) {
+      const instId = parseInt(groupManagerMatch[1] || groupManagerMatch[2] || groupManagerMatch[3] || groupManagerMatch[4], 10);
+      const groupManagerService = require('./groupManagerService');
+      return groupManagerService.handleGerenteCommand(sock, from, `!gerente ${instId}`, senderPhone, true, true, isGroup);
+    }
+
+    if (/^(?:!|\/)?(?:remover\s*gerente\s*(?:do\s*grupo)?|tirar\s*gerente|desvincular\s*gerente|voltar\s*grupo\s*pra\s*matriz)$/i.test(lower)) {
+      const groupManagerService = require('./groupManagerService');
+      return groupManagerService.handleGerenteCommand(sock, from, '!gerente remover', senderPhone, true, true, isGroup);
     }
 
     // 4. Delegação: Envio de Mensagem Direta por um Sub-Bot específico para um número
@@ -191,7 +226,7 @@ class MatrizAssistantService {
     }
 
     // 10. Diálogo Estratégico, Dúvidas de Vendas e Assistência Executiva da Matriz
-    return this.handleExecutiveStrategicChat(sock, from, rawText, senderName);
+    return this.handleExecutiveStrategicChat(sock, from, rawText, senderName, isGroup);
   }
 
   // ==============================================================
@@ -729,7 +764,15 @@ class MatrizAssistantService {
         `   📊 Disparos Hoje: *${inst.messages_sent_today || 0}/${inst.daily_limit || 50}*\n\n`;
     });
 
-    text += `💡 *Comandos Rápidos de Voz/Texto do Dono:*\n` +
+    text += `👑 *Comandos Exclusivos do Dono (Owner):*\n` +
+      `  • *!divulgar <mensagem>* — Disparo em massa com Spintax via sub-bots\n` +
+      `  • *!promover <id_produto>* — Dispara oferta do produto via sub-bots\n` +
+      `  • *!divulgargrupos <mensagem>* — Transmite em todos os grupos conectados\n` +
+      `  • *!pararsubbot <id>* — Desconecta o sub-bot indicado\n` +
+      `  • *!reiniciarsubbot <id>* — Reconecta o sub-bot indicado\n` +
+      `  • *!resetarsubbot <id>* — Reseta credenciais do sub-bot indicado\n` +
+      `  • *!setowner <numero>* — Altera o número do Dono\n\n` +
+      `💡 *Comandos Rápidos de Voz/Texto do Dono:*\n` +
       `  • *"Subbot 2 mande áudio para 5511... dizendo Olá"*\n` +
       `  • *"Subbot 2 mande mensagem para 5511... dizendo Olá"*\n` +
       `  • *"Sub-bots distribuam 30 leads com a mensagem: {Oi|Olá}..."*\n` +
@@ -765,20 +808,22 @@ class MatrizAssistantService {
       });
     }
 
+    if (action.includes('reiniciar') || action.includes('restart')) {
+      await whatsappArmyService.stopInstance(instanceId);
+      if (process.env.NODE_ENV !== 'test') {
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      await whatsappArmyService.startInstance(instanceId);
+      return sock.sendMessage(from, {
+        text: `🔄 *[Sub-Bot #${instanceId}] Reiniciando conexão de ${inst.name}...*\n\nComando de reinicialização executado com sucesso!`
+      });
+    }
+
     if (action.includes('iniciar') || action.includes('ligar') || action.includes('conectar')) {
       await whatsappArmyService.startInstance(instanceId);
       return sock.sendMessage(from, {
         text: `🟢 *INICIALIZANDO SUB-BOT #${instanceId} (${inst.name})...* 🟢\n\n` +
-          `O processo de reconexão foi ativado. Envie *"status dos subbots"* para acompanhar.`
-      });
-    }
-
-    if (action.includes('reiniciar') || action.includes('restart')) {
-      await whatsappArmyService.stopInstance(instanceId);
-      await new Promise(r => setTimeout(r, 1500));
-      await whatsappArmyService.startInstance(instanceId);
-      return sock.sendMessage(from, {
-        text: `🔄 *SUB-BOT #${instanceId} (${inst.name}) REINICIADO COM SUCESSO!* 🔄`
+          `O processo de reconexão foi ativado com sucesso. Envie *"status dos subbots"* para acompanhar.`
       });
     }
   }
@@ -844,77 +889,88 @@ class MatrizAssistantService {
   // ==============================================================
   // 10. DIÁLOGO ESTRATÉGICO & ASSISTENTE EXECUTIVO DA MATRIZ
   // ==============================================================
-  async handleExecutiveStrategicChat(sock, from, userPrompt, senderName) {
+  async handleExecutiveStrategicChat(sock, from, userPrompt, senderName, isGroup = false) {
     const summary = whatsappArmyService.getSubBotsStatusSummary();
     const tasksSummary = models.getDelegatedTasksSummary();
+    const metrics = (typeof models.getMetrics === 'function' ? models.getMetrics() : {}) || {};
+    const ownerMindsetService = require('./ownerMindsetService');
 
-    // 1. Tenta resposta enriquecida via IA integrada (ANTIGRAVITY_AI_ENDPOINT ou Gemini)
+    const personaPrompt = ownerMindsetService.buildOwnerPersonaSystemPrompt(from, senderName);
+
+    // 1. Tenta resposta enriquecida via IA integrada (ANTIGRAVITY_AI_ENDPOINT, Groq ou Gemini)
     try {
-      const systemPrompt =
-        `Você é a Assistente Executiva da Matriz e General de Operações do PayBot & SpyBot.\n` +
-        `Você está conversando diretamente com o DONO (Owner) e Comandante do negócio.\n` +
-        `Seu objetivo é ser extremamente ágil, proativa, executiva, leal e focada em resultados e vendas.\n` +
-        `Você tem controle total sobre o exército de sub-bots do WhatsApp.\n` +
-        `Dados atuais da operação:\n` +
-        `- Total de Sub-Bots: ${summary.totalInstances}\n` +
-        `- Sub-Bots Conectados: ${summary.connectedCount}\n` +
-        `- Disparos hoje: ${summary.totalSentToday || summary.totalMessagesSentToday || 0}\n` +
-        `- Tarefas concluídas: ${tasksSummary.COMPLETED}\n\n` +
-        `Quando o dono falar sobre estratégia, recomende ações práticas e dê o comando exato que ele pode mandar para você executar.\n` +
-        `Responda em português brasileiro de forma polida, executiva e concisa.`;
+      const groupDirective = isGroup
+        ? `\nATENÇÃO - CONVERSA DENTRO DE UM GRUPO PÚBLICO:\n` +
+          `- Você e o Dono estão conversando no grupo aberto.\n` +
+          `- Seja conciso (1 a 2 frases curtas), dinâmico e leal.\n` +
+          `- NUNCA exponha métricas confidenciais ou relatórios financeiros detalhados no grupo aberto.\n`
+        : '';
 
-      const res = await fetch(`${this.aiEndpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.aiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gemini-2.5-flash',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.7,
-          max_tokens: 450
-        }),
-        signal: AbortSignal.timeout(5000)
+      const operationalPrompt =
+        `DADOS ATUAIS DA OPERAÇÃO & VENDAS:\n` +
+        `- Sub-Bots: ${summary.connectedCount} conectados de ${summary.totalInstances} instâncias\n` +
+        `- Disparos Hoje: ${summary.totalSentToday || summary.totalMessagesSentToday || 0}\n` +
+        `- Pedidos Pagos: ${metrics.paidOrders || 0} | Receita Total: R$ ${Number(metrics.totalBRL || 0).toFixed(2)}\n` +
+        `- Carrinhos Recuperados: ${metrics.recoveredOrdersCount || 0} (R$ ${Number(metrics.recoveredRevenueBRL || 0).toFixed(2)})\n` +
+        `- Assinaturas Ativas: ${metrics.activeSubs || 0}\n` +
+        `- Missões Concluídas: ${tasksSummary.COMPLETED} | Pendentes: ${tasksSummary.PENDING}\n\n` +
+        `INSTRUÇÕES ESPECÍFICAS DE RESPOSTA AO DONO:\n` +
+        `1. Aja em total sinergia com o Comandante. Se ele fizer uma pergunta de negócios ou der uma ideia, debata com alta inteligência de mercado.\n` +
+        `2. Use o tom de voz e gírias aprendidas do Dono de forma autêntica, próxima e conectada.\n` +
+        `3. Sempre que sugerir campanhas ou ações, entregue o plano pronto para execução imediata.\n` +
+        `4. NUNCA coloque cabeçalhos artificiais, títulos entre emojis, barras divisórias ou listas de comandos automáticos na resposta. Responda diretamente como uma pessoa real e executiva de alta confiança.\n` +
+        `${groupDirective}`;
+
+      const fullSystemPrompt = `${personaPrompt}\n\n${operationalPrompt}`;
+
+      const aiManager = require('./aiManagerService');
+      const aiResult = await aiManager.chat({
+        messages: [
+          { role: 'system', content: fullSystemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        maxTokens: 500,
+        timeoutMs: 6500,
+        isMaster: true
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const reply = data.choices?.[0]?.message?.content;
-        if (reply) {
-          const formattedReply =
-            `👑 *ASSISTENTE EXECUTIVA DA MATRIZ* 👑\n\n` +
-            `${reply}\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `💡 *Ordens Prontas para Executar:*\n` +
-            `• *"Sub-bots disparem para os leads a promoção do produto 1"*\n` +
-            `• *"Status dos subbots"* | *"Tarefas pendentes"*`;
-          return sock.sendMessage(from, { text: formattedReply });
+      if (aiResult && aiResult.text) {
+        let reply = aiResult.text.trim();
+        if (!isGroup) {
+          try {
+            const predictive = require('./predictiveIntelligenceService');
+            const snippet = predictive.getQuickAnticipationSnippet(from);
+            if (snippet && !reply.includes('ANTECIPAÇÃO DO SEU PRÓXIMO PASSO')) {
+              reply += `\n\n${snippet}`;
+            }
+          } catch (_) {}
         }
+        return sock.sendMessage(from, { text: reply });
       }
     } catch (_) {}
 
-    // Fallback Inteligente Nativo
-    const fallbackMessage =
-      `👑 *ASSISTENTE EXECUTIVA DA MATRIZ* 👑\n\n` +
-      `Às suas ordens, Comandante *${senderName}*! Sou o centro de controle dos seus sub-bots.\n\n` +
-      `📊 *Situação Atual do Exército:*\n` +
-      `  • *${summary.connectedCount}/${summary.totalInstances}* sub-bots prontos para ação imediata\n` +
-      `  • *${summary.totalSentToday || summary.totalMessagesSentToday || 0}* mensagens entregues hoje\n` +
-      `  • *${tasksSummary.COMPLETED}* missões concluídas com sucesso\n\n` +
-      `🎯 *O que deseja que eu delegue aos sub-bots agora?*\n\n` +
-      `1️⃣ *Áudio PTT (Voz):* \`Subbot 2 mande áudio para 5511... dizendo Olá\`\n` +
-      `2️⃣ *Mensagem Direta:* \`Subbot 2 mande mensagem para 5511... dizendo Olá\`\n` +
-      `3️⃣ *Smart Lead Balance:* \`Sub-bots distribuam 30 leads: Olá amigo\`\n` +
-      `4️⃣ *Takeover / Atendimento:* \`Assumir conversa com 5511... no subbot 2\`\n` +
-      `5️⃣ *Disparo para Leads:* \`Sub-bots disparem para os leads: {Oi|Olá}! Confira nossa oferta\`\n` +
-      `6️⃣ *Transmissão em Grupos:* \`Sub-bots divulguem nos grupos: Novidade na área\`\n` +
-      `7️⃣ *Promover Produto:* \`Mande o subbot 2 promover o produto 1\`\n` +
-      `8️⃣ *Status & Relatório:* \`Status dos subbots\` ou \`Tarefas pendentes\`\n\n` +
-      `_Apenas me dê a ordem que eu orquestro a execução em tempo real!_`;
+    // Fallback Inteligente Adaptado ao Tom do Dono (sem menus ou blocos robóticos)
+    const summaryData = models.getOwnerMindsetSummary(from);
+    const topSlang = summaryData?.slangs?.[0]?.expression || 'suave';
+
+    const fallbackGreeting = topSlang === 'suave'
+      ? `Suave, Comandante *${senderName}*! Bora pra cima.`
+      : `Na escuta, Comandante *${senderName}*! Foco total na meta.`;
+
+    let fallbackMessage = isGroup
+      ? `${fallbackGreeting} Tô na escuta por aqui no grupo, Comandante. O que você manda?`
+      : `${fallbackGreeting} Tô na escuta por aqui, tudo rodando nos conformes. O que você precisa que eu toque agora?`;
+
+    if (!isGroup) {
+      try {
+        const predictive = require('./predictiveIntelligenceService');
+        const snippet = predictive.getQuickAnticipationSnippet(from);
+        if (snippet && !fallbackMessage.includes('ANTECIPAÇÃO DO SEU PRÓXIMO PASSO')) {
+          fallbackMessage += `\n\n${snippet}`;
+        }
+      } catch (_) {}
+    }
 
     return sock.sendMessage(from, { text: fallbackMessage });
   }
@@ -938,6 +994,27 @@ class MatrizAssistantService {
         await whatsappArmyService.broadcastViaAllSubBots({ message: task.message_payload, targetType: 'groups' });
       } else if (task.task_type === 'SMART_LOAD_BALANCE') {
         await this.delegateSmartBalancing(sock, null, 50, task.message_payload);
+      } else if (task.task_type === 'GROUP_COMMAND' || task.task_type === 'BOT_COMMAND') {
+        let payload = {};
+        try { payload = JSON.parse(task.message_payload); } catch (_) {}
+        await this.executeScheduledGroupCommand(payload, sock);
+
+        // Se tem recorrência configurada, cria a próxima execução automaticamente
+        if (payload.recurrence && payload.recurrence !== 'none') {
+          const nextDate = this.calculateNextRecurrenceDate(payload.recurrence, new Date());
+          if (nextDate) {
+            models.createDelegatedTask({
+              assigned_instance_id: task.assigned_instance_id || 1,
+              task_type: task.task_type,
+              title: task.title,
+              description: task.description,
+              target: task.target,
+              message_payload: task.message_payload,
+              delegated_by: 'RECURRING_SCHEDULER',
+              scheduled_at: nextDate.toISOString()
+            });
+          }
+        }
       }
 
       const updated = models.updateDelegatedTask(task.id, {
@@ -963,6 +1040,167 @@ class MatrizAssistantService {
         result_summary: `Falha na execução agendada: ${err.message}`
       });
     }
+  }
+
+  calculateNextRecurrenceDate(recurrence, baseDate = new Date()) {
+    if (!recurrence || recurrence === 'none') return null;
+    const d = new Date(baseDate.getTime());
+    switch (recurrence) {
+      case 'hourly': d.setHours(d.getHours() + 1); return d;
+      case 'every_2h': d.setHours(d.getHours() + 2); return d;
+      case 'every_6h': d.setHours(d.getHours() + 6); return d;
+      case 'every_12h': d.setHours(d.getHours() + 12); return d;
+      case 'daily': d.setDate(d.getDate() + 1); return d;
+      case 'workdays':
+        d.setDate(d.getDate() + 1);
+        while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+        return d;
+      case 'weekly': d.setDate(d.getDate() + 7); return d;
+      default: return null;
+    }
+  }
+
+  async executeScheduledGroupCommand(payload, sock = null) {
+    if (!payload || !payload.command || !payload.targetId) return false;
+    const { command, botType, botInstanceId, targetId, participants = [], delaySeconds = 3, text, state } = payload;
+    const whatsappBot = require('../bots/whatsappBot');
+    const whatsappArmyService = require('./whatsappArmyService');
+
+    let targetSock = null;
+    if (botType === 'whatsapp_subbot' && botInstanceId) {
+      targetSock = whatsappArmyService.activeSockets.get(Number(botInstanceId));
+    } else {
+      targetSock = sock || whatsappBot.sock;
+    }
+
+    const delayMs = (process.env.NODE_ENV === 'test') ? 10 : Math.max(500, (parseInt(delaySeconds, 10) || 3) * 1000);
+
+    switch (command) {
+      case 'ban': {
+        for (let i = 0; i < participants.length; i++) {
+          const user = String(participants[i]).trim();
+          const clean = user.replace(/\D/g, '');
+          const jid = user.includes('@') ? user : `${clean}@s.whatsapp.net`;
+          if (models.isOwner(jid) || models.isOwner(clean)) continue;
+          if (targetSock && typeof targetSock.groupParticipantsUpdate === 'function') {
+            await targetSock.groupParticipantsUpdate(targetId, [jid], 'remove').catch(() => {});
+          }
+          models.logGroupAdminAction?.({
+            platform: 'whatsapp',
+            groupId: targetId,
+            adminId: 'SCHEDULED_WORKER',
+            adminName: 'Agendador Automático',
+            action: 'BAN',
+            targetId: clean || user,
+            details: `Execução agendada (${i + 1}/${participants.length})`
+          });
+          if (i < participants.length - 1) await new Promise(r => setTimeout(r, delayMs));
+        }
+        break;
+      }
+      case 'promover': {
+        for (let i = 0; i < participants.length; i++) {
+          const user = String(participants[i]).trim();
+          const clean = user.replace(/\D/g, '');
+          const jid = user.includes('@') ? user : `${clean}@s.whatsapp.net`;
+          if (targetSock && typeof targetSock.groupParticipantsUpdate === 'function') {
+            await targetSock.groupParticipantsUpdate(targetId, [jid], 'promote').catch(() => {});
+          }
+          models.logGroupAdminAction?.({
+            platform: 'whatsapp',
+            groupId: targetId,
+            adminId: 'SCHEDULED_WORKER',
+            adminName: 'Agendador Automático',
+            action: 'PROMOTE',
+            targetId: clean || user,
+            details: `Promoção agendada (${i + 1}/${participants.length})`
+          });
+          if (i < participants.length - 1) await new Promise(r => setTimeout(r, delayMs));
+        }
+        break;
+      }
+      case 'rebaixar': {
+        for (let i = 0; i < participants.length; i++) {
+          const user = String(participants[i]).trim();
+          const clean = user.replace(/\D/g, '');
+          const jid = user.includes('@') ? user : `${clean}@s.whatsapp.net`;
+          if (models.isOwner(jid) || models.isOwner(clean)) continue;
+          if (targetSock && typeof targetSock.groupParticipantsUpdate === 'function') {
+            await targetSock.groupParticipantsUpdate(targetId, [jid], 'demote').catch(() => {});
+          }
+          models.logGroupAdminAction?.({
+            platform: 'whatsapp',
+            groupId: targetId,
+            adminId: 'SCHEDULED_WORKER',
+            adminName: 'Agendador Automático',
+            action: 'DEMOTE',
+            targetId: clean || user,
+            details: `Rebaixamento agendado (${i + 1}/${participants.length})`
+          });
+          if (i < participants.length - 1) await new Promise(r => setTimeout(r, delayMs));
+        }
+        break;
+      }
+      case 'fechar': {
+        if (targetSock && typeof targetSock.groupSettingUpdate === 'function') {
+          await targetSock.groupSettingUpdate(targetId, 'announcement').catch(() => {});
+        }
+        models.setSetting?.('GROUP_MODE_' + targetId, 'closed');
+        models.logGroupAdminAction?.({
+          platform: 'whatsapp',
+          groupId: targetId,
+          adminId: 'SCHEDULED_WORKER',
+          adminName: 'Agendador Automático',
+          action: 'CLOSE_GROUP',
+          details: 'Grupo trancado automaticamente pelo agendador'
+        });
+        break;
+      }
+      case 'abrir': {
+        if (targetSock && typeof targetSock.groupSettingUpdate === 'function') {
+          await targetSock.groupSettingUpdate(targetId, 'not_announcement').catch(() => {});
+        }
+        models.setSetting?.('GROUP_MODE_' + targetId, 'open');
+        models.logGroupAdminAction?.({
+          platform: 'whatsapp',
+          groupId: targetId,
+          adminId: 'SCHEDULED_WORKER',
+          adminName: 'Agendador Automático',
+          action: 'OPEN_GROUP',
+          details: 'Grupo reaberto automaticamente pelo agendador'
+        });
+        break;
+      }
+      case 'todos': {
+        if (targetSock && typeof targetSock.groupMetadata === 'function') {
+          const meta = await targetSock.groupMetadata(targetId).catch(() => null);
+          const mentions = (meta?.participants || []).map(p => p.id);
+          const mentionTags = mentions.map(m => '@' + m.split('@')[0].split(':')[0]).join(' ');
+          await targetSock.sendMessage(targetId, {
+            text: `📢 *AVISO GERAL (@todos):*\n\n${text || 'Comunicado oficial'}\n\n${mentionTags}`,
+            mentions
+          }).catch(() => {});
+        }
+        break;
+      }
+      case 'antilink': {
+        models.setSetting?.('ANTILINK_' + targetId, state === 'on' ? 'true' : 'false');
+        break;
+      }
+      case 'boasvindas': {
+        models.setSetting?.('WELCOME_' + targetId, state === 'on' ? 'true' : 'false');
+        break;
+      }
+      case 'desativar': {
+        models.muteChat?.({ platform: 'whatsapp', chatId: targetId, targetType: 'GROUP', reason: text || 'Agendamento' });
+        break;
+      }
+      case 'ativar': {
+        models.unmuteChat?.('whatsapp', targetId);
+        break;
+      }
+    }
+    return true;
   }
 
   async checkAndExecuteScheduledTasks(sock = null) {

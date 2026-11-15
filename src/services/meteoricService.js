@@ -1,9 +1,27 @@
 const models = require('../db/models');
+const meteoricDialogueEngine = require('./meteoricDialogueEngine');
 
 class MeteoricService {
   constructor() {
     this.isWarmupRunning = false;
     this.activeWarmupTimeouts = [];
+  }
+
+  getMeteoricPublicLink(group = null) {
+    if (group && group.invite_url && !group.invite_url.includes('localhost:3000')) {
+      return group.invite_url;
+    }
+    const tunnelService = require('./tunnelService');
+    const storeUrl = tunnelService.getStoreUrl() || models.getSetting('STORE_BASE_URL', 'http://localhost:3001');
+    return `${storeUrl.replace(/\/$/, '')}/l/vip`;
+  }
+
+  getDialoguePresets() {
+    return {
+      themes: meteoricDialogueEngine.getAvailableThemes(),
+      tones: meteoricDialogueEngine.getAvailableTones(),
+      templates: meteoricDialogueEngine.getTemplates()
+    };
   }
 
   // ==========================================
@@ -19,6 +37,8 @@ class MeteoricService {
     const armySummary = whatsappArmyService.getSubBotsStatusSummary ? whatsappArmyService.getSubBotsStatusSummary() : { onlineSubBots: 0, totalSubBots: 0 };
 
     const totalMembers = groups.reduce((acc, g) => acc + (g.member_count || 0), 0);
+    const tunnelService = require('./tunnelService');
+    const storePublicUrl = tunnelService.getStoreUrl() || 'http://localhost:3001';
 
     return {
       campaign,
@@ -28,7 +48,7 @@ class MeteoricService {
       currentStage: stages.find(s => s.stage_num === campaign.current_stage) || stages[0],
       onlineSubBots: armySummary.onlineSubBots || 0,
       totalSubBots: armySummary.totalSubBots || 0,
-      redirectUrl: `/l/vip`
+      redirectUrl: `${storePublicUrl}/l/vip`
     };
   }
 
@@ -276,11 +296,38 @@ class MeteoricService {
       groups: []
     };
 
-    // Coleta sockets dos sub-bots conectados
+    // Coleta sockets dos sub-bots conectados e elegíveis pelo aceite de termos do Exército
     const availableSubBots = [];
+    const allArmyInsts = models.getArmyInstances();
+    const instMap = new Map();
+    allArmyInsts.forEach(i => instMap.set(Number(i.id), i));
+
     if (whatsappArmyService.activeSockets) {
       for (const [id, s] of whatsappArmyService.activeSockets.entries()) {
-        availableSubBots.push({ id, sock: s });
+        const inst = instMap.get(Number(id));
+        // Sub-Bots que aceitaram os termos do exército (ou bot principal)
+        if (!inst || inst.is_main || inst.terms_accepted === 1 || inst.can_participate_meteoric !== 0) {
+          availableSubBots.push({ id, sock: s });
+        }
+      }
+    }
+
+    // Determina o socket do Admin do Grupo de Captação (Matriz ou Sub-bot específico)
+    const adminId = campaign.admin_subbot_id || 1;
+    let adminSock = whatsappBot.sock;
+    let adminName = 'Admin Oficial (Matriz)';
+    if (adminId && adminId !== 1 && whatsappArmyService.activeSockets?.has(Number(adminId))) {
+      adminSock = whatsappArmyService.activeSockets.get(Number(adminId));
+      adminName = `Sub-Bot #${adminId} (Admin)`;
+    }
+
+    // Filtra especificamente os sub-bots atores/compradores selecionados
+    let buyerSubBots = availableSubBots;
+    if (campaign.buyer_subbot_ids && campaign.buyer_subbot_ids.trim()) {
+      const buyerIds = campaign.buyer_subbot_ids.split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean);
+      if (buyerIds.length > 0) {
+        const filtered = availableSubBots.filter(b => buyerIds.includes(Number(b.id)));
+        if (filtered.length > 0) buyerSubBots = filtered;
       }
     }
 
@@ -288,34 +335,38 @@ class MeteoricService {
       const gJid = group.group_jid;
 
       // 1. Altera modo do grupo (aberto/fechado conforme a etapa)
-      if (whatsappBot.sock && whatsappBot.isConnected && gJid.endsWith('@g.us')) {
+      const groupControlSock = (adminSock && typeof adminSock.groupSettingUpdate === 'function') ? adminSock : whatsappBot.sock;
+      if (groupControlSock && gJid.endsWith('@g.us')) {
         try {
-          await whatsappBot.sock.groupSettingUpdate(gJid, groupMode);
+          await groupControlSock.groupSettingUpdate(gJid, groupMode);
           models.updateMeteoricGroup(group.id, { is_closed: groupMode === 'announcement' ? 1 : 0 });
           models.logMeteoricActivity({
             campaign_id: campaign.id,
             group_jid: gJid,
             group_title: group.title,
             event_type: 'MODE_CHANGED',
-            sender_name: 'Admin',
+            sender_name: adminName,
             message_text: `Modo do grupo alterado para ${groupMode === 'announcement' ? 'Fechado (Modo Anúncio)' : 'Aberto para Todos'}.`
           });
         } catch (_) {}
       }
 
-      // 2. Dispara o Anúncio Oficial do Administrador (Matriz)
-      if (adminAnnouncement && whatsappBot.sock && whatsappBot.isConnected) {
+      // 2. Dispara o Anúncio Oficial do Administrador Designado
+      const dispatchAdminSock = adminSock || whatsappBot.sock;
+      if (adminAnnouncement && dispatchAdminSock) {
         try {
           const parsedAnnouncement = models.parseSpintax(adminAnnouncement, {
-            link: group.invite_url || `http://localhost:3000/l/vip`,
+            link: this.getMeteoricPublicLink(group),
             produto: campaign.name
           });
 
-          if (stage.media_url && typeof whatsappBot.sock.sendMessage === 'function') {
-            await whatsappBot.sock.sendMessage(gJid, {
+          if (stage.media_url && typeof dispatchAdminSock.sendMessage === 'function') {
+            await dispatchAdminSock.sendMessage(gJid, {
               image: { url: stage.media_url },
               caption: parsedAnnouncement
             });
+          } else if (typeof dispatchAdminSock.sendMessage === 'function') {
+            await dispatchAdminSock.sendMessage(gJid, { text: parsedAnnouncement });
           } else {
             await whatsappBot.sendMessage(gJid, parsedAnnouncement);
           }
@@ -326,7 +377,7 @@ class MeteoricService {
             group_jid: gJid,
             group_title: group.title,
             event_type: 'ANNOUNCEMENT',
-            sender_name: 'Admin Oficial (Matriz)',
+            sender_name: adminName,
             message_text: parsedAnnouncement.slice(0, 160) + (parsedAnnouncement.length > 160 ? '...' : '')
           });
         } catch (annErr) {
@@ -334,10 +385,10 @@ class MeteoricService {
         }
       }
 
-      // 3. Orquestra o Aquecimento dos Sub-Bots (Diretrizes da Etapa)
+      // 3. Orquestra o Aquecimento dos Sub-Bots Compradores / Atores Selecionados
       if (subbotScripts.length > 0) {
-        this.scheduleSubBotDialogue(gJid, subbotScripts, availableSubBots, {
-          link: group.invite_url || `http://localhost:3000/l/vip`,
+        this.scheduleSubBotDialogue(gJid, subbotScripts, buyerSubBots, {
+          link: this.getMeteoricPublicLink(group),
           produto: campaign.name
         });
         report.subbotInteractionsScheduled += subbotScripts.length;
@@ -354,8 +405,21 @@ class MeteoricService {
   scheduleSubBotDialogue(groupJid, scripts, availableSubBots, vars = {}) {
     let accumulatedDelayMs = 2000;
 
+    const campaign = models.getMeteoricCampaign();
+    const armyService = require('./whatsappArmyService');
+    const allArmyInstances = models.getArmyInstances().filter(a => a.id !== 1);
+
+    let actors = Array.isArray(availableSubBots) ? availableSubBots : [];
+    if (campaign && campaign.buyer_subbot_ids && campaign.buyer_subbot_ids.trim() && actors.length > 0) {
+      const buyerIds = campaign.buyer_subbot_ids.split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean);
+      if (buyerIds.length > 0) {
+        const filtered = actors.filter(b => buyerIds.includes(Number(b.id)));
+        if (filtered.length > 0) actors = filtered;
+      }
+    }
+
     scripts.forEach((item, index) => {
-      const delayMs = Math.max(3000, (item.delay || (index * 7 + 4)) * 1000);
+      const delayMs = Math.max(2000, (item.stepDelay ? item.stepDelay * 1000 : (item.delay ? item.delay * 1000 : (index * 6 + 3) * 1000)));
       accumulatedDelayMs += delayMs;
 
       const timeoutId = setTimeout(async () => {
@@ -365,22 +429,66 @@ class MeteoricService {
 
           const parsedText = models.parseSpintax(rawText, vars);
 
-          // Escolhe o sub-bot que vai falar nesta interação (rotativo)
+          // 1. Identifica o Sub-Bot a ser utilizado
           let chosenSubBot = null;
-          if (availableSubBots.length > 0) {
-            chosenSubBot = availableSubBots[index % availableSubBots.length];
+          let targetBotId = item.subBotId;
+
+          // Se um subBotId específico foi atribuído na linha do tempo
+          if (targetBotId && targetBotId !== 1) {
+            chosenSubBot = Array.isArray(actors) ? actors.find(a => a && a.id && Number(a.id) === Number(targetBotId)) : null;
+            if (!chosenSubBot && armyService.activeSockets?.has(Number(targetBotId))) {
+              chosenSubBot = { id: Number(targetBotId), sock: armyService.activeSockets.get(Number(targetBotId)) };
+            }
           }
 
-          if (chosenSubBot && chosenSubBot.sock) {
-            // Sub-bot real: simula presença digitando e envia
+          // Se não encontrou, pega rotativo entre os atores disponíveis ou instâncias do exército
+          if (!chosenSubBot && Array.isArray(actors) && actors.length > 0) {
+            const validActors = actors.filter(a => a && a.id);
+            if (validActors.length > 0) {
+              chosenSubBot = validActors[index % validActors.length];
+            }
+          }
+          if (!chosenSubBot && Array.isArray(allArmyInstances) && allArmyInstances.length > 0) {
+            const validInsts = allArmyInstances.filter(i => i && i.id);
+            if (validInsts.length > 0) {
+              const inst = validInsts[index % validInsts.length];
+              chosenSubBot = {
+                id: inst.id,
+                sock: armyService.activeSockets?.get(inst.id) || null,
+                name: inst.name
+              };
+            }
+          }
+
+          const botLabel = chosenSubBot ? (chosenSubBot.name || `Chip #${chosenSubBot.id}`) : `Sub-Bot #${index + 2}`;
+
+          // 2. Disparo via Socket Baileys Real se conectado
+          if (chosenSubBot && (chosenSubBot.sock || (chosenSubBot.id && armyService.activeSockets?.has(Number(chosenSubBot.id))))) {
+            const realSock = chosenSubBot.sock || armyService.activeSockets.get(Number(chosenSubBot.id));
             try {
-              await chosenSubBot.sock.sendPresenceUpdate('composing', groupJid);
-              await new Promise(r => setTimeout(r, 2000));
+              if (typeof realSock.sendPresenceUpdate === 'function') {
+                await realSock.sendPresenceUpdate('composing', groupJid);
+              }
+              const humanTypeTime = Math.min(4000, Math.max(1200, parsedText.length * 30));
+              await new Promise(r => setTimeout(r, humanTypeTime));
             } catch (_) {}
-            await chosenSubBot.sock.sendMessage(groupJid, { text: parsedText });
-            console.log(`[Meteórico Sub-Bot 💬 Chip #${chosenSubBot.id}] Falou no grupo ${groupJid}: "${parsedText}"`);
+
+            await realSock.sendMessage(groupJid, { text: parsedText });
+            // Registra como disparo legítimo para evitar falso positivo de rogue
+            if (typeof armyService.registerLegitimateDispatch === 'function') {
+              // O key.id da última mensagem enviada não é retornado diretamente, usamos timestamp como proxy
+              // mas o suficiente é marcar o período como "orquestração ativa"
+              armyService._orchestrationActive = true;
+              setTimeout(() => { armyService._orchestrationActive = false; }, 10000);
+            }
+            if (chosenSubBot?.id) models.incrementInstanceSentCount(chosenSubBot.id);
+            console.log(`[Meteórico Sub-Bot 💬 ${botLabel}] Falou no grupo ${groupJid}: "${parsedText}"`);
+          } else if (chosenSubBot && chosenSubBot.id) {
+            // Disparo via motor do Exército (suporta modo de simulação com métricas)
+            await armyService.sendArmyMessage(chosenSubBot.id, groupJid, parsedText);
+            console.log(`[Meteórico Sub-Bot 💬 ${botLabel}] Mensagem enviada via motor do exército: "${parsedText}"`);
           } else {
-            // Fallback ou modo simulação: usa Matriz ou console
+            // Fallback para Matriz se nenhum sub-bot disponível
             const whatsappBot = require('../bots/whatsappBot');
             if (whatsappBot.sock && whatsappBot.isConnected) {
               await whatsappBot.sendMessage(groupJid, parsedText);
@@ -388,6 +496,15 @@ class MeteoricService {
               console.log(`[Meteórico Sub-Bot (Simulação) 💬] Falou no grupo ${groupJid}: "${parsedText}"`);
             }
           }
+
+          // Log de atividade no feed com persona e identificador
+          models.logMeteoricActivity({
+            campaign_id: (campaign && typeof campaign === 'object') ? (campaign.id || 1) : (typeof campaign === 'number' ? campaign : 1),
+            group_jid: groupJid,
+            event_type: 'SUBBOT_SPEECH',
+            sender_name: item.speaker || botLabel,
+            message_text: parsedText.slice(0, 160)
+          });
         } catch (err) {
           console.warn(`[Lançamento Meteórico ⚠️] Erro na interação de sub-bot:`, err.message);
         }
@@ -477,7 +594,7 @@ class MeteoricService {
     } else {
       const single = models.getMeteoricGroupByJid(targetGroupJid) || models.getMeteoricGroupById(parseInt(targetGroupJid, 10));
       if (single) targetGroups = [single];
-      else targetGroups = [{ group_jid: targetGroupJid, title: 'Grupo Selecionado', invite_url: 'http://localhost:3000/l/vip' }];
+      else targetGroups = [{ group_jid: targetGroupJid, title: 'Grupo Selecionado', invite_url: this.getMeteoricPublicLink() }];
     }
 
     if (targetGroups.length === 0) throw new Error('Nenhum grupo encontrado para envio');
@@ -486,7 +603,7 @@ class MeteoricService {
     for (const group of targetGroups) {
       const gJid = group.group_jid;
       const parsedText = models.parseSpintax(text.trim(), {
-        link: group.invite_url || 'http://localhost:3000/l/vip',
+        link: this.getMeteoricPublicLink(group),
         produto: campaign.name
       });
 
@@ -624,101 +741,126 @@ class MeteoricService {
     return models.clearMeteoricActivityLogs();
   }
 
-  // Gera, pré-visualiza ou executa simulação interativa de conversas entre sub-bots
-  async generateOrSimulateDialogue({ targetGroupJid = null, theme = 'social_proof', customScripts = null, delaySeconds = 4, dryRun = false } = {}) {
-    const presets = {
-      social_proof: [
-        { speaker: 'Sub-Bot 1 (Comprador)', text: '{Caraca galera|Gente}, acabei de fazer minha inscrição! O link abriu certinho aqui 🔥', delay: 2 },
-        { speaker: 'Sub-Bot 2 (Interessado)', text: 'Chegou o acesso no seu e-mail na hora? Pagou por Pix ou Cartão?', delay: Math.max(3, delaySeconds) },
-        { speaker: 'Sub-Bot 1 (Comprador)', text: 'Paguei no Pix com desconto e já tô dentro da área de membros! Muito top', delay: Math.max(3, delaySeconds * 1.5) },
-        { speaker: 'Sub-Bot 3 (Garantia)', text: 'Show! Eu tava em dúvida mas com essa condição não dá pra deixar passar, gerando meu Pix agora', delay: Math.max(3, delaySeconds * 2.2) }
-      ],
-      objection_breaking: [
-        { speaker: 'Sub-Bot 1 (Dúvida)', text: 'Uma dúvida: se eu não me adaptar ou não tiver tempo de ver as aulas essa semana, tem garantia?', delay: 2 },
-        { speaker: 'Sub-Bot 2 (Suporte/Membro)', text: 'Tem garantia incondicional de 7 dias sim! Você entra, testa e se não curtir devolvem 100% sem burocracia.', delay: Math.max(3, delaySeconds) },
-        { speaker: 'Sub-Bot 1 (Dúvida)', text: 'Ah top demais, sem risco nenhum então! Vou garantir a minha vaga agora', delay: Math.max(3, delaySeconds * 1.5) }
-      ],
-      payment_doubt: [
-        { speaker: 'Sub-Bot 1 (Dúvida Pix)', text: 'Pessoal, o Pix aprova imediato? Ou é melhor passar no cartão?', delay: 2 },
-        { speaker: 'Sub-Bot 2 (Experiente)', text: 'Pix aprova na mesma hora e tem o maior desconto! No cartão divide em até 12x.', delay: Math.max(3, delaySeconds) },
-        { speaker: 'Sub-Bot 1 (Dúvida Pix)', text: 'Fechou, acabei de pagar pelo Pix! Aprovou instantâneo aqui!', delay: Math.max(3, delaySeconds * 1.6) }
-      ],
-      urgency: [
-        { speaker: 'Sub-Bot 1 (Alerta)', text: 'Ainda restam vagas com os bônus VIP ou o lote já vai virar?', delay: 2 },
-        { speaker: 'Sub-Bot 2 (Membro)', text: 'Vi aqui no checkout que as últimas vagas desse lote estão acabando rápido!', delay: Math.max(3, delaySeconds) },
-        { speaker: 'Sub-Bot 3 (Decidido)', text: 'Corram que nas turmas anteriores acabou antes do prazo programado!', delay: Math.max(3, delaySeconds * 1.5) }
-      ]
+  // Gera, pré-visualiza ou executa simulação interativa de conversas entre sub-bots (com suporte a 100+ WhatsApps)
+  async generateOrSimulateDialogue({
+    targetGroupJid = null,
+    theme = 'social_proof_herd',
+    tone = 'misto_organico',
+    count = null,
+    customScripts = null,
+    delaySeconds = 4,
+    dryRun = false,
+    subBotIds = null
+  } = {}) {
+    // Normalização de temas legados para os novos temas ricos
+    const legacyThemeMap = {
+      social_proof: 'social_proof_herd',
+      objection_breaking: 'objection_guarantee',
+      payment_doubt: 'payment_methods',
+      urgency: 'scarcity_lot_switch'
     };
-
-    let scripts = [];
-    if (customScripts && Array.isArray(customScripts) && customScripts.length > 0) {
-      scripts = customScripts;
-    } else {
-      scripts = presets[theme] || presets.social_proof;
-    }
+    const effectiveTheme = legacyThemeMap[theme] || theme;
 
     const campaign = models.getMeteoricCampaign();
-    const formattedTimeline = scripts.map((s, i) => {
-      const parsedText = models.parseSpintax(s.text || s.message || '', {
-        link: `http://localhost:3000/l/vip`,
-        produto: campaign?.name || 'Oferta VIP'
-      });
-      return {
-        step: i + 1,
-        speaker: s.speaker || `Sub-Bot ${i + 1}`,
-        delaySeconds: s.delay || (i * delaySeconds + 2),
-        text: parsedText
-      };
+    const armyService = require('./whatsappArmyService');
+    const allArmy = armyService.getAllAccounts();
+
+    // Filtra instâncias caso o usuário tenha selecionado IDs específicos
+    let activeArmy = allArmy;
+    if (subBotIds) {
+      const allowedIds = String(subBotIds).split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean);
+      if (allowedIds.length > 0) {
+        activeArmy = allArmy.filter(a => allowedIds.includes(Number(a.id)));
+      }
+    }
+
+    const generated = meteoricDialogueEngine.generateDialogue({
+      theme: effectiveTheme,
+      tone,
+      count,
+      targetGroupJid,
+      customScripts,
+      delaySeconds,
+      armyInstances: activeArmy,
+      vars: {
+        link: this.getMeteoricPublicLink(),
+        produto: campaign?.name || 'Oferta VIP',
+        desconto: '50% de Desconto'
+      }
     });
+
+    const formattedTimeline = generated.timeline;
 
     if (dryRun) {
       return {
         success: true,
         dryRun: true,
-        theme,
+        theme: effectiveTheme,
+        tone,
         targetGroupJid: targetGroupJid || 'preview_screen',
         dialogueCount: formattedTimeline.length,
         timeline: formattedTimeline
       };
     }
 
-    // Executa em grupo real
-    const armyService = require('./whatsappArmyService');
-    const allArmy = armyService.getAllAccounts();
-    const availableSubBots = allArmy.filter(a => a.id !== 1 && (a.status === 'CONNECTED' || a.isConnected));
-
-    let targetJid = targetGroupJid;
-    if (!targetJid || targetJid === 'all') {
-      const activeGrp = models.getActiveMeteoricGroup();
-      if (activeGrp) targetJid = activeGrp.group_jid;
+    // Execução real em grupos do WhatsApp
+    let targetJids = [];
+    if (!targetGroupJid || targetGroupJid === 'all') {
+      const allGroups = models.getMeteoricGroups(campaign ? campaign.id : 1);
+      targetJids = allGroups.map(g => g.group_jid);
+      if (targetJids.length === 0) {
+        const activeGrp = models.getActiveMeteoricGroup();
+        if (activeGrp) targetJids = [activeGrp.group_jid];
+      }
+    } else if (targetGroupJid !== 'preview_only') {
+      targetJids = [targetGroupJid];
     }
 
-    if (targetJid && targetJid !== 'preview_only') {
+    // Prepara sub-bots disponíveis para envio real
+    const availableSubBots = [];
+    if (armyService.activeSockets) {
+      for (const [id, s] of armyService.activeSockets.entries()) {
+        if (id !== 1) {
+          availableSubBots.push({ id, sock: s });
+        }
+      }
+    }
+    // Adiciona instâncias cadastradas no banco mesmo sem socket aberto (modo simulação/teste)
+    allArmy.forEach(inst => {
+      if (inst.id !== 1 && !availableSubBots.some(b => Number(b.id) === Number(inst.id))) {
+        availableSubBots.push(inst);
+      }
+    });
+
+    for (const jid of targetJids) {
       const scriptItems = formattedTimeline.map(item => ({
-        speaker: 'subbot_any',
-        delay: item.delaySeconds,
+        subBotId: item.subBotId,
+        speaker: item.speaker,
+        stepDelay: item.stepDelay,
+        delay: item.stepDelay,
         text: item.text
       }));
 
-      this.scheduleSubBotDialogue(targetJid, scriptItems, availableSubBots, {
-        link: `http://localhost:3000/l/vip`,
+      this.scheduleSubBotDialogue(jid, scriptItems, availableSubBots, {
+        link: this.getMeteoricPublicLink(),
         produto: campaign?.name || 'Oferta VIP'
       });
 
       models.logMeteoricActivity({
         campaign_id: campaign ? campaign.id : 1,
-        group_jid: targetJid,
+        group_jid: jid,
         event_type: 'SUBBOT_SIMULATION',
-        sender_name: 'Sub-Bots (Simulador)',
-        message_text: `Simulação de diálogo (${theme}) disparada com ${scriptItems.length} falas`
+        sender_name: 'Sub-Bots (Injetor de Conversas)',
+        message_text: `Injeção de diálogo (${effectiveTheme} / ${tone}) disparada com ${scriptItems.length} falas humanas para o exército`
       });
     }
 
     return {
       success: true,
       dryRun: false,
-      theme,
-      targetGroupJid: targetJid,
+      theme: effectiveTheme,
+      tone,
+      targetGroupsCount: targetJids.length,
       dialogueCount: formattedTimeline.length,
       timeline: formattedTimeline
     };
@@ -781,6 +923,181 @@ class MeteoricService {
     }
 
     return leads;
+  }
+
+  // ==========================================
+  // 6. PAPÉIS DOS SUB-BOTS & MOVIMENTAÇÃO DE COMPRADORES PARA GRUPO VIP
+  // ==========================================
+  getRolesConfig() {
+    const campaign = models.getMeteoricCampaign();
+    const product = models.getProductById(campaign.product_id || 1);
+
+    return {
+      campaign_id: campaign.id,
+      product_id: campaign.product_id || 1,
+      product_name: product?.name || 'Produto Principal',
+      admin_subbot_id: campaign.admin_subbot_id || 1,
+      buyer_subbot_ids: campaign.buyer_subbot_ids || '',
+      buyers_group_jid: campaign.buyers_group_jid || product?.buyers_group_jid || '',
+      buyers_group_invite_url: campaign.buyers_group_invite_url || product?.buyers_group_invite_url || '',
+      buyers_group_admin_id: campaign.buyers_group_admin_id || product?.buyers_group_admin_id || 1,
+      buyers_group_workflow: campaign.buyers_group_workflow || product?.buyers_group_workflow || '',
+      auto_move_buyers: campaign.auto_move_buyers !== 0
+    };
+  }
+
+  updateRolesConfig(updates = {}) {
+    const payload = {};
+    if (updates.product_id !== undefined) payload.product_id = parseInt(updates.product_id, 10) || 1;
+    if (updates.admin_subbot_id !== undefined) payload.admin_subbot_id = parseInt(updates.admin_subbot_id, 10) || 1;
+    if (updates.buyer_subbot_ids !== undefined) payload.buyer_subbot_ids = String(updates.buyer_subbot_ids).trim();
+    if (updates.buyers_group_jid !== undefined) payload.buyers_group_jid = String(updates.buyers_group_jid).trim();
+    if (updates.buyers_group_invite_url !== undefined) payload.buyers_group_invite_url = String(updates.buyers_group_invite_url).trim();
+    if (updates.buyers_group_admin_id !== undefined) payload.buyers_group_admin_id = parseInt(updates.buyers_group_admin_id, 10) || 1;
+    if (updates.buyers_group_workflow !== undefined) payload.buyers_group_workflow = String(updates.buyers_group_workflow).trim();
+    if (updates.auto_move_buyers !== undefined) payload.auto_move_buyers = updates.auto_move_buyers ? 1 : 0;
+
+    models.updateMeteoricCampaign(payload);
+
+    // Se um product_id foi indicado, sincroniza também os campos no produto correspondente
+    if (payload.product_id) {
+      try {
+        models.updateProduct(payload.product_id, {
+          buyers_group_jid: payload.buyers_group_jid,
+          buyers_group_invite_url: payload.buyers_group_invite_url,
+          buyers_group_admin_id: payload.buyers_group_admin_id,
+          buyers_group_workflow: payload.buyers_group_workflow
+        });
+      } catch (_) {}
+    }
+
+    return this.getRolesConfig();
+  }
+
+  async handleLeadPurchase(order) {
+    if (!order) return { success: false, reason: 'ORDER_NULL' };
+
+    const whatsappBot = require('../bots/whatsappBot');
+    const whatsappArmyService = require('./whatsappArmyService');
+
+    const campaign = models.getMeteoricCampaign();
+    const product = models.getProductById(order.product_id);
+
+    // Prioriza configuração específica do produto; fallback para a campanha meteórica
+    const buyersGroupJid = (product?.buyers_group_jid || campaign.buyers_group_jid || '').trim();
+    const buyersGroupInvite = (product?.buyers_group_invite_url || campaign.buyers_group_invite_url || '').trim();
+    const buyersAdminId = product?.buyers_group_admin_id || campaign.buyers_group_admin_id || 1;
+    const workflowInstructions = (product?.buyers_group_workflow || campaign.buyers_group_workflow || '').trim();
+
+    if (!buyersGroupJid && !buyersGroupInvite) {
+      return { success: true, handled: false, reason: 'NO_BUYERS_GROUP_CONFIGURED' };
+    }
+
+    const customerPhone = String(order.platform_user_id || order.phone || '').replace(/\D/g, '');
+    if (!customerPhone) return { success: false, reason: 'INVALID_PHONE' };
+    const buyerJid = `${customerPhone}@s.whatsapp.net`;
+    const customerName = order.platform_user_name || order.customer_name || 'Cliente VIP';
+    const prodName = product?.name || campaign.name || 'Produto VIP';
+
+    // Obtém o socket do Sub-Bot Administrador exclusivo do Grupo de Compradores
+    let buyersAdminSock = null;
+    let adminLabel = 'Admin Compradores (Matriz)';
+    if (buyersAdminId && buyersAdminId !== 1 && whatsappArmyService.activeSockets?.has(Number(buyersAdminId))) {
+      buyersAdminSock = whatsappArmyService.activeSockets.get(Number(buyersAdminId));
+      adminLabel = `Sub-Bot #${buyersAdminId} (Admin Compradores)`;
+    } else {
+      buyersAdminSock = whatsappBot.sock;
+    }
+
+    const result = {
+      success: true,
+      buyerJid,
+      customerName,
+      productName: prodName,
+      buyersGroupJid,
+      buyersGroupInvite,
+      adminAssigned: adminLabel,
+      directAdded: false,
+      inviteSent: false,
+      onboardingWorkflowExecuted: false
+    };
+
+    // 1. Adiciona o comprador diretamente ao Grupo de Compradores se o JID for de grupo
+    if (buyersGroupJid && buyersGroupJid.endsWith('@g.us') && buyersAdminSock && typeof buyersAdminSock.groupParticipantsUpdate === 'function') {
+      try {
+        const updateRes = await buyersAdminSock.groupParticipantsUpdate(buyersGroupJid, [buyerJid], 'add');
+        if (updateRes && Array.isArray(updateRes) && updateRes[0]?.status === '200') {
+          result.directAdded = true;
+          console.log(`[Meteórico 👑 Movimentação] Comprador ${customerPhone} adicionado diretamente ao Grupo de Compradores VIP ${buyersGroupJid}!`);
+        }
+      } catch (addErr) {
+        console.warn(`[Meteórico ⚠️ Adição direta ao Grupo VIP]:`, addErr.message);
+      }
+    }
+
+    // 2. Envia mensagem privada VIP ao comprador com o link oficial e boas-vindas do novo admin
+    const inviteUrlToUse = buyersGroupInvite || (result.directAdded ? null : 'Acesso VIP Liberado');
+    const privateVipMessage =
+      `👑 *PARABÉNS PELA COMPRA, ${customerName.toUpperCase()}!* 🎉\n\n` +
+      `Seu pagamento para *${prodName}* foi 100% confirmado!\n\n` +
+      `Você acaba de ser promovido para o nosso *Grupo Exclusivo de Compradores VIP*.\n` +
+      (inviteUrlToUse ? `👉 *Entre no Grupo VIP de Clientes pelo link abaixo:*\n${inviteUrlToUse}\n\n` : '') +
+      `Lá você terá acompanhamento prioritário e todas as orientações operacionais do produto pelo Administrador exclusivo da turma.\n\n` +
+      `Estamos muito felizes em ter você conosco!`;
+
+    try {
+      if (buyersAdminSock && typeof buyersAdminSock.sendMessage === 'function') {
+        await buyersAdminSock.sendMessage(buyerJid, { text: privateVipMessage });
+        result.inviteSent = true;
+      } else if (whatsappBot.sock && whatsappBot.isConnected) {
+        await whatsappBot.sendMessage(buyerJid, privateVipMessage);
+        result.inviteSent = true;
+      }
+    } catch (msgErr) {
+      console.warn(`[Meteórico ⚠️ Erro ao enviar convite VIP privado]:`, msgErr.message);
+    }
+
+    // 3. Executa a tarefa do novo Admin no Grupo de Compradores (Onboarding & Fluxo Operacional Único)
+    if (buyersGroupJid && buyersGroupJid.endsWith('@g.us')) {
+      const defaultWorkflow =
+        `👋 *SEJA BEM-VINDO(A) AO GRUPO VIP DE COMPRADORES!* 🚀\n\n` +
+        `Recebemos a confirmação de entrada do(a) *${customerName}*!\n\n` +
+        `📋 *Fluxo Operacional do Produto:* \n` +
+        `1. Seus acessos e credenciais já foram liberados;\n` +
+        `2. Assista às instruções fixadas no topo do grupo;\n` +
+        `3. Qualquer dúvida operacional, basta me marcar como Admin aqui no grupo que te guiarei passo a passo!`;
+
+      const finalWorkflowText = models.parseSpintax(workflowInstructions || defaultWorkflow, {
+        nome: customerName,
+        produto: prodName,
+        telefone: customerPhone
+      });
+
+      try {
+        if (buyersAdminSock && typeof buyersAdminSock.sendMessage === 'function') {
+          setTimeout(async () => {
+            try {
+              await buyersAdminSock.sendMessage(buyersGroupJid, { text: finalWorkflowText });
+            } catch (_) {}
+          }, 3500);
+          result.onboardingWorkflowExecuted = true;
+        }
+      } catch (wfErr) {
+        console.warn(`[Meteórico ⚠️ Erro ao postar fluxo operacional no grupo de compradores]:`, wfErr.message);
+      }
+    }
+
+    // 4. Registra no log de atividades do Lançamento Meteórico
+    models.logMeteoricActivity({
+      campaign_id: campaign.id,
+      group_jid: buyersGroupJid || null,
+      group_title: 'Grupo VIP de Compradores',
+      event_type: 'BUYER_MOVED_TO_VIP',
+      sender_name: adminLabel,
+      message_text: `Cliente ${customerName} (+${customerPhone}) promovido ao Grupo de Compradores VIP do produto ${prodName}.`
+    });
+
+    return result;
   }
 }
 

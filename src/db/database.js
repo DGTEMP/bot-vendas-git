@@ -637,6 +637,7 @@ function initDatabase() {
       cta TEXT,
       hashtags TEXT,
       media_suggestion TEXT,
+      media_url TEXT,
       full_content TEXT NOT NULL,
       status TEXT DEFAULT 'READY', -- 'READY', 'PUBLISHED', 'ARCHIVED'
       published_at DATETIME,
@@ -1022,6 +1023,71 @@ function initDatabase() {
       expires_at DATETIME NOT NULL
     );
 
+    -- =========================================================================
+    -- 45. NÚCLEO DE INTELIGÊNCIA COGNITIVA & APRENDIZADO COLETIVO MULTI-NICHO
+    -- =========================================================================
+    CREATE TABLE IF NOT EXISTS intelligence_core_learnings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      niche TEXT NOT NULL,
+      interaction_tone TEXT DEFAULT 'consultivo',
+      ai_provider TEXT,
+      ai_model TEXT,
+      lead_phone TEXT,
+      user_input TEXT,
+      bot_response TEXT,
+      detected_intent TEXT,
+      detected_objection TEXT,
+      resolved_objection INTEGER DEFAULT 0,
+      buying_stage TEXT,
+      conversion_signal INTEGER DEFAULT 0,
+      order_id TEXT,
+      order_amount REAL,
+      feedback_score REAL DEFAULT 1.0,
+      learned_insight TEXT,
+      source TEXT DEFAULT 'whatsapp',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS intelligence_niche_patterns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      niche TEXT NOT NULL,
+      pattern_type TEXT NOT NULL, -- 'OBJECTION_REVERSAL', 'WINNING_PITCH', 'FREQUENT_QUESTION', 'HIGH_CONVERTING_HOOK'
+      trigger_topic TEXT,
+      canonical_response TEXT,
+      success_count INTEGER DEFAULT 1,
+      tested_models TEXT DEFAULT '[]', -- JSON array of model names
+      avg_confidence REAL DEFAULT 0.85,
+      last_applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(niche, pattern_type, trigger_topic)
+    );
+
+    -- =========================================================================
+    -- 46. GERENTE GERAL DA OPERAÇÃO & ÁRBITRO DO SISTEMA (NÚCLEO ISOLADO)
+    -- =========================================================================
+    CREATE TABLE IF NOT EXISTS operations_arbiter_audits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      health_score INTEGER NOT NULL,
+      verdict TEXT NOT NULL,
+      subsystems_status TEXT NOT NULL,
+      anomalies_detected TEXT DEFAULT '[]',
+      auto_heal_actions TEXT DEFAULT '[]',
+      ai_diagnosis TEXT,
+      ai_provider_used TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS operations_arbiter_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      subsystem TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      details TEXT,
+      resolved INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
 
   // Migrações seguras
@@ -1053,6 +1119,7 @@ function initDatabase() {
     'ALTER TABLE meteoric_stages ADD COLUMN auto_execute INTEGER DEFAULT 0;',
     'ALTER TABLE meteoric_stages ADD COLUMN media_url TEXT;',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN is_business INTEGER DEFAULT 0;',
+    'ALTER TABLE viral_generated_posts ADD COLUMN media_url TEXT;',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN business_catalog_synced INTEGER DEFAULT 0;',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN catalog_products TEXT DEFAULT "[]";',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN role TEXT DEFAULT "LEAD_OUTREACH";',
@@ -1068,13 +1135,20 @@ function initDatabase() {
     'ALTER TABLE group_protection_settings ADD COLUMN blocked_commands TEXT DEFAULT "[]";',
     'ALTER TABLE group_protection_settings ADD COLUMN group_rules TEXT DEFAULT "";',
     'ALTER TABLE group_protection_settings ADD COLUMN blacklist_numbers TEXT DEFAULT "[]";',
+    'ALTER TABLE group_protection_settings ADD COLUMN posting_active INTEGER DEFAULT 1;',
     'ALTER TABLE zapvoice_quick_messages ADD COLUMN trigger_keywords TEXT DEFAULT "";',
     'ALTER TABLE zapvoice_funnels ADD COLUMN description TEXT DEFAULT "";',
     'ALTER TABLE products ADD COLUMN tenant_id INTEGER;',
     'ALTER TABLE orders ADD COLUMN tenant_id INTEGER;',
     'ALTER TABLE whatsapp_army_instances ADD COLUMN tenant_id INTEGER;',
     'ALTER TABLE settings ADD COLUMN tenant_id INTEGER;',
-    'ALTER TABLE companies ADD COLUMN tenant_id INTEGER;'
+    'ALTER TABLE companies ADD COLUMN tenant_id INTEGER;',
+    'ALTER TABLE lead_cognitive_profiles ADD COLUMN prefers_audio INTEGER DEFAULT 0;',
+    'ALTER TABLE lead_cognitive_profiles ADD COLUMN preferred_channel TEXT DEFAULT "text";',
+    'ALTER TABLE saas_tenants ADD COLUMN niche TEXT DEFAULT "vendedores";',
+    'ALTER TABLE saas_tenants ADD COLUMN interaction_tone TEXT DEFAULT "consultivo";',
+    'ALTER TABLE saas_tenants ADD COLUMN onboarding_completed INTEGER DEFAULT 0;',
+    'ALTER TABLE saas_tenants ADD COLUMN onboarding_data TEXT;'
   ];
 
   for (const m of migrations) {
@@ -1143,7 +1217,12 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_saas_sess_token ON saas_tenant_sessions(token);',
     'CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id);',
     'CREATE INDEX IF NOT EXISTS idx_orders_tenant ON orders(tenant_id);',
-    'CREATE INDEX IF NOT EXISTS idx_army_tenant ON whatsapp_army_instances(tenant_id);'
+    'CREATE INDEX IF NOT EXISTS idx_army_tenant ON whatsapp_army_instances(tenant_id);',
+    'CREATE INDEX IF NOT EXISTS idx_intel_niche ON intelligence_core_learnings(niche);',
+    'CREATE INDEX IF NOT EXISTS idx_intel_model ON intelligence_core_learnings(ai_provider, ai_model);',
+    'CREATE INDEX IF NOT EXISTS idx_intel_conv ON intelligence_core_learnings(conversion_signal);',
+    'CREATE INDEX IF NOT EXISTS idx_intel_phone ON intelligence_core_learnings(lead_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_niche_pat_type ON intelligence_niche_patterns(niche, pattern_type);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
@@ -1151,6 +1230,17 @@ function initDatabase() {
 
   // Configurações padrão
   const defaultSettings = [
+    ['OPERATIONS_MANAGER_ENABLED', 'true'],
+    ['OPERATIONS_AUTO_HEAL_ENABLED', 'true'],
+    ['COMFYART_ENABLED', 'true'],
+    ['COMFYART_ENDPOINT', 'http://127.0.0.1:8188'],
+    ['COMFYART_REPO_URL', 'https://github.com/jtydhr88/ComfyArt.git'],
+    ['CREATIVEFIELD_ENABLED', 'true'],
+    ['CREATIVEFIELD_ENDPOINT', 'http://127.0.0.1:8787'],
+    ['CREATIVEFIELD_REPO_URL', 'https://github.com/rhymeas/Creativefield.git'],
+    ['OPERATIONS_AUDIT_INTERVAL_SEC', '60'],
+    ['OPERATIONS_ALERT_OWNER_ON_CRITICAL', 'true'],
+    ['GLOBAL_SODIVU', 'false'],
     ['GATEWAY_PIX_ENABLED', 'true'],
     ['GATEWAY_BINANCE_ENABLED', 'true'],
     ['GATEWAY_LIVEPIX_ENABLED', 'false'],
@@ -2101,6 +2191,178 @@ function initDatabase() {
         25
       );
     }
+  } catch (_) {}
+
+  // 42. Tabela de Grupos Banidos / Sentinela Silenciosa (!bangp / Modo Stealth)
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS group_stealth_bans (
+        group_jid TEXT PRIMARY KEY,
+        group_name TEXT,
+        banned_by TEXT,
+        banned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        reason TEXT,
+        active INTEGER DEFAULT 1
+      );
+      CREATE INDEX IF NOT EXISTS idx_group_stealth_bans_active ON group_stealth_bans(active);
+    `);
+  } catch (_) {}
+
+  // ==========================================
+  // 45. INFRAESTRUTURA DE DIVULGAÇÃO & TRÁFEGO ESCALÁVEL (5 PILARES)
+  // ==========================================
+  try {
+    // PILAR 1: Roteador de Links & Cloaking com Rastreamento UTM
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS tracked_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT UNIQUE NOT NULL,
+        title TEXT NOT NULL,
+        destination_url TEXT NOT NULL,
+        platform TEXT DEFAULT 'Outro',
+        cloaking_mode TEXT DEFAULT 'meta_refresh',
+        og_title TEXT,
+        og_description TEXT,
+        og_image TEXT,
+        subbot_id INTEGER,
+        group_jid TEXT,
+        source TEXT DEFAULT 'achadinhos',
+        clicks_count INTEGER DEFAULT 0,
+        active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_tracked_links_slug ON tracked_links(slug);
+
+      CREATE TABLE IF NOT EXISTS tracked_link_clicks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        link_id INTEGER REFERENCES tracked_links(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL,
+        ip TEXT,
+        user_agent TEXT,
+        referrer TEXT,
+        subbot_id INTEGER,
+        group_jid TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_tracked_clicks_link ON tracked_link_clicks(link_id);
+    `);
+
+    // PILAR 2: Recuperação de Carrinho Abandonado Web - Migração de Colunas
+    const cartCols = [
+      "ALTER TABLE web_cart_sessions ADD COLUMN subbot_id INTEGER",
+      "ALTER TABLE web_cart_sessions ADD COLUMN recovery_step1_sent INTEGER DEFAULT 0",
+      "ALTER TABLE web_cart_sessions ADD COLUMN recovery_step1_at DATETIME",
+      "ALTER TABLE web_cart_sessions ADD COLUMN recovery_step2_sent INTEGER DEFAULT 0",
+      "ALTER TABLE web_cart_sessions ADD COLUMN recovery_step2_at DATETIME",
+      "ALTER TABLE web_cart_sessions ADD COLUMN recovery_coupon_code TEXT",
+      "ALTER TABLE web_cart_sessions ADD COLUMN recovered INTEGER DEFAULT 0",
+      "ALTER TABLE web_cart_sessions ADD COLUMN recovered_at DATETIME"
+    ];
+    for (const sql of cartCols) {
+      try { db.exec(sql); } catch (_) {}
+    }
+
+    // PILAR 3: Régua de Aquecimento de Chips Novos (Warmup Pipeline 7 Dias)
+    try {
+      db.exec("ALTER TABLE whatsapp_army_instances ADD COLUMN warmup_stage TEXT DEFAULT 'MADURO'");
+    } catch (_) {}
+    try {
+      db.exec("ALTER TABLE whatsapp_army_instances ADD COLUMN warmup_started_at DATETIME");
+    } catch (_) {}
+    try {
+      db.exec(`ALTER TABLE whatsapp_army_instances ADD COLUMN enabled_features TEXT DEFAULT '{"ai":true,"group_posts":true,"pv_chat":true,"audio_voice":true,"media_dl":true,"stickers":true,"games":true,"moderation":true,"auto_heating":true}'`);
+    } catch (_) {}
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS subbot_warmup_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        instance_id INTEGER REFERENCES whatsapp_army_instances(id) ON DELETE CASCADE,
+        day_number INTEGER DEFAULT 1,
+        stage TEXT DEFAULT 'FRIO',
+        p2p_sent_today INTEGER DEFAULT 0,
+        group_posts_today INTEGER DEFAULT 0,
+        max_posts_allowed INTEGER DEFAULT 0,
+        last_p2p_at DATETIME,
+        date TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(instance_id, date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_warmup_logs_inst ON subbot_warmup_logs(instance_id);
+    `);
+
+    // PILAR 4: Repurposing de Vídeos Virais (Reels/TikTok -> Status & Achadinhos)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS viral_repurposed_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_url TEXT NOT NULL,
+        platform TEXT DEFAULT 'instagram',
+        original_title TEXT,
+        original_caption TEXT,
+        video_path TEXT,
+        product_name TEXT,
+        product_url TEXT,
+        hook_copy TEXT,
+        body_copy TEXT,
+        cta_copy TEXT,
+        final_caption TEXT,
+        target_destinations TEXT DEFAULT 'status',
+        status TEXT DEFAULT 'DRAFT',
+        scheduled_at DATETIME,
+        published_at DATETIME,
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // PILAR 5: Indique & Ganhe (Member-Get-Member nos Grupos)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS group_member_referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_jid TEXT NOT NULL,
+        referrer_jid TEXT NOT NULL,
+        invited_jid TEXT NOT NULL,
+        invite_code TEXT,
+        status TEXT DEFAULT 'CONFIRMED',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(group_jid, invited_jid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_referrals_group_ref ON group_member_referrals(group_jid, referrer_jid);
+
+      CREATE TABLE IF NOT EXISTS group_member_rewards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_jid TEXT NOT NULL,
+        referrer_jid TEXT NOT NULL,
+        milestone INTEGER NOT NULL,
+        reward_type TEXT DEFAULT 'coupon_15',
+        reward_payload TEXT,
+        delivered_to_pv INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(group_jid, referrer_jid, milestone)
+      );
+    `);
+  } catch (err) {
+    console.warn('[Database ⚠️ Erro ao registrar tabelas dos 5 Pilares de Divulgação]:', err.message);
+  }
+
+  try {
+    db.prepare(`
+      INSERT INTO products (
+        id, name, description, price, price_brl, price_usdt,
+        currency, type, duration_days, category, active, stock_qty, profit_margin_percent, smart_tag
+      ) VALUES (
+        2137,
+        'PayBot WhatsApp - Mensal (Atendimento & Vendas)',
+        'Atendimento inteligente e vendas automáticas 24h no WhatsApp com Pix instantâneo e vitrine inclusa (plano mensal).',
+        69.90, 69.90, 14.00,
+        'BRL', 'SUBSCRIPTION', 30, 'Automação', 1, 999, 90, 'ALTA_MARGEM'
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        active = 1,
+        price = 69.90,
+        price_brl = 69.90,
+        name = 'PayBot WhatsApp - Mensal (Atendimento & Vendas)',
+        category = 'Automação'
+    `).run();
   } catch (_) {}
 
   console.log('✅ Banco de dados atualizado com Times de Vendedores, Afiliados, Redes Sociais, Radar Viral, Catálogo Oficial Tech, CRM Cognitivo e ZapVoice 2025!');

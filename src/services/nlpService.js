@@ -81,6 +81,16 @@ class NaturalLanguageService {
       return { intent: 'CONFIRM_PURCHASE', confidence: 0.98 };
     }
 
+    // 1.5 Confirmação Afirmativa / Resposta Positiva ao Fechamento / Enviar Pix
+    if (/^(?:sim|quero|pode\s+(?:mandar|gerar|ser|fazer)|manda(?:\s+(?:a[ií]|aqui|o\s+pix|bala))?|gera(?:\s+(?:a[ií]|aqui|o\s+pix))?|passa(?:\s+(?:a[ií]|aqui|o\s+pix))?|fechado|bora|beleza|claro|com\s+certeza|topo|vamos\s+fechar)(?:[\s,]+(?:sim|quero|pode|mandar|gerar|ser|fazer|manda|gera|o\s+pix|bala|a[ií]|aqui|por\s+favor|pfv|amigo|bora|fechado))*[!?.\s]*$/i.test(normalized)) {
+      return { intent: 'AFFIRMATIVE_CONFIRMATION', confidence: 0.96 };
+    }
+
+    // 1.6 Seleção de Plano ou Opção Específica (Mensal / Anual / Vitalício)
+    if (/(?:quero\s*(?:o\s*)?)?(?:o\s*)?(?:plano\s*)?(?:mensal|anual|vital[ií]cio|trimestral|de\s*69(?:\b|,|9)|de\s*70|de\s*497|de\s*49(?:\b|,|9)|de\s*50|de\s*299|de\s*129|de\s*130|o\s*primeiro|o\s*segundo|o\s*1|o\s*2)\b/i.test(normalized)) {
+      return { intent: 'PLAN_SELECTION', confidence: 0.95 };
+    }
+
     // 2. Aceite de Upsell pós-venda
     if (/(quero o combo|quero up|quero o desconto|levar os dois|adiciona o vip|aceito a oferta|adicionar o outro|quero aproveitar a promocao|sim up|manda o combo|quero a oferta)/i.test(normalized)) {
       return { intent: 'UPSELL_ACCEPT', confidence: 0.95 };
@@ -111,28 +121,48 @@ class NaturalLanguageService {
       return { intent: 'BUY_INTENT', confidence: 0.95 };
     }
 
-    // 8. Consulta de Preço / Valores
+    // 8. Aluguel de Bot para Grupos
+    if (/(?:aluguel\s+de\s+bot|alugar\s+bot|bot\s+para\s+grupo|bot\s+de\s+grupo|bot\s+pra\s+grupo|proteger\s+meu\s+grupo|antitrava|anti-trava|antilink\s+de\s+grupo|colocar\s+bot\s+no\s+grupo|planos?\s+do\s+bot|mensalidade\s+do\s+bot|aluguel\s+mensal|\baluguel\b)/i.test(normalized)) {
+      return { intent: 'RENTAL_QUERY', confidence: 0.94 };
+    }
+
+    // 9. Software e Aplicativos Sob Medida
+    if (/(?:(?:software|sistema|app|aplicativo|bot)\s+sob\s+medida|(?:criar|desenvolver|desenvolvem|faz|fazer|programar|construir)\s+(?:um\s+)?(?:software|sistema|app|aplicativo|bot|site)|desenvolvimento|app\s+mobile|aplicativo\s+android|agendar\s+call|reuni[aã]o\s+t[eé]cnica|\bcall\b)/i.test(normalized)) {
+      return { intent: 'CUSTOM_SOFTWARE_QUERY', confidence: 0.93 };
+    }
+
+    // 10. Dúvida de Teste / Demonstração
+    if (/(?:tem\s+teste|posso\s+testar|tem\s+demonstra[cç][aã]o|vers[aã]o\s+de\s+teste|teste\s+gr[aá]tis|tem\s+demo|posso\s+ver\s+funcionando|tem\s+como\s+testar|testar\s+antes|\bteste\b|\bdemo\b)/i.test(normalized)) {
+      return { intent: 'TEST_QUERY', confidence: 0.93 };
+    }
+
+    // 11. Consulta de Pedidos / Rastreio / Licença
+    if (/(?:onde\s+t[aá]\s+meu\s+pedido|meus\s+pedidos|status\s+do\s+pedido|minha\s+compra|minha\s+chave|cad[eê]\s+minha\s+licen[cç]a|ver\s+meu\s+pedido|rastrear\s+pedido|\brastreio\b|\bpedidos\b)/i.test(normalized)) {
+      return { intent: 'ORDER_STATUS_QUERY', confidence: 0.93 };
+    }
+
+    // 12. Consulta de Preço / Valores
     if (/(quanto custa|qual o valor|quanto ta saindo|ta quanto|\bpreco\b|quanto fica|qual o investimento|quanto e|quanto ta|valor do|qual e o preco|qual valor|quanto que e|\bvalores\b)/i.test(normalized)) {
       return { intent: 'PRICE_QUERY', confidence: 0.93 };
     }
 
-    // 9. Como Funciona / Explicação do Produto / Me conta mais
+    // 13. Como Funciona / Explicação do Produto / Me conta mais
     if (/(como funciona|o que vem|como recebo|e imediato|entrega na hora|como e feita a entrega|funciona no celular|funciona no iphone|explica como funciona|detalhes do produto|o que inclui|como recebo os acessos|me conta mais|me fala mais|conta mais sobre|fala mais sobre|quero saber mais|me explica mais|explica mais|do que se trata|o que e isso|como e esse|como e essa)/i.test(normalized)) {
       return { intent: 'HOW_IT_WORKS', confidence: 0.92 };
     }
 
-    // 10. Consulta de Catálogo / Cardápio / Planos
+    // 14. Consulta de Catálogo / Cardápio / Planos
     if (/(quais os produtos|o que voces vendem|cardapio|tabela de precos|quais planos|me mostra o que tem|opcoes de produtos|produtos disponiveis|ver catalogo|menu|inicio|ver planos|o que tem disponivel|\bcatalogo\b|\bprodutos\b)/i.test(normalized)) {
       return { intent: 'CATALOG_QUERY', confidence: 0.92 };
     }
 
-    // 11. Suporte Humano / Ajuda
+    // 15. Suporte Humano / Ajuda
     if (/(falar com atendente|falar com suporte|humano|atendimento|ajuda|nao estou conseguindo|deu erro|problema com meu acesso|preciso de ajuda|\bsuporte\b|\batendente\b)/i.test(normalized)) {
       return { intent: 'SUPPORT_HUMAN', confidence: 0.92 };
     }
 
-    // 12. Saudações / Cumprimentos
-    if (/(ola|oi|e ai|bom dia|boa tarde|boa noite|opa|salve|fala|tudo bem|como vai)/i.test(normalized)) {
+    // 16. Saudações / Cumprimentos
+    if (/(?:ol[aá]|oi|e\s*a[ií]|bom\s*dia|boa\s*tarde|boa\s*noite|opa|salve|fala|tudo\s*bem|como\s*vai)/i.test(normalized)) {
       return { intent: 'GREETING', confidence: 0.88 };
     }
 
@@ -143,34 +173,93 @@ class NaturalLanguageService {
   // ==============================================================
   // 3. EXTRAÇÃO DE ENTIDADES (PRODUTO, CUPOM, AFILIADO)
   // ==============================================================
-  extractEntities(normalized, originalText) {
-    const products = models.getProducts(true);
+  extractEntities(normalized, originalText, customProducts = null) {
+    const products = (Array.isArray(customProducts) && customProducts.length > 0)
+      ? customProducts
+      : models.getProducts(true);
     let matchedProduct = null;
     let extractedNumber = null;
 
-    // Detecta menção a número de produto (ex: "o 1", "produto 2", "plano 3")
-    const numMatch = normalized.match(/(?:produto|plano|item|opcao|o)\s*([1-9]\d?)\b/) || normalized.match(/\b([1-9]\d?)\b/);
-    if (numMatch) {
-      const idx = parseInt(numMatch[1], 10);
+    // Detecta menção a número de produto (apenas se a mensagem for exclusivamente o número ou se tiver prefixo explícito de produto/opção)
+    const isOnlyNumber = /^\s*([1-9]\d?)\s*$/.test(normalized);
+    const explicitNumMatch = normalized.match(/(?:produto|plano|item|op[cç][aã]o|n[uú]mero|n[ºo]|\bo\b|\bpro\b|\bpra\b|\bpara\b|\bdo\b|\bda\b)\s*([1-9]\d?)\b/i);
+
+    if (isOnlyNumber) {
+      const idx = parseInt(normalized.trim(), 10);
+      if (idx > 0 && idx <= products.length) {
+        matchedProduct = products[idx - 1];
+        extractedNumber = idx;
+      }
+    } else if (explicitNumMatch) {
+      const idx = parseInt(explicitNumMatch[1], 10);
       if (idx > 0 && idx <= products.length) {
         matchedProduct = products[idx - 1];
         extractedNumber = idx;
       }
     }
 
-    // Se não encontrou por número, busca por semelhança no nome/categoria do produto
+    // Se não encontrou por número, busca por semelhança no nome/categoria do produto usando palavras distintivas (evita falsos positivos com palavras genéricas como "bot", "pro", "ia")
     if (!matchedProduct && products.length > 0) {
+      const GENERIC_PRODUCT_STOPWORDS = new Set([
+        'bot', 'pro', 'app', 'para', 'com', 'sem', 'de', 'da', 'do', 'das', 'dos',
+        'em', 'um', 'uma', 'plano', 'licenca', 'licença', 'acesso', 'chave', 'grupo',
+        'sistema', 'software', 'digital', 'mensal', 'anual', 'vitalicio', 'vitalício',
+        'novo', 'mais', 'como', 'quem', 'qual', 'onde', 'quando', 'sobre', 'esse',
+        'essa', 'este', 'esta', 'meu', 'minha', 'seu', 'sua', 'loja', 'teste', 'geral',
+        'base', 'curso', 'oficial', 'premium', 'ultra', 'especial', 'edicao', 'edição',
+        'final', 'vendas', 'atendimento'
+      ]);
+
       for (const prod of products) {
         const prodNorm = this.normalizeText(prod.name);
-        const catNorm = this.normalizeText(prod.category || '');
-        
-        // Verifica se palavras relevantes do produto estão na mensagem (comprimento >= 3)
-        const prodKeywords = prodNorm.split(' ').filter(w => w.length >= 3);
-        const matchesKeyword = prodKeywords.some(kw => normalized.includes(kw));
-        
-        if (matchesKeyword || (catNorm && normalized.includes(catNorm))) {
+        const catNorm = (prod.category || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+        const distinctiveKeywords = prodNorm
+          .split(/\s+/)
+          .map(w => w.replace(/[^a-z0-9]/g, ''))
+          .filter(w => (w.length >= 3 && !GENERIC_PRODUCT_STOPWORDS.has(w)) || w === 'vip' || w === 'seo');
+
+        const matchesDistinctive = distinctiveKeywords.some(kw => {
+          const kwRegex = new RegExp('\\b' + kw + '\\b', 'i');
+          return kwRegex.test(normalized);
+        });
+
+        const matchesCategory = catNorm && catNorm.length >= 3 && !['ia', 'geral', 'auto', 'app'].includes(catNorm) &&
+          new RegExp('\\b' + catNorm + '\\b', 'i').test(normalized);
+
+        if (matchesDistinctive || matchesCategory) {
           matchedProduct = prod;
           break;
+        }
+      }
+
+      // Se a mensagem pede especificamente por automação ou bot de atendimento/vendas do WhatsApp e nenhum produto de nicho casou:
+      if (!matchedProduct && /(?:bot\s+de\s+vendas|bot\s+whatsapp|bot\s+de\s+atendimento|automa[cç][aã]o\s+whatsapp|rob[oô]\s+de\s+vendas|bot\s+para\s+loja|bot\s+pra\s+minha\s+loja)/i.test(normalized)) {
+        const flagshipBot = products.find(p => p.id === 842 || /SpyBot Pro|PayBot/i.test(p.name));
+        if (flagshipBot) matchedProduct = flagshipBot;
+      }
+
+      // Detecção inteligente de planos e opções selecionadas (Mensal, Anual, Vitalício, Grupos):
+      if (!matchedProduct) {
+        const isMensalSales = /(?:mensal|69|70|primeiro|\b1\b)/i.test(normalized) && !/(?:grupo|aluguel\s+mensal|49|50)/i.test(normalized);
+        const isAnualSales = /(?:anual|497|segundo|\b2\b)/i.test(normalized);
+        const isGrupoVitalicio = /(?:vital[ií]cio|vitalicio|299)/i.test(normalized);
+        const isGrupoTrimestral = /(?:trimestral|129|130)/i.test(normalized);
+        const isGrupoMensal = /(?:grupo.*mensal|aluguel.*mensal|49|50)/i.test(normalized);
+
+        if (isMensalSales) {
+          matchedProduct = products.find(p => p.id === 2137) ||
+            products.find(p => !/(?:grupo|aluguel|prote[cç][aã]o)/i.test(p.name) && (p.price_brl >= 65 && p.price_brl <= 75)) ||
+            products.find(p => /mensal.*(?:vendas|atendimento)/i.test(p.name) || /paybot.*mensal/i.test(p.name)) ||
+            products.find(p => p.id === 2137 || (p.price_brl >= 65 && p.price_brl <= 75));
+        } else if (isAnualSales) {
+          matchedProduct = products.find(p => p.id === 842 || (p.price_brl >= 450 && p.price_brl <= 550) || /spybot|bot de vendas/i.test(p.name));
+        } else if (isGrupoVitalicio) {
+          matchedProduct = products.find(p => p.id === 1064 || p.price_brl === 299 || /vital[ií]cio/i.test(p.name));
+        } else if (isGrupoTrimestral) {
+          matchedProduct = products.find(p => p.id === 1063 || (p.price_brl >= 115 && p.price_brl <= 135) || /trimestral/i.test(p.name));
+        } else if (isGrupoMensal) {
+          matchedProduct = products.find(p => p.id === 1062 || (p.price_brl >= 45 && p.price_brl <= 55) || /aluguel mensal/i.test(p.name));
         }
       }
     }
@@ -206,7 +295,30 @@ class NaturalLanguageService {
   // ==============================================================
   // 4. PROCESSAMENTO INTEGRAL E GERAÇÃO DA RESPOSTA EM PT-BR
   // ==============================================================
-  async processMessage({ text, customerName = '', platform = 'whatsapp' }) {
+  async processMessage(input, options = {}) {
+    let text = '';
+    let customerName = '';
+    let platform = 'whatsapp';
+    let products = null;
+    let tenantId = null;
+    let instanceId = null;
+
+    if (typeof input === 'string') {
+      text = input;
+      customerName = options.customerName || options.senderName || options.name || '';
+      platform = options.platform || 'whatsapp';
+      products = options.products || null;
+      tenantId = options.tenantId || null;
+      instanceId = options.instanceId || null;
+    } else if (input && typeof input === 'object') {
+      text = input.text || input.message || input.msg || '';
+      customerName = input.customerName || input.senderName || input.name || '';
+      platform = input.platform || 'whatsapp';
+      products = input.products || null;
+      tenantId = input.tenantId || null;
+      instanceId = input.instanceId || null;
+    }
+
     if (!text || typeof text !== 'string') {
       return { intent: 'EMPTY', replyText: 'Olá! Como posso te ajudar hoje?', confidence: 0 };
     }
@@ -218,14 +330,27 @@ class NaturalLanguageService {
 
     const normalized = this.normalizeText(text);
     const { intent, confidence } = this.classifyIntent(normalized);
-    const { matchedProduct, extractedNumber, couponCode, refCode } = this.extractEntities(normalized, text);
+    
+    // Resolve produtos considerando escopo do Tenant ou Matriz
+    let effectiveProducts = Array.isArray(products) && products.length > 0 ? products : null;
+    if (!effectiveProducts && tenantId) {
+      effectiveProducts = models.getProductsByTenant(tenantId).filter(p => p.active !== 0);
+    }
+    if (!effectiveProducts) {
+      effectiveProducts = models.getProducts(true);
+    }
 
-    const products = models.getProducts(true);
-    const defaultProduct = matchedProduct || products[0] || {
-      name: 'Nossos Produtos VIP',
-      price_brl: 49.90,
-      price_usdt: 9.90,
-      description: 'Acesso completo e suporte dedicado'
+    const { matchedProduct, extractedNumber, couponCode, refCode } = this.extractEntities(normalized, text, effectiveProducts);
+
+    const defaultProduct = matchedProduct || (
+      tenantId
+        ? (effectiveProducts && effectiveProducts[0])
+        : ((effectiveProducts && effectiveProducts.find(p => p.id === 842 || /SpyBot Pro|PayBot/i.test(p.name))) || (effectiveProducts && effectiveProducts[0]))
+    ) || {
+      name: 'PayBot WhatsApp - Bot de Vendas 24/7',
+      price_brl: 497.00,
+      price_usdt: 99.00,
+      description: 'Atendimento e vendas no automático 24/7 com vitrine e Pix instantâneo'
     };
 
     let replyText = '';
@@ -265,6 +390,26 @@ class NaturalLanguageService {
       case 'UPSELL_ACCEPT':
         directAction = 'TRIGGER_UPSELL';
         replyText = `Sensacional${nameGreeting}! Vamos adicionar essa oferta especial ao seu pedido com o desconto exclusivo garantido! 🚀`;
+        break;
+
+      case 'AFFIRMATIVE_CONFIRMATION':
+        directAction = 'TRIGGER_PIX';
+        if (matchedProduct) {
+          const pr = Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2);
+          replyText = `Perfeito${nameGreeting}! Gerando sua chave Pix Copia e Cola para *${matchedProduct.name}* (R$ ${pr}) agora mesmo... 🚀`;
+        } else {
+          replyText = `Fechado${nameGreeting}! Gerando seu código Pix Copia e Cola para liberação imediata agora mesmo... 🚀`;
+        }
+        break;
+
+      case 'PLAN_SELECTION':
+        directAction = 'TRIGGER_PIX';
+        if (matchedProduct) {
+          const pr = Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2);
+          replyText = `Show de bola${nameGreeting}! O *${matchedProduct.name}* fica em *R$ ${pr}* no Pix com liberação imediata. Posso gerar o código Pix copia e cola pra você agora?`;
+        } else {
+          replyText = `Perfeito${nameGreeting}! Qual dos planos você prefere que eu gere agora? Temos o plano mensal (R$ 69,90) e o anual completo (R$ 497).`;
+        }
         break;
 
       case 'PAYMENT_PIX':
@@ -310,8 +455,8 @@ class NaturalLanguageService {
       case 'PRICE_QUERY':
         if (matchedProduct) {
           replyText = `O valor do *${matchedProduct.name}* é de apenas *R$ ${Number(matchedProduct.price_brl || matchedProduct.price).toFixed(2)}* no PIX ou *${Number(matchedProduct.price_usdt || (matchedProduct.price / 5.5)).toFixed(2)} USDT* com entrega automática imediata! Quer que eu gere seu código de pagamento agora?`;
-        } else if (products.length > 0) {
-          const list = products.slice(0, 4).map((p, i) => `🔹 *${i + 1}. ${p.name}* — R$ ${Number(p.price_brl || p.price).toFixed(2)} (${Number(p.price_usdt || (p.price / 5.5)).toFixed(2)} USDT)`).join('\n');
+        } else if (effectiveProducts && effectiveProducts.length > 0) {
+          const list = effectiveProducts.slice(0, 4).map((p, i) => `🔹 *${i + 1}. ${p.name}* — R$ ${Number(p.price_brl || p.price).toFixed(2)} (${Number(p.price_usdt || (p.price / 5.5)).toFixed(2)} USDT)`).join('\n');
           replyText = `Aqui estão os valores atualizados dos nossos produtos:\n\n${list}\n\nQual deles você tem interesse em garantir?`;
         } else {
           replyText = `Os valores variam conforme o plano escolhido, a partir de R$ 25,00 com entrega imediata!`;
@@ -335,17 +480,51 @@ class NaturalLanguageService {
         replyText = `Compreendo perfeitamente${nameGreeting}! Notifiquei nossa equipe de suporte para te atender com prioridade. Se puder detalhar sua dúvida ou problema aqui abaixo, já adiantamos seu atendimento!`;
         break;
 
+      case 'RENTAL_QUERY':
+        directAction = 'SHOW_RENTAL';
+        replyText = `Com certeza${nameGreeting}! 🛡️ Nosso bot para grupos de WhatsApp conta com proteção anti-trava, anti-link, boas-vindas automáticas, stickers instantâneos (!s) e comandos FX.\n\n` +
+          `💎 *Planos Disponíveis:*\n` +
+          `• Mensal (30 dias): *R$ 49,90*\n` +
+          `• Trimestral (90 dias): *R$ 119,90*\n` +
+          `• Licença Vitalícia: *R$ 299,00*\n\n` +
+          `A ativação é instantânea por chave de 8 dígitos logo após o Pix! Quer gerar o Pix de 30 dias (R$ 49,90) agora? Digite *PIX ALUGUEL*!`;
+        break;
+
+      case 'CUSTOM_SOFTWARE_QUERY':
+        directAction = 'SHOW_CUSTOM_SOFTWARE';
+        replyText = `Desenvolvemos sim${nameGreeting}! 💻 Criamos bots avançados, aplicativos mobile (Android & iOS) e plataformas SaaS completas com entrega ágil e código auditado.\n\n` +
+          `Deseja agendar uma conversa técnica de 15 minutos via Google Meet? Digite *!call* ou me conte mais sobre o que seu projeto precisa!`;
+        break;
+
+      case 'TEST_QUERY':
+        replyText = `Com certeza${nameGreeting}! 🚀 Você pode testar nossos comandos e catálogo diretamente aqui no WhatsApp enviando *1* ou *MENU*.\n\n` +
+          `Além disso, todas as nossas licenças possuem *GARANTIA INCONDICIONAL DE 7 DIAS*: você ativa, testa em sua operação e se não aprovar devolvemos 100% do seu valor! O que você gostaria de testar primeiro?`;
+        break;
+
+      case 'ORDER_STATUS_QUERY':
+        directAction = 'SHOW_STATUS';
+        replyText = `Perfeito${nameGreeting}! Estou consultando o histórico dos seus pedidos e licenças ativas agora mesmo...`;
+        break;
+
       case 'GREETING':
-        replyText = `Olá${nameGreeting}! Tudo bem? Seja muito bem-vindo! 😊\n\nComo posso te ajudar hoje? Você pode digitar *PRODUTOS* para ver nosso catálogo ou me dizer o que está procurando!`;
+        replyText = `Olá${nameGreeting}! Tudo bem? 👋\n\n` +
+          `Seja muito bem-vindo! Como posso te ajudar hoje?\n\n` +
+          `1️⃣ *Ver Catálogo & Produtos Digitais*\n` +
+          `2️⃣ *Aluguel de Bots para Grupos*\n` +
+          `3️⃣ *Software Sob Medida & Apps*\n` +
+          `4️⃣ *Falar com Atendimento Humano*\n` +
+          `5️⃣ *Consultar Meus Pedidos*\n\n` +
+          `👉 *Digite o número da opção (1 a 5)* ou me diga diretamente o que você precisa!`;
         break;
 
       default:
         if (matchedProduct && /(comprar|preco|valor|link|oferta|adquirir|quanto|custa)/i.test(normalized)) {
-          replyText = `Olá${nameGreeting}! Vi que você tem interesse no *${matchedProduct.name}*. Posso te passar os detalhes e a melhor condição hoje?`;
+          const prodPrice = Number(matchedProduct.price_brl || matchedProduct.price || 49.90).toFixed(2);
+          replyText = `O *${matchedProduct.name}* fica em R$ ${prodPrice}. Quer que eu te envie o link de checkout ou prefere chave Pix?`;
         } else if (matchedProduct) {
-          replyText = `Entendido${nameGreeting}! O *${matchedProduct.name}* está disponível para ativação imediata. Quer tirar alguma dúvida técnica, ver os detalhes ou prefere receber o link de acesso?`;
+          replyText = `Saquei. O *${matchedProduct.name}* atende bem isso. Você já tem uma operação rodando ou tá montando do zero?`;
         } else {
-          replyText = `Entendi o que você procura${nameGreeting}! Digite *PRODUTOS* para ver nossos planos disponíveis ou me diga se prefere pagar via PIX ou Cripto!`;
+          replyText = `Entendi. Você já tem uma operação rodando hoje ou tá montando a estrutura do zero?`;
         }
         break;
     }
@@ -357,6 +536,7 @@ class NaturalLanguageService {
       confidence,
       entities: {
         matchedProduct,
+        selectedProduct: matchedProduct,
         extractedNumber,
         couponCode,
         refCode

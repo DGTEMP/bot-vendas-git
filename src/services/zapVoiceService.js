@@ -1,30 +1,30 @@
 const fs = require('fs');
 const path = require('path');
 const models = require('../db/models');
+const { getBrasiliaGreeting, formatBrasiliaDate, formatBrasiliaTime } = require('../utils/dateTime');
 
 class ZapVoiceService {
   constructor() {
     this.activeFunnelsInProgress = new Map(); // targetJid -> { funnelId, stepIndex, timeoutId }
   }
 
-  // Gera saudação natural baseada no horário atual
+  // Gera saudação natural baseada no horário atual de Brasília (GMT-3)
   getGreeting() {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return 'Bom dia';
-    if (hour >= 12 && hour < 18) return 'Boa tarde';
-    return 'Boa noite';
+    return getBrasiliaGreeting().saudacao;
   }
 
   // Substitui variáveis dinâmicas de templates do ZapVoice
   replaceVariables(template, context = {}) {
     if (!template || typeof template !== 'string') return '';
     const now = new Date();
-    const dateStr = now.toLocaleDateString('pt-BR');
-    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = formatBrasiliaDate(now);
+    const timeStr = formatBrasiliaTime(now);
     const fullName = context.name || context.lead_name || context.fullName || 'Cliente';
     const firstName = fullName.split(' ')[0] || fullName;
     const greeting = this.getGreeting();
-    const proposalLink = context.link_proposta || context.proposal_link || context.proposalLink || 'http://localhost:3000/proposta/demo';
+    const tunnelService = require('./tunnelService');
+    const defaultProposal = (tunnelService.getStoreUrl() || 'http://localhost:3001') + '/proposta/demo';
+    const proposalLink = context.link_proposta || context.proposal_link || context.proposalLink || defaultProposal;
     const valueStr = context.valor || context.price || context.value || 'R$ 49,90';
     const pixKey = context.chave_pix || context.pix_key || context.pixKey || 'pay@empresa.tech';
 
@@ -65,14 +65,23 @@ class ZapVoiceService {
     // Ignora comandos iniciados por ! ou /
     if (lower.startsWith('!') || lower.startsWith('/')) return null;
 
+    const testKeywordMatch = (textToTest, keyword) => {
+      if (!keyword) return false;
+      const kw = keyword.trim().toLowerCase();
+      if (!kw) return false;
+      const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, 'ui');
+      return regex.test(textToTest);
+    };
+
     // 1. Procura em Funis ativos
     const funnels = models.listZapVoiceFunnels(true);
     for (const fun of funnels) {
       const kwField = fun.trigger_keywords || fun.trigger_keyword;
       if (!kwField) continue;
-      const keywords = kwField.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
+      const keywords = kwField.split(',').map(k => k.trim()).filter(Boolean);
       for (const kw of keywords) {
-        if (lower.includes(kw)) {
+        if (testKeywordMatch(text, kw)) {
           return {
             type: 'funnel',
             funnel: fun,
@@ -88,9 +97,9 @@ class ZapVoiceService {
     for (const msg of messages) {
       const kwField = msg.trigger_keywords || msg.trigger_keyword;
       if (!kwField) continue;
-      const keywords = kwField.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
+      const keywords = kwField.split(',').map(k => k.trim()).filter(Boolean);
       for (const kw of keywords) {
-        if (lower.includes(kw)) {
+        if (testKeywordMatch(text, kw)) {
           return {
             type: 'message',
             message: msg,
@@ -128,17 +137,21 @@ class ZapVoiceService {
     const executionPromise = (async () => {
       for (let i = 0; i < funnel.steps.length; i++) {
         const step = funnel.steps[i];
-        const delayMs = process.env.NODE_ENV === 'test' ? 10 : (step.delay_seconds || 3) * 1000;
+        const defaultDelay = parseInt(models.getSetting('ZAPVOICE_DEFAULT_DELAY_SEC', '3'), 10) || 3;
+        const delayMs = process.env.NODE_ENV === 'test' ? 10 : (step.delay_seconds || defaultDelay) * 1000;
         const isPttStep = step.step_type === 'audio_ptt' || step.is_ptt;
+        const simulateTyping = models.getSetting('ZAPVOICE_SIMULATE_TYPING', 'true') !== 'false';
 
         try {
-          if (isPttStep) {
-            if (typeof sock.sendPresenceUpdate === 'function') {
-              await sock.sendPresenceUpdate('recording', targetJid);
-            }
-          } else {
-            if (typeof sock.sendPresenceUpdate === 'function') {
-              await sock.sendPresenceUpdate('composing', targetJid);
+          if (simulateTyping) {
+            if (isPttStep) {
+              if (typeof sock.sendPresenceUpdate === 'function') {
+                await sock.sendPresenceUpdate('recording', targetJid);
+              }
+            } else {
+              if (typeof sock.sendPresenceUpdate === 'function') {
+                await sock.sendPresenceUpdate('composing', targetJid);
+              }
             }
           }
         } catch (_) {}
@@ -148,7 +161,7 @@ class ZapVoiceService {
         }
 
         try {
-          if (typeof sock.sendPresenceUpdate === 'function') {
+          if (simulateTyping && typeof sock.sendPresenceUpdate === 'function') {
             await sock.sendPresenceUpdate('paused', targetJid);
           }
         } catch (_) {}
@@ -161,28 +174,71 @@ class ZapVoiceService {
           } else if (isPttStep) {
             // Áudio humanizado PTT ("Gravado na hora")
             let audioBuffer = null;
+            let audioMimetype = 'audio/ogg; codecs=opus';
+            let ttsRes = null;
+            const autoTts = models.getSetting('ZAPVOICE_TTS_AUTO_SYNTHESIS', 'true') !== 'false';
+            const ttsEngine = models.getSetting('ZAPVOICE_TTS_ENGINE', 'edge');
+            const ttsVoice = models.getSetting('ZAPVOICE_TTS_VOICE', 'pt-BR-FranciscaNeural');
+            const fallbackAction = models.getSetting('ZAPVOICE_FALLBACK_ACTION', 'TEXT_FALLBACK');
+
             if (step.media_path && fs.existsSync(step.media_path)) {
               audioBuffer = fs.readFileSync(step.media_path);
-            } else {
-              // Gera buffer de áudio simulado ou síntese de voz (TTS)
-              audioBuffer = Buffer.from('RIFF....WAVEfmt ....data....ZAPVOICE_PTT_SIMULATION', 'utf-8');
+            } else if (process.env.NODE_ENV === 'test') {
+              audioBuffer = Buffer.alloc(1024, 1);
+            } else if (step.content && autoTts) {
+              try {
+                const audioConverter = require('./audioConverterService');
+                const ttsText = this.replaceVariables(step.content, context);
+                ttsRes = await audioConverter.textToSpeech(ttsText, { lang: 'pt', voice: ttsVoice, engine: ttsEngine });
+                if (ttsRes && ttsRes.buffer && ttsRes.buffer.length > 50) {
+                  audioBuffer = ttsRes.buffer;
+                  audioMimetype = ttsRes.mimetype || 'audio/ogg; codecs=opus';
+                }
+              } catch (ttsErr) {
+                console.warn('[ZapVoice ⚠️ Falha ao sintetizar TTS para etapa]:', ttsErr.message);
+              }
             }
 
-            await sock.sendMessage(targetJid, {
-              audio: audioBuffer,
-              mimetype: 'audio/ogg; codecs=opus',
-              ptt: true // Envia com microfone verde (áudio gravado na hora)
-            });
+            if (audioBuffer && (process.env.NODE_ENV === 'test' || audioBuffer.length > 50)) {
+              const audioConverter = require('./audioConverterService');
+              const waveform = (ttsRes && ttsRes.waveform) || (await audioConverter.generateAudioWaveform(audioBuffer));
+
+              try {
+                if (sock && typeof sock.sendPresenceUpdate === 'function') {
+                  await sock.sendPresenceUpdate('recording', targetJid);
+                  const delay = process.env.NODE_ENV === 'test' ? 10 : Math.min(6000, Math.max(1500, Math.round(audioBuffer.length / 3200 * 1000)));
+                  await new Promise(r => setTimeout(r, delay));
+                  await sock.sendPresenceUpdate('paused', targetJid);
+                }
+              } catch (_) {}
+
+              await sock.sendMessage(targetJid, {
+                audio: audioBuffer,
+                mimetype: audioMimetype,
+                ptt: true, // Envia com microfone verde (áudio gravado na hora)
+                waveform
+              });
+            } else if (fallbackAction === 'TEXT_FALLBACK') {
+              // Fallback gracioso com texto sem corromper WebSocket com bytes inválidos
+              const fallbackText = this.replaceVariables(step.content, context);
+              if (fallbackText) {
+                await sock.sendMessage(targetJid, { text: `🎙️ ${fallbackText}` });
+              }
+            }
           } else if (step.step_type === 'media') {
             const caption = this.replaceVariables(step.content, context);
-            let mediaBuffer = Buffer.from('ZAPVOICE_MEDIA_SIMULATION');
+            let mediaBuffer = null;
             if (step.media_path && fs.existsSync(step.media_path)) {
               mediaBuffer = fs.readFileSync(step.media_path);
             }
-            await sock.sendMessage(targetJid, {
-              image: mediaBuffer,
-              caption: caption || undefined
-            });
+            if (mediaBuffer) {
+              await sock.sendMessage(targetJid, {
+                image: mediaBuffer,
+                caption: caption || undefined
+              });
+            } else if (caption) {
+              await sock.sendMessage(targetJid, { text: caption });
+            }
           }
         } catch (err) {
           console.error(`[ZapVoice ⚠️ Erro na etapa #${step.step_order}]:`, err.message);
@@ -221,16 +277,40 @@ class ZapVoiceService {
       }
     } catch (_) {}
 
-    let audioBuffer = Buffer.from('ZAPVOICE_PTT_AUDIO_BUFFER');
+    let audioBuffer = null;
+    let mimetype = 'audio/ogg; codecs=opus';
     if (audioRec.audio_path && fs.existsSync(audioRec.audio_path)) {
       audioBuffer = fs.readFileSync(audioRec.audio_path);
+    } else if (process.env.NODE_ENV === 'test') {
+      audioBuffer = Buffer.alloc(1024, 1);
+    } else if (audioRec.transcription || audioRec.title) {
+      try {
+        const audioConverter = require('./audioConverterService');
+        const ttsText = audioRec.transcription || audioRec.title;
+        const ttsRes = await audioConverter.textToSpeech(ttsText, { lang: 'pt' });
+        if (ttsRes && ttsRes.buffer) {
+          audioBuffer = ttsRes.buffer;
+          mimetype = ttsRes.mimetype || 'audio/ogg; codecs=opus';
+        }
+      } catch (_) {}
     }
 
-    return await sock.sendMessage(targetJid, {
-      audio: audioBuffer,
-      mimetype: 'audio/ogg; codecs=opus',
-      ptt: audioRec.is_ptt === 1
-    });
+    if (audioBuffer && (process.env.NODE_ENV === 'test' || audioBuffer.length > 50)) {
+      const audioConverter = require('./audioConverterService');
+      const waveform = (ttsRes && ttsRes.waveform) || (await audioConverter.generateAudioWaveform(audioBuffer));
+      return await sock.sendMessage(targetJid, {
+        audio: audioBuffer,
+        mimetype,
+        ptt: audioRec.is_ptt === 1,
+        waveform
+      });
+    } else {
+      const fallbackTxt = audioRec.transcription || audioRec.title;
+      if (fallbackTxt) {
+        return await sock.sendMessage(targetJid, { text: `🎙️ ${fallbackTxt}` });
+      }
+      return false;
+    }
   }
 
   // Cartão informativo do status do ZapVoice para o WhatsApp
@@ -263,6 +343,75 @@ class ZapVoiceService {
       `• Painel Web: Acesse a aba *ZapVoice 2025* no dashboard web!`;
 
     return card;
+  }
+
+  // Dispara Campanha em Massa com Delay Anti-Ban
+  async startCampaign(sock, campaignId) {
+    const campaign = models.getZapVoiceCampaign(campaignId);
+    if (!campaign) return { success: false, message: 'Campanha não encontrada' };
+    if (!campaign.funnel_id) return { success: false, message: 'Funil da campanha não definido' };
+
+    let targets = [];
+    try {
+      targets = typeof campaign.targets === 'string' ? JSON.parse(campaign.targets) : campaign.targets;
+    } catch (_) {
+      targets = String(campaign.targets).split('\n').map(t => t.trim()).filter(Boolean);
+    }
+
+    if (!Array.isArray(targets) || targets.length === 0) {
+      return { success: false, message: 'Nenhum contato na lista da campanha' };
+    }
+
+    models.updateZapVoiceCampaign(campaignId, { status: 'running', total_count: targets.length });
+
+    // Executa loop com anti-ban em segundo plano
+    (async () => {
+      let sent = campaign.sent_count || 0;
+      for (let i = sent; i < targets.length; i++) {
+        const current = models.getZapVoiceCampaign(campaignId);
+        if (!current || current.status !== 'running') {
+          console.log(`[ZapVoice Campanha #${campaignId}] Pausada ou interrompida.`);
+          break;
+        }
+
+        let targetRaw = targets[i];
+        let targetJid = targetRaw;
+        if (!targetJid.includes('@')) {
+          const cleanNum = targetRaw.replace(/\D/g, '');
+          targetJid = cleanNum + '@s.whatsapp.net';
+        }
+
+        try {
+          await this.executeFunnel(sock, targetJid, campaign.funnel_id);
+          sent++;
+          models.updateZapVoiceCampaign(campaignId, { sent_count: sent });
+        } catch (cErr) {
+          console.error(`[ZapVoice Campanha #${campaignId}] Erro ao enviar para ${targetJid}:`, cErr.message);
+        }
+
+        const minD = campaign.min_delay || 15;
+        const maxD = campaign.max_delay || 45;
+        const randomDelaySec = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
+        const delayMs = process.env.NODE_ENV === 'test' ? 10 : randomDelaySec * 1000;
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+
+      const finalStatus = models.getZapVoiceCampaign(campaignId);
+      if (finalStatus && finalStatus.sent_count >= targets.length) {
+        models.updateZapVoiceCampaign(campaignId, { status: 'completed' });
+        console.log(`[ZapVoice Campanha #${campaignId}] Concluída com sucesso (${sent}/${targets.length})!`);
+      }
+    })().catch(err => {
+      console.error(`[ZapVoice Campanha #${campaignId} Fatal Error]:`, err);
+      models.updateZapVoiceCampaign(campaignId, { status: 'paused' });
+    });
+
+    return { success: true, message: `Campanha #${campaignId} iniciada para ${targets.length} contatos.` };
+  }
+
+  pauseCampaign(campaignId) {
+    models.updateZapVoiceCampaign(campaignId, { status: 'paused' });
+    return { success: true, message: 'Campanha pausada.' };
   }
 }
 

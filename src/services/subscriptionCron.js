@@ -70,12 +70,67 @@ class SubscriptionCronService {
     }, 5 * 60 * 1000);
     this.cognitiveHeartbeatInterval.unref?.();
 
-    // Executa uma checagem imediata
+    // 7. Reposição contínua de tokens de Sub-Bots Free (Ciclo de 24h por token usado, teto máx 50)
+    this.subbotTokenReplenishInterval = setInterval(() => {
+      try {
+        const subbotTokenService = require('./subbotTokenService');
+        subbotTokenService.replenishAllActiveSubBots();
+      } catch (_) {}
+    }, 60 * 1000);
+    this.subbotTokenReplenishInterval.unref?.();
+
+    // 8. Follow-Up Autônomo Anti-Vácuo & Recuperação de Pix Abandonado (Etapas 1, 2 e 3)
+    try {
+      const autonomousFollowUpService = require('./autonomousFollowUpService');
+      const whatsappBot = require('../bots/whatsappBot');
+      autonomousFollowUpService.start(whatsappBot);
+    } catch (_) {}
+
+    // 8.1 🛒 Recuperação Ativa de Carrinho Abandonado no WhatsApp (Pilar 2)
+    try {
+      const abandonedCartRecoveryService = require('./abandonedCartRecoveryService');
+      const whatsappBot = require('../bots/whatsappBot');
+      abandonedCartRecoveryService.start(whatsappBot);
+    } catch (_) {}
+
+    // 8.2 🛡️ Régua de Aquecimento de Sub-Bots 7 Dias (Pilar 3)
+    try {
+      const subBotWarmupPipelineService = require('./subBotWarmupPipelineService');
+      subBotWarmupPipelineService.start();
+    } catch (_) {}
+
+    // 8.3 🎬 Máquina de Vídeos Virais Agendados (Pilar 4)
+    try {
+      const viralRepurposingService = require('./viralRepurposingService');
+      viralRepurposingService.start();
+    } catch (_) {}
+
+    // 9. Ciclo de Sono & Consolidação Noturna de Memória (Sleep-Cycle Memory / aydinnyunus/sleep)
+    // Executa verificação periódica; se o horário de Brasília estiver na janela da madrugada (03h), roda a consolidação noturna
+    this.sleepCycleInterval = setInterval(() => {
+      try {
+        const now = new Date();
+        const hour = now.getHours();
+        if (hour === 3) {
+          const sleepCycle = require('./sleepCycleMemoryService');
+          const lastRun = models.getLatestSleepCycleRun();
+          const todayDateStr = now.toISOString().split('T')[0];
+          if (!lastRun || !lastRun.created_at || !lastRun.created_at.startsWith(todayDateStr)) {
+            sleepCycle.executeSleepCycle({ source: 'CRON_NOTURNO_03H' }).catch(err => {
+              console.warn('[Cron ⚠️ SleepCycle]:', err.message);
+            });
+          }
+        }
+      } catch (_) {}
+    }, 30 * 60 * 1000);
+    this.sleepCycleInterval.unref?.();
+
+    // Executa uma checagem imediata com proteção contra rejeição não tratada
     setTimeout(() => {
-      this.checkPendingOrders();
-      this.checkAbandonedCarts();
-      this.checkSubscriptions();
-      this.checkMeteoricScheduledStages();
+      this.checkPendingOrders().catch(err => console.error('[Cron ❌ checkPendingOrders]:', err.message));
+      this.checkAbandonedCarts().catch(err => console.error('[Cron ❌ checkAbandonedCarts]:', err.message));
+      this.checkSubscriptions().catch(err => console.error('[Cron ❌ checkSubscriptions]:', err.message));
+      this.checkMeteoricScheduledStages().catch(err => console.error('[Cron ❌ checkMeteoricScheduledStages]:', err.message));
     }, 3000);
   }
 
@@ -102,32 +157,36 @@ class SubscriptionCronService {
     if (!pendingOrders || pendingOrders.length === 0) return;
 
     for (const order of pendingOrders) {
-      // Ignora pedidos muito antigos (> 6 horas)
-      const createdAt = new Date(order.created_at).getTime();
-      const ageHours = (Date.now() - createdAt) / (1000 * 60 * 60);
+      try {
+        // Ignora pedidos muito antigos (> 6 horas)
+        const createdAt = new Date(order.created_at).getTime();
+        const ageHours = (Date.now() - createdAt) / (1000 * 60 * 60);
 
-      if (ageHours > 6) {
-        models.updateOrderStatus(order.merchant_trade_no, 'EXPIRED');
-        continue;
-      }
+        if (ageHours > 6) {
+          models.updateOrderStatus(order.merchant_trade_no, 'EXPIRED');
+          continue;
+        }
 
-      // Se for Mercado Pago (Pix)
-      if (order.gateway === 'mercadopago' && order.prepay_id) {
-        const pixRes = await pixPayment.queryPixPayment(order.prepay_id);
-        if (pixRes.success && pixRes.status === 'PAID') {
-          console.log(`[Cron 💰] Pagamento Pix detectado para pedido ${order.merchant_trade_no}!`);
-          await fulfillment.fulfillOrder(order.merchant_trade_no);
+        // Se for Mercado Pago (Pix)
+        if (order.gateway === 'mercadopago' && order.prepay_id) {
+          const pixRes = await pixPayment.queryPixPayment(order.prepay_id);
+          if (pixRes.success && pixRes.status === 'PAID') {
+            console.log(`[Cron 💰] Pagamento Pix detectado para pedido ${order.merchant_trade_no}!`);
+            await fulfillment.fulfillOrder(order.merchant_trade_no);
+          }
+        } 
+        // Se for Binance Pay
+        else if (order.gateway === 'binancepay') {
+          const queryResult = await binancePay.queryOrder(order.merchant_trade_no);
+          if (queryResult.success && queryResult.status === 'PAID') {
+            console.log(`[Cron 💰] Pagamento Binance Pay detectado para pedido ${order.merchant_trade_no}!`);
+            await fulfillment.fulfillOrder(order.merchant_trade_no);
+          } else if (queryResult.status === 'CANCELED' || queryResult.status === 'EXPIRED') {
+            models.updateOrderStatus(order.merchant_trade_no, queryResult.status);
+          }
         }
-      } 
-      // Se for Binance Pay
-      else if (order.gateway === 'binancepay') {
-        const queryResult = await binancePay.queryOrder(order.merchant_trade_no);
-        if (queryResult.success && queryResult.status === 'PAID') {
-          console.log(`[Cron 💰] Pagamento Binance Pay detectado para pedido ${order.merchant_trade_no}!`);
-          await fulfillment.fulfillOrder(order.merchant_trade_no);
-        } else if (queryResult.status === 'CANCELED' || queryResult.status === 'EXPIRED') {
-          models.updateOrderStatus(order.merchant_trade_no, queryResult.status);
-        }
+      } catch (orderErr) {
+        console.warn(`[Cron ⚠️ Erro ao verificar pedido ${order?.merchant_trade_no}]:`, orderErr.message);
       }
     }
   }
@@ -148,12 +207,23 @@ class SubscriptionCronService {
     for (const order of abandonedOrders) {
       const customerName = order.platform_user_name || 'Cliente';
       const valorStr = order.currency === 'BRL' ? `R$ ${order.amount.toFixed(2)}` : `${order.amount.toFixed(2)} USDT`;
+      const cleanPhone = String(order.platform_user_id || '').replace(/\D/g, '');
+
+      // Gera ou resgata cupom inteligente de 10% OFF com urgência de 2 horas
+      let coupon = null;
+      try {
+        coupon = models.createOrGetAbandonedCoupon(cleanPhone || order.merchant_trade_no, customerName, 10, 2);
+      } catch (_) {}
 
       let message = template
         .replace(/{name}/g, customerName)
         .replace(/{product}/g, order.product_name)
         .replace(/{amount}/g, valorStr)
         .replace(/{order}/g, order.merchant_trade_no);
+
+      if (coupon && coupon.code) {
+        message += `\n\n🎁 *CUPOM EXCLUSIVO DE RETOMADA (10% OFF):* \`${coupon.code}\`\n⏳ _Válido apenas pelas próximas 2 horas para garantir sua compra agora!_`;
+      }
 
       try {
         if (order.platform === 'telegram' && fulfillment.sendTelegramMessage) {
@@ -167,26 +237,95 @@ class SubscriptionCronService {
             models.markOrderRecoverySent(order.id);
             console.log(`[Carrinho Abandonado 🛒] Lembrete enviado com sucesso para ${order.platform_user_id} (${order.platform}) ref. #${order.merchant_trade_no}`);
           }
-        } else if (order.platform === 'whatsapp' && fulfillment.sendWhatsAppMessage) {
+        } else if (order.platform === 'whatsapp') {
           const cleanPhone = String(order.platform_user_id || '').replace(/\D/g, '');
           if (cleanPhone.length >= 8) {
-            if (order.pix_code) {
-              message += `\n\n📋 *Código Pix Copia e Cola:*\n\`${order.pix_code}\``;
-            } else if (order.checkout_url) {
-              message += `\n\n🔗 *Link Direto de Pagamento:*\n${order.checkout_url}`;
+            const firstName = models.getContactFirstName(cleanPhone) || (customerName && customerName !== 'Cliente' ? customerName.split(' ')[0] : '');
+            const greetWord = firstName ? `opa ${firstName}, tudo bem? 🙂` : 'opa, tudo bem? 🙂';
+            const payRef = order.pix_code ? `\n\nse quiser pagar no Pix, o código é esse aqui:\n\`${order.pix_code}\`` : (order.checkout_url ? `\n\nse quiser dar mais uma olhada, seu link de pagamento tá salvo aqui: ${order.checkout_url}` : '');
+            const humanOrderMsg = `${greetWord}\n\nvi aqui que você gerou o pedido do *${order.product_name}*, mas não deu tempo de concluir... deu algum problema no pagamento ou ficou com alguma dúvida sobre o acesso?${payRef}\n\nse precisar de qualquer coisa, só me responder por aqui! 👍`;
+
+            let sentWpp = false;
+            try {
+              const whatsappBot = require('../bots/whatsappBot');
+              if (whatsappBot && typeof whatsappBot.sendHumanSplitMessages === 'function' && whatsappBot.sock) {
+                await whatsappBot.sendHumanSplitMessages(whatsappBot.sock, `${cleanPhone}@s.whatsapp.net`, humanOrderMsg);
+                sentWpp = true;
+              } else if (fulfillment.sendWhatsAppMessage) {
+                sentWpp = await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, humanOrderMsg);
+              }
+            } catch (_) {
+              if (fulfillment.sendWhatsAppMessage) {
+                sentWpp = await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, humanOrderMsg);
+              }
             }
-            const sentWpp = await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, message);
+
             if (sentWpp !== false) {
               models.markOrderRecoverySent(order.id);
-              console.log(`[Carrinho Abandonado 🛒] Lembrete enviado com sucesso para ${order.platform_user_id} (${order.platform}) ref. #${order.merchant_trade_no}`);
+              console.log(`[Carrinho Abandonado 🛒] Lembrete humanizado enviado para ${order.platform_user_id} ref. #${order.merchant_trade_no}`);
             } else {
-              console.log(`[Carrinho Abandonado ⏸️] WhatsApp não conectado. Lembrete para ${order.platform_user_id} mantido na fila para envio automático.`);
+              console.log(`[Carrinho Abandonado ⏸️] WhatsApp não conectado. Lembrete para ${order.platform_user_id} mantido na fila.`);
             }
           }
         }
       } catch (err) {
         console.error(`[Carrinho Abandonado ⚠️ Erro ao enviar para ${order.platform_user_id}]:`, err.message);
       }
+    }
+
+    // 2. Recuperação de Carrinhos Abandonados na Vitrine Web (web_cart_sessions)
+    try {
+      const webStoreTrackerService = require('./webStoreTrackerService');
+      const webAbandoned = models.getAbandonedCartSessions(delayMinutes);
+      if (webAbandoned && webAbandoned.length > 0) {
+        for (const session of webAbandoned) {
+          const cleanPhone = String(session.phone || '').replace(/\D/g, '');
+          if (!cleanPhone || cleanPhone.length < 8) continue;
+
+          let prodName = session.current_product_name;
+          if (!prodName && Array.isArray(session.cart_items) && session.cart_items.length > 0) {
+            prodName = session.cart_items.map(i => i.name).filter(Boolean).join(', ');
+          }
+          if (!prodName) prodName = 'seus itens selecionados';
+
+          const clientName = session.customer_name || 'Amigo(a)';
+          const firstName = models.getContactFirstName(cleanPhone) || (clientName && clientName !== 'Amigo(a)' && clientName !== 'Cliente' ? clientName.split(' ')[0] : '');
+
+          const recoveryObj = webStoreTrackerService.buildTrackedStoreUrl({
+            phone: cleanPhone,
+            name: firstName || clientName,
+            subbot_id: session.subbot_id,
+            source: 'carrinho_abandonado_web',
+            preferShort: true
+          });
+          const recoveryUrl = recoveryObj.shortUrl || recoveryObj.url;
+
+          const greetWord = firstName ? `opa ${firstName}, tudo bem? 🙂` : 'opa, tudo bem? 🙂';
+          const humanWebMsg = `${greetWord}\n\nvi aqui que você tava dando uma olhada no *${prodName}*... deu algum problema na hora de fechar ou ficou alguma dúvida sobre como funciona?\n\nse quiser dar mais uma olhada com calma, deixei seu carrinho salvo aqui: ${recoveryUrl}\n\nqualquer coisa pode me responder direto por aqui! 👍`;
+
+          let sent = false;
+          try {
+            const whatsappBot = require('../bots/whatsappBot');
+            if (whatsappBot && typeof whatsappBot.sendHumanSplitMessages === 'function' && whatsappBot.sock) {
+              await whatsappBot.sendHumanSplitMessages(whatsappBot.sock, `${cleanPhone}@s.whatsapp.net`, humanWebMsg);
+              sent = true;
+            } else if (fulfillment.sendWhatsAppMessage) {
+              sent = await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, humanWebMsg);
+            }
+          } catch (_) {
+            if (fulfillment.sendWhatsAppMessage) {
+              sent = await fulfillment.sendWhatsAppMessage(`${cleanPhone}@s.whatsapp.net`, humanWebMsg);
+            }
+          }
+
+          if (sent !== false) {
+            models.updateCartSession(session.session_id, { abandoned_recovery_sent: 1 });
+            console.log(`[Carrinho Web Abandonado 🛒] Lembrete humanizado enviado para ${cleanPhone} (Sessão: ${session.session_id})`);
+          }
+        }
+      }
+    } catch (webCartErr) {
+      console.warn('[Carrinho Web Abandonado ⚠️ Erro]:', webCartErr.message);
     }
   }
 

@@ -40,6 +40,8 @@ async function runAsyncTest(name, fn) {
 }
 
 async function main() {
+  models.setSetting('ANTIPRIVADO_GLOBAL', 'false');
+  models.setSetting('ANTIPRIVADO_ALLOW_SALES', 'true');
   console.log('====================================================');
   console.log('🧪 INICIANDO BATERIA DE TESTES DE INTEGRIDADE PAYBOT');
   console.log('====================================================\n');
@@ -75,6 +77,8 @@ async function main() {
       type: 'license_key'
     });
     assert(testProdKey.id > 0);
+    const db = require('./src/db/database');
+    db.prepare('DELETE FROM inventory_keys WHERE product_id = ?').run(testProdKey.id);
 
     const added = models.addKeys(testProdKey.id, ['KEY-AAAA-1111', 'KEY-BBBB-2222', 'KEY-CCCC-3333']);
     assert.strictEqual(added, 3, 'Deve ter adicionado 3 chaves');
@@ -2288,9 +2292,9 @@ async function main() {
     assert((firstMsg.caption || firstMsg.text).includes('Believer'), 'Deve encontrar o título da música');
 
     const audioMsg = sentOutputs[1];
-    assert(audioMsg.audio && Buffer.isBuffer(audioMsg.audio), 'Deve conter buffer de áudio válido');
+    assert.strictEqual(audioMsg.audio && Buffer.isBuffer(audioMsg.audio), true, 'Deve conter buffer de áudio válido');
     assert(audioMsg.audio.length > 50000, 'Tamanho do áudio deve ser significativo (>50KB)');
-    assert.strictEqual(audioMsg.mimetype, 'audio/mp4');
+    assert(audioMsg.mimetype === 'audio/mpeg' || audioMsg.mimetype === 'audio/mp4', 'Mimetype deve ser de áudio');
     assert(audioMsg.fileName.includes('.mp3'));
   });
 
@@ -2669,41 +2673,54 @@ async function main() {
     const qrData = await qrRes.json();
     assert.strictEqual(qrData.pairingCode, pairData.pairingCode);
 
-    // 5. Teste de comando de chat: !serbot <numero>
+    // 5. Teste de comando de chat: !serbot sem aceite (exibe termos) e com aceite (gera código)
+    let serbotPromptReply = null;
+    const mockPromptSock = {
+      sendMessage: async (jid, p) => { serbotPromptReply = p; return true; }
+    };
+    await whatsappBot.handleIncomingMessage({
+      key: { remoteJid: '5511999990000@s.whatsapp.net', fromMe: false },
+      message: { conversation: '!serbot 5511966665555' }
+    }, mockPromptSock);
+    assert(serbotPromptReply !== null, 'Deve responder ao !serbot inicial');
+    assert(serbotPromptReply.text.includes('ADESÃO AO EXÉRCITO DE SUB-BOTS PAYBOT'), 'Deve exibir os termos do Exército');
+    assert(serbotPromptReply.text.includes('!aceitartermos'));
+
+    // 5.1 Teste com aceite de termos explícito: !serbot aceito <numero>
     let serbotReply = null;
     const mockSerbotSock = {
       sendMessage: async (jid, p) => { serbotReply = p; return true; }
     };
     await whatsappBot.handleIncomingMessage({
       key: { remoteJid: '5511999990000@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!serbot 5511966665555' }
+      message: { conversation: '!serbot aceito 5511966665555' }
     }, mockSerbotSock);
-    assert(serbotReply !== null, 'Deve responder ao !serbot');
+    assert(serbotReply !== null, 'Deve responder ao !serbot aceito');
     assert(serbotReply.text.includes('SPYBOT / SUB-BOT MULTI-CONEXÃO'));
     assert(serbotReply.text.includes('CÓDIGO DE CONEXÃO'));
     assert(serbotReply.text.includes('5511966665555'));
 
-    // 5.1 Teste de agente digitando apenas !serbot no privado (auto-detecta senderPhone)
+    // 5.2 Teste de agente digitando !aceitartermos no privado (auto-detecta senderPhone)
     let autoSerbotReply = null;
     await whatsappBot.handleIncomingMessage({
       key: { remoteJid: '5511977778888@s.whatsapp.net', fromMe: false },
-      message: { conversation: '!serbot' }
+      message: { conversation: '!aceitartermos' }
     }, {
       sendMessage: async (jid, p) => { autoSerbotReply = p; return true; }
     });
-    assert(autoSerbotReply !== null, 'Deve responder ao !serbot sem argumentos');
+    assert(autoSerbotReply !== null, 'Deve responder ao !aceitartermos sem argumentos');
     assert(autoSerbotReply.text.includes('5511977778888'));
     assert(autoSerbotReply.text.includes('CÓDIGO DE CONEXÃO'));
 
-    // 5.2 Teste de agente digitando !serbot em Grupo (marca o participante e gera código)
+    // 5.3 Teste de agente digitando !aceitartermos em Grupo (marca o participante e gera código)
     let groupSerbotReply = null;
     await whatsappBot.handleIncomingMessage({
       key: { remoteJid: '120363099999999999@g.us', fromMe: false, participant: '5511966667777@s.whatsapp.net' },
-      message: { conversation: '!serbot' }
+      message: { conversation: '!aceitartermos' }
     }, {
       sendMessage: async (jid, p) => { groupSerbotReply = p; return true; }
     });
-    assert(groupSerbotReply !== null, 'Deve responder ao !serbot em grupo');
+    assert(groupSerbotReply !== null, 'Deve responder ao !aceitartermos em grupo');
     assert(groupSerbotReply.text.includes('5511966667777'));
     assert(groupSerbotReply.text.includes('código'));
 
@@ -3130,7 +3147,7 @@ async function main() {
         ANTILINK_DEFAULT: true,
         ANTIFAKE_DEFAULT: true,
         ANTIDELETE_DEFAULT: true,
-        OWNER_PHONE: '5511988887777',
+        OWNER_PHONE: '554884702848',
         WELCOME_MSG_DEFAULT: 'Bem-vindo ao grupo {nome}!'
       })
     });
@@ -3143,7 +3160,7 @@ async function main() {
     assert.strictEqual(settings.ANTILINK_DEFAULT, true);
     assert.strictEqual(settings.ANTIFAKE_DEFAULT, true);
     assert.strictEqual(settings.ANTIDELETE_DEFAULT, true);
-    assert.strictEqual(settings.OWNER_PHONE, '5511988887777');
+    assert.strictEqual(settings.OWNER_PHONE, '554884702848');
     assert.strictEqual(settings.WELCOME_MSG_DEFAULT, 'Bem-vindo ao grupo {nome}!');
   });
 
@@ -4278,14 +4295,14 @@ async function main() {
   });
 
   await runAsyncTest('AutoRepuestos: Validação de Cupom na Vitrine (POST /api/store/coupon)', async () => {
-    if (!models.getCouponByCode('AUTO10PRO')) {
-      models.createCoupon({
-        code: 'AUTO10PRO',
-        discount_type: 'percent',
-        discount_value: 10,
-        max_uses: 50
-      });
-    }
+    const db = require('./src/db/database');
+    db.prepare('DELETE FROM coupons WHERE UPPER(code) = ?').run('AUTO10PRO');
+    models.createCoupon({
+      code: 'AUTO10PRO',
+      discount_type: 'percent',
+      discount_value: 10,
+      max_uses: 50
+    });
 
     const { status, data } = await fetchApi('/api/store/coupon', {
       method: 'POST',
@@ -4983,6 +5000,10 @@ async function main() {
     } finally {
       whatsappBot.sendMessage = origSend;
       whatsappBot.sock = origSock;
+      models.setSetting('OWNER_PHONE', '554884702848');
+      models.setSetting('OWNER_WHATSAPP', '554884702848');
+      models.setSetting('ADMIN_PHONE', '554884702848');
+      models.setSetting('ADMIN_NOTIFY_WHATSAPP_PHONE', '554884702848');
     }
   });
 

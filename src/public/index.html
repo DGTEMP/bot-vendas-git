@@ -92,6 +92,9 @@
         <a href="#" class="nav-item" data-tab="viral">
           <i class="fa-solid fa-fire" style="color: #ef4444;"></i> Radar Viral &amp; Posts IA
         </a>
+        <a href="#" class="nav-item" data-tab="comfyart">
+          <i class="fa-solid fa-palette" style="color: #a855f7;"></i> Estúdio IA (ComfyArt &amp; CreativeField)
+        </a>
         <a href="#" class="nav-item" data-tab="channel">
           <i class="fa-solid fa-bullhorn" style="color: #229ed9;"></i> Canal VIP &amp; Ofertas
         </a>
@@ -3721,6 +3724,227 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
           </div>
         </section>
 
+        <!-- TAB: COMFYART STUDIO • CRIAÇÃO DE POSTS & BANNERS IA (jtydhr88/ComfyArt) -->
+        <section id="tab-comfyart" class="tab-pane">
+          <!-- CABEÇALHO & STATUS DO COMFYART -->
+          <div class="card" style="margin-bottom: 20px; border: 1px solid rgba(168, 85, 247, 0.3); background: linear-gradient(135deg, rgba(168, 85, 247, 0.05), rgba(99, 102, 241, 0.05));">
+            <div class="card-body" style="padding: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div>
+                  <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px; flex-wrap: wrap;">
+                    <h2 style="margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; color: #fff;">
+                      <i class="fa-solid fa-palette" style="color: #a855f7;"></i> ComfyArt Studio • Gerador de Posts &amp; Banners IA
+                    </h2>
+                    <span id="comfyStatusBadge" class="badge" style="background: rgba(168,85,247,0.2); color: #c084fc; font-weight: 700;">
+                      <i class="fa-solid fa-circle-notch fa-spin"></i> Verificando ComfyArt...
+                    </span>
+                    <span class="badge" style="background: rgba(255,255,255,0.06); color: #94a3b8; font-size: 11px;">
+                      <i class="fa-brands fa-github"></i> jtydhr88/ComfyArt
+                    </span>
+                  </div>
+                  <p style="margin: 0; color: var(--text-muted); font-size: 13px;">
+                    Criação automatizada de criativos visuais para Feed, Stories, Banners e WhatsApp integrada ao repositório oficial <b>ComfyArt</b> e ComfyUI.
+                  </p>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-sm btn-outline" id="btnComfyGitSync" onclick="cloneOrUpdateComfyArtRepo()" title="Atualiza o repositório ComfyArt via Git">
+                    <i class="fa-solid fa-code-branch"></i> Atualizar Git Repo
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline" onclick="openComfyArtSettingsModal()">
+                    <i class="fa-solid fa-sliders"></i> Endpoint ComfyUI
+                  </button>
+                  <a href="http://127.0.0.1:8188/comfyart/" id="linkOpenComfyArtCanvas" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-primary" style="background: #a855f7; border-color: #a855f7; font-weight: 600;">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir Canvas ComfyArt
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- BANNER CREATIVEFIELD & FOTOFIELD (VENCEDOR DESAFIO HIGGSFIELD / COMFYUI) -->
+          <div class="card" style="margin-bottom: 20px; border: 1px solid rgba(56, 189, 248, 0.3); background: linear-gradient(135deg, rgba(56, 189, 248, 0.05), rgba(16, 185, 129, 0.05));">
+            <div class="card-body" style="padding: 18px 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div>
+                  <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px; flex-wrap: wrap;">
+                    <h3 style="margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px; color: #fff;">
+                      <i class="fa-solid fa-paintbrush" style="color: #38bdf8;"></i> CreativeField &amp; FotoField
+                    </h3>
+                    <span id="creativeFieldStatusBadge" class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 700;">
+                      <i class="fa-solid fa-circle-notch fa-spin"></i> Verificando CreativeField...
+                    </span>
+                    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; font-size: 11px; font-weight: 700;">
+                      <i class="fa-solid fa-trophy"></i> Vencedor Desafio Higgsfield
+                    </span>
+                    <span class="badge" style="background: rgba(255,255,255,0.06); color: #94a3b8; font-size: 11px;">
+                      <i class="fa-brands fa-github"></i> rhymeas/Creativefield
+                    </span>
+                  </div>
+                  <p style="margin: 0; color: var(--text-muted); font-size: 13px;">
+                    Estúdio criativo completo de workflows ComfyUI na porta <b>8787</b> com <b>FotoField</b> (editor de imagens IA com camadas, inpainting e retoques).
+                  </p>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-sm btn-outline" id="btnStartCreativeField" onclick="startCreativeFieldServer()" title="Inicia o servidor local do CreativeField na porta 8787">
+                    <i class="fa-solid fa-play"></i> Iniciar Servidor (8787)
+                  </button>
+                  <a href="http://127.0.0.1:8787/" id="linkOpenCreativeField" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline" style="border-color: #38bdf8; color: #38bdf8; font-weight: 600;">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir CreativeField
+                  </a>
+                  <a href="http://127.0.0.1:8787/#video" id="linkOpenFotoField" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-primary" style="background: #38bdf8; border-color: #38bdf8; font-weight: 600; color: #070b13;">
+                    <i class="fa-solid fa-image"></i> Abrir FotoField (Editor)
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- GRID PRINCIPAL DO STUDIO: FORMULÁRIO (ESQUERDA) + PREVIEW (DIREITA) -->
+          <div style="display: grid; grid-template-columns: minmax(360px, 480px) 1fr; gap: 20px; margin-bottom: 25px;">
+            <!-- COLUNA 1: FORMULÁRIO DO CRIATIVO -->
+            <div class="card" style="margin: 0;">
+              <div class="card-header" style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-color);">
+                <h3 style="margin: 0; font-size: 15px;"><i class="fa-solid fa-wand-magic-sparkles" style="color: #a855f7;"></i> Configurar Design do Post</h3>
+              </div>
+              <div class="card-body" style="padding: 18px;">
+                <form id="formComfyArt" onsubmit="event.preventDefault(); generateComfyArtPost();">
+                  <!-- 1. Formato / Template -->
+                  <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Formato do Post:</label>
+                    <select id="comfyTemplate" class="form-control" onchange="onComfyFieldChange()" style="font-size: 13px;">
+                      <option value="square">📱 Feed Instagram &amp; WhatsApp (1:1 - 1080x1080)</option>
+                      <option value="story">📲 Status WhatsApp &amp; Stories (9:16 - 1080x1920)</option>
+                      <option value="banner">📢 Banner Telegram &amp; X (16:9 - 1200x675)</option>
+                      <option value="product_card">🏷️ Card de Oferta com Preço Pix (1080x1080)</option>
+                      <option value="viral_hook">🔥 Post Viral Retrato Feed (4:5 - 1080x1350)</option>
+                    </select>
+                  </div>
+
+                  <!-- 2. Puxar Dados de Produto Cadastrado -->
+                  <div class="form-group" style="margin-bottom: 14px; background: rgba(168,85,247,0.06); border: 1px solid rgba(168,85,247,0.2); border-radius: 8px; padding: 10px 12px;">
+                    <label style="font-size: 12px; font-weight: 700; color: #c084fc; margin-bottom: 4px; display: block;">
+                      <i class="fa-solid fa-box-open"></i> Puxar Dados de um Produto (Opcional):
+                    </label>
+                    <select id="comfyProductSelect" class="form-control" onchange="onComfyProductSelect()" style="font-size: 12px;">
+                      <option value="">Selecione um produto para auto-preencher...</option>
+                    </select>
+                  </div>
+
+                  <!-- 3. Tema & Paleta Visual -->
+                  <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Estilo Visual &amp; Paleta:</label>
+                    <select id="comfyTheme" class="form-control" onchange="onComfyFieldChange()" style="font-size: 13px;">
+                      <option value="cyber_dark">🌌 Cyber Neon Tech (Azul Elétrico &amp; Roxo)</option>
+                      <option value="emerald_pay">🟢 Verde Pix &amp; Dinheiro (Menta &amp; Esmeralda)</option>
+                      <option value="gold_luxury">👑 Ouro &amp; Obsidian Luxo (Dourado &amp; Preto)</option>
+                      <option value="fire_viral">🔥 Fogo Viral &amp; Urgência (Vermelho &amp; Laranja)</option>
+                      <option value="clean_minimal">❄️ Minimalista Clean (Azul Céu &amp; Slate)</option>
+                    </select>
+                  </div>
+
+                  <!-- 4. Título Principal / Headline -->
+                  <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Título / Headline do Post:</label>
+                    <input type="text" id="comfyTitle" class="form-control" placeholder="Ex: BOT DE VENDAS AUTOMÁTICO PRO" value="BOT DE VENDAS AUTOMÁTICO" oninput="onComfyFieldChange()" style="font-size: 13px;">
+                  </div>
+
+                  <!-- 5. Subtítulo / Benefícios -->
+                  <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Subtítulo / Benefícios / Descrição:</label>
+                    <textarea id="comfySubtitle" class="form-control" rows="2" placeholder="Ex: Venda 24h no WhatsApp com entrega imediata via Pix" oninput="onComfyFieldChange()" style="font-size: 12px;">Venda 24 horas no WhatsApp com entrega imediata via Pix e Binance Pay</textarea>
+                  </div>
+
+                  <!-- 6. Preço e Selo Promocional -->
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
+                    <div>
+                      <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Preço / Condição:</label>
+                      <input type="text" id="comfyPrice" class="form-control" placeholder="Ex: R$ 49,90" value="R$ 49,90" oninput="onComfyFieldChange()" style="font-size: 13px;">
+                    </div>
+                    <div>
+                      <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Selo / Tag Superior:</label>
+                      <input type="text" id="comfyDiscountBadge" class="form-control" placeholder="Ex: LANÇAMENTO 2026" value="OFERTA ESPECIAL" oninput="onComfyFieldChange()" style="font-size: 13px;">
+                    </div>
+                  </div>
+
+                  <!-- 7. Botão CTA -->
+                  <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Texto do Botão CTA (Chamada para Ação):</label>
+                    <input type="text" id="comfyCtaText" class="form-control" placeholder="Ex: COMPRE COM 1 TOQUE NO WHATSAPP" value="GARANTA SEU ACESSO HOJE" oninput="onComfyFieldChange()" style="font-size: 13px;">
+                  </div>
+
+                  <!-- 8. Rodapé -->
+                  <div class="form-group" style="margin-bottom: 18px;">
+                    <label style="font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 6px; display: block;">Rodapé da Marca:</label>
+                    <input type="text" id="comfyFooterText" class="form-control" placeholder="Ex: PayBot Tech • Automação Comercial" value="PayBot Tech • Automação Comercial" oninput="onComfyFieldChange()" style="font-size: 12px;">
+                  </div>
+
+                  <!-- BOTÃO DE GERAÇÃO -->
+                  <button type="submit" class="btn btn-primary w-100" id="btnGenerateComfyPost" style="background: linear-gradient(135deg, #a855f7, #6366f1); border: none; font-weight: 700; padding: 13px; font-size: 15px; border-radius: 8px;">
+                    <i class="fa-solid fa-paintbrush"></i> Gerar Post Criativo com ComfyArt
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- COLUNA 2: PREVIEW EM TEMPO REAL & AÇÕES DE DISPARO -->
+            <div class="card" style="margin: 0; display: flex; flex-direction: column;">
+              <div class="card-header" style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                  <h3 style="margin: 0; font-size: 15px;"><i class="fa-solid fa-eye" style="color: #38bdf8;"></i> Visualização do Post (Preview HD)</h3>
+                  <small id="comfyPreviewDimensions" style="color: var(--text-muted);">1080 x 1080 px • Formato Quadrado</small>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-sm btn-outline" onclick="onComfyFieldChange()" title="Atualiza o preview">
+                    <i class="fa-solid fa-rotate"></i>
+                  </button>
+                  <button type="button" class="btn btn-sm btn-primary" id="btnDownloadComfyPost" onclick="downloadCurrentComfyPost()" style="background: #10b981; border-color: #10b981; font-weight: 600;" disabled>
+                    <i class="fa-solid fa-download"></i> Baixar PNG
+                  </button>
+                </div>
+              </div>
+              <div class="card-body" style="padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #070b13; flex: 1; min-height: 480px;">
+                <!-- CONTAINER DO PREVIEW -->
+                <div id="comfyPreviewContainer" style="max-width: 100%; max-height: 520px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 12px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1);">
+                  <!-- SVG / Imagem será injetada aqui -->
+                </div>
+
+                <!-- BARRA DE DISPAROS IMEDIATOS -->
+                <div style="display: flex; gap: 10px; align-items: center; justify-content: center; width: 100%; margin-top: 20px; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-primary" id="btnDispatchWhatsapp" onclick="openComfyArtDispatchModal('whatsapp')" style="background: #25d366; border-color: #25d366; font-weight: 600;" disabled>
+                    <i class="fa-brands fa-whatsapp"></i> Enviar no WhatsApp
+                  </button>
+                  <button type="button" class="btn btn-primary" id="btnDispatchTelegram" onclick="openComfyArtDispatchModal('telegram')" style="background: #229ed9; border-color: #229ed9; font-weight: 600;" disabled>
+                    <i class="fa-brands fa-telegram"></i> Publicar no Telegram
+                  </button>
+                  <button type="button" class="btn btn-outline" id="btnCopyComfyLink" onclick="copyComfyPostImageUrl()" disabled>
+                    <i class="fa-solid fa-copy"></i> Copiar Link da Imagem
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SEÇÃO 3: GALERIA DE CRIATIVOS RECENTES GERADOS COM COMFYART -->
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <h3 style="margin: 0;"><i class="fa-solid fa-images" style="color: #a855f7;"></i> Galeria de Posts Gerados (ComfyArt)</h3>
+                <small style="color: var(--text-muted);">Histórico dos criativos criados com ComfyArt prontos para download e re-disparo</small>
+              </div>
+              <button class="btn btn-sm btn-outline" onclick="loadComfyRecentPosts()">
+                <i class="fa-solid fa-rotate"></i> Atualizar Galeria
+              </button>
+            </div>
+            <div class="card-body">
+              <div id="comfyRecentGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px;">
+                <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 30px;">
+                  Carregando posts recentes do ComfyArt...
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- TAB 6: PRODUTOS & ASSINATURAS -->
         <section id="tab-products" class="tab-pane">
           <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 10px; padding: 12px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -7180,6 +7404,83 @@ Atenção membros: nova atualização disponível no painel!"></textarea>
           <button type="button" class="btn btn-secondary" onclick="closeRenewTenantModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary" style="background: #10b981; border-color: #10b981; font-weight: 700;">
             <i class="fa-solid fa-check"></i> Confirmar Renovação
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <!-- MODAL: CONFIGURAÇÕES DO COMFYART / COMFYUI -->
+  <div id="modalComfySettings" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-sliders" style="color: #a855f7;"></i> Configurar ComfyArt &amp; ComfyUI</h3>
+        <button type="button" class="btn-close" onclick="closeModal('modalComfySettings')">&times;</button>
+      </div>
+      <form id="formComfySettings" onsubmit="saveComfyArtSettings(event)">
+        <div class="modal-body">
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label style="font-weight: 700; font-size: 13px;">Endpoint Local do ComfyUI / ComfyArt:</label>
+            <input type="text" id="settingComfyEndpoint" class="form-control" placeholder="http://127.0.0.1:8188" required>
+            <small style="color: var(--text-muted); display: block; margin-top: 4px;">URL padrão onde o servidor ComfyUI com o node ComfyArt está escutando.</small>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label style="font-weight: 700; font-size: 13px;">Repositório Git Oficial:</label>
+            <input type="text" id="settingComfyRepoUrl" class="form-control" value="https://github.com/jtydhr88/ComfyArt.git">
+            <small style="color: var(--text-muted); display: block; margin-top: 4px;">Repositório clonado em <code>tools/ComfyArt</code> para acesso aos 33 workflows oficiais.</small>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="settingComfyEnabled" checked>
+              <span>Ativar Integração ComfyArt no Bot &amp; Painel</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modalComfySettings')">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: #a855f7; border-color: #a855f7; font-weight: 700;">
+            <i class="fa-solid fa-save"></i> Salvar Configurações
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: DISPARO DE POST COMFYART (WHATSAPP / TELEGRAM) -->
+  <div id="modalComfyDispatch" class="modal">
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 id="comfyDispatchModalTitle"><i class="fa-solid fa-paper-plane" style="color: #25d366;"></i> Enviar Criativo Criado</h3>
+        <button type="button" class="btn-close" onclick="closeModal('modalComfyDispatch')">&times;</button>
+      </div>
+      <form id="formComfyDispatch" onsubmit="submitComfyArtDispatch(event)">
+        <input type="hidden" id="dispatchComfyChannel" value="whatsapp">
+        <input type="hidden" id="dispatchComfyMediaUrl" value="">
+        <div class="modal-body">
+          <div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: center; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px;">
+            <img id="dispatchComfyThumb" src="" style="width: 70px; height: 70px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);" alt="Post">
+            <div style="flex: 1;">
+              <div id="dispatchComfyHeadline" style="font-weight: 700; font-size: 14px; color: #fff;"></div>
+              <div id="dispatchComfyChannelBadge" class="badge" style="margin-top: 4px;"></div>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label id="dispatchComfyTargetLabel" style="font-weight: 700; font-size: 13px;">Número WhatsApp ou Grupo (JID):</label>
+            <input type="text" id="dispatchComfyTarget" class="form-control" placeholder="Ex: 5511999999999 ou 120363xxx@g.us" required>
+            <small style="color: var(--text-muted); display: block; margin-top: 4px;">Deixe vazio ou use o número do cliente / canal oficial.</small>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label style="font-weight: 700; font-size: 13px;">Legenda / Copy do Post:</label>
+            <textarea id="dispatchComfyCaption" class="form-control" rows="4" placeholder="Escreva a legenda que acompanhará a imagem do post..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modalComfyDispatch')">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitComfyDispatch" style="font-weight: 700;">
+            <i class="fa-solid fa-paper-plane"></i> Enviar Post Agora
           </button>
         </div>
       </form>
