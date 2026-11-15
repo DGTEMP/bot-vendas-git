@@ -76,6 +76,11 @@ class NaturalLanguageService {
       return { intent: 'DEACTIVATE_BOT', confidence: 0.98 };
     }
 
+    // 0.5 Desinteresse / Recusa Explícita do Produto / Não Quero
+    if (/(?:n[aã]o\s+quero\s+(?:o\s+)?(?:produto|bot|servi[cç]o|plano|sistema|nada|isso|esse|essa|comprar)|n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+me\s+interessa|n[aã]o\s+preciso(?:\s+de\s+(?:bot|nada|isso|produto))?|n[aã]o\s+vou\s+querer|n[aã]o\s+vou\s+comprar|n[aã]o\s+[eé]\s+(?:o\s+que\s+)?(?:eu\s+)?procuro|pra\s+mim\s+n[aã]o\s+serve|n[aã]o\s+serve\s+pra\s+mim|n[aã]o\s+faz\s+sentido|n[aã]o\s+estou\s+interessad[oa]|obrigad[oa]\s+mas\s+n[aã]o|valeu\s+mas\s+n[aã]o|obrigado\s+n[aã]o\s+quero|valeu\s+n[aã]o\s+quero|t[oô]\s+de\s+boa|deixa\s+quieto|deixa\s+pra\s+l[aá]|n[aã]o\s+vou\s+fechar|n[aã]o\s+quero\s+gastar|pode\s+cancelar(?:\s+o\s+pedido)?|cancela\s+(?:o\s+pedido|a\s+compra)|n[aã]o\s+tenho\s+como\s+comprar|n[aã]o\s+tenho\s+interesse\s+em\s+comprar)/i.test(normalized)) {
+      return { intent: 'DISINTEREST', confidence: 0.96 };
+    }
+
     // 1. Confirmação de Pagamento / Já paguei / Já comprei
     if (/(ja fiz o pix|acabei de pagar|ja paguei|fiz o pagamento|mandei o comprovante|olha o comprovante|ja transferi|dinheiro enviado|paguei aqui|caiu ai|ta pago|comprovante|pagamento feito|pagamento realizado|fiz a transferencia|acabei de comprar|ja comprei|comprei pelo link|paguei pelo link|comprei aqui|fiz a compra|consegui comprar|deu certo a compra|comprei agora|ja garanti|pronto.*compr|pronto.*pagu|pagamento concluido|pagamento efetuado|pix enviado|pix realizado|consegui fechar)/i.test(normalized)) {
       return { intent: 'CONFIRM_PURCHASE', confidence: 0.98 };
@@ -180,26 +185,31 @@ class NaturalLanguageService {
     let matchedProduct = null;
     let extractedNumber = null;
 
+    // Se a mensagem for de desinteresse/recusa explícita, NÃO vincula produto como intenção de compra
+    const isDisinterestText = /(?:n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+preciso|n[aã]o\s+vou\s+comprar|n[aã]o\s+vou\s+querer|n[aã]o\s+me\s+interessa|valeu\s+mas\s+n[aã]o|obrigad[oa]\s+mas\s+n[aã]o|t[oô]\s+de\s+boa)/i.test(normalized);
+
     // Detecta menção a número de produto (apenas se a mensagem for exclusivamente o número ou se tiver prefixo explícito de produto/opção)
     const isOnlyNumber = /^\s*([1-9]\d?)\s*$/.test(normalized);
     const explicitNumMatch = normalized.match(/(?:produto|plano|item|op[cç][aã]o|n[uú]mero|n[ºo]|\bo\b|\bpro\b|\bpra\b|\bpara\b|\bdo\b|\bda\b)\s*([1-9]\d?)\b/i);
 
-    if (isOnlyNumber) {
-      const idx = parseInt(normalized.trim(), 10);
-      if (idx > 0 && idx <= products.length) {
-        matchedProduct = products[idx - 1];
-        extractedNumber = idx;
-      }
-    } else if (explicitNumMatch) {
-      const idx = parseInt(explicitNumMatch[1], 10);
-      if (idx > 0 && idx <= products.length) {
-        matchedProduct = products[idx - 1];
-        extractedNumber = idx;
+    if (!isDisinterestText) {
+      if (isOnlyNumber) {
+        const idx = parseInt(normalized.trim(), 10);
+        if (idx > 0 && idx <= products.length) {
+          matchedProduct = products[idx - 1];
+          extractedNumber = idx;
+        }
+      } else if (explicitNumMatch) {
+        const idx = parseInt(explicitNumMatch[1], 10);
+        if (idx > 0 && idx <= products.length) {
+          matchedProduct = products[idx - 1];
+          extractedNumber = idx;
+        }
       }
     }
 
     // Se não encontrou por número, busca por semelhança no nome/categoria do produto usando palavras distintivas (evita falsos positivos com palavras genéricas como "bot", "pro", "ia")
-    if (!matchedProduct && products.length > 0) {
+    if (!isDisinterestText && !matchedProduct && products.length > 0) {
       const GENERIC_PRODUCT_STOPWORDS = new Set([
         'bot', 'pro', 'app', 'para', 'com', 'sem', 'de', 'da', 'do', 'das', 'dos',
         'em', 'um', 'uma', 'plano', 'licenca', 'licença', 'acesso', 'chave', 'grupo',
@@ -264,8 +274,8 @@ class NaturalLanguageService {
       }
     }
 
-    // Se ainda não encontrou e há apenas 1 produto no catálogo, assume este
-    if (!matchedProduct && products.length === 1) {
+    // Se ainda não encontrou e há apenas 1 produto no catálogo, assume este (apenas se não houver desinteresse)
+    if (!isDisinterestText && !matchedProduct && products.length === 1) {
       matchedProduct = products[0];
     }
 
@@ -381,6 +391,11 @@ class NaturalLanguageService {
       case 'DEACTIVATE_BOT':
         directAction = 'DEACTIVATE_BOT';
         replyText = `🛑 *ATENDIMENTO AUTOMÁTICO PAUSADO!*\n\nRespeitamos sua decisão${nameGreeting}! Pausamos as respostas automáticas para esta conversa. Se quiser reativar a qualquer momento, basta enviar *!ativar*. Tenha um ótimo dia!`;
+        break;
+
+      case 'DISINTEREST':
+        directAction = 'HANDLE_DISINTEREST';
+        replyText = `Entendido perfeitamente${nameGreeting}! Sem problemas nenhum 👍\n\nMuito obrigado pelo retorno e pela atenção! Se em algum momento precisar de algo ou quiser tirar alguma dúvida, estamos à disposição por aqui. Sucesso nos seus projetos!`;
         break;
 
       case 'CONFIRM_PURCHASE':
