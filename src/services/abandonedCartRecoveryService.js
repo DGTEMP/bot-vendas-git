@@ -71,6 +71,11 @@ class AbandonedCartRecoveryService {
       const cleanPhone = String(session.phone || '').replace(/\D/g, '');
       if (!cleanPhone || cleanPhone.length < 8) continue;
 
+      const cognProfile = models.getLeadCognitiveProfile(cleanPhone);
+      if (cognProfile && (cognProfile.buying_stage === 'PERDIDO' || cognProfile.main_objection === 'SEM_INTERESSE')) {
+        continue;
+      }
+
       let prodName = session.current_product_name;
       if (!prodName && Array.isArray(session.cart_items) && session.cart_items.length > 0) {
         prodName = session.cart_items.map(i => i.name).filter(Boolean).join(', ');
@@ -109,6 +114,11 @@ class AbandonedCartRecoveryService {
     for (const session of sessions) {
       const cleanPhone = String(session.phone || '').replace(/\D/g, '');
       if (!cleanPhone || cleanPhone.length < 8) continue;
+
+      const cognProfile = models.getLeadCognitiveProfile(cleanPhone);
+      if (cognProfile && (cognProfile.buying_stage === 'PERDIDO' || cognProfile.main_objection === 'SEM_INTERESSE')) {
+        continue;
+      }
 
       let prodName = session.current_product_name;
       if (!prodName && Array.isArray(session.cart_items) && session.cart_items.length > 0) {

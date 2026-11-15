@@ -25,6 +25,9 @@ class JevDecisionService {
     this.defaultEndpoint = process.env.JEV_ENDPOINT || 'https://api.typesafe.ai/v1/decide';
     this.recentDecisionsBuffer = []; // Circular buffer dos últimos 100 eventos para Web UI em tempo real
     this.maxBufferSize = 100;
+    // Circuit Breaker para chamadas de nuvem (evita penalidade de timeout quando a API externa oscilar)
+    this.cloudFailures = 0;
+    this.cloudCircuitOpenUntil = 0;
   }
 
   // =========================================================================
@@ -52,6 +55,11 @@ class JevDecisionService {
     return models.getSetting('JEV_ENDPOINT', this.defaultEndpoint);
   }
 
+  resetCircuitBreaker() {
+    this.cloudFailures = 0;
+    this.cloudCircuitOpenUntil = 0;
+  }
+
   // =========================================================================
   // 2. MOTOR UNIVERSAL DE DECISÃO (DECIDE)
   // =========================================================================
@@ -73,8 +81,9 @@ class JevDecisionService {
     let decisionResult = null;
     let executionMode = 'LOCAL_FAST';
 
-    // 1. Tenta API Cloud do Jev se configurado e modo permitir
-    if ((mode === 'HYBRID' || mode === 'CLOUD_ONLY') && apiKey) {
+    // 1. Tenta API Cloud do Jev se configurado e modo permitir (com Circuit Breaker ativo)
+    const isCircuitOpen = Date.now() < this.cloudCircuitOpenUntil;
+    if ((mode === 'HYBRID' || mode === 'CLOUD_ONLY') && apiKey && !isCircuitOpen) {
       try {
         const cloudRes = await this._callTypeSafeJevCloud({
           endpoint: this.getEndpoint(),
@@ -88,9 +97,14 @@ class JevDecisionService {
         if (cloudRes && cloudRes.intent) {
           decisionResult = cloudRes;
           executionMode = 'TYPESAFE_CLOUD';
+          this.cloudFailures = 0;
         }
       } catch (cloudErr) {
-        if (mode === 'CLOUD_ONLY') {
+        this.cloudFailures++;
+        if (this.cloudFailures >= 3) {
+          this.cloudCircuitOpenUntil = Date.now() + 60 * 1000;
+          console.warn(`[Jev Circuit Breaker ⚡] 3 falhas consecutivas na cloud API (${cloudErr.message}). Circuito aberto por 60s (fallback local sub-1ms ativo).`);
+        } else if (mode === 'CLOUD_ONLY') {
           console.warn('[Jev Cloud ⚠️ Falha]:', cloudErr.message);
         }
       }
@@ -314,7 +328,7 @@ class JevDecisionService {
     // CONTEXTO: RADAR VIRAL & MINERAÇÃO DE LEADS EM GRUPOS
     // -------------------------------------------------------------
     if (contextType === 'VIRAL_RADAR') {
-      const hasDirectBuyingNeed = /(?:onde\s+(?:\w+\s+){0,3}(?:compro|comprar|acho|encontro)|algu[eé]m\s+(?:\w+\s+){0,3}(?:vende|tem|faz|indica)|preciso\s+(?:\w+\s+){0,3}(?:bot|software|app|sistema|painel|licen[cç]a|site)|quem\s+(?:\w+\s+){0,3}(?:vende|desenvolve|fornece)|recomenda[cç][aã]o\s+de|procuro\s+(?:\w+\s+){0,3}comprar|(?:quero|busco)\s+(?:\w+\s+){0,3}(?:comprar|adquirir|contratar))/i.test(low);
+      const hasDirectBuyingNeed = /(?:onde\s+(?:\w+\s+){0,3}(?:compro|comprar|acho|encontro)|algu[eé]m\s+(?:\w+\s+){0,3}(?:vende|tem|faz|indica|indica[cç][aã]o)|preciso\s+(?:\w+\s+){0,3}(?:bot|software|app|sistema|painel|licen[cç]a|site)|quem\s+(?:\w+\s+){0,3}(?:vende|desenvolve|fornece)|recomenda[cç][aã]o\s+de|procuro\s+(?:\w+\s+){0,3}comprar|(?:quero|busco)\s+(?:\w+\s+){0,3}(?:comprar|adquirir|contratar))/i.test(low);
       const hasBudget = /(?:tenho\s+(?:grana|or[cç]amento|dinheiro)|pago\s+(?:bem|a\s+vista|no\s+pix)|qual\s+o\s+or[cç]amento|quanto\s+custa)/i.test(low);
 
       if (hasDirectBuyingNeed) {
@@ -415,6 +429,18 @@ class JevDecisionService {
         canBypassLlm: true,
         action: 'ESCALATE_TO_SUPPORT',
         suggestedNext: 'Criar ticket de suporte e notificar equipe'
+      };
+    }
+
+    // 5.5 Desinteresse / Recusa Explícita do Produto
+    if (/(?:n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+preciso|n[aã]o\s+vou\s+comprar|n[aã]o\s+vou\s+querer|n[aã]o\s+me\s+interessa|valeu\s+mas\s+n[aã]o|obrigad[oa]\s+mas\s+n[aã]o|deixa\s+quieto|t[oô]\s+de\s+boa)/i.test(low)) {
+      return {
+        intent: 'DISINTEREST',
+        confidence: 0.96,
+        urgency: 'LOW',
+        canBypassLlm: false,
+        action: 'HANDLE_DISINTEREST',
+        suggestedNext: 'Acolher recusa com elegância e encerrar abordagem sem insistir'
       };
     }
 

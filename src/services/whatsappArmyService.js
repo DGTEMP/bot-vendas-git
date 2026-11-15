@@ -1793,6 +1793,25 @@ class WhatsAppArmyService {
       return true;
     }
 
+    // 4.3 Reconhece desinteresse explícito / recusa do lead (Encerra o funil e desarma a abordagem)
+    const isDisinterest = nlp?.intent === 'DISINTEREST' || /(?:n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+me\s+interessa|n[aã]o\s+preciso|n[aã]o\s+vou\s+comprar|n[aã]o\s+vou\s+querer|valeu\s+mas\s+n[aã]o|obrigad[oa]\s+mas\s+n[aã]o|t[oô]\s+de\s+boa|deixa\s+quieto)/i.test(lower);
+    if (isDisinterest) {
+      db.prepare("UPDATE lead_funnel_conversations SET status = 'LOST', current_stage = 'LOST', next_followup_at = NULL WHERE phone = ?").run(rawPhone);
+      const rawName = (leadConv.name || '').trim();
+      const cleanName = (!rawName || /^(amigo\(a\)|amigo|lead|cliente)$/i.test(rawName)) ? '' : ` ${rawName.split(' ')[0]}`;
+      const politeClose = `Entendido perfeitamente${cleanName}! Sem problemas nenhum. 👍\n\nMuito obrigado pelo retorno e pela atenção. Se no futuro precisar de qualquer coisa, estamos à disposição. Sucesso por aí!`;
+      await this.sendArmyMessage(instanceId, rawPhone, politeClose);
+      models.logFunnelInteraction({
+        lead_phone: rawPhone,
+        instance_id: instanceId,
+        direction: 'OUT',
+        stage: 'LOST',
+        message_text: politeClose
+      });
+      console.log(`[Funil de Vendas 🛑 DESINTERESSE] Lead ${rawPhone} encerrou com recusa educada.`);
+      return true;
+    }
+
     // 5. Intenção direta de compra / pedido de link (Fast-forward para Oferta)
     const directOfferRegex = /(quero o link|manda o link|me passa o link|qual o link|onde compro|quero comprar|passa o link|como faço pra comprar|link para comprar|link pra comprar)/i;
     let nextStageKey = null;

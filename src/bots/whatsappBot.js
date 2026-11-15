@@ -144,6 +144,7 @@ class WhatsAppBotService {
     this.sentBotMessages = new Map(); // Cache de IDs de mensagens enviadas pelo bot/subbots para cancelamento (!d)
     this.isStarting = false;
     this.reconnectTimeout = null;
+    this.reconnectAttempts = 0;
   }
 
   /**
@@ -216,6 +217,7 @@ class WhatsAppBotService {
   }
 
   async stop() {
+    this.reconnectAttempts = 0;
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -334,6 +336,7 @@ class WhatsAppBotService {
 
         if (connection === 'open') {
           this.isConnected = true;
+          this.reconnectAttempts = 0;
           if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
@@ -391,6 +394,7 @@ class WhatsAppBotService {
 
           if (isLoggedOut) {
             console.log('🛑 [WhatsApp Matriz] Desconectado por logout (401). Limpando sessão antiga para permitir nova conexão...');
+            this.reconnectAttempts = 0;
             this.currentPairingCode = null;
             this.currentQr = null;
             this.currentQrDataUrl = null;
@@ -402,10 +406,16 @@ class WhatsAppBotService {
             this.scheduleReconnect(2000);
           } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
             console.log('⚡ [WhatsApp Matriz] Pareamento confirmado pelo celular! Reinicializando imediatamente...');
+            this.reconnectAttempts = 0;
             this.scheduleReconnect(300);
           } else {
-            console.log(`📱 [WhatsApp Matriz] Conexão encerrada temporariamente (código ${statusCode}). Reconectando em ${reconnectDelaySec} segundos...`);
-            this.scheduleReconnect(reconnectDelaySec * 1000);
+            const baseDelay = reconnectDelaySec * 1000;
+            const factor = Math.min(this.reconnectAttempts++, 6);
+            const backoffDelay = Math.min(30000, Math.round(baseDelay * Math.pow(1.5, factor)));
+            const jitter = Math.floor(Math.random() * 800);
+            const finalDelay = backoffDelay + jitter;
+            console.log(`📱 [WhatsApp Matriz] Conexão encerrada temporariamente (código ${statusCode}, tentativa ${this.reconnectAttempts}). Reconectando em ${(finalDelay / 1000).toFixed(1)} segundos...`);
+            this.scheduleReconnect(finalDelay);
           }
         }
       });
@@ -6399,6 +6409,24 @@ class WhatsAppBotService {
             }
           }
         }
+        if (nlp.directAction === 'HANDLE_DISINTEREST' || nlp.intent === 'DISINTEREST') {
+          if (senderPhone) {
+            try {
+              models.upsertLeadCognitiveProfile(senderPhone, {
+                buying_stage: 'PERDIDO',
+                readiness_score: 0,
+                main_objection: 'SEM_INTERESSE',
+                next_followup_at: null,
+                notes: 'Lead expressou desinteresse explícito no produto/serviço ofertado'
+              });
+              models.addLeadEpisodicMemory(senderPhone, 'OBJECTION', 'Lead expressou desinteresse explícito no produto/serviço ofertado', text, 5);
+
+              const db = require('../db/database');
+              db.prepare(`UPDATE orders SET status = 'CANCELLED' WHERE platform = 'whatsapp' AND platform_user_id LIKE ? AND status = 'PENDING'`).run(`%${senderPhone}%`);
+              db.prepare(`UPDATE lead_funnel_conversations SET status = 'LOST' WHERE phone = ?`).run(senderPhone);
+            } catch (_) {}
+          }
+        }
         if (nlp.intent === 'CONFIRM_PURCHASE') {
           models.markLeadConverted(senderPhone);
         }
@@ -6416,7 +6444,7 @@ class WhatsAppBotService {
             const isConsultativeIntent = [
               'GENERAL_CHAT', 'PRICE_QUERY', 'HOW_IT_WORKS', 'TRUST_AND_GUARANTEE',
               'BUY_INTENT', 'GREETING', 'RENTAL_QUERY', 'CUSTOM_SOFTWARE_QUERY',
-              'CATALOG_QUERY', 'DISCOUNT_QUERY', 'TEST_QUERY'
+              'CATALOG_QUERY', 'DISCOUNT_QUERY', 'TEST_QUERY', 'DISINTEREST'
             ].includes(nlp.intent);
 
             if (isConsultativeIntent) {
@@ -9877,6 +9905,60 @@ class WhatsAppBotService {
       if (this.groupMetadataCache) {
         for (const [gid, item] of this.groupMetadataCache.entries()) {
           if (now > item.expiresAt) this.groupMetadataCache.delete(gid);
+        }
+      }
+      // 1. Purga cache de resolução LID -> Phone (cap em 3.000 entradas FIFO)
+      if (typeof lidToPhoneCache !== 'undefined' && lidToPhoneCache && lidToPhoneCache.size > 3000) {
+        const excess = lidToPhoneCache.size - 3000;
+        let count = 0;
+        for (const key of lidToPhoneCache.keys()) {
+          if (count++ >= excess) break;
+          lidToPhoneCache.delete(key);
+        }
+      }
+      // 2. Purga rastreamento de última atividade inativa há mais de 24 horas
+      if (this.userLastActivity) {
+        for (const [key, ts] of this.userLastActivity.entries()) {
+          if (now - ts > 24 * 60 * 60 * 1000) this.userLastActivity.delete(key);
+        }
+      }
+      // 3. Purga contextos de pedido pendente inativos há mais de 2 horas
+      if (this.userActiveOrderContext) {
+        for (const [jid, ctx] of this.userActiveOrderContext.entries()) {
+          const act = ctx?.timestamp || ctx?.lastActivity || 0;
+          if (!act || now - act > 2 * 60 * 60 * 1000) this.userActiveOrderContext.delete(jid);
+        }
+      }
+      // 4. Purga cupons e referências em excesso
+      if (this.userCoupons && this.userCoupons.size > 1000) {
+        const excess = this.userCoupons.size - 1000;
+        let count = 0;
+        for (const k of this.userCoupons.keys()) {
+          if (count++ >= excess) break;
+          this.userCoupons.delete(k);
+        }
+      }
+      if (this.userReferrals && this.userReferrals.size > 1000) {
+        const excess = this.userReferrals.size - 1000;
+        let count = 0;
+        for (const k of this.userReferrals.keys()) {
+          if (count++ >= excess) break;
+          this.userReferrals.delete(k);
+        }
+      }
+      // 5. Purga mensagens enviadas para cancelamento (!d) com mais de 24 horas ou acima de 5.000
+      if (this.sentBotMessages) {
+        for (const [id, item] of this.sentBotMessages.entries()) {
+          const ts = typeof item === 'number' ? item : (item?.timestamp || 0);
+          if (ts && now - ts > 24 * 60 * 60 * 1000) this.sentBotMessages.delete(id);
+        }
+        if (this.sentBotMessages.size > 5000) {
+          const excess = this.sentBotMessages.size - 5000;
+          let count = 0;
+          for (const k of this.sentBotMessages.keys()) {
+            if (count++ >= excess) break;
+            this.sentBotMessages.delete(k);
+          }
         }
       }
     } catch (_) {}

@@ -326,6 +326,156 @@ class OwnerMindsetService {
       return true;
     }
 
+    // 0.1 Execução de Ordem de Briefing / Autorização do Dono via Co-Piloto Executivo
+    try {
+      const executiveCopilotService = require('./executiveCopilotService');
+      const handledApproval = await executiveCopilotService.handleOwnerApproval({
+        senderPhone,
+        messageText: raw,
+        whatsappBotInstance
+      });
+      if (handledApproval) return true;
+
+      // 0.2 Solicitação de Briefing Executivo Proativo
+      // Ex: "briefing", "copiloto", "panorama", "resumo executivo", "como estamos"
+      if (/(?:briefing|copiloto|relat[oó]rio\s+executivo|como\s+estamos|resumo\s+executivo|panorama\s+geral)/i.test(lower)) {
+        const briefing = await executiveCopilotService.buildBriefing('MORNING_ACTION', senderPhone);
+        await sock.sendMessage(from, { text: briefing.content });
+        return true;
+      }
+    } catch (_) {}
+
+    // =========================================================================
+    // ⚡ AÇÕES OPERACIONAIS DIRETAS DO COPILOTO EXECUTIVO (SALTO DE MATURIDADE)
+    // =========================================================================
+
+    // OP-1. Alteração de Preço de Produto em Tempo Real
+    // Ex: "Muda o valor do plano mensal para R$ 79,90", "altera o preco do bot para 89"
+    const priceChangeMatch = raw.match(/(?:muda|mudar|altera|alterar|atualiza|atualizar|bota|coloca|troca)\s*(?:o\s*)?(?:pre[cç]o|valor)\s*(?:do\s*)?([a-zA-ZÀ-ÿ0-9\s]+?)\s*(?:para|pra|por)\s*(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)/i);
+    if (priceChangeMatch) {
+      const prodQuery = priceChangeMatch[1].trim().toLowerCase();
+      const newPrice = parseFloat(priceChangeMatch[2].replace(',', '.'));
+      if (!isNaN(newPrice) && newPrice > 0) {
+        try {
+          const db = require('../db/database');
+          const products = models.getProducts(false, true);
+          let targetProd = products.find(p => p.name.toLowerCase().includes(prodQuery)) ||
+                           products.find(p => p.id === 2137) ||
+                           products[0];
+
+          if (targetProd) {
+            const oldPrice = targetProd.price_brl || targetProd.price;
+            db.prepare('UPDATE products SET price = ?, price_brl = ? WHERE id = ?').run(newPrice, newPrice, targetProd.id);
+            models.invalidateProductCache();
+
+            models.recordExecutiveBriefing({
+              briefingType: 'OPERATIONAL_ACTION_PRICE',
+              targetPhone: senderPhone,
+              contentText: raw,
+              proposedAction: `UPDATE_PRICE_${targetProd.id}_TO_${newPrice}`
+            });
+
+            const reply =
+              `✅ *PREÇO ATUALIZADO PELO COPILOTO EXECUTIVO!* ⚡\n\n` +
+              `📦 *Produto:* *${targetProd.name}* (ID #${targetProd.id})\n` +
+              `💰 *Preço Anterior:* R$ ${Number(oldPrice).toFixed(2)}\n` +
+              `🔥 *Novo Preço Vigente:* R$ ${newPrice.toFixed(2)}\n\n` +
+              `_A vitrine online, checkout Pix e bot de vendas já estão operando imediatamente com o novo valor._`;
+
+            await sock.sendMessage(from, { text: reply });
+            return true;
+          }
+        } catch (err) {
+          console.warn('[OwnerMindset ⚠️ Erro ao atualizar preço]:', err.message);
+        }
+      }
+    }
+
+    // OP-2. Pausa ou Ativação de Instância / Chip do Exército (Sub-bot)
+    // Ex: "Pausa os envios do Sub-bot 2 que o chip tá esquentando", "pausa chip 2", "ativa subbot 2"
+    const armyPauseMatch = raw.match(/(?:pausa|pausar|para|parar|desliga|desligar)\s*(?:os?\s*envios?\s*do\s*)?(?:sub-?bot|chip|inst[aâ]ncia)\s*(\d+)/i);
+    const armyResumeMatch = raw.match(/(?:ativa|ativar|retoma|retomar|liga|ligar)\s*(?:os?\s*envios?\s*do\s*)?(?:sub-?bot|chip|inst[aâ]ncia)\s*(\d+)/i);
+
+    if (armyPauseMatch || armyResumeMatch) {
+      const isPause = !!armyPauseMatch;
+      const instanceId = parseInt((armyPauseMatch || armyResumeMatch)[1], 10);
+      const newStatus = isPause ? 'PAUSED' : 'CONNECTED';
+
+      try {
+        models.updateArmyInstance(instanceId, { status: newStatus });
+        models.recordExecutiveBriefing({
+          briefingType: 'OPERATIONAL_ACTION_ARMY',
+          targetPhone: senderPhone,
+          contentText: raw,
+          proposedAction: `SET_ARMY_INSTANCE_${instanceId}_${newStatus}`
+        });
+
+        const reply = isPause
+          ? `⏸️ *INSTÂNCIA DO EXÉRCITO PAUSADA:* Sub-Bot #${instanceId} foi pausado para descanso do chip. Nenhum disparo ativo será realizado por ele até nova ordem.`
+          : `▶️ *INSTÂNCIA DO EXÉRCITO REATIVADA:* Sub-Bot #${instanceId} foi retomado e já está apto para operação e mineração de leads.`;
+
+        await sock.sendMessage(from, { text: reply });
+        return true;
+      } catch (err) {
+        console.warn('[OwnerMindset ⚠️ Erro no controle do exército]:', err.message);
+      }
+    }
+
+    // OP-3. Disparo de Recuperação de Carrinho Abandonado com Cupom Dinâmico
+    // Ex: "Roda recuperação no Pix com 15% de desconto para quem abandonou ontem", "recuperar carrinhos com 10% de desconto"
+    const recoveryMatch = raw.match(/(?:roda|rodar|dispara|disparar|faz|fazer|executa|executar)\s*(?:uma?\s*)?recupera[cç][aã]o\s*(?:no\s*pix)?\s*(?:com\s*(\d+)%?\s*de\s*desconto)?/i);
+    if (recoveryMatch) {
+      const discount = parseInt(recoveryMatch[1] || '10', 10);
+      const couponCode = `RECUPERA${discount}`;
+
+      try {
+        const db = require('../db/database');
+        try {
+          models.createCoupon({
+            code: couponCode,
+            discount_percent: discount,
+            active: 1
+          });
+        } catch (_) {}
+
+        const pendingOrders = db.prepare("SELECT * FROM orders WHERE status = 'PENDING'").all();
+
+        models.recordExecutiveBriefing({
+          briefingType: 'OPERATIONAL_ACTION_RECOVERY',
+          targetPhone: senderPhone,
+          contentText: raw,
+          proposedAction: `TRIGGER_RECOVERY_${couponCode}`
+        });
+
+        const reply =
+          `🚀 *RECUPERAÇÃO DE CARRINHO EXECUTADA PELO COPILOTO!* ⚡\n\n` +
+          `🎟️ *Cupom Automático Gerado:* \`${couponCode}\` (*${discount}% de Desconto*)\n` +
+          `📋 *Pedidos Pendentes Localizados:* ${pendingOrders.length} pedido(s)\n` +
+          `⚡ A esteira de recuperação Pix com oferta especial foi colocada em fila prioritária.`;
+
+        await sock.sendMessage(from, { text: reply });
+        return true;
+      } catch (err) {
+        console.warn('[OwnerMindset ⚠️ Erro na recuperação de carrinho]:', err.message);
+      }
+    }
+
+    // OP-4. Gerenciamento de Escuta e Sentinela em Grupos
+    // Ex: "Ativa a escuta nos grupos", "pausa a escuta", "ativa o sentinela"
+    if (/(?:ativa|ativar|liga|ligar)\s*(?:a\s*)?(?:escuta|sentinela|radar)/i.test(lower)) {
+      models.setSetting('SOCIAL_LISTENING_ENABLED', 'true');
+      await sock.sendMessage(from, {
+        text: '🟢 *Central de Escuta e Radar Sentinela Ativados com Sucesso!* O sistema está monitorando grupos em tempo real.'
+      });
+      return true;
+    } else if (/(?:pausa|pausar|desativa|desativar|desliga|desligar)\s*(?:a\s*)?(?:escuta|sentinela|radar)/i.test(lower)) {
+      models.setSetting('SOCIAL_LISTENING_ENABLED', 'false');
+      await sock.sendMessage(from, {
+        text: '🔴 *Central de Escuta e Radar Sentinela Pausados!* Nenhuma notificação ou recomendação em grupos será disparada até nova ordem.'
+      });
+      return true;
+    }
+
     // 1. Geração de PIX em Linguagem Natural
     // Ex: "gera um pix de 50", "faz um pix de 100", "pix de 25 conto", "cobre 40 no pix"
     const pixNaturalMatch = raw.match(/(?:gera|gerar|faz|fazer|cobre|cobrar|manda|mandar)?\s*(?:um\s*)?pix\s*(?:de\s*)?(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)/i);

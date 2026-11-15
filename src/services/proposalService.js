@@ -135,6 +135,167 @@ class ProposalService {
   }
 
   /**
+   * Calculadora Dinâmica de Escopo B2B & Decomposição Modular de Projetos Sob Medida
+   * Analisa os requisitos técnicos livres descritos pelo lead e calcula horas, sprints,
+   * entregáveis e investimento calibrado.
+   */
+  calculateDynamicScope(text = '', clientProfile = {}) {
+    const raw = String(text || '').toLowerCase();
+    
+    // Módulos arquiteturais detectáveis
+    const modules = [];
+    let baseHours = 20;
+    let basePrice = 1800;
+    let estimatedWeeks = 2;
+    let techStackItems = ['Node.js', 'SQLite/PostgreSQL', 'Docker'];
+
+    const hasApp = /app|aplicativo|mobile|android|ios|flutter|react\s*native/i.test(raw);
+    const hasDashboard = /painel|dashboard|admin|gest[aã]o|web|área\s+de\s+membros/i.test(raw);
+    const hasAi = /ia|intelig[eê]ncia|agente|llm|gpt|gemini|rag|bot/i.test(raw);
+    const hasPixGateway = /pix|pagamento|gateway|checkout|maquininha|cart[aã]o|split/i.test(raw);
+    const hasMapsTracking = /mapa|geolocaliza[cç][aã]o|rastreamento|motoboy|entregador|gps|uber/i.test(raw);
+    const hasHardwareIot = /hardware|iot|esp32|arduino|sensor|maquininha|dispositivo/i.test(raw);
+    const hasMultiTenant = /multi-?tenant|saas|franquia|v[aá]rias\s+empresas|plataforma/i.test(raw);
+    const hasLandingSeo = /landing\s*page|site|seo|institucional|portal/i.test(raw);
+
+    if (hasApp) {
+      modules.push({
+        id: 'MOBILE_APP',
+        title: 'Aplicativo Mobile Nativo/Híbrido (iOS & Android)',
+        desc: 'Desenvolvimento das interfaces mobile para clientes e operadores com navegação nativa e alta performance.',
+        hours: 45,
+        price: 3200
+      });
+      techStackItems.push('React Native / Flutter');
+      estimatedWeeks += 2;
+    }
+
+    if (hasDashboard) {
+      modules.push({
+        id: 'WEB_DASHBOARD',
+        title: 'Painel Web Administrativo & Gestão Operacional',
+        desc: 'Dashboard em tempo real com controle de acessos (RBAC), relatórios operacionais e central de comando.',
+        hours: 30,
+        price: 2400
+      });
+      techStackItems.push('Vue.js / React Web');
+      estimatedWeeks += 1;
+    }
+
+    if (hasAi) {
+      modules.push({
+        id: 'AI_AGENT',
+        title: 'Núcleo de Inteligência Artificial & Agente Autônomo',
+        desc: 'Integração de LLMs com memória episódica, processamento de intenções e atendimento consultivo 24h.',
+        hours: 25,
+        price: 2100
+      });
+      techStackItems.push('Gemini AI Engine', 'Memória Vetorial');
+      estimatedWeeks += 1;
+    }
+
+    if (hasPixGateway) {
+      modules.push({
+        id: 'PIX_GATEWAY',
+        title: 'Gateway de Pagamento Pix Instantâneo & Conciliação',
+        desc: 'Emissão automatizada de QR Code Pix, webhook de confirmação bancária em tempo real e split financeiro.',
+        hours: 15,
+        price: 1100
+      });
+      techStackItems.push('Pix Open Finance API');
+    }
+
+    if (hasMapsTracking) {
+      modules.push({
+        id: 'GEOLOCATION_GPS',
+        title: 'Rastreamento em Tempo Real & Geolocalização (Mapas/GPS)',
+        desc: 'Cálculo de rotas dinâmicas, telemetria de entregadores/veículos e atualização instantânea via WebSockets.',
+        hours: 22,
+        price: 1600
+      });
+      techStackItems.push('Mapbox / Google Maps API', 'WebSockets');
+      estimatedWeeks += 1;
+    }
+
+    if (hasHardwareIot) {
+      modules.push({
+        id: 'IOT_HARDWARE',
+        title: 'Integração de Hardware, Sensores & Protocolos Embarcados',
+        desc: 'Firmware embarcado de baixa latência, comunicação segura via MQTT e telemetria de dados.',
+        hours: 24,
+        price: 1800
+      });
+      techStackItems.push('ESP32 / MicroPython', 'MQTT Broker');
+      estimatedWeeks += 1;
+    }
+
+    if (hasMultiTenant) {
+      modules.push({
+        id: 'MULTI_TENANT_SAAS',
+        title: 'Arquitetura Multi-Tenant & Isolamento de Dados SaaS',
+        desc: 'Banco de dados escalável com isolamento lógico de instâncias, faturamento automático e gestão de licenças.',
+        hours: 26,
+        price: 1900
+      });
+      techStackItems.push('PostgreSQL / SQLite Isolated Schema');
+      estimatedWeeks += 1;
+    }
+
+    if (hasLandingSeo) {
+      modules.push({
+        id: 'LANDING_PAGE',
+        title: 'Portal Institucional & Otimização Core Web Vitals',
+        desc: 'Landing page ultra-rápida (Score 95+ PageSpeed) com copywriting técnico e captura de leads integrada.',
+        hours: 14,
+        price: 1200
+      });
+      techStackItems.push('TailwindCSS', 'SEO Schema.org');
+    }
+
+    // Se nenhum módulo específico foi citado, provê o pacote de base sólida full-stack
+    if (modules.length === 0) {
+      modules.push({
+        id: 'FULLSTACK_CORE',
+        title: 'Arquitetura de Software Sob Medida & Painel de Controle',
+        desc: 'Desenvolvimento de backend seguro, modelagem de banco de dados e interface operacional personalizada.',
+        hours: 35,
+        price: 2800
+      });
+    }
+
+    const totalHours = baseHours + modules.reduce((acc, m) => acc + m.hours, 0);
+    const rawInvestment = basePrice + modules.reduce((acc, m) => acc + m.price, 0);
+    // Arredonda para valores comerciais elegantes (ex: 4.800, 6.900)
+    const finalInvestment = Math.round(rawInvestment / 100) * 100;
+    const finalWeeks = Math.max(2, Math.min(8, estimatedWeeks));
+
+    const deliverables = modules.map((m, idx) => ({
+      title: `Sprint ${idx + 1}: ${m.title}`,
+      desc: `${m.desc} (Estimativa: ~${m.hours}h de engenharia)`
+    }));
+
+    // Determina categoria predominante
+    let category = 'SOFTWARE';
+    if (hasApp) category = 'APP_MOBILE';
+    else if (hasAi) category = 'AI_AGENT';
+    else if (hasHardwareIot) category = 'HARDWARE_IOT';
+    else if (hasLandingSeo) category = 'SITE_PORTAL';
+
+    return {
+      category,
+      project_title: `Projeto de Engenharia Sob Medida: ${modules[0].title.split('(')[0].trim()}`,
+      scope_description: `Desenvolvimento técnico de solução corporativa compreendendo ${modules.length} módulos essenciais: ${modules.map(m => m.title).join(', ')}.`,
+      modules,
+      totalHours,
+      timeline_weeks: finalWeeks,
+      investment_brl: finalInvestment,
+      tech_stack: Array.from(new Set(techStackItems)).join(', '),
+      payment_terms: `50% de entrada via Pix no kick-off + 50% na homologação final e entrega do código-fonte (em até ${finalWeeks} semanas / sprints)`,
+      deliverables
+    };
+  }
+
+  /**
    * Cria uma proposta comercial com base na categoria ou dados customizados
    */
   generateProposal(leadPhone, customData = {}) {

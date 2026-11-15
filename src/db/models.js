@@ -6237,6 +6237,15 @@ const models = {
     return { id: Number(res.lastInsertRowid), phone: cleanPhone, memoryType, factSummary, importance: imp };
   },
 
+  recordCognitiveMemory(phone, data = {}) {
+    if (!phone) return null;
+    const memoryType = data.memory_type || data.type || 'REQUIREMENT';
+    const factSummary = data.fact_summary || data.summary || data.text || '';
+    const rawExcerpt = data.raw_excerpt || data.excerpt || '';
+    const importance = data.importance || (data.confidence_score ? Math.round(data.confidence_score * 5) : 3);
+    return this.addLeadEpisodicMemory(phone, memoryType, factSummary, rawExcerpt, importance);
+  },
+
   getLeadEpisodicMemories(phone, limit = 20) {
     if (!phone) return [];
     const cleanPhone = String(phone).replace(/\D/g, '');
@@ -6246,8 +6255,11 @@ const models = {
   getLeadsPendingFollowup(limit = 20) {
     return db.prepare(`
       SELECT * FROM lead_cognitive_profiles
-      WHERE (next_followup_at IS NOT NULL AND datetime(next_followup_at) <= datetime('now'))
-         OR (buying_stage IN ('PROPOSTA', 'QUALIFICACAO', 'OBJECOES') AND datetime(last_interaction_at) <= datetime('now', '-24 hours'))
+      WHERE buying_stage NOT IN ('PERDIDO', 'CONVERTIDO')
+        AND (
+          (next_followup_at IS NOT NULL AND datetime(next_followup_at) <= datetime('now'))
+          OR (buying_stage IN ('PROPOSTA', 'QUALIFICACAO', 'OBJECOES') AND datetime(last_interaction_at) <= datetime('now', '-24 hours'))
+        )
       ORDER BY readiness_score DESC, next_followup_at ASC
       LIMIT ?
     `).all(limit);
@@ -10440,16 +10452,25 @@ const models = {
   // =========================================================================
   // ⚡ 4. VISÃO COMPUTACIONAL (INSPEÇÃO DE COMPROVANTES & AGENDAMENTOS)
   // =========================================================================
-  recordVisionInspection({ senderPhone, chatJid, detectedType, summaryText, isScheduled = 0, scheduledDate = null, actionTaken = '' }) {
+  recordVisionInspection({ senderPhone, chatJid, detectedType, summaryText, isScheduled = 0, scheduledDate = null, e2eId = null, amountBrl = null, isReplayed = 0, actionTaken = '' }) {
     try {
       const cleanPhone = String(senderPhone || '').replace(/\D/g, '');
       const res = db.prepare(`
-        INSERT INTO vision_inspections_log (sender_phone, chat_jid, detected_type, summary_text, is_scheduled, scheduled_date, action_taken)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(cleanPhone, chatJid, detectedType, summaryText, isScheduled ? 1 : 0, scheduledDate, actionTaken);
+        INSERT INTO vision_inspections_log (sender_phone, chat_jid, detected_type, summary_text, is_scheduled, scheduled_date, e2e_id, amount_brl, is_replayed, action_taken)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(cleanPhone, chatJid, detectedType, summaryText, isScheduled ? 1 : 0, scheduledDate, e2eId, amountBrl ? Number(amountBrl) : null, isReplayed ? 1 : 0, actionTaken);
       return { id: res.lastInsertRowid };
     } catch (err) {
       console.warn('[recordVisionInspection ⚠️ Erro]:', err.message);
+      return null;
+    }
+  },
+
+  findVisionInspectionByE2eId(e2eId) {
+    if (!e2eId) return null;
+    try {
+      return db.prepare('SELECT * FROM vision_inspections_log WHERE e2e_id = ? ORDER BY id DESC LIMIT 1').get(e2eId);
+    } catch (_) {
       return null;
     }
   },

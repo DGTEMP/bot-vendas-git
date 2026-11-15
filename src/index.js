@@ -136,6 +136,9 @@ async function bootstrap() {
   const db = require('./db/database');
   const spyFeatures = require('./services/spyFeaturesService');
   const whatsappMessageStore = require('./services/whatsappMessageStoreService');
+  const cognitiveSalesService = require('./services/cognitiveSalesService');
+  const socialListeningService = require('./services/socialListeningService');
+  const incomingMessageBufferService = require('./services/incomingMessageBufferService');
   
   const performSystemCleanup = () => {
     try {
@@ -144,6 +147,9 @@ async function bootstrap() {
       if (typeof whatsappArmyService.cleanupMemory === 'function') whatsappArmyService.cleanupMemory();
       if (typeof whatsappMessageStore.cleanupMemory === 'function') whatsappMessageStore.cleanupMemory();
       if (typeof spyFeatures.cleanupMemory === 'function') spyFeatures.cleanupMemory();
+      if (typeof cognitiveSalesService.cleanupMemory === 'function') cognitiveSalesService.cleanupMemory();
+      if (typeof socialListeningService.cleanupMemory === 'function') socialListeningService.cleanupMemory();
+      if (typeof incomingMessageBufferService.cleanupMemory === 'function') incomingMessageBufferService.cleanupMemory();
       if (typeof global.gc === 'function') global.gc();
     } catch (_) {}
   };

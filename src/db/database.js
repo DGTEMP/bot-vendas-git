@@ -1088,6 +1088,126 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 47. Tabela de Leads Capturados no Radar de Oportunidades & Mineração
+    CREATE TABLE IF NOT EXISTS radar_captured_leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_jid TEXT,
+      group_name TEXT,
+      sender_phone TEXT,
+      sender_name TEXT,
+      keyword_matched TEXT,
+      category TEXT,
+      message_text TEXT,
+      is_audio INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'NEW',
+      notes TEXT,
+      instance_id INTEGER DEFAULT 1,
+      scout_name TEXT,
+      matched_product_id INTEGER,
+      matched_product_name TEXT,
+      custom_track_url TEXT,
+      ready_message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 48. Tabela de Decisões Tipadas JEV (System 1 Fast Engine)
+    CREATE TABLE IF NOT EXISTS jev_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      context_type TEXT NOT NULL,
+      sender_phone TEXT,
+      chat_jid TEXT,
+      input_excerpt TEXT,
+      intent TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      latency_ms REAL NOT NULL,
+      decision_payload TEXT,
+      execution_mode TEXT DEFAULT 'HYBRID_FAST',
+      tokens_saved INTEGER DEFAULT 350,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 49. Tabela de Follow-up Autônomo Anti-Vácuo
+    CREATE TABLE IF NOT EXISTS autonomous_followup_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER,
+      trade_no TEXT,
+      customer_phone TEXT NOT NULL,
+      customer_name TEXT,
+      stage INTEGER DEFAULT 1,
+      message_sent TEXT,
+      status TEXT DEFAULT 'SENT',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 50. Tabela de Braços do Multi-Armed Bandit (Testes A/B Autônomos)
+    CREATE TABLE IF NOT EXISTS bandit_arms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      arm_key TEXT UNIQUE NOT NULL,
+      headline TEXT NOT NULL,
+      copy_text TEXT NOT NULL,
+      impressions INTEGER DEFAULT 0,
+      conversions INTEGER DEFAULT 0,
+      revenue_brl REAL DEFAULT 0.0,
+      active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 51. Tabela de Missões do Enxame de Sub-Bots (Swarm Missions)
+    CREATE TABLE IF NOT EXISTS swarm_missions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mission_type TEXT NOT NULL,
+      target_jid TEXT,
+      prospect_phone TEXT,
+      scout_instance_id INTEGER DEFAULT 1,
+      proof_instance_id INTEGER,
+      closer_instance_id INTEGER,
+      status TEXT DEFAULT 'IN_PROGRESS',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 52. Tabela de Inspeções de Visão Computacional (OCR & Comprovantes)
+    CREATE TABLE IF NOT EXISTS vision_inspections_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_phone TEXT,
+      chat_jid TEXT,
+      detected_type TEXT NOT NULL,
+      summary_text TEXT,
+      is_scheduled INTEGER DEFAULT 0,
+      scheduled_date TEXT,
+      e2e_id TEXT,
+      amount_brl REAL,
+      is_replayed INTEGER DEFAULT 0,
+      action_taken TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 53. Tabela de Briefings Executivos do Dono
+    CREATE TABLE IF NOT EXISTS executive_briefing_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      briefing_type TEXT NOT NULL,
+      target_phone TEXT NOT NULL,
+      content_text TEXT NOT NULL,
+      proposed_action TEXT,
+      owner_response TEXT,
+      action_executed INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 54. Tabela de Ciclos de Sono Noturno (aydinnyunus/sleep)
+    CREATE TABLE IF NOT EXISTS sleep_cycle_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_date TEXT NOT NULL,
+      conversations_analyzed INTEGER DEFAULT 0,
+      orders_analyzed INTEGER DEFAULT 0,
+      objections_found INTEGER DEFAULT 0,
+      candidates_generated INTEGER DEFAULT 0,
+      summary TEXT,
+      status TEXT DEFAULT 'COMPLETED',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
 
   // Migrações seguras
@@ -1148,7 +1268,10 @@ function initDatabase() {
     'ALTER TABLE saas_tenants ADD COLUMN niche TEXT DEFAULT "vendedores";',
     'ALTER TABLE saas_tenants ADD COLUMN interaction_tone TEXT DEFAULT "consultivo";',
     'ALTER TABLE saas_tenants ADD COLUMN onboarding_completed INTEGER DEFAULT 0;',
-    'ALTER TABLE saas_tenants ADD COLUMN onboarding_data TEXT;'
+    'ALTER TABLE saas_tenants ADD COLUMN onboarding_data TEXT;',
+    'ALTER TABLE vision_inspections_log ADD COLUMN e2e_id TEXT;',
+    'ALTER TABLE vision_inspections_log ADD COLUMN amount_brl REAL;',
+    'ALTER TABLE vision_inspections_log ADD COLUMN is_replayed INTEGER DEFAULT 0;'
   ];
 
   for (const m of migrations) {
@@ -1222,7 +1345,19 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_intel_model ON intelligence_core_learnings(ai_provider, ai_model);',
     'CREATE INDEX IF NOT EXISTS idx_intel_conv ON intelligence_core_learnings(conversion_signal);',
     'CREATE INDEX IF NOT EXISTS idx_intel_phone ON intelligence_core_learnings(lead_phone);',
-    'CREATE INDEX IF NOT EXISTS idx_niche_pat_type ON intelligence_niche_patterns(niche, pattern_type);'
+    'CREATE INDEX IF NOT EXISTS idx_niche_pat_type ON intelligence_niche_patterns(niche, pattern_type);',
+    'CREATE INDEX IF NOT EXISTS idx_exec_brief_phone ON executive_briefing_logs(target_phone, id DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_vision_insp_phone ON vision_inspections_log(sender_phone, id DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_jev_decisions_phone ON jev_decisions(sender_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_jev_decisions_ctx ON jev_decisions(context_type, id DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_cog_memories_lead ON lead_episodic_memories(lead_phone, created_at DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_radar_captured_phone ON radar_captured_leads(sender_phone, created_at DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_radar_captured_status ON radar_captured_leads(status);',
+    'CREATE INDEX IF NOT EXISTS idx_followup_cust_phone ON autonomous_followup_logs(customer_phone, id DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_bandit_arms_cat ON bandit_arms(category, active);',
+    'CREATE INDEX IF NOT EXISTS idx_swarm_missions_st ON swarm_missions(status, id DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_sleep_runs_date ON sleep_cycle_runs(run_date DESC);',
+    'CREATE INDEX IF NOT EXISTS idx_vision_e2e ON vision_inspections_log(e2e_id);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}

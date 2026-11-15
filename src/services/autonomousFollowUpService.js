@@ -59,6 +59,12 @@ class AutonomousFollowUpService {
       const customerPhone = String(order.platform_user_id).split('@')[0].replace(/\D/g, '');
       if (!customerPhone || customerPhone.length < 8) continue;
 
+      // Se o cliente já informou desinteresse ou recusa, pula e não importuna
+      const cognProfile = models.getLeadCognitiveProfile(customerPhone);
+      if (cognProfile && (cognProfile.buying_stage === 'PERDIDO' || cognProfile.main_objection === 'SEM_INTERESSE')) {
+        continue;
+      }
+
       const orderAgeMs = now - new Date(order.created_at).getTime();
       const orderAgeMin = Math.floor(orderAgeMs / 60000);
 

@@ -500,6 +500,29 @@ class IncomingMessageBufferService {
     const buffer = this.buffers.get(chatKey);
     return buffer?.messages?.length || 0;
   }
+
+  /**
+   * Limpeza periódica de memória para desalocar presenças antigas e evitar vazamentos
+   */
+  cleanupMemory() {
+    try {
+      const now = Date.now();
+      // 1. Limpa presenças antigas (mais de 10 minutos sem atividade)
+      for (const [key, state] of this.presenceStates.entries()) {
+        if (!state || (now - (state.lastUpdatedAt || 0)) > 10 * 60 * 1000) {
+          this.presenceStates.delete(key);
+        }
+      }
+      // 2. Limpa buffers órfãos ou que excederam 60 segundos
+      for (const [key, buf] of this.buffers.entries()) {
+        if (!buf || (now - (buf.firstTimestamp || 0)) > 60 * 1000) {
+          if (buf?.timer) clearTimeout(buf.timer);
+          if (buf?.safetyTimer) clearTimeout(buf.safetyTimer);
+          this.buffers.delete(key);
+        }
+      }
+    } catch (_) {}
+  }
 }
 
 const instance = new IncomingMessageBufferService();

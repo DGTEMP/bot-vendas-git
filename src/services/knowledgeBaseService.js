@@ -337,6 +337,19 @@ class KnowledgeBaseService {
     const lower = String(text || '').toLowerCase();
     const activeDirectives = [];
 
+    // --- 0. CENÁRIO: DESINTERESSE REAL / RECUSA ELEGANTE (Jeb Blount & Chris Voss) ---
+    if (stage === 'PERDIDO' || objection === 'SEM_INTERESSE' || intent === 'DISINTEREST' || /(?:n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+me\s+interessa|n[aã]o\s+preciso|n[aã]o\s+vou\s+comprar|n[aã]o\s+vou\s+querer|valeu\s+mas\s+n[aã]o|obrigad[oa]\s+mas\s+n[aã]o|t[oô]\s+de\s+boa)/i.test(lower)) {
+      activeDirectives.push({
+        source: 'Jeb Blount (Fanatical Prospecting) & Chris Voss (Never Split the Difference)',
+        technique: 'RESPEITO AO "NÃO" & DESQUALIFICAÇÃO ELEGANTE COM PORTA ABERTA',
+        guideline:
+          '1. ACEITE O "NÃO" IMEDIATAMENTE: Quando o lead expressa desinteresse ou recusa, isso NÃO é uma objeção contornável de preço ou prazo. Forçar a venda aqui destrói a confiança e causa bloqueio no WhatsApp.\n' +
+          '2. DESARME TOTAL: Zero insistência, zero argumentos de venda ("mas o sistema se paga"), zero envio de Pix ou áudios promocionais.\n' +
+          '3. ENCERRAMENTO CORDIAL: Agradeça o tempo e a atenção do contato com simpatia e maturidade, deixando a porta aberta para o futuro com elegância e leveza.'
+      });
+      return `\n${activeDirectives.map((d, idx) => `📌 TÁTICA #${idx + 1} [${d.source} - ${d.technique}]:\n${d.guideline}`).join('\n\n')}\n`;
+    }
+
     // --- 1. CENÁRIO: OBJEÇÃO DE PREÇO / TÁ CARO / DINHEIRO ---
     if (objection === 'PRECO' || intent === 'PRICE_QUERY' || /(?:caro|muito caro|salgado|sem grana|sem dinheiro|desconto|abaixar|menor pre[cç]o|puxado)/i.test(lower)) {
       activeDirectives.push({

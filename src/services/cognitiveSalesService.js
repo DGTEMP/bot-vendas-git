@@ -9,6 +9,8 @@ class CognitiveSalesService {
 
     // Buffer de diálogo recente em memória para conversas multi-turn coerentes
     this.dialogueBuffers = new Map(); // cleanPhone -> Array<{ role: 'user'|'assistant', text: string, timestamp: number }>
+    // Estado do Onboarding Ativo por Missões
+    this.onboardingStates = new Map(); // cleanPhone -> { step: 'WAITING_PIX_KEY'|'WAITING_PRODUCT'|'COMPLETED', pixKey, productName, price, updatedAt }
 
     // Lista de padrões artificiais de IA proibidos no modo humanizado
     this.forbiddenAiClichés = [
@@ -115,6 +117,110 @@ class CognitiveSalesService {
     }
 
     return humanized;
+  }
+
+  // ==============================================================
+  // 1.0 ONBOARDING ATIVO & CONDUÇÃO GUIADA POR MISSÕES (MÃO NA MASSA)
+  // ==============================================================
+  getOnboardingState(phone) {
+    if (!phone) return null;
+    const clean = String(phone).replace(/\D/g, '');
+    return this.onboardingStates.get(clean) || null;
+  }
+
+  setOnboardingState(phone, state) {
+    if (!phone) return;
+    const clean = String(phone).replace(/\D/g, '');
+    this.onboardingStates.set(clean, { ...state, updatedAt: Date.now() });
+  }
+
+  processInteractiveOnboarding(phone, text, firstName = '') {
+    const cleanPhone = String(phone || '').replace(/\D/g, '');
+    const cleanFirstNameGreet = firstName && firstName !== 'Amigo' ? `, ${firstName}` : '';
+    let currentState = this.getOnboardingState(cleanPhone);
+    const low = String(text || '').trim().toLowerCase();
+
+    // 1. Se o cliente está no meio do passo de Chave Pix (Missão 1)
+    if (currentState && currentState.step === 'WAITING_PIX_KEY') {
+      const cleanDigits = low.replace(/\D/g, '');
+      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(low);
+      const isCpf = cleanDigits.length === 11;
+      const isCnpj = cleanDigits.length === 14;
+      const isPhone = cleanDigits.length >= 10 && cleanDigits.length <= 13;
+      const isEvp = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(low);
+
+      if (isEmail || isCpf || isCnpj || isPhone || isEvp || low.length >= 8) {
+        const pixKey = isCpf || isCnpj || isPhone ? cleanDigits : text.trim();
+        models.setSetting(`OWNER_PIX_KEY_${cleanPhone}`, pixKey);
+        models.setSetting('OWNER_PIX_KEY', pixKey);
+
+        this.setOnboardingState(cleanPhone, {
+          step: 'WAITING_PRODUCT',
+          pixKey
+        });
+
+        models.recordCognitiveMemory(cleanPhone, {
+          memory_type: 'AGREEMENT',
+          fact_summary: `Chave Pix cadastrada no Onboarding Interativo: ${pixKey}`,
+          confidence_score: 1.0
+        });
+
+        return `Chave Pix *${pixKey}* vinculada com sucesso! ✅\n\n` +
+          `🎯 *Missão 2:* Agora me manda o *nome e o preço* do seu produto principal (ex: *"Plano VIP 97"* ou *"Camiseta Premium 89.90"*).\n\n` +
+          `Se tiver foto dele, pode mandar junto que eu já coloco na sua vitrine online agora mesmo! 🚀`;
+      }
+    }
+
+    // 2. Se o cliente está no passo de Cadastrar Primeiro Produto (Missão 2)
+    if (currentState && currentState.step === 'WAITING_PRODUCT') {
+      const priceMatch = text.match(/(?:r\$\s*|valor[:=\s]+)?(\d+(?:[.,]\d{1,2})?)/i);
+      let extractedPrice = priceMatch ? parseFloat(priceMatch[1].replace(',', '.')) : 49.90;
+      let productName = text.replace(/(?:r\$\s*|valor[:=\s]+)?\d+(?:[.,]\d{1,2})?/gi, '').trim();
+      if (!productName || productName.length < 2) productName = 'Produto Oficial';
+
+      try {
+        models.createProduct({
+          name: productName,
+          description: `Produto cadastrado via Onboarding Interativo de ${firstName || 'Cliente VIP'}`,
+          price: extractedPrice,
+          price_brl: extractedPrice,
+          price_usdt: Math.round(extractedPrice / 5),
+          currency: 'BRL',
+          type: 'DIGITAL',
+          category: 'Geral',
+          active: 1
+        });
+      } catch (_) {}
+
+      this.setOnboardingState(cleanPhone, {
+        step: 'COMPLETED',
+        pixKey: currentState.pixKey,
+        productName,
+        price: extractedPrice
+      });
+
+      models.recordCognitiveMemory(cleanPhone, {
+        memory_type: 'AGREEMENT',
+        fact_summary: `Primeiro produto configurado no Onboarding: ${productName} (R$ ${extractedPrice})`,
+        confidence_score: 1.0
+      });
+
+      const storeUrl = models.getSetting('WEB_STORE_PUBLIC_URL', 'http://localhost:3000/loja');
+      return `🎉 *Sensacional${cleanFirstNameGreet}! Missão cumprida com sucesso!* 🚀\n\n` +
+        `Seu produto *"${productName}"* de *R$ ${extractedPrice.toFixed(2)}* já está ativo na sua vitrine oficial com Pix automático configurado!\n\n` +
+        `🔗 *Sua Vitrine Oficial:* ${storeUrl}\n\n` +
+        `✅ *Seu Onboarding está 100% concluído!* A partir de agora, seu bot atende, tira dúvidas e vende sozinho 24h por dia.\n\n` +
+        `Qualquer ajuste ou dúvida, só me chamar aqui! Mande *"menu"* a qualquer momento para ver o painel.`;
+    }
+
+    // 3. Inicia Onboarding Guiado Mão na Massa (Missão 1)
+    this.setOnboardingState(cleanPhone, {
+      step: 'WAITING_PIX_KEY'
+    });
+
+    return `Opa${cleanFirstNameGreet}! Vamos colocar sua máquina pra rodar agora em menos de 3 minutos, mão na massa 🚀\n\n` +
+      `Aqui não tem manual chato: a gente configura direto por aqui em 2 passos rápidos!\n\n` +
+      `🎯 *Missão 1:* Me manda aqui a sua *chave Pix oficial* (CPF, CNPJ, e-mail, telefone ou chave aleatória) que eu já vinculo no seu bot agora mesmo.`;
   }
 
   // ==============================================================
@@ -263,9 +369,40 @@ class CognitiveSalesService {
     const beliefsToUpdate = [];
     const memoriesToAdd = [];
 
-    // --- 0. Detecção de Correção / Rejeição Enfática do Lead ---
-    const isCorrectionOrRejection = /(?:n[aã]o\s+tem\s+nada\s+(?:a|ha)ver|t[aá]\s+errado|est[aá]\s+errado|falei\s+que|eu\s+disse\s+que|eu\s+tenho\s+[eé]\s+uma?|o\s+que\s+isso\s+tem\s+(?:a|ha)ver|n[aã]o\s+sou\s+trader|n[aã]o\s+mexo\s+com\s+trader|n[aã]o\s+quero\s+trader|n[aã]o\s+quero\s+m[eé]todo|n[aã]o\s+quero\s+curso|nada\s+disso|viajou|errou\s+feio|t[aá]\s+doido|t[aá]\s+louco|insistindo)/i.test(lower);
-    if (isCorrectionOrRejection) {
+    // --- 0. Detecção de Desinteresse / Recusa Explícita do Produto ---
+    const isDisinterest = /(?:n[aã]o\s+quero\s+(?:o\s+)?(?:produto|bot|servi[cç]o|plano|sistema|nada|isso|esse|essa|comprar)|n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+me\s+interessa|n[aã]o\s+preciso(?:\s+de\s+(?:bot|nada|isso|produto))?|n[aã]o\s+vou\s+querer|n[aã]o\s+vou\s+comprar|n[aã]o\s+[eé]\s+(?:o\s+que\s+)?(?:eu\s+)?procuro|pra\s+mim\s+n[aã]o\s+serve|n[aã]o\s+serve\s+pra\s+mim|n[aã]o\s+faz\s+sentido|n[aã]o\s+estou\s+interessad[oa]|obrigad[oa]\s+mas\s+n[aã]o|valeu\s+mas\s+n[aã]o|obrigado\s+n[aã]o\s+quero|valeu\s+n[aã]o\s+quero|t[oô]\s+de\s+boa|deixa\s+quieto|deixa\s+pra\s+l[aá]|n[aã]o\s+vou\s+fechar|n[aã]o\s+quero\s+gastar|pode\s+cancelar(?:\s+o\s+pedido)?|cancela\s+(?:o\s+pedido|a\s+compra)|n[aã]o\s+tenho\s+como\s+comprar|n[aã]o\s+tenho\s+interesse\s+em\s+comprar)/i.test(lower);
+
+    if (isDisinterest) {
+      try {
+        const db = require('../db/database');
+        db.prepare('DELETE FROM lead_funnel_conversations WHERE phone = ?').run(cleanPhone);
+        db.prepare(`UPDATE orders SET status = 'CANCELLED' WHERE platform = 'whatsapp' AND platform_user_id LIKE ? AND status = 'PENDING'`).run(`%${cleanPhone}%`);
+      } catch (_) {}
+
+      updates.buying_stage = 'PERDIDO';
+      updates.readiness_score = 0;
+      updates.main_objection = 'SEM_INTERESSE';
+      updates.objection_confidence = 0.98;
+      updates.next_followup_at = null;
+
+      beliefsToUpdate.push({
+        key: 'product_interest',
+        value: 'Sem interesse no momento (Recusa explícita)',
+        evidence: text.slice(0, 100),
+        confidence: 0.98
+      });
+
+      memoriesToAdd.push({
+        type: 'OBJECTION',
+        summary: 'DESINTERESSE DECLARADO: O cliente afirmou com clareza que não quer o produto ou não tem interesse.',
+        excerpt: text,
+        importance: 5
+      });
+    }
+
+    // --- 0.1 Detecção de Correção Enfática do Lead (Nicho / Escopo) ---
+    const isCorrectionOrRejection = /(?:n[aã]o\s+tem\s+nada\s+(?:a|ha)ver|t[aá]\s+errado|est[aá]\s+errado|falei\s+que|eu\s+disse\s+que|eu\s+tenho\s+[eé]\s+uma?|o\s+que\s+isso\s+tem\s+(?:a|ha)ver|n[aã]o\s+sou\s+trader|n[aã]o\s+mexo\s+com\s+trader|nada\s+disso|viajou|errou\s+feio|t[aá]\s+doido|t[aá]\s+louco|insistindo)/i.test(lower);
+    if (isCorrectionOrRejection && !isDisinterest) {
       try {
         const db = require('../db/database');
         db.prepare('DELETE FROM lead_funnel_conversations WHERE phone = ?').run(cleanPhone);
@@ -479,7 +616,13 @@ class CognitiveSalesService {
     let stage = profile.buying_stage || 'DESCOBERTA';
     let readiness = profile.readiness_score || 30;
 
-    if (/(?:ja fiz o pix|acabei de pagar|ja paguei|comprovante|pagamento feito|acabei de comprar|ja comprei|comprei pelo link|paguei pelo link|fiz a compra|consegui comprar|pronto.*compr)/i.test(lower)) {
+    if (isDisinterest || updates.buying_stage === 'PERDIDO') {
+      stage = 'PERDIDO';
+      readiness = 0;
+    } else if (profile.buying_stage === 'CONVERTIDO') {
+      stage = 'CONVERTIDO';
+      readiness = 100;
+    } else if (/(?:ja fiz o pix|acabei de pagar|ja paguei|comprovante|pagamento feito|acabei de comprar|ja comprei|comprei pelo link|paguei pelo link|fiz a compra|consegui comprar|pronto.*compr)/i.test(lower)) {
       stage = 'CONVERTIDO';
       readiness = 100;
       memoriesToAdd.push({ type: 'AGREEMENT', summary: 'Pagamento confirmado e projeto iniciado', excerpt: text, importance: 5 });
@@ -648,6 +791,35 @@ class CognitiveSalesService {
     const isMasterBot = explicitIsMasterBot !== null
       ? Boolean(explicitIsMasterBot)
       : (!resolvedTenantId && !tenantObj);
+
+    const isDisinterest = Boolean(
+      (resolvedNlp?.intent === 'DISINTEREST' || nlpResult?.intent === 'DISINTEREST') ||
+      profile.buying_stage === 'PERDIDO' || profile.main_objection === 'SEM_INTERESSE' ||
+      /(?:n[aã]o\s+quero\s+(?:o\s+)?(?:produto|bot|servi[cç]o|plano|sistema|nada|isso|esse|essa|comprar)|n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+me\s+interessa|n[aã]o\s+preciso(?:\s+de\s+(?:bot|nada|isso|produto))?|n[aã]o\s+vou\s+querer|n[aã]o\s+vou\s+comprar|n[aã]o\s+[eé]\s+(?:o\s+que\s+)?(?:eu\s+)?procuro|pra\s+mim\s+n[aã]o\s+serve|n[aã]o\s+serve\s+pra\s+mim|n[aã]o\s+faz\s+sentido|n[aã]o\s+estou\s+interessad[oa]|obrigad[oa]\s+mas\s+n[aã]o|valeu\s+mas\s+n[aã]o|obrigado\s+n[aã]o\s+quero|valeu\s+n[aã]o\s+quero|t[oô]\s+de\s+boa|deixa\s+quieto|deixa\s+pra\s+l[aá]|n[aã]o\s+vou\s+fechar|n[aã]o\s+quero\s+gastar|pode\s+cancelar(?:\s+o\s+pedido)?|cancela\s+(?:o\s+pedido|a\s+compra)|n[aã]o\s+tenho\s+como\s+comprar|n[aã]o\s+tenho\s+interesse\s+em\s+comprar)/i.test(cleanText)
+    );
+
+    const disinterestDirective = isDisinterest
+      ? `\n🚨 REGRA DE OURO - O CLIENTE DECLAROU DESINTERESSE OU RECUSA DO PRODUTO:
+O lead acabou de afirmar que NÃO quer o produto, NÃO tem interesse, não precisa ou que não é o que procura.
+DIRETRIZ SUPREMA & INVIOLÁVEL:
+1. É TERMINANTEMENTE PROIBIDO insistir, empurrar o produto novamente, forçar argumentos de "mas o sistema se paga", mandar chave Pix, áudios persuasivos de fechamento ou imagens promocionais!
+2. Aja com máxima maturidade, elegância e gentileza: aceite o "Não" do cliente sem qualquer constrangimento ou insistência.
+3. Responda em 1 ou 2 frases curtas e calorosas agradecendo sinceramente pelo tempo e atenção dele e deixando a porta aberta para o futuro (ex: "Entendido perfeitamente! Sem problemas. Muito obrigado pela atenção e pelo seu tempo! Se no futuro precisar de qualquer coisa, estamos à disposição. Sucesso por aí! 👍").
+4. Apenas se o cliente disser espontaneamente que busca algo TOTALMENTE DIFERENTE que você tem no portfólio (ex: "não quero bot, quero um site"), responda tirando a dúvida dele com naturalidade sobre o item pedido, sem forçar o produto rejeitado.\n\n`
+      : '';
+
+    const isConverted = Boolean(profile?.buying_stage === 'CONVERTIDO');
+    const onboardingDirective = (isConverted && !isDisinterest)
+      ? `\n🌟 DIRETRIZ SUPREMA DE PÓS-VENDA & CUSTOMER SUCCESS (CLIENTE JÁ CONVERTIDO):
+Este contato é um CLIENTE ATIVO que já adquiriu nossos produtos ou contratou nossos serviços!
+1. PROIBIDO empurrar novos produtos, mandar preços ou enviar chaves Pix de planos básicos como se ele fosse um prospect novo!
+2. Sua postura é de Consultor de Sucesso do Cliente (Customer Success & Onboarding VIP):
+   - Trate o cliente como parceiro e cliente VIP ("Fala ${firstName || 'amigo'}, tudo bem? Como tão as coisas por aí?").
+   - Ajude na ativação, configuração, dúvidas operacionais e melhores práticas do bot/sistema.
+   - Forneça passos claros: como cadastrar produtos, como vincular chave Pix, como conectar o WhatsApp ou como proteger grupos.
+   - Dê suporte técnico humanizado e prestativo.
+   - Somente se o próprio cliente demonstrar interesse em novos produtos, projetos sob medida ou expansões, apresente com carinho e condição especial de cliente existente.\n\n`
+      : '';
 
     let saudacao = 'boa tarde';
     try {
@@ -824,9 +996,9 @@ class CognitiveSalesService {
         });
         const masterStoreUrl = trackedMaster.shortUrl || trackedMaster.url;
 
-        const isCorrectionOrRejection = /(?:n[aã]o\s+tem\s+nada\s+(?:a|ha)ver|t[aá]\s+errado|est[aá]\s+errado|falei\s+que|eu\s+disse\s+que|eu\s+tenho\s+[eé]|o\s+que\s+isso\s+tem\s+(?:a|ha)ver|n[aã]o\s+sou\s+trader|n[aã]o\s+mexo\s+com\s+trader|n[aã]o\s+quero\s+trader|n[aã]o\s+quero\s+m[eé]todo|n[aã]o\s+quero\s+curso|nada\s+disso|viajou|errou\s+feio|t[aá]\s+doido|t[aá]\s+louco|insistindo)/i.test(text);
+        const isCorrectionOrRejection = /(?:n[aã]o\s+tem\s+nada\s+(?:a|ha)ver|t[aá]\s+errado|est[aá]\s+errado|falei\s+que|eu\s+disse\s+que|eu\s+tenho\s+[eé]|o\s+que\s+isso\s+tem\s+(?:a|ha)ver|n[aã]o\s+sou\s+trader|n[aã]o\s+mexo\s+com\s+trader|nada\s+disso|viajou|errou\s+feio|t[aá]\s+doido|t[aá]\s+louco|insistindo)/i.test(text);
 
-        const correctionDirective = isCorrectionOrRejection
+        const correctionDirective = isCorrectionOrRejection && !isDisinterest
           ? `\n🚨 CORREÇÃO CRÍTICA DO CONTATO (HUMILDADE & RETRATAÇÃO NATURAL):
 O cliente acabou de sinalizar que você falou besteira ou ofereceu algo sem sentido (ex: produto trader/scalper quando ele tem papelaria ou loja física).
 SUA RESPOSTA DEVE SER 100% HUMANA, NATURAL E HUMILDE (DIVIDIDA EM 2 A 3 BALÕES COM \\n\\n):
@@ -863,6 +1035,8 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
           `${audioPreferenceDirective}\n` +
           (storeIntentDirective ? `${storeIntentDirective}` : '') +
           (correctionDirective ? `${correctionDirective}` : '') +
+          (disinterestDirective ? `${disinterestDirective}` : '') +
+          (onboardingDirective ? `${onboardingDirective}` : '') +
           `POSTURA DESPRETENSISOSA & PSICOLOGIA CONVERSACIONAL:\n` +
           `1. NUNCA use frases com cara de bot como "Como posso te ajudar?", "Como posso ser útil?", "Em que posso te ajudar hoje?", "Seja bem-vindo", "Como posso colaborar?". Isso destrói a percepção humana.\n` +
           `2. NUNCA cite rastreamentos técnicos ("Vi que você olhou o catálogo", "Vi que visitou nossa vitrine"). Um humano real não fala isso, isso soa invasivo e robótico!\n` +
@@ -875,6 +1049,7 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
           `6. REGRA INVIOLÁVEL: NUNCA coloque cabeçalhos, títulos ou assinaturas do tipo "Bot respondeu via...", "[RESPOSTA DA IA]", "Atendente:", "Modelo:", "Via Groq/OpenAI/Gemini". NUNCA mencione o nome de nenhum modelo de IA, LLM ou provedor. Responda DIRETAMENTE como uma pessoa real no WhatsApp sem nenhum rótulo ou prefixo.\n` +
           `7. NUNCA SEJA CANSATIVO OU INSISTENTE: Não fique repetindo preços ou empurrando o mesmo produto em toda mensagem. Se o cliente perguntar de preços, apresente as opções de forma clara e consulte o interesse dele.\n` +
           `8. REGRA SUPREMA ANTI-REPETIÇÃO (MEMÓRIA ATIVA): NUNCA repita perguntas já feitas no histórico da conversa! Se você já perguntou qual plano cabe melhor, ou se tem operação rodando, ou o que ele precisa, NÃO repita essas perguntas. Se o cliente escolheu um plano (ex: "o mensal", "o de 69", "o anual", "automação", "papelaria", "sim"), confirme a escolha e passe os dados para ativação rápida no Pix sem novos diagnósticos.\n` +
+          `9. REGRA CRÍTICA DE RESPEITO AO "NÃO" & DESINTERESSE: Se o cliente indicar com clareza que NÃO quer o produto, NÃO tem interesse, não precisa ou que não vai comprar: é TERMINANTEMENTE PROIBIDO insistir, empurrar o produto ou contornar! Aja com educação e elegância, agradeça cordialmente pelo tempo e atenção dele e encerre de forma desarmada e simpática.\n` +
           (activeWindow
             ? `8. REGRA INVIOLÁVEL DE SAUDAÇÕES (MENOS DE 30 MIN DE INATIVIDADE): O cliente já está conversando com você há poucos instantes. É TERMINANTEMENTE PROIBIDO iniciar sua resposta com saudações ("Olá", "Oi", "Opa", "Bom dia", "Boa tarde", "Boa noite", "Tudo bem?", "Como vai?"). Vá DIRETO ao ponto da resposta ou responda com continuidade natural ("Tô por aqui!", "Com certeza", "Então...", "Sobre isso..."). Somente cumprimente formalmente se o cliente tiver ficado mais de 30 minutos em silêncio absoluto.\n\n`
             : `8. SAUDAÇÃO APÓS INATIVIDADE (> 30 MIN): O contato ficou mais de 30 minutos sem interagir ou este é o primeiro contato. Você pode usar uma saudação leve e descontraída ("Opa ${firstName}, ${saudacao.toLowerCase()}!").\n\n`) +
@@ -962,6 +1137,8 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
           (tenantSettings?.welcome_message ? `- Boas-vindas da Loja: "${tenantSettings.welcome_message}"\n` : '') +
           (tenantSettings?.store_banner_text ? `- Destaque Promocional: "${tenantSettings.store_banner_text}"\n\n` : '\n') +
           (customInstruction ? `DIRETRIZES PERSONALIZADAS DO PROPRIETÁRIO DA LOJA:\n${customInstruction}\n\n` : '') +
+          (disinterestDirective ? `${disinterestDirective}` : '') +
+          (onboardingDirective ? `${onboardingDirective}` : '') +
           `REGRAS DE ATENDIMENTO E VENDAS HUMANIZADAS:\n` +
           `1. Você representa ESTRITAMENTE a ${tenantName}. Nunca mencione outros produtos ou empresas alheias.\n` +
           `2. Respostas curtas, acolhedoras, empáticas e naturais de WhatsApp (1 a 3 frases curtas).\n` +
@@ -971,6 +1148,7 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
           `6. Máximo de 1 emoji amigável opcional por mensagem.\n` +
           `7. REGRA INVIOLÁVEL: NUNCA coloque cabeçalhos, títulos ou assinaturas do tipo "Bot respondeu via...", "[RESPOSTA DA IA]", "Atendente:", "Modelo:", "Via Groq/OpenAI/Gemini". NUNCA mencione o nome de nenhum modelo de IA, LLM ou provedor. Responda DIRETAMENTE como uma pessoa real no WhatsApp sem nenhum rótulo ou prefixo.\n` +
           `8. REGRA SUPREMA ANTI-REPETIÇÃO: NUNCA repita perguntas já feitas no histórico. Se o cliente já perguntou preço ou tirou dúvida, conduza com agilidade para a compra no Pix ou visita à loja web sem fazer interrogatórios repetitivos.\n` +
+          `9. REGRA CRÍTICA DE RESPEITO AO "NÃO" & DESINTERESSE: Se o cliente indicar que não quer o produto, não tem interesse ou não vai comprar, é PROIBIDO insistir. Agradeça cordialmente com simpatia, encerre a abordagem e deixe a porta aberta para o futuro sem constrangimento.\n` +
           (activeWindow
             ? `8. REGRA INVIOLÁVEL DE SAUDAÇÕES (MENOS DE 30 MIN DE INATIVIDADE): O cliente já está conversando com a loja há poucos instantes. É TERMINANTEMENTE PROIBIDO iniciar a resposta com saudações ("Olá", "Oi", "Boa tarde", "Tudo bem?"). Responda DIRETAMENTE à pergunta do cliente ou continue a conversa naturalmente. Somente cumprimente se o cliente estiver inativo há mais de 30 minutos.\n\n`
             : `8. SAUDAÇÃO APÓS INATIVIDADE (> 30 MIN): O contato ficou mais de 30 minutos sem interagir ou este é o primeiro contato. Você pode utilizar uma saudação calorosa e breve ("Olá ${firstName || ''}!").\n\n`) +
@@ -1044,7 +1222,9 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
       // Buffer recente de diálogo para coerência turn-by-turn já carregado em recentTurns
 
       let effectiveMatchedProduct = matchedProduct;
-      if (isMasterBot && effectiveMatchedProduct) {
+      if (isDisinterest || isConverted) {
+        effectiveMatchedProduct = null;
+      } else if (isMasterBot && effectiveMatchedProduct) {
         const prodNameLower = (effectiveMatchedProduct.name || '').toLowerCase();
         if (/scalper|sinais cripto|investimentos|pastilha|freio|pe[cç]a/i.test(prodNameLower)) {
           if (!/scalper|day\s*trade|trader|cripto|pe[cç]a/i.test(text.toLowerCase())) {
@@ -1052,7 +1232,7 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
           }
         }
       }
-      if (isMasterBot && !effectiveMatchedProduct) {
+      if (!isDisinterest && !isConverted && isMasterBot && !effectiveMatchedProduct) {
         if (/grupo|comunidade|anti-?trava|anti-?link|modera[cç][aã]o|gerenciar\s+grupo/i.test(text)) {
           effectiveMatchedProduct = { name: 'Bot de Proteção & Moderação de Grupos', price_brl: 49.90, category: 'Grupos' };
         } else if (/app|aplicativo|software|sistema|landing\s*page|site|pwa|desenvolvimento|sob\s*medida/i.test(text)) {
@@ -1069,9 +1249,13 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
         : `Mensagem recebida do cliente: "${text}"\n` +
           `Produto sugerido ou detectado: ${effectiveMatchedProduct ? effectiveMatchedProduct.name + ' - R$ ' + (effectiveMatchedProduct.price_brl || effectiveMatchedProduct.price) : 'Nenhum'}\n` +
           `Histórico recente: ${recentTurns.length > 0 ? recentTurns.map(t => `${t.role === 'user' ? 'Cliente' : 'Consultor'}: ${t.content}`).join(' | ') : 'Primeiro contato'}\n` +
-          (wantsAudio
-            ? `🚨 O CLIENTE MANDOU ÁUDIO OU PREFERE ÁUDIO! Responda OBRIGATORIAMENTE POR ÁUDIO incluindo [AUDIO: seu script falado aqui]. ATENÇÃO: o texto dentro de [AUDIO: ...] SERÁ REPRODUZIDO COMO ÁUDIO FALADO NO WHATSAPP, então escreva exclusivamente em linguagem oral, sem asteriscos (*negrito*), sem emojis, sem marcadores e sem links! Se houver link ou chave Pix, envie a explicação no áudio e o link/chave em balão de texto separado logo abaixo:\n`
-            : `Gere a resposta ideal para enviar no WhatsApp. Se o cliente estiver aprofundando ou interessado em comprar/conhecer a solução, NÃO SE CONTE: inclua áudio persuasivo [AUDIO: ...], demonstração visual [IMAGEM: ...] e escopo claro dos entregáveis com CTA direta, dividida em balões curtos separados por \\n\\n. LEMBRE-SE: o trecho dentro de [AUDIO: ...] será reproduzido como áudio falado real, por isso deve ser redigido pensando no ouvido (oralidade humana, zero asteriscos, zero emojis, zero links no áudio):\n`);
+          (isDisinterest
+            ? `🚨 O CLIENTE DECLAROU DESINTERESSE OU RECUSA! PROIBIDO FORÇAR A VENDA OU INSISTIR! Responda com elegância e cordialidade em 1 ou 2 frases curtas desarmadas, agradecendo pela atenção e deixando a porta aberta sem tentar vender nada:\n`
+            : (isConverted
+              ? `🚨 O CLIENTE JÁ É CONVERTIDO (CLIENTE ATIVO)! Atue exclusivamente como Consultor de Sucesso do Cliente (Customer Success & Onboarding). Auxilie na configuração, boas práticas ou tire dúvidas com empatia e presteza, sem empurrar vendas:\n`
+              : (wantsAudio
+                ? `🚨 O CLIENTE MANDOU ÁUDIO OU PREFERE ÁUDIO! Responda OBRIGATORIAMENTE POR ÁUDIO incluindo [AUDIO: seu script falado aqui]. ATENÇÃO: o texto dentro de [AUDIO: ...] SERÁ REPRODUZIDO COMO ÁUDIO FALADO NO WHATSAPP, então escreva exclusivamente em linguagem oral, sem asteriscos (*negrito*), sem emojis, sem marcadores e sem links! Se houver link ou chave Pix, envie a explicação no áudio e o link/chave em balão de texto separado logo abaixo:\n`
+                : `Gere a resposta ideal para enviar no WhatsApp. Se o cliente estiver aprofundando ou interessado em comprar/conhecer a solução, NÃO SE CONTE: inclua áudio persuasivo [AUDIO: ...], demonstração visual [IMAGEM: ...] e escopo claro dos entregáveis com CTA direta, dividida em balões curtos separados por \\n\\n. LEMBRE-SE: o trecho dentro de [AUDIO: ...] será reproduzido como áudio falado real, por isso deve ser redigido pensando no ouvido (oralidade humana, zero asteriscos, zero emojis, zero links no áudio):\n`)));
 
       // Constrói mensagens garantindo alternância estrita de papéis (system -> user -> assistant -> user)
       // para 100% de compatibilidade sem erros 400 Bad Request em provedores como Google Gemini e Groq
@@ -1285,6 +1469,9 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
     const isPureOrReturnGreeting = !isGroup && (nonGreetingOnly.length === 0 || nlpResult?.intent === 'GREETING');
 
     if (isPureOrReturnGreeting) {
+      if (stage === 'CONVERTIDO') {
+        return `Fala${cleanFirstNameGreet}! Tudo ótimo por aqui 👍\n\nComo tão rodando as coisas com o seu bot? Precisando de qualquer ajuste ou dúvida na operação, só me dar um toque que tô por aqui!`;
+      }
       if (isWithinActiveWindow) {
         return `Opa, tô por aqui! Pode falar 👍`;
       }
@@ -1294,8 +1481,92 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
       return `Opa${cleanFirstNameGreet}, ${saudacao.toLowerCase()}!\n\nTudo bem por aí?`;
     }
 
-    // 0. Detecção de Correção / Rejeição Enfática do Cliente
-    const isCorrectionOrRejection = /(?:n[aã]o\s+tem\s+nada\s+(?:a|ha)ver|t[aá]\s+errado|est[aá]\s+errado|falei\s+que|eu\s+disse\s+que|eu\s+tenho\s+[eé]|o\s+que\s+isso\s+tem\s+(?:a|ha)ver|n[aã]o\s+sou\s+trader|n[aã]o\s+mexo\s+com\s+trader|n[aã]o\s+quero\s+trader|n[aã]o\s+quero\s+m[eé]todo|n[aã]o\s+quero\s+curso|nada\s+disso|viajou|errou\s+feio|t[aá]\s+doido|t[aá]\s+louco|insistindo)/i.test(text);
+    // 0. Detecção de Desinteresse / Recusa Explícita do Produto
+    const isDisinterest = nlpResult?.intent === 'DISINTEREST' || /(?:n[aã]o\s+quero\s+(?:o\s+)?(?:produto|bot|servi[cç]o|plano|sistema|nada|isso|esse|essa|comprar)|n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+me\s+interessa|n[aã]o\s+preciso(?:\s+de\s+(?:bot|nada|isso|produto))?|n[aã]o\s+vou\s+querer|n[aã]o\s+vou\s+comprar|n[aã]o\s+[eé]\s+(?:o\s+que\s+)?(?:eu\s+)?procuro|pra\s+mim\s+n[aã]o\s+serve|n[aã]o\s+serve\s+pra\s+mim|n[aã]o\s+faz\s+sentido|n[aã]o\s+estou\s+interessad[oa]|obrigad[oa]\s+mas\s+n[aã]o|valeu\s+mas\s+n[aã]o|obrigado\s+n[aã]o\s+quero|valeu\s+n[aã]o\s+quero|t[oô]\s+de\s+boa|deixa\s+quieto|deixa\s+pra\s+l[aá]|n[aã]o\s+vou\s+fechar|n[aã]o\s+quero\s+gastar|pode\s+cancelar(?:\s+o\s+pedido)?|cancela\s+(?:o\s+pedido|a\s+compra)|n[aã]o\s+tenho\s+como\s+comprar|n[aã]o\s+tenho\s+interesse\s+em\s+comprar)/i.test(text);
+    if (isDisinterest) {
+      return `Entendido perfeitamente${cleanFirstNameGreet}! Sem problemas nenhum 👍\n\nMuito obrigado pelo retorno e pela atenção! Se em algum momento precisar de algo ou quiser tirar alguma dúvida, estamos à disposição por aqui. Sucesso nos seus projetos!`;
+    }
+
+    // 0.0 PÓS-VENDA & CUSTOMER SUCCESS: Cliente já CONVERTIDO (Onboarding Guiado)
+    const isConverted = stage === 'CONVERTIDO';
+    if (isConverted && !isDisinterest) {
+      // Verifica se já está com missão interativa em andamento
+      const currentOnboarding = this.getOnboardingState(cleanPhone);
+      if (currentOnboarding && currentOnboarding.step !== 'COMPLETED') {
+        return this.processInteractiveOnboarding(cleanPhone, text, firstName);
+      }
+
+      const wantsActionOnboarding = /(?:vamos|quero|ajuda\s+a|configur|cadastr|coloc)\s*(?:a\s*)?(?:chave\s*pix|o\s*pix|m[aã]o\s*na\s*massa|agora)/i.test(text);
+      if (wantsActionOnboarding) {
+        return this.processInteractiveOnboarding(cleanPhone, text, firstName);
+      }
+
+      const isAskingOnboarding = /(?:como\s+(?:\w+\s+){0,4}(?:configur|come[cç]|ativ|conect|us|adicion|cadastr|coloc)|configur|conect|ativar|cadastr|ajuda|suporte|d[uú]vida|passo\s+a\s+passo|tutorial|onde\s+(?:vejo|entro|acesso)|painel|login|senha|qr\s*code|chave\s+pix)/i.test(text);
+      const isExpansionOrUpgrade = /(?:upgrade|outro\s+bot|mais\s+um|segundo\s+bot|novo\s+projeto|app\s+sob\s+medida|software|desenvolvimento)/i.test(text);
+
+      if (isExpansionOrUpgrade) {
+        return `Fala${cleanFirstNameGreet}! Que massa você querer expandir com a gente 🚀\n\n` +
+          `Como você já é nosso cliente ativo, tem condição VIP exclusiva pra novas ativações ou desenvolvimento sob medida!\n\n` +
+          `Me conta o que você tem em mente pra esse novo passo que já alinho tudo com prioridade pra você 👍`;
+      }
+
+      if (isAskingOnboarding || /(?:come[cç]ar|iniciar|primeiros\s+passos)/i.test(text)) {
+        return `Opa${cleanFirstNameGreet}! Tô por aqui pra te guiar no que precisar 🚀\n\n` +
+          `Aqui estão os passos principais pra deixar tudo rodando perfeitamente:\n\n` +
+          `1️⃣ *Conectar seu WhatsApp:* Acesse seu painel e escaneie o QR Code na aba de Conexão.\n` +
+          `2️⃣ *Cadastrar Catálogo & Produtos:* Na aba de Produtos, defina seus itens, descrições e valores.\n` +
+          `3️⃣ *Vincular Chave Pix:* Insira sua chave Pix oficial nas configurações pra receber pagamentos automáticos na sua conta bancária.\n\n` +
+          `💡 *Quer fazer o Onboarding Guiado (Mão na Massa) agora em 3 minutos direto por aqui?*\n` +
+          `Só me responder com a sua *chave Pix* ou mandar *"vamos configurar"* que eu já vinculo e adiciono seu primeiro produto na hora! 🙂`;
+      }
+
+      // Cumprimento casual ou pergunta geral do cliente ativo
+      if (isPureOrReturnGreeting || /(?:tudo\s+bem|como\s+vai|e\s+a[ií])/i.test(text)) {
+        return `Fala${cleanFirstNameGreet}! Tudo ótimo por aqui 👍\n\nComo tão rodando as coisas com o seu bot? Precisando de qualquer ajuste ou dúvida na operação, só me dar um toque que tô por aqui!`;
+      }
+
+      return `Fala${cleanFirstNameGreet}! Tô por aqui à disposição. Como posso te auxiliar na sua operação hoje? Se precisar de ajuda com configuração, catálogo ou suporte, é só falar! 🙂`;
+    }
+
+    // 0.05 Geração Automática de Proposta Comercial B2B Sob Medida (Calculadora Dinâmica de Escopo)
+    const isProposalRequest = !isDisinterest && (
+      nlpResult?.intent === 'CUSTOM_SOFTWARE_QUERY' ||
+      /(?:proposta|or[cç]amento\s+formal|quanto\s+custa\s+pra\s+(?:fazer|desenvolver)|me\s+manda\s+uma\s+proposta|monta\s+uma\s+proposta|gera\s+uma\s+proposta|quero\s+uma\s+proposta)/i.test(text)
+    );
+
+    if (isProposalRequest) {
+      try {
+        const proposalService = require('./proposalService');
+        const dynamicScope = proposalService.calculateDynamicScope(text, profile);
+
+        const proposal = proposalService.generateProposal(cleanPhone || '5500000000000', {
+          lead_name: rawName || 'Cliente',
+          ...dynamicScope
+        });
+
+        if (proposal && proposal.token) {
+          const tunnelService = require('./tunnelService');
+          const baseUrl = tunnelService.getStoreUrl() || storeBase || 'http://localhost:3001';
+          const shareMsg = proposalService.generateWhatsAppShareMessage(proposal, baseUrl);
+
+          if (cleanPhone) {
+            models.upsertLeadCognitiveProfile(cleanPhone, {
+              buying_stage: 'PROPOSTA',
+              project_scope: proposal.project_title,
+              readiness_score: 75
+            });
+            models.addLeadEpisodicMemory(cleanPhone, 'PROPOSAL', `Proposta comercial gerada: ${proposal.code} (${proposal.project_title}) - R$ ${proposal.investment_brl}`, text, 5);
+          }
+
+          return shareMsg;
+        }
+      } catch (pErr) {
+        console.warn('[ProposalGeneration ⚠️ Erro]:', pErr.message);
+      }
+    }
+
+    // 0.1 Detecção de Correção / Rejeição Enfática do Cliente (Nicho / Escopo)
+    const isCorrectionOrRejection = /(?:n[aã]o\s+tem\s+nada\s+(?:a|ha)ver|t[aá]\s+errado|est[aá]\s+errado|falei\s+que|eu\s+disse\s+que|eu\s+tenho\s+[eé]|o\s+que\s+isso\s+tem\s+(?:a|ha)ver|n[aã]o\s+sou\s+trader|n[aã]o\s+mexo\s+com\s+trader|nada\s+disso|viajou|errou\s+feio|t[aá]\s+doido|t[aá]\s+louco|insistindo)/i.test(text);
     if (isCorrectionOrRejection) {
       const biz = niche || 'sua papelaria com entregas rápidas';
       const isPapelaria = /papelaria|livraria|escrit[oó]rio/i.test(biz) || /papelaria/i.test(text);
@@ -1821,7 +2092,13 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
     let label = 'Lead Frio';
     let nextBestAction = 'Enviar menu interativo e despertar interesse.';
 
-    if (score >= 85 || stage === 'FECHAMENTO' || stage === 'CONVERTIDO') {
+    if (stage === 'CONVERTIDO') {
+      temperature = 'CONVERTIDO';
+      emoji = '🌟';
+      color = '#10b981';
+      label = 'Cliente Ativo';
+      nextBestAction = 'Realizar onboarding guiado, suporte técnico e acompanhamento de sucesso (Customer Success).';
+    } else if (score >= 85 || stage === 'FECHAMENTO') {
       temperature = 'FECHAMENTO';
       emoji = '🚀';
       color = '#ef4444';
@@ -1851,6 +2128,33 @@ O lead já viu o produto. Converse com naturalidade e autoridade comercial valid
       stage,
       nextBestAction
     };
+  }
+
+  /**
+   * Limpeza periódica de memória RAM para desalocar buffers de diálogo antigos
+   */
+  cleanupMemory() {
+    try {
+      const now = Date.now();
+      for (const [phone, buf] of this.dialogueBuffers.entries()) {
+        if (!Array.isArray(buf) || buf.length === 0) {
+          this.dialogueBuffers.delete(phone);
+          continue;
+        }
+        const lastTurn = buf[buf.length - 1];
+        // Desaloca buffers de conversas inativas há mais de 45 minutos
+        if (!lastTurn || (now - (lastTurn.timestamp || 0)) > 45 * 60 * 1000) {
+          this.dialogueBuffers.delete(phone);
+        }
+      }
+      if (this.onboardingStates) {
+        for (const [phone, state] of this.onboardingStates.entries()) {
+          if (!state || (now - (state.updatedAt || 0)) > 24 * 60 * 60 * 1000) {
+            this.onboardingStates.delete(phone);
+          }
+        }
+      }
+    } catch (_) {}
   }
 }
 

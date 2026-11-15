@@ -621,9 +621,20 @@ class SocialListeningService {
    * e dispara tanto o Social Listening stealth quanto os alertas Sentinela no PV do Dono.
    */
   async handleIncomingGroupMessage(sock, groupJid, senderJid, text, isOwnerUser = false, extra = {}) {
+    // Suporte flexível para chamada via objeto único desestruturado: ({ sock, groupJid, senderJid, senderPhone, text, messageText, ... })
+    if (sock && typeof sock === 'object' && !sock.sendMessage && (sock.groupJid || sock.text || sock.messageText)) {
+      const opts = sock;
+      sock = opts.sock || null;
+      groupJid = opts.groupJid || '';
+      senderJid = opts.senderJid || (opts.senderPhone ? `${opts.senderPhone}@s.whatsapp.net` : '');
+      text = opts.text || opts.messageText || '';
+      isOwnerUser = opts.isOwnerUser || false;
+      extra = opts.extra || { senderName: opts.senderName || '' };
+    }
+
     if (!this.isEnabled()) return false;
     if (isOwnerUser) return false; // Dono nunca é alvo de entrosamento stealth ou alertas de si mesmo
-    if (!sock || !groupJid || !text || typeof text !== 'string') return false;
+    if (!groupJid || !text || typeof text !== 'string') return false;
 
     const senderPhone = String(senderJid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
     const subbotPrivateFilter = require('./subbotPrivateFilterService');
@@ -640,13 +651,130 @@ class SocialListeningService {
     if (!normalizedMsg) return false;
 
     // Busca todas as regras de escuta ativas no banco
-    const rules = models.listSocialListeningRules(true);
-    if (!rules || rules.length === 0) return false;
+    const rules = models.listSocialListeningRules(true) || [];
 
     const { isAudio = false, durationSec = 0, senderName = '' } = extra;
     const now = Date.now();
 
-    for (const rule of rules) {
+    // ══════════════════════════════════════════════════════════════════
+    // 🧠 MINERAÇÃO COGNITIVA DE LEADS EM GRUPOS (JEV DECISION / VIRAL RADAR)
+    // Avalia a mensagem com o motor de inferência ultra-rápido para
+    // capturar oportunidades de compra espontâneas de alto valor prioritário!
+    // ══════════════════════════════════════════════════════════════════
+    try {
+      const jevDecisionService = require('./jevDecisionService');
+      if (jevDecisionService.isEnabled()) {
+        const groupName = await this.resolveGroupName(sock, groupJid);
+        const jevResult = await jevDecisionService.decideLeadTemperature({
+          text: rawText,
+          senderPhone,
+          senderName,
+          groupJid,
+          groupName,
+          platform: 'whatsapp'
+        });
+
+        if (jevResult && jevResult.isHotLead && jevResult.temperature === 'HOT') {
+          const alertCooldownKey = `${senderPhone}_jev_hot`;
+          const lastAlertTime = this.alertCooldowns.get(alertCooldownKey);
+          const alertCooldownMs = process.env.NODE_ENV === 'test' ? 50 : 90000;
+
+          if (!lastAlertTime || (now - lastAlertTime) >= alertCooldownMs) {
+            this.alertCooldowns.set(alertCooldownKey, Date.now());
+
+            const firstName = models.getContactFirstName(senderPhone) || (senderName ? senderName.split(' ')[0] : 'Amigo');
+            let detectedNiche = 'Geral / Tech';
+            if (/papelaria|livraria|escrit[oó]rio/i.test(rawText)) detectedNiche = 'Papelaria & Escritório';
+            else if (/roupa|moda|vestu[aá]rio|calcado|cal[cç]a/i.test(rawText)) detectedNiche = 'Moda & Vestuário';
+            else if (/delivery|restaurante|comida|lanche|pizz/i.test(rawText)) detectedNiche = 'Delivery & Alimentação';
+            else if (/curso|infoproduto|afiliad|drop/i.test(rawText)) detectedNiche = 'Infoprodutos & Afiliados';
+            else if (/loja|varejo|e-?commerce/i.test(rawText)) detectedNiche = 'E-commerce & Varejo';
+
+            // Ingestão no CRM Cognitivo
+            try {
+              models.upsertLeadCognitiveProfile(senderPhone, {
+                name: senderName || firstName || 'Lead Quente (Radar)',
+                company_niche: detectedNiche,
+                project_scope: `Oportunidade detectada no grupo ${groupName}`,
+                buying_stage: 'DESCOBERTA',
+                readiness_score: Math.round((jevResult.buyingIntentScore || 0.95) * 100),
+                notes: `Lead quente detectado no grupo "${groupName}" via Radar Cognitivo (JEV). Mensagem: "${rawText.slice(0, 100)}"`
+              });
+
+              models.recordCognitiveMemory(senderPhone, {
+                memory_type: 'NEED',
+                fact_summary: `Interesse de compra no grupo ${groupName}: "${rawText.slice(0, 150)}"`,
+                confidence_score: 0.95
+              });
+            } catch (_) {}
+
+            // Geração de Recomendação Stealth (Sub-bot Wingman)
+            const isWingmanEnabled = models.getSetting('WINGMAN_MODE_ENABLED', 'true') === 'true';
+            let wingmanText = '';
+            if (isWingmanEnabled) {
+              const wingmanTemplates = [
+                `Cara, semana passada passei por isso e coloquei um bot que atende no zap e gera o Pix direto. Se quiser, te passo o contato do rapaz que montou pra mim, resolveu na hora.`,
+                `Opa, eu uso uma automação de atendimento com Pix automático que me salvou demais nisso aí. Se quiser, me dá um toque no privado que te passo o contato.`,
+                `Aqui na minha operação a gente resolveu isso com um bot de vendas consultivas no WhatsApp. Se precisar, te indico o especialista que configurou o meu.`
+              ];
+              wingmanText = wingmanTemplates[Math.floor(Math.random() * wingmanTemplates.length)];
+
+              // Registra a missão stealth do enxame (Swarm Wingman Mission)
+              try {
+                models.recordSwarmMission({
+                  missionType: 'WINGMAN_STEALTH_RECOMMENDATION',
+                  targetJid: groupJid,
+                  prospectPhone: senderPhone,
+                  notes: `Recomendação orgânica stealth para ${senderName || firstName || 'membro'} (${wingmanText})`
+                });
+              } catch (_) {}
+            }
+
+            // Alerta Estratégico no Canal Sentinela ou Dono
+            let targetJid = this.getSentinelTargetJid() || this.getOwnerTargetJid();
+            if (targetJid && this.isAlertEnabled()) {
+              const nameGreet = firstName && firstName !== 'Amigo' ? `Fala ${firstName}, ` : 'Opa, ';
+              const prefilledMsg = `${nameGreet}tudo bem? vi sua mensagem lá no grupo *${groupName}*... conseguiu resolver ou ainda tá precisando?`;
+              const readyWaLink = `https://wa.me/${senderPhone}?text=${encodeURIComponent(prefilledMsg)}`;
+
+              const alertCard =
+                `🚨 *RADAR VIRAL COGNITIVO: OPORTUNIDADE DE VENDA DETECTADA!* 🎯\n\n` +
+                `📍 *Grupo:* *${groupName}*\n` +
+                `👤 *Lead:* *${senderName || firstName || 'Membro'}* (+${senderPhone})\n` +
+                `🧠 *CRM Cognitivo:* Nicho ${detectedNiche} | Prontidão: ${Math.round((jevResult.buyingIntentScore || 0.95) * 100)}% 🔥\n` +
+                `🔥 *Intenção Detectada:* \`${jevResult.intent || 'HOT_BUYING_OPPORTUNITY'}\`\n` +
+                `💬 *Mensagem no Grupo:*\n"${rawText.slice(0, 300)}"\n\n` +
+                (wingmanText ? `🥷 *Sub-Bot Wingman (Indicação Stealth Orgânica):*\n"${wingmanText}"\n\n` : '') +
+                `💡 *Ação Recomendada:* ${jevResult.recommendedAction || 'Abordar com consultoria rápida no privado'}\n\n` +
+                `⚡ *Chamar com 1 Clique (WhatsApp):*\n${readyWaLink}`;
+
+              const dispatchSock = this.getAlertDispatchSocket(sock) || sock;
+              if (dispatchSock && typeof dispatchSock.sendMessage === 'function') {
+                try {
+                  await dispatchSock.sendMessage(targetJid, { text: alertCard });
+                } catch (_) {}
+              }
+            }
+
+            return {
+              triggered: true,
+              alerted: true,
+              replied: false,
+              jevOpportunity: true,
+              wingmanOpportunity: isWingmanEnabled,
+              wingmanText,
+              temperature: 'HOT',
+              intent: jevResult.intent
+            };
+          }
+        }
+      }
+    } catch (jevErr) {
+      console.warn('[SocialListening ⚠️ Erro no Radar Cognitivo JEV]:', jevErr.message);
+    }
+
+    if (rules && rules.length > 0) {
+      for (const rule of rules) {
       if (!rule.keywords) continue;
 
       // Se a regra tiver grupos específicos definidos, valida o grupo atual
@@ -1019,6 +1147,7 @@ class SocialListeningService {
         };
       }
     }
+  }
 
     return false;
   }
@@ -1490,6 +1619,42 @@ class SocialListeningService {
       `💡 _Dica: Quando 2+ sub-bots estiverem no grupo, eles dialogam entre si com o \`!aquecimento\` (3 fluxos inteligentes)._`;
 
     return sock.sendMessage(from, { text: cockpit });
+  }
+
+  /**
+   * Limpeza periódica de memória RAM para evitar vazamentos em processos de longa duração
+   */
+  cleanupMemory() {
+    try {
+      const now = Date.now();
+      // 1. Purga cooldowns de alerta mais velhos que 30 minutos
+      for (const [key, ts] of this.alertCooldowns.entries()) {
+        if (now - ts > 30 * 60 * 1000) {
+          this.alertCooldowns.delete(key);
+        }
+      }
+      // 2. Purga cooldowns de grupo mais velhos que 2 horas
+      for (const [groupJid, ts] of this.groupCooldowns.entries()) {
+        if (now - ts > 2 * 60 * 60 * 1000) {
+          this.groupCooldowns.delete(groupJid);
+        }
+      }
+      // 3. Purga cache de nomes de grupo mais velhos que 6 horas
+      for (const [groupJid, item] of this.groupMetaCache.entries()) {
+        if (!item || (now - (item.timestamp || 0) > 6 * 60 * 60 * 1000)) {
+          this.groupMetaCache.delete(groupJid);
+        }
+      }
+      // Se ainda exceder 500 grupos, descarta os mais antigos (FIFO)
+      if (this.groupMetaCache.size > 500) {
+        const excess = this.groupMetaCache.size - 500;
+        let count = 0;
+        for (const key of this.groupMetaCache.keys()) {
+          if (count++ >= excess) break;
+          this.groupMetaCache.delete(key);
+        }
+      }
+    } catch (_) {}
   }
 }
 

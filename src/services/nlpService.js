@@ -1,7 +1,124 @@
 const models = require('../db/models');
 
+/**
+ * =========================================================================
+ * 🧠 MOTOR SEMÂNTICO VETORIAL (N-GRAM TF-IDF & SIMILARIDADE POR COSSENO)
+ * =========================================================================
+ * Compreende variações extremas, gírias regionais, abreviações fonéticas
+ * e transcrições ruidosas de áudio sem depender exclusivamente de regexes rígidos.
+ * =========================================================================
+ */
+class SemanticVectorEngine {
+  constructor() {
+    this.intentPrototypes = {
+      DISINTEREST: [
+        'nao quero', 'sem interesse', 'to fora', 'to sem grana', 'to liso', 'n rola',
+        'mano n rola', 'n rola pra mim', 'to liso dms', 'deixa quieto', 'deixa pra la',
+        'nem pensar', 'muito caro', 'valeu mas nao', 'obrigado mas nao', 'agr nao quero',
+        'cancela', 'nao vou querer', 'nao serve', 'to quebrado', 'sem condicoes', 'depois vejo isso'
+      ],
+      BUYING_INTENT: [
+        'quero comprar', 'manda o pix', 'passa o pix', 'vou levar', 'como pago essa parada',
+        'onde transfiro', 'libera o acesso', 'quero fechar', 'passa a chave pix', 'bora fechar',
+        'manda a conta', 'onde que paga', 'quero o link de pagamento'
+      ],
+      PRICE_QUERY: [
+        'quanto custa', 'qual o valor', 'quanto morre essa parada', 'qual a facada',
+        'quanto sai a brincadeira', 'tabela de precos', 'qual o investimento', 'valores por favor',
+        'quanto que e', 'precos dos planos'
+      ],
+      CONFIRM_PURCHASE: [
+        'ja fiz o pix', 'ta pago irmao', 'olha o comprovante ai', 'acabei de mandar o pix',
+        'dinheiro enviado', 'ja transferi', 'pix enviado com sucesso', 'comprovante aqui'
+      ],
+      SUPPORT_HUMAN: [
+        'quero falar com gente', 'tem suporte humano', 'chama o dono', 'falar com pessoa',
+        'atendente por favor', 'preciso de atendente humano', 'falar com atendente'
+      ],
+      CUSTOM_SOFTWARE_QUERY: [
+        'preciso de um sistema sob medida', 'desenvolver um app', 'aplicativo tipo uber',
+        'criar software personalizado', 'desenvolvimento de plataforma', 'fazer um bot exclusivo',
+        'app tipo uber para entregas', 'aplicativo para motoboys', 'sistema web sob medida'
+      ]
+    };
+
+    // Pré-computa vetores dos protótipos
+    this.prototypeVectors = {};
+    for (const [intent, examples] of Object.entries(this.intentPrototypes)) {
+      this.prototypeVectors[intent] = examples.map(ex => this._vectorize(ex));
+    }
+  }
+
+  _vectorize(text) {
+    const clean = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const tokens = clean.split(/\s+/).filter(Boolean);
+    const vector = new Map();
+
+    // 1. Tokens de palavras
+    for (const t of tokens) {
+      vector.set(t, (vector.get(t) || 0) + 1.5);
+    }
+
+    // 2. N-grams de caracteres (tamanho 3 e 4) para tolerância a erros e fonética
+    for (let n = 3; n <= 4; n++) {
+      for (let i = 0; i <= clean.length - n; i++) {
+        const gram = clean.substring(i, i + n);
+        vector.set(gram, (vector.get(gram) || 0) + 1.0);
+      }
+    }
+
+    let magSq = 0;
+    for (const val of vector.values()) magSq += val * val;
+    const magnitude = Math.sqrt(magSq) || 1;
+
+    return { vector, magnitude };
+  }
+
+  _cosineSimilarity(vecA, vecB) {
+    let dot = 0;
+    const mapA = vecA.vector;
+    const mapB = vecB.vector;
+
+    for (const [key, valA] of mapA.entries()) {
+      const valB = mapB.get(key);
+      if (valB) dot += valA * valB;
+    }
+
+    return dot / (vecA.magnitude * vecB.magnitude);
+  }
+
+  classify(text, minThreshold = 0.45) {
+    if (!text || text.length < 3) return null;
+    const inputVec = this._vectorize(text);
+
+    let bestIntent = null;
+    let maxSim = 0;
+
+    for (const [intent, protoVecList] of Object.entries(this.prototypeVectors)) {
+      for (const protoVec of protoVecList) {
+        const sim = this._cosineSimilarity(inputVec, protoVec);
+        if (sim > maxSim) {
+          maxSim = sim;
+          bestIntent = intent;
+        }
+      }
+    }
+
+    if (maxSim >= minThreshold) {
+      return {
+        intent: bestIntent,
+        confidence: Number(maxSim.toFixed(2)),
+        method: 'SEMANTIC_VECTOR'
+      };
+    }
+
+    return null;
+  }
+}
+
 class NaturalLanguageService {
   constructor() {
+    this.vectorEngine = new SemanticVectorEngine();
     this.slangDictionary = {
       'td': 'tudo',
       'tds': 'todos',
@@ -166,12 +283,20 @@ class NaturalLanguageService {
       return { intent: 'SUPPORT_HUMAN', confidence: 0.92 };
     }
 
-    // 16. Saudações / Cumprimentos
-    if (/(?:ol[aá]|oi|e\s*a[ií]|bom\s*dia|boa\s*tarde|boa\s*noite|opa|salve|fala|tudo\s*bem|como\s*vai)/i.test(normalized)) {
+    // 16. Saudações / Cumprimentos (requer fronteira de palavras para não casar com "rola" ou "falar")
+    if (/(?:\b(?:ol[aá]|oi|e\s*a[ií]|bom\s*dia|boa\s*tarde|boa\s*noite|opa|salve|fala)\b|tudo\s*bem|como\s*vai)/i.test(normalized)) {
       return { intent: 'GREETING', confidence: 0.88 };
     }
 
-    // 13. Intenção Padrão / Conversa Geral
+    // 17. Classificação Semântica Vetorial (Adeus aos Regexes Rígidos: Gírias, Variações Fonéticas e Typos)
+    if (this.vectorEngine) {
+      const vectorMatch = this.vectorEngine.classify(normalized, 0.40);
+      if (vectorMatch) {
+        return vectorMatch;
+      }
+    }
+
+    // 18. Intenção Padrão / Conversa Geral
     return { intent: 'GENERAL_CHAT', confidence: 0.60 };
   }
 
