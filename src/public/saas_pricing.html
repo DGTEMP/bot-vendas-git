@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planos & Assinatura • Bot de Vendas IA Oficial</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --accent: #10b981;
+      --accent-glow: rgba(16, 185, 129, 0.3);
+      --purple: #8b5cf6;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.15) 0%, transparent 55%),
+        radial-gradient(circle at 100% 40%, rgba(139, 92, 246, 0.08) 0%, transparent 40%);
+    }
+
+    /* Header Nav */
+    header {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 24px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--purple) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+    }
+    .brand-text h1 { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; }
+    .brand-text p { font-size: 12px; color: var(--accent); font-weight: 600; }
+    .header-cta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-login {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-login:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+
+    /* Hero Section */
+    .hero {
+      max-width: 900px;
+      margin: 30px auto 40px;
+      text-align: center;
+      padding: 0 20px;
+    }
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      padding: 6px 16px;
+      border-radius: 30px;
+      color: #60a5fa;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 20px;
+    }
+    .badge-pill .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #60a5fa;
+      box-shadow: 0 0 10px #60a5fa;
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.3); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .hero h2 {
+      font-size: 42px;
+      font-weight: 900;
+      line-height: 1.15;
+      letter-spacing: -1.2px;
+      margin-bottom: 18px;
+    }
+    .hero h2 span {
+      background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #34d399 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 17px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* Billing Toggle */
+    .billing-toggle-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin: 36px 0 48px;
+    }
+    .billing-label { font-size: 14px; font-weight: 700; color: var(--text-muted); }
+    .billing-label.active { color: #fff; }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 54px;
+      height: 28px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--card-border);
+      transition: .3s;
+      border-radius: 30px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 4px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--primary); }
+    input:checked + .slider:before { transform: translateX(24px); }
+    .discount-tag {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #34d399;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 20px;
+      text-transform: uppercase;
+    }
+
+    /* Pricing Grid */
+    .pricing-grid {
+      max-width: 1240px;
+      margin: 0 auto 60px;
+      padding: 0 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      align-items: stretch;
+    }
+    .plan-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 32px 26px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+    }
+    .plan-card:hover {
+      transform: translateY(-6px);
+      border-color: rgba(59, 130, 246, 0.4);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+    }
+    .plan-card.popular {
+      border: 2px solid var(--primary);
+      background: linear-gradient(180deg, rgba(59, 130, 246, 0.08) 0%, #0f172a 100%);
+      box-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
+    }
+    .popular-ribbon {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 5px 16px;
+      border-radius: 20px;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .plan-header { margin-bottom: 20px; }
+    .plan-name { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+    .plan-desc { font-size: 13px; color: var(--text-muted); min-height: 38px; }
+    
+    .plan-price-wrap {
+      margin: 20px 0 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .price-currency { font-size: 18px; font-weight: 700; vertical-align: top; margin-right: 2px; }
+    .price-amount { font-size: 42px; font-weight: 900; letter-spacing: -1px; }
+    .price-period { font-size: 14px; color: var(--text-muted); font-weight: 600; }
+    .price-savings { font-size: 12px; color: var(--accent); font-weight: 700; margin-top: 4px; }
+
+    .plan-features {
+      list-style: none;
+      flex: 1;
+      margin-bottom: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .plan-features li {
+      font-size: 13px;
+      color: #e2e8f0;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      line-height: 1.4;
+    }
+    .plan-features li i {
+      color: var(--accent);
+      margin-top: 2px;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .btn-choose-plan {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--card-border);
+      color: #fff;
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-choose-plan:hover {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .plan-card.popular .btn-choose-plan {
+      background: linear-gradient(135deg, var(--primary) 0%, #2563eb 100%);
+      border: none;
+      box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+    }
+    .plan-card.popular .btn-choose-plan:hover {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      transform: scale(1.02);
+    }
+
+    /* ROI Interactive Calculator */
+    .calculator-section {
+      max-width: 900px;
+      margin: 40px auto 70px;
+      padding: 0 20px;
+    }
+    .calculator-card {
+      background: linear-gradient(145deg, #111827 0%, #0b0f19 100%);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 36px 32px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+    .calc-header { text-align: center; margin-bottom: 28px; }
+    .calc-header h3 { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+    .calc-header p { font-size: 14px; color: var(--text-muted); }
+    .calc-slider-wrap { margin-bottom: 30px; text-align: center; }
+    .calc-slider-val { font-size: 32px; font-weight: 900; color: var(--primary); margin-bottom: 8px; }
+    .calc-slider {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      outline: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+    }
+    .calc-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      box-shadow: 0 0 10px var(--primary);
+    }
+    .calc-results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .calc-res-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 20px;
+      text-align: center;
+    }
+    .calc-res-box .icon { font-size: 24px; margin-bottom: 8px; }
+    .calc-res-box .val { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 4px; }
+    .calc-res-box .lbl { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+
+    /* Modal Checkout */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+    }
+    .modal-card {
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      max-width: 500px;
+      width: 100%;
+      padding: 32px;
+      position: relative;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+    .modal-close:hover { color: #fff; }
+    .modal-title { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+    .modal-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+    
+    .form-group { margin-bottom: 16px; text-align: left; }
+    .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; }
+    .form-control {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-control:focus { border-color: var(--primary); }
+    .btn-pay-pix {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent) 0%, #059669 100%);
+      border: none;
+      color: #fff;
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 18px;
+      box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+      transition: all 0.2s;
+    }
+    .btn-pay-pix:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5); }
+
+    /* Pix Display Box */
+    .pix-container {
+      display: none;
+      text-align: center;
+      padding: 10px 0;
+    }
+    .pix-qr-img {
+      width: 220px;
+      height: 220px;
+      border-radius: 16px;
+      background: #fff;
+      padding: 10px;
+      margin: 16px auto;
+      display: block;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .pix-copia-cola-box {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px dashed var(--card-border);
+      border-radius: 10px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #94a3b8;
+      word-break: break-all;
+      margin-bottom: 12px;
+      max-height: 70px;
+      overflow-y: auto;
+    }
+    .btn-copy-pix {
+      background: var(--primary);
+      border: none;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-copy-pix:hover { background: var(--primary-hover); }
+    .polling-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 20px;
+      font-size: 13px;
+      color: #38bdf8;
+      font-weight: 600;
+    }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(56, 189, 248, 0.3);
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Success Screen */
+    .success-box {
+      display: none;
+      text-align: center;
+      padding: 20px 0;
+    }
+    .success-icon {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: rgba(16, 185, 129, 0.15);
+      border: 2px solid var(--accent);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin: 0 auto 16px;
+    }
+
+    footer {
+      max-width: 1240px;
+      margin: 40px auto 30px;
+      padding: 20px;
+      border-top: 1px solid var(--card-border);
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <a href="#" class="brand">
+      <div class="brand-icon"><i class="fa-solid fa-robot"></i></div>
+      <div class="brand-text">
+        <h1>BOT VENDAS SAAS</h1>
+        <p>Automação &amp; IA Cognitiva</p>
+      </div>
+    </a>
+    <div class="header-cta">
+      <a href="/tenant_login.html" class="btn-login"><i class="fa-solid fa-arrow-right-to-bracket"></i> Acessar Painel</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="badge-pill">
+      <span class="pulse"></span>
+      O Robô de Vendas com IA mais Lucrativo do Brasil
+    </div>
+    <h2>Transforme seu WhatsApp em uma <span>Máquina de Vendas no Piloto Automático</span></h2>
+    <p>
+      Atenda centenas de leads simultaneamente, quebre qualquer objeção com linguagem humana real, envie áudios humanizados e recupere carrinhos abandonados 24 horas por dia.
+    </p>
+
+    <!-- Toggle Mensal / Anual -->
+    <div class="billing-toggle-wrap">
+      <span class="billing-label active" id="lblMonthly">Cobrança Mensal</span>
+      <label class="switch">
+        <input type="checkbox" id="billingCycleToggle" onchange="toggleBillingCycle()">
+        <span class="slider"></span>
+      </label>
+      <span class="billing-label" id="lblYearly">Cobrança Anual</span>
+      <span class="discount-tag">Ganhe 2 Meses Grátis (-20%)</span>
+    </div>
+  </section>
+
+  <!-- Pricing Cards Grid -->
+  <main class="pricing-grid" id="pricingGrid">
+    
+    <!-- STARTER -->
+    <div class="plan-card">
+      <div class="plan-header">
+        <div class="plan-name">Starter</div>
+        <div class="plan-desc">Ideal para autônomos e pequenos negócios que querem automatizar 1 número.</div>
+      </div>
+      <div class="plan-price-wrap">
+        <span class="price-currency">R$</span>
+        <span class="price-amount" id="price_starter">97</span>
+        <span class="price-period" id="period_starter">/mês</span>
+        <div class="price-savings" id="savings_starter" style="display:none;">Economize R$ 194 no plano anual</div>
+      </div>
+      <ul class="plan-features">
+        <li><i class="fa-solid fa-circle-check"></i> 1 Instância WhatsApp (QR Code instantâneo)</li>
+        <li><i class="fa-solid fa-circle-check"></i> 2.500 mensagens de IA inclusas por mês</li>
+        <li><i class="fa-solid fa-circle-check"></i> Catálogo de até 25 produtos / serviços</li>
+        <li><i class="fa-solid fa-circle-check"></i> CRM Inteligente de Leads e Objeções</li>
+        <li><i class="fa-solid fa-circle-check"></i> Geração de Pix e USDT automática</li>
+        <li><i class="fa-solid fa-circle-check"></i> Qualificação de Leads (Frio/Quente)</li>
+        <li><i class="fa-solid fa-circle-check"></i> Suporte por WhatsApp</li>
+      </ul>
+      <button class="btn-choose-plan" onclick="openCheckout('starter')">
+        Começar Agora <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+    <!-- PRO (POPULAR) -->
+    <div class="plan-card popular">
+      <div class="popular-ribbon">🔥 Mais Escolhido</div>
+      <div class="plan-header">
+        <div class="plan-name">Pro • Escala Máxima</div>
+        <div class="plan-desc">Para quem precisa vender todo dia, mandar áudios e recuperar carrinhos.</div>
+      </div>
+      <div class="plan-price-wrap">
+        <span class="price-currency">R$</span>
+        <span class="price-amount" id="price_pro">197</span>
+        <span class="price-period" id="period_pro">/mês</span>
+        <div class="price-savings" id="savings_pro" style="display:none;">Economize R$ 394 no plano anual</div>
+      </div>
+      <ul class="plan-features">
+        <li><i class="fa-solid fa-circle-check"></i> <strong>3 Instâncias de WhatsApp simultâneas</strong></li>
+        <li><i class="fa-solid fa-circle-check"></i> <strong>12.000 mensagens de IA inclusas por mês</strong></li>
+        <li><i class="fa-solid fa-circle-check"></i> Catálogo Ilimitado de Produtos</li>
+        <li><i class="fa-solid fa-circle-check"></i> <strong>Recuperação Autônoma de Carrinhos</strong></li>
+        <li><i class="fa-solid fa-circle-check"></i> <strong>Áudios Gravados Humanizados (ZapVoice)</strong></li>
+        <li><i class="fa-solid fa-circle-check"></i> Follow-up Autônomo com Janela de 24h</li>
+        <li><i class="fa-solid fa-circle-check"></i> Gestão de Vendedores e Afiliados</li>
+        <li><i class="fa-solid fa-circle-check"></i> Suporte Prioritário VIP</li>
+      </ul>
+      <button class="btn-choose-plan" onclick="openCheckout('pro')">
+        Quero o Plano Pro <i class="fa-solid fa-bolt"></i>
+      </button>
+    </div>
+
+    <!-- ENTERPRISE -->
+    <div class="plan-card">
+      <div class="plan-header">
+        <div class="plan-name">Enterprise</div>
+        <div class="plan-desc">Para grandes operações, e-commerces e equipes comerciais com exército de chips.</div>
+      </div>
+      <div class="plan-price-wrap">
+        <span class="price-currency">R$</span>
+        <span class="price-amount" id="price_enterprise">497</span>
+        <span class="price-period" id="period_enterprise">/mês</span>
+        <div class="price-savings" id="savings_enterprise" style="display:none;">Economize R$ 994 no plano anual</div>
+      </div>
+      <ul class="plan-features">
+        <li><i class="fa-solid fa-circle-check"></i> 10 Instâncias WhatsApp (Exército Multi-Chip)</li>
+        <li><i class="fa-solid fa-circle-check"></i> 40.000 mensagens OU <strong>Chave Própria (BYOK) Ilimitada</strong></li>
+        <li><i class="fa-solid fa-circle-check"></i> Aquecimento Automático de Chips anti-ban</li>
+        <li><i class="fa-solid fa-circle-check"></i> Radar Viral de Tendências de Conteúdo</li>
+        <li><i class="fa-solid fa-circle-check"></i> Disparo em Massa Inteligente com rotação</li>
+        <li><i class="fa-solid fa-circle-check"></i> Integração Nuvemshop, Shopify e WooCommerce</li>
+        <li><i class="fa-solid fa-circle-check"></i> Acesso total à API e Webhooks</li>
+        <li><i class="fa-solid fa-circle-check"></i> Gerente de Contas Dedicado</li>
+      </ul>
+      <button class="btn-choose-plan" onclick="openCheckout('enterprise')">
+        Contratar Enterprise <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+    <!-- WHITELABEL -->
+    <div class="plan-card">
+      <div class="plan-header">
+        <div class="plan-name">Agência Whitelabel</div>
+        <div class="plan-desc">Tenha sua própria plataforma de IA para revender para clientes com margem de 100%.</div>
+      </div>
+      <div class="plan-price-wrap">
+        <span class="price-currency">R$</span>
+        <span class="price-amount" id="price_agency_whitelabel">997</span>
+        <span class="price-period" id="period_agency_whitelabel">/mês</span>
+        <div class="price-savings" id="savings_agency_whitelabel" style="display:none;">Economize R$ 1.994 no plano anual</div>
+      </div>
+      <ul class="plan-features">
+        <li><i class="fa-solid fa-circle-check"></i> <strong>Até 25 Sub-contas (Tenants) para clientes</strong></li>
+        <li><i class="fa-solid fa-circle-check"></i> <strong>Marca Própria: Seu Logo, Suas Cores, Seu Domínio</strong></li>
+        <li><i class="fa-solid fa-circle-check"></i> Você cobra R$ 200 a R$ 1.000/mês e fica com 100%</li>
+        <li><i class="fa-solid fa-circle-check"></i> Painel Master Central para gerenciar agência</li>
+        <li><i class="fa-solid fa-circle-check"></i> Conexões Ilimitadas com BYOK dos clientes</li>
+        <li><i class="fa-solid fa-circle-check"></i> Treinamento e Suporte de Engenharia Direto</li>
+      </ul>
+      <button class="btn-choose-plan" onclick="openCheckout('agency_whitelabel')">
+        Criar Minha Agência <i class="fa-solid fa-briefcase"></i>
+      </button>
+    </div>
+
+  </main>
+
+  <!-- Calculadora Interativa de Lucro do Cliente -->
+  <section class="calculator-section">
+    <div class="calculator-card">
+      <div class="calc-header">
+        <h3><i class="fa-solid fa-calculator" style="color: var(--primary);"></i> Calcule seu Retorno sobre o Investimento</h3>
+        <p>Veja quanto seu negócio pode faturar a mais colocando a IA para atender e fechar vendas no WhatsApp 24/7:</p>
+      </div>
+
+      <div class="calc-slider-wrap">
+        <div class="calc-slider-val" id="sliderValue">40 leads / dia</div>
+        <input type="range" class="calc-slider" id="leadSlider" min="5" max="250" value="40" step="5" oninput="updateCalculator()">
+      </div>
+
+      <div class="calc-results-grid">
+        <div class="calc-res-box">
+          <div class="icon">👥</div>
+          <div class="val" id="calcMonthlyLeads">1.200</div>
+          <div class="lbl">Leads Atendidos no Mês</div>
+        </div>
+        <div class="calc-res-box">
+          <div class="icon">💰</div>
+          <div class="val" id="calcAdditionalRevenue" style="color: var(--accent);">+ R$ 14.400</div>
+          <div class="lbl">Faturamento Extra Estimado</div>
+        </div>
+        <div class="calc-res-box">
+          <div class="icon">⏱️</div>
+          <div class="val" id="calcHoursSaved">100h</div>
+          <div class="lbl">Horas Humanas Economizadas</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Checkout Modal -->
+  <div class="modal-overlay" id="checkoutModal">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeCheckout()"><i class="fa-solid fa-xmark"></i></button>
+
+      <!-- Passo 1: Formulário de Dados -->
+      <div id="checkoutFormStep">
+        <div class="modal-title">Ativação Imediata do seu Bot</div>
+        <div class="modal-sub">Preencha seus dados para gerar o Pix e receber sua licença instantaneamente.</div>
+
+        <form id="orderForm" onsubmit="submitCheckout(event)">
+          <div class="form-group">
+            <label>Seu Nome ou Nome da Empresa *</label>
+            <input type="text" class="form-control" id="custName" required placeholder="Ex: Minha Loja Tech">
+          </div>
+          <div class="form-group">
+            <label>WhatsApp com DDD (onde receberá o acesso) *</label>
+            <input type="tel" class="form-control" id="custPhone" required placeholder="Ex: 11999998888">
+          </div>
+          <div class="form-group">
+            <label>E-mail de Contato</label>
+            <input type="email" class="form-control" id="custEmail" placeholder="contato@minhaempresa.com">
+          </div>
+          <div class="form-group">
+            <label>Nicho do seu Negócio</label>
+            <select class="form-control" id="custNiche">
+              <option value="vendedores">Vendas Gerais / E-commerce</option>
+              <option value="imobiliaria">Imobiliária &amp; Corretores</option>
+              <option value="clinica">Clínica, Saúde &amp; Estética</option>
+              <option value="infoproduto">Infoproduto &amp; Cursos</option>
+              <option value="delivery">Delivery &amp; Restaurantes</option>
+              <option value="servicos">Prestação de Serviços B2B</option>
+            </select>
+          </div>
+
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; margin-top: 14px;">
+            <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;">
+              <span style="color:var(--text-muted);">Plano Selecionado:</span>
+              <strong id="modalPlanName">Pro • Escala Máxima</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:15px;">
+              <span style="color:var(--text-muted);">Total a Pagar:</span>
+              <strong style="color:var(--accent);" id="modalPlanPrice">R$ 197,00</strong>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-pay-pix" id="btnSubmitOrder">
+            <i class="fa-brands fa-pix"></i> Gerar Pix de Ativação Instantânea
+          </button>
+        </form>
+      </div>
+
+      <!-- Passo 2: Exibição do Pix -->
+      <div id="checkoutPixStep" class="pix-container">
+        <div class="modal-title">Escaneie o QR Code ou Copie o Código</div>
+        <div class="modal-sub">O acesso ao seu painel é liberado automaticamente no segundo em que o banco aprovar.</div>
+
+        <img src="" alt="QR Code Pix" class="pix-qr-img" id="pixQrImg">
+
+        <div class="pix-copia-cola-box" id="pixCopiaColaText"></div>
+
+        <button class="btn-copy-pix" onclick="copyPixCode()">
+          <i class="fa-solid fa-copy"></i> Copiar Código Pix
+        </button>
+
+        <div class="polling-indicator">
+          <div class="spinner"></div>
+          <span>Aguardando confirmação bancária em tempo real...</span>
+        </div>
+
+        <button onclick="checkPaymentStatus(true)" style="background:transparent; border:none; color:var(--text-muted); font-size:12px; text-decoration:underline; cursor:pointer; margin-top:14px;">
+          Já realizei o pagamento, verificar agora
+        </button>
+      </div>
+
+      <!-- Passo 3: Tela de Sucesso -->
+      <div id="checkoutSuccessStep" class="success-box">
+        <div class="success-icon"><i class="fa-solid fa-check"></i></div>
+        <div class="modal-title" style="color:var(--accent);">Pagamento Confirmado!</div>
+        <div class="modal-sub" style="margin-bottom:20px;">Sua licença e seu painel de inteligência já foram ativados com sucesso.</div>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">
+          Redirecionando você para o Painel do Cliente em 3 segundos...
+        </p>
+        <a id="btnGoToDashboard" href="#" class="btn-pay-pix" style="text-decoration:none;">
+          Entrar no Painel Agora <i class="fa-solid fa-arrow-right"></i>
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>
+    <p>&copy; 2026 Bot Vendas SaaS • Plataforma Multi-Tenant de Vendas Autônomas com Inteligência Artificial.</p>
+  </footer>
+
+  <script>
+    let currentCycle = 'monthly';
+    let selectedPlanKey = 'pro';
+    let currentOrderCode = null;
+    let pollInterval = null;
+
+    const planPrices = {
+      starter: { monthly: 97, yearly: 970, name: 'Starter • Começo Acelerado' },
+      pro: { monthly: 197, yearly: 1970, name: 'Pro • Escala Máxima' },
+      enterprise: { monthly: 497, yearly: 4970, name: 'Enterprise' },
+      agency_whitelabel: { monthly: 997, yearly: 9970, name: 'Agência Whitelabel' }
+    };
+
+    function toggleBillingCycle() {
+      const toggle = document.getElementById('billingCycleToggle');
+      currentCycle = toggle.checked ? 'yearly' : 'monthly';
+
+      document.getElementById('lblMonthly').classList.toggle('active', currentCycle === 'monthly');
+      document.getElementById('lblYearly').classList.toggle('active', currentCycle === 'yearly');
+
+      for (const [key, data] of Object.entries(planPrices)) {
+        const priceEl = document.getElementById('price_' + key);
+        const periodEl = document.getElementById('period_' + key);
+        const savingsEl = document.getElementById('savings_' + key);
+
+        if (currentCycle === 'yearly') {
+          priceEl.textContent = data.yearly;
+          periodEl.textContent = '/ano';
+          savingsEl.style.display = 'block';
+        } else {
+          priceEl.textContent = data.monthly;
+          periodEl.textContent = '/mês';
+          savingsEl.style.display = 'none';
+        }
+      }
+    }
+
+    function openCheckout(planKey) {
+      selectedPlanKey = planKey;
+      const plan = planPrices[planKey];
+      const price = currentCycle === 'yearly' ? plan.yearly : plan.monthly;
+      const period = currentCycle === 'yearly' ? 'ano' : 'mês';
+
+      document.getElementById('modalPlanName').textContent = plan.name;
+      document.getElementById('modalPlanPrice').textContent = `R$ ${price},00 /${period}`;
+
+      document.getElementById('checkoutFormStep').style.display = 'block';
+      document.getElementById('checkoutPixStep').style.display = 'none';
+      document.getElementById('checkoutSuccessStep').style.display = 'none';
+      document.getElementById('checkoutModal').style.display = 'flex';
+    }
+
+    function closeCheckout() {
+      if (pollInterval) clearInterval(pollInterval);
+      document.getElementById('checkoutModal').style.display = 'none';
+    }
+
+    async function submitCheckout(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btnSubmitOrder');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Gerando Pix...';
+
+      const payload = {
+        plan_key: selectedPlanKey,
+        billing_cycle: currentCycle,
+        customer_name: document.getElementById('custName').value.trim(),
+        customer_phone: document.getElementById('custPhone').value.trim(),
+        customer_email: document.getElementById('custEmail').value.trim() || null,
+        niche: document.getElementById('custNiche').value,
+        affiliate_code: new URLSearchParams(window.location.search).get('ref') || null
+      };
+
+      try {
+        const res = await fetch('/api/saas/public/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Erro ao gerar Pix');
+
+        const order = data.order;
+        currentOrderCode = order.order_code;
+
+        document.getElementById('pixQrImg').src = order.pix_qr_base64;
+        document.getElementById('pixCopiaColaText').textContent = order.pix_copia_cola;
+
+        document.getElementById('checkoutFormStep').style.display = 'none';
+        document.getElementById('checkoutPixStep').style.display = 'block';
+
+        // Inicia Polling a cada 3 segundos
+        if (pollInterval) clearInterval(pollInterval);
+        pollInterval = setInterval(() => checkPaymentStatus(false), 3000);
+
+      } catch (err) {
+        alert('Erro ao gerar Pix: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-brands fa-pix"></i> Gerar Pix de Ativação Instantânea';
+      }
+    }
+
+    function copyPixCode() {
+      const code = document.getElementById('pixCopiaColaText').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.querySelector('.btn-copy-pix');
+        btn.innerHTML = '<i class="fa-solid fa-check"></i> Código Pix Copiado!';
+        btn.style.background = '#10b981';
+        setTimeout(() => {
+          btn.innerHTML = '<i class="fa-solid fa-copy"></i> Copiar Código Pix';
+          btn.style.background = '#3b82f6';
+        }, 3000);
+      });
+    }
+
+    async function checkPaymentStatus(manual = false) {
+      if (!currentOrderCode) return;
+      try {
+        const res = await fetch(`/api/saas/public/order-status/${currentOrderCode}`);
+        const data = await res.json();
+        if (data.status === 'PAID') {
+          if (pollInterval) clearInterval(pollInterval);
+          showSuccessScreen(data);
+        } else if (manual) {
+          alert('O pagamento ainda não foi identificado pelo banco. Aguarde alguns instantes ou copie o código novamente.');
+        }
+      } catch (err) {
+        console.warn('Erro ao verificar status:', err.message);
+      }
+    }
+
+    function showSuccessScreen(data) {
+      document.getElementById('checkoutPixStep').style.display = 'none';
+      document.getElementById('checkoutSuccessStep').style.display = 'block';
+
+      const token = data.tenant ? data.tenant.token : '';
+      const targetUrl = token ? `/tenant_dashboard.html?token=${token}` : `/tenant_login.html`;
+      document.getElementById('btnGoToDashboard').href = targetUrl;
+
+      setTimeout(() => {
+        window.location.href = targetUrl;
+      }, 3500);
+    }
+
+    // Calculadora Interativa
+    function updateCalculator() {
+      const leadsPerDay = Number(document.getElementById('leadSlider').value);
+      document.getElementById('sliderValue').textContent = `${leadsPerDay} leads / dia`;
+
+      const monthlyLeads = leadsPerDay * 30;
+      document.getElementById('calcMonthlyLeads').textContent = monthlyLeads.toLocaleString('pt-BR');
+
+      // Conversão estimada extra de 8% com ticket médio de R$ 150
+      const extraOrders = Math.round(monthlyLeads * 0.08);
+      const extraRev = extraOrders * 150;
+      document.getElementById('calcAdditionalRevenue').textContent = `+ R$ ${extraRev.toLocaleString('pt-BR')}`;
+
+      // 5 min economizados por atendimento
+      const hoursSaved = Math.round((monthlyLeads * 5) / 60);
+      document.getElementById('calcHoursSaved').textContent = `${hoursSaved}h`;
+    }
+
+    // Inicializa calculadora
+    updateCalculator();
+  </script>
+</body>
+</html>

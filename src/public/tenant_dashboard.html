@@ -1146,6 +1146,84 @@
           </div>
         </div>
 
+        <!-- RENOVAÇÃO & RECARGAS DE IA -->
+        <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 14px; padding: 22px; margin-bottom: 24px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; margin-bottom: 18px;">
+            <div>
+              <h4 style="font-size: 16px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-bolt" style="color: var(--warning);"></i> Consumo de IA &amp; Pacotes de Recarga
+              </h4>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                Monitore o uso de inteligência artificial da sua conta e adquira créditos adicionais com ativação Pix instantânea.
+              </p>
+            </div>
+            <button class="btn-action" onclick="renewCurrentPlan()" style="background: linear-gradient(135deg, var(--accent) 0%, #059669 100%); border: none; font-weight: 700;">
+              <i class="fa-brands fa-pix"></i> Renovar Meu Plano (+30 dias)
+            </button>
+          </div>
+
+          <div style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin-bottom: 6px;">
+              <span>Mensagens de IA Utilizadas este Mês</span>
+              <span id="aiUsageText">0 / 10.000 msgs</span>
+            </div>
+            <div style="height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden;">
+              <div id="aiProgressBar" style="width: 5%; height: 100%; background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%); transition: width 0.4s;"></div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; text-align: center;">
+              <div style="font-size: 13px; font-weight: 700;">+2.500 Mensagens IA</div>
+              <div style="font-size: 18px; font-weight: 900; color: var(--accent); margin: 4px 0 8px;">R$ 29,90</div>
+              <button class="btn-action" onclick="buyCreditPack('pack_2500')" style="width: 100%; font-size: 11px; padding: 6px;">Comprar Pix</button>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 10px; padding: 14px; text-align: center;">
+              <div style="font-size: 13px; font-weight: 700;">+10.000 Mensagens IA 🔥</div>
+              <div style="font-size: 18px; font-weight: 900; color: #38bdf8; margin: 4px 0 8px;">R$ 69,90</div>
+              <button class="btn-action" onclick="buyCreditPack('pack_10000')" style="width: 100%; font-size: 11px; padding: 6px; background: var(--primary);">Comprar Pix</button>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; text-align: center;">
+              <div style="font-size: 13px; font-weight: 700;">+25.000 Mensagens IA</div>
+              <div style="font-size: 18px; font-weight: 900; color: var(--accent); margin: 4px 0 8px;">R$ 149,90</div>
+              <button class="btn-action" onclick="buyCreditPack('pack_25000')" style="width: 100%; font-size: 11px; padding: 6px;">Comprar Pix</button>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; text-align: center;">
+              <div style="font-size: 13px; font-weight: 700;">+1 Bot WhatsApp Extra</div>
+              <div style="font-size: 18px; font-weight: 900; color: #c084fc; margin: 4px 0 8px;">R$ 59,90<span style="font-size:10px;">/mês</span></div>
+              <button class="btn-action" onclick="buyCreditPack('extra_bot')" style="width: 100%; font-size: 11px; padding: 6px;">Adicionar Bot</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- WHITELABEL PERSONALIZAÇÃO (SE PLANO ELEGÍVEL) -->
+        <div id="whitelabelSection" style="display: none; background: #0f172a; border: 1px solid var(--card-border); border-radius: 14px; padding: 22px; margin-bottom: 24px;">
+          <h4 style="font-size: 15px; font-weight: 800; color: #fff; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-paintbrush" style="color: #a855f7;"></i> Personalização de Marca Própria (Whitelabel da Agência)
+          </h4>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
+            Seu plano permite que este painel seja apresentado com a marca e cores exclusivas da sua agência para seus clientes.
+          </p>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 16px;">
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:var(--text-muted); margin-bottom:4px;">Nome da Sua Marca / Agência</label>
+              <input type="text" id="wlBrandName" placeholder="Ex: Growth Marketing IA" style="width:100%; background:rgba(255,255,255,0.05); border:1px solid var(--card-border); border-radius:8px; padding:8px 12px; color:#fff; font-size:13px; outline:none;">
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:var(--text-muted); margin-bottom:4px;">URL da Logomarca (PNG/SVG)</label>
+              <input type="text" id="wlLogoUrl" placeholder="https://minhaagencia.com/logo.png" style="width:100%; background:rgba(255,255,255,0.05); border:1px solid var(--card-border); border-radius:8px; padding:8px 12px; color:#fff; font-size:13px; outline:none;">
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:var(--text-muted); margin-bottom:4px;">WhatsApp de Suporte aos Clientes</label>
+              <input type="tel" id="wlSupportPhone" placeholder="Ex: 5511999998888" style="width:100%; background:rgba(255,255,255,0.05); border:1px solid var(--card-border); border-radius:8px; padding:8px 12px; color:#fff; font-size:13px; outline:none;">
+            </div>
+          </div>
+          <button class="btn-action" onclick="saveWhitelabelSettings()" style="padding: 8px 18px; font-size: 12px;">
+            <i class="fa-solid fa-floppy-disk"></i> Salvar Identidade Visual
+          </button>
+        </div>
+
         <h4 style="font-size: 14px; margin-bottom: 12px; color: var(--text-muted);"><i class="fa-solid fa-clock-rotate-left"></i> Histórico de Renovações</h4>
         <table>
           <thead>
@@ -2792,6 +2870,23 @@ Regras:
       document.getElementById('detStatus').style.color = lic.status === 'ACTIVE' ? '#10b981' : (lic.status === 'EXPIRED' ? '#ef4444' : '#f59e0b');
       document.getElementById('detExpires').textContent = lic.is_lifetime ? 'Acesso Vitalício' : (lic.expires_at ? formatDate(lic.expires_at) + ` (${lic.days_left} dias restantes)` : '-');
 
+      // AI Usage Quota & Progress
+      const quota = lic.monthly_ai_msg_quota || 10000;
+      const used = lic.monthly_ai_msg_used || 0;
+      const pct = Math.min(100, Math.round((used / quota) * 100));
+      document.getElementById('aiUsageText').textContent = `${used.toLocaleString('pt-BR')} / ${quota.toLocaleString('pt-BR')} msgs (${pct}%)`;
+      document.getElementById('aiProgressBar').style.width = `${Math.max(5, pct)}%`;
+
+      // Whitelabel Section
+      if (lic.is_whitelabel_eligible) {
+        document.getElementById('whitelabelSection').style.display = 'block';
+        document.getElementById('wlBrandName').value = lic.whitelabel_brand_name || '';
+        document.getElementById('wlLogoUrl').value = lic.whitelabel_logo_url || '';
+        document.getElementById('wlSupportPhone').value = lic.support_whatsapp || '';
+      } else {
+        document.getElementById('whitelabelSection').style.display = 'none';
+      }
+
       const tbody = document.getElementById('licenseLogsTbody');
       const logs = data.logs || [];
       if (logs.length === 0) {
@@ -2807,6 +2902,72 @@ Regras:
           <td style="color: var(--text-muted); font-size: 12px;">${formatDate(l.created_at)}</td>
         </tr>
       `).join('');
+    }
+
+    async function buyCreditPack(packKey) {
+      try {
+        const res = await apiFetch('/api/tenant/credits/checkout', {
+          method: 'POST',
+          body: JSON.stringify({ pack_key: packKey })
+        });
+        if (res.success && res.order) {
+          const code = res.order.pix_copia_cola;
+          navigator.clipboard.writeText(code);
+          alert(`Código Pix gerado para ${res.order.pack_name} (R$ ${res.order.price_brl.toFixed(2)})!\n\nO código Pix Copia e Cola já foi copiado para a sua área de transferência. Assim que pagar no seu banco, os créditos entram automaticamente!`);
+        } else {
+          alert('Erro ao gerar Pix de recarga: ' + (res.error || 'Erro desconhecido'));
+        }
+      } catch (err) {
+        alert('Erro ao solicitar recarga: ' + err.message);
+      }
+    }
+
+    async function renewCurrentPlan() {
+      try {
+        const licData = await apiFetch('/api/tenant/license');
+        const planKey = (licData.license && licData.license.plan) || 'pro';
+        const res = await fetch('/api/saas/public/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            plan_key: planKey,
+            billing_cycle: 'monthly',
+            customer_name: currentTenant.name,
+            customer_phone: currentTenant.owner_phone || '11999998888',
+            customer_email: currentTenant.owner_email || null
+          })
+        });
+        const data = await res.json();
+        if (data.success && data.order) {
+          navigator.clipboard.writeText(data.order.pix_copia_cola);
+          alert(`Código Pix de Renovação gerado para o plano ${data.order.plan_name} (R$ ${data.order.price_brl.toFixed(2)})!\n\nO código Pix Copia e Cola já foi copiado para sua área de transferência. Ao pagar, sua licença será estendida por mais 30 dias automaticamente!`);
+        } else {
+          alert('Erro ao gerar renovação: ' + (data.error || 'Erro desconhecido'));
+        }
+      } catch (err) {
+        alert('Erro ao renovar plano: ' + err.message);
+      }
+    }
+
+    async function saveWhitelabelSettings() {
+      try {
+        const payload = {
+          brand_name: document.getElementById('wlBrandName').value.trim(),
+          logo_url: document.getElementById('wlLogoUrl').value.trim(),
+          support_phone: document.getElementById('wlSupportPhone').value.trim()
+        };
+        const res = await apiFetch('/api/tenant/whitelabel', {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        });
+        if (res.success) {
+          alert('✅ Configurações de Marca Própria (Whitelabel) salvas com sucesso!');
+        } else {
+          alert('Erro ao salvar: ' + (res.error || 'Erro desconhecido'));
+        }
+      } catch (err) {
+        alert('Erro ao salvar identidade visual: ' + err.message);
+      }
     }
 
     function openCreateProductModal() {

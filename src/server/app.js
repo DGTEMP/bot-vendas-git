@@ -8247,7 +8247,13 @@ function createServer() {
           max_bots: tenant.max_bots,
           max_products: tenant.max_products,
           modules_enabled: tenant.modules_enabled,
-          support_whatsapp: adminPhone
+          support_whatsapp: adminPhone,
+          monthly_ai_msg_quota: tenant.monthly_ai_msg_quota || 10000,
+          monthly_ai_msg_used: tenant.monthly_ai_msg_used || 0,
+          whitelabel_brand_name: tenant.whitelabel_brand_name || null,
+          whitelabel_logo_url: tenant.whitelabel_logo_url || null,
+          whitelabel_theme_colors: tenant.whitelabel_theme_colors || null,
+          is_whitelabel_eligible: ['enterprise', 'agency_whitelabel'].includes(tenant.plan)
         },
         logs
       });
@@ -8460,6 +8466,179 @@ function createServer() {
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==============================================================
+  // 🚀 PLATAFORMA SAAS PROFITABILITY: ROTAS PÚBLICAS & MASTER
+  // ==============================================================
+  const saasProfitService = require('../services/saasProfitService');
+
+  // Páginas públicas do SaaS
+  app.get(['/planos', '/pricing', '/checkout-saas', '/saas-pricing'], (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'saas_pricing.html'));
+  });
+
+  app.get(['/saas-master', '/admin-saas', '/saas-financials'], (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'saas_master.html'));
+  });
+
+  // API Pública: Listar Planos Oficiais do SaaS
+  app.get('/api/saas/public/plans', (req, res) => {
+    try {
+      res.json({ success: true, plans: saasProfitService.getPlans() });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Pública: Listar Pacotes de Recarga
+  app.get('/api/saas/public/credit-packs', (req, res) => {
+    try {
+      res.json({ success: true, packs: saasProfitService.getCreditPacks() });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Pública: Criar Checkout Pix Instantâneo de Assinatura
+  app.post('/api/saas/public/checkout', async (req, res) => {
+    try {
+      const order = await saasProfitService.createSubscriptionCheckout(req.body);
+      res.json({ success: true, order });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Pública: Consultar Status do Pedido de Assinatura (Polling em tempo real)
+  app.get('/api/saas/public/order-status/:orderCode', (req, res) => {
+    try {
+      const status = saasProfitService.getOrderStatus(req.params.orderCode);
+      if (!status) return res.status(404).json({ success: false, error: 'Pedido não encontrado' });
+      res.json({ success: true, ...status });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Pública/Dev: Simular Pagamento Instantâneo de Assinatura (Aprova na hora)
+  app.post('/api/saas/public/confirm-mock-pay/:orderCode', async (req, res) => {
+    try {
+      const result = await saasProfitService.confirmSubscriptionOrder(req.params.orderCode, { mock: true });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Master SaaS: Métricas Financeiras Consolidadas (MRR, ARR, Churn, LTV, Margem Bruta)
+  app.get('/api/saas/master/financials', (req, res) => {
+    try {
+      const metrics = saasProfitService.getFinancialMetrics();
+      res.json({ success: true, ...metrics });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Master SaaS: Listar Pedidos de Assinatura
+  app.get('/api/saas/master/orders', (req, res) => {
+    try {
+      const { status, limit } = req.query;
+      const orders = models.listSaaSSubscriptionOrders({ status, limit });
+      res.json({ success: true, orders });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Master SaaS: Disparar Alerta de Renovação no WhatsApp
+  app.post('/api/saas/master/action/send-reminder', async (req, res) => {
+    try {
+      const { tenant_id } = req.body;
+      const sent = await saasProfitService.sendRenewalReminder(tenant_id);
+      res.json({ success: true, sent });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Master SaaS: Disparar Relatório Semanal de ROI no WhatsApp
+  app.post('/api/saas/master/action/send-roi', async (req, res) => {
+    try {
+      const { tenant_id } = req.body;
+      const sent = await saasProfitService.notifyWeeklyRoi(tenant_id);
+      res.json({ success: true, sent });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Afiliados SaaS: Cadastrar Afiliado
+  app.post('/api/saas/affiliates/register', (req, res) => {
+    try {
+      const affiliate = saasProfitService.getOrCreateAffiliate(req.body);
+      res.json({ success: true, affiliate });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Afiliados SaaS: Listar Afiliados
+  app.get('/api/saas/affiliates/list', (req, res) => {
+    try {
+      const affiliates = saasProfitService.listAffiliates();
+      res.json({ success: true, affiliates });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Afiliados SaaS: Solicitar Saque Pix
+  app.post('/api/saas/affiliates/withdraw', (req, res) => {
+    try {
+      const { affiliate_id, amount_brl, pix_key, pix_key_type } = req.body;
+      const withdrawal = saasProfitService.requestAffiliateWithdrawal(affiliate_id, amount_brl, pix_key, pix_key_type);
+      res.json({ success: true, withdrawal });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Tenant: Relatório de ROI do Tenant
+  app.get('/api/tenant/roi-report', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+      const report = saasProfitService.getTenantRoiReport(tenant.id);
+      res.json({ success: true, ...report });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Tenant: Criar Checkout de Recarga de Créditos IA
+  app.post('/api/tenant/credits/checkout', async (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+      const order = await saasProfitService.createCreditCheckout(tenant.id, req.body.pack_key);
+      res.json({ success: true, order });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // API Tenant Whitelabel: Atualizar Marca Própria (Plano Agência)
+  app.put('/api/tenant/whitelabel', (req, res) => {
+    try {
+      const tenant = getTenantFromRequest(req);
+      if (!tenant) return res.status(401).json({ error: 'Não autorizado' });
+      const updated = models.updateTenantWhitelabel(tenant.id, req.body);
+      res.json({ success: true, tenant: updated });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
     }
   });
 

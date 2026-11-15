@@ -11926,10 +11926,70 @@ const models = {
       console.error('[Models ⚠️ cleanOldOperationsAudits]:', err.message);
       return 0;
     }
+  },
+
+  // =========================================================================
+  // 46. SAAS PROFITABILITY & WHITELABEL EXTENSIONS
+  // =========================================================================
+
+  getSaaSSubscriptionOrder(orderCode) {
+    try {
+      return db.prepare('SELECT * FROM saas_subscription_orders WHERE order_code = ?').get(orderCode);
+    } catch (err) {
+      console.warn('[Models ⚠️ getSaaSSubscriptionOrder]:', err.message);
+      return null;
+    }
+  },
+
+  listSaaSSubscriptionOrders(filter = {}) {
+    try {
+      let sql = 'SELECT * FROM saas_subscription_orders WHERE 1=1';
+      const params = [];
+      if (filter.status) {
+        sql += ' AND status = ?';
+        params.push(filter.status);
+      }
+      if (filter.plan_key) {
+        sql += ' AND plan_key = ?';
+        params.push(filter.plan_key);
+      }
+      sql += ' ORDER BY id DESC LIMIT ?';
+      params.push(Number(filter.limit) || 100);
+      return db.prepare(sql).all(...params);
+    } catch (err) {
+      console.warn('[Models ⚠️ listSaaSSubscriptionOrders]:', err.message);
+      return [];
+    }
+  },
+
+  updateTenantWhitelabel(tenantId, { brand_name, logo_url, theme_colors, support_phone }) {
+    try {
+      const colorsJson = typeof theme_colors === 'object' ? JSON.stringify(theme_colors) : theme_colors;
+      db.prepare(`
+        UPDATE saas_tenants
+        SET whitelabel_brand_name = ?,
+            whitelabel_logo_url = ?,
+            whitelabel_theme_colors = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(brand_name || null, logo_url || null, colorsJson || null, Number(tenantId));
+      return models.getTenantById(tenantId);
+    } catch (err) {
+      console.warn('[Models ⚠️ updateTenantWhitelabel]:', err.message);
+      throw err;
+    }
+  },
+
+  incrementTenantAiMsgUsed(tenantId, count = 1) {
+    try {
+      db.prepare(`
+        UPDATE saas_tenants
+        SET monthly_ai_msg_used = COALESCE(monthly_ai_msg_used, 0) + ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(Number(count), Number(tenantId));
+    } catch (_) {}
   }
-
-
-
 };
 
 module.exports = models;

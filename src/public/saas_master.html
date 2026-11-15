@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Master SaaS HQ • Painel Executivo do Proprietário</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #3b82f6;
+      --accent: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #8b5cf6;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      background: #0f172a;
+      border-bottom: 1px solid var(--card-border);
+      padding: 16px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand-wrap { display: flex; align-items: center; gap: 12px; }
+    .brand-icon {
+      width: 42px; height: 42px; border-radius: 12px;
+      background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+      display: flex; align-items: center; justify-content: center; font-size: 20px; color: #fff;
+    }
+    .brand-titles h1 { font-size: 17px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+    .master-badge {
+      background: rgba(16, 185, 129, 0.15); color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35); font-size: 10px; font-weight: 800;
+      padding: 3px 8px; border-radius: 6px; text-transform: uppercase;
+    }
+    .brand-titles p { font-size: 12px; color: var(--text-muted); }
+
+    .header-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-header {
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--card-border);
+      color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 700;
+      text-decoration: none; cursor: pointer; display: flex; align-items: center; gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-header:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+
+    .container { max-width: 1300px; margin: 0 auto; padding: 28px 20px; width: 100%; flex: 1; }
+
+    /* KPI Metrics Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+    .kpi-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 22px 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::after {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: var(--primary);
+    }
+    .kpi-card.green::after { background: var(--accent); }
+    .kpi-card.purple::after { background: var(--purple); }
+    .kpi-card.warning::after { background: var(--warning); }
+    
+    .kpi-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .kpi-label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+    .kpi-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    .kpi-value { font-size: 28px; font-weight: 900; letter-spacing: -0.5px; margin-bottom: 6px; }
+    .kpi-sub { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+    .kpi-sub.positive { color: var(--accent); font-weight: 700; }
+
+    /* Nav Tabs */
+    .nav-tabs {
+      display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--card-border);
+      padding-bottom: 12px; overflow-x: auto;
+    }
+    .nav-tab-btn {
+      background: transparent; border: 1px solid var(--card-border); color: var(--text-muted);
+      padding: 10px 18px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; gap: 8px; transition: all 0.2s; white-space: nowrap;
+    }
+    .nav-tab-btn:hover { background: rgba(255, 255, 255, 0.04); color: #fff; }
+    .nav-tab-btn.active {
+      background: var(--primary); color: #fff; border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Content Cards */
+    .section-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .section-title {
+      font-size: 16px; font-weight: 800; margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    /* Tables */
+    .custom-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .custom-table th {
+      text-align: left; padding: 12px 14px; color: var(--text-muted); font-size: 11px;
+      font-weight: 800; text-transform: uppercase; border-bottom: 1px solid var(--card-border);
+    }
+    .custom-table td {
+      padding: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); vertical-align: middle;
+    }
+    .custom-table tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 800; text-transform: uppercase;
+    }
+    .status-active { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .status-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    .status-danger { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+    .btn-action-sm {
+      background: rgba(255, 255, 255, 0.06); border: 1px solid var(--card-border);
+      color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 700;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.2s;
+    }
+    .btn-action-sm:hover { background: rgba(255, 255, 255, 0.12); }
+    .btn-action-sm.whatsapp { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.3); color: #34d399; }
+    .btn-action-sm.whatsapp:hover { background: rgba(16, 185, 129, 0.3); }
+
+    /* Modais */
+    .toast {
+      position: fixed; bottom: 20px; right: 20px; background: #111827; border: 1px solid var(--card-border);
+      color: #fff; padding: 12px 18px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      display: none; z-index: 1000; font-size: 13px; font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand-wrap">
+      <div class="brand-icon"><i class="fa-solid fa-crown"></i></div>
+      <div class="brand-titles">
+        <h1>Master SaaS HQ <span class="master-badge">Proprietário</span></h1>
+        <p>Centro de Comando Financeiro &amp; Gestão de Inquilinos</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <a href="/planos" target="_blank" class="btn-header"><i class="fa-solid fa-external-link"></i> Ver Página de Planos</a>
+      <a href="/tenant_dashboard.html" class="btn-header"><i class="fa-solid fa-id-card"></i> Painel do Tenant</a>
+      <button onclick="refreshData()" class="btn-header"><i class="fa-solid fa-rotate"></i> Atualizar Dados</button>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <!-- KPI Metric Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card green">
+        <div class="kpi-header">
+          <span class="kpi-label">MRR (Recorrência Mensal)</span>
+          <div class="kpi-icon" style="background: rgba(16, 185, 129, 0.15); color: #34d399;"><i class="fa-solid fa-chart-line"></i></div>
+        </div>
+        <div class="kpi-value" id="kpiMrr">R$ 0,00</div>
+        <div class="kpi-sub positive"><i class="fa-solid fa-arrow-up"></i> Receita Recorrente Consolidada</div>
+      </div>
+
+      <div class="kpi-card purple">
+        <div class="kpi-header">
+          <span class="kpi-label">ARR (Receita Anual Projetada)</span>
+          <div class="kpi-icon" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa;"><i class="fa-solid fa-coins"></i></div>
+        </div>
+        <div class="kpi-value" id="kpiArr">R$ 0,00</div>
+        <div class="kpi-sub"><span id="kpiGrossMargin">88.5%</span> de Margem Bruta Estimada</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Assinantes Ativos</span>
+          <div class="kpi-icon" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa;"><i class="fa-solid fa-users"></i></div>
+        </div>
+        <div class="kpi-value" id="kpiActiveSubs">0</div>
+        <div class="kpi-sub"><span id="kpiAtRisk" style="color:var(--warning); font-weight:700;">0 em risco</span> de expiração (&le;3d)</div>
+      </div>
+
+      <div class="kpi-card warning">
+        <div class="kpi-header">
+          <span class="kpi-label">Receita Total Coletada</span>
+          <div class="kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;"><i class="fa-solid fa-vault"></i></div>
+        </div>
+        <div class="kpi-value" id="kpiTotalRevenue">R$ 0,00</div>
+        <div class="kpi-sub">Faturamento Total em Assinaturas</div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs">
+      <button class="nav-tab-btn active" onclick="switchTab('tenants')"><i class="fa-solid fa-building-user"></i> Inquilinos &amp; Assinantes</button>
+      <button class="nav-tab-btn" onclick="switchTab('orders')"><i class="fa-solid fa-receipt"></i> Pedidos de Assinatura</button>
+      <button class="nav-tab-btn" onclick="switchTab('affiliates')"><i class="fa-solid fa-handshake-angle"></i> Afiliados Recorrentes (30%)</button>
+      <button class="nav-tab-btn" onclick="switchTab('plans')"><i class="fa-solid fa-layer-group"></i> Estrutura de Planos</button>
+    </div>
+
+    <!-- Tab 1: Inquilinos & Assinantes -->
+    <div id="tab_tenants" class="section-card">
+      <div class="section-title">
+        <span><i class="fa-solid fa-users-gear" style="color: var(--primary);"></i> Gestão de Tenants &amp; Licenças</span>
+        <input type="text" id="tenantSearchInput" placeholder="Buscar por nome ou WhatsApp..." oninput="filterTenants()" style="background: rgba(255,255,255,0.05); border:1px solid var(--card-border); padding:6px 12px; border-radius:8px; color:#fff; font-size:12px; outline:none;">
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table class="custom-table" id="tenantsTable">
+          <thead>
+            <tr>
+              <th>Inquilino / Empresa</th>
+              <th>WhatsApp</th>
+              <th>Plano</th>
+              <th>Status</th>
+              <th>Dias Restantes</th>
+              <th>Bots / Produtos</th>
+              <th>Ações de Venda &amp; Retenção</th>
+            </tr>
+          </thead>
+          <tbody id="tenantsTableBody">
+            <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">Carregando inquilinos...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 2: Pedidos de Assinatura -->
+    <div id="tab_orders" class="section-card" style="display:none;">
+      <div class="section-title">
+        <span><i class="fa-solid fa-receipt" style="color: var(--accent);"></i> Histórico de Pedidos de Assinatura (Checkout Pix)</span>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Cliente</th>
+              <th>WhatsApp</th>
+              <th>Plano</th>
+              <th>Valor (R$)</th>
+              <th>Status</th>
+              <th>Data</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="ordersTableBody">
+            <tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Carregando pedidos...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 3: Afiliados Recorrentes -->
+    <div id="tab_affiliates" class="section-card" style="display:none;">
+      <div class="section-title">
+        <span><i class="fa-solid fa-handshake-angle" style="color: var(--purple);"></i> Programa de Afiliados Recorrentes (30% MRR)</span>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">
+        Afiliados divulgam o SaaS com o link exclusivo deles (ex: <code>http://localhost:3000/planos?ref=CODIGO</code>) e recebem 30% todo mês enquanto o cliente indicado mantiver o plano ativo.
+      </p>
+
+      <div style="overflow-x: auto;">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Código / Link</th>
+              <th>Afiliado</th>
+              <th>WhatsApp</th>
+              <th>Vendas Ativas</th>
+              <th>Total Ganho (R$)</th>
+              <th>Saldo Disponível</th>
+              <th>Chave Pix</th>
+            </tr>
+          </thead>
+          <tbody id="affiliatesTableBody">
+            <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">Carregando afiliados...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 4: Estrutura de Planos -->
+    <div id="tab_plans" class="section-card" style="display:none;">
+      <div class="section-title">
+        <span><i class="fa-solid fa-layer-group" style="color: var(--primary);"></i> Planos Oficiais Ativos</span>
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:18px;" id="plansPreviewGrid"></div>
+    </div>
+
+  </div>
+
+  <div id="toast" class="toast">Notificação enviada com sucesso!</div>
+
+  <script>
+    let rawFinancials = null;
+    let rawTenants = [];
+
+    async function loadData() {
+      try {
+        const [finRes, ordersRes, affRes] = await Promise.all([
+          fetch('/api/saas/master/financials'),
+          fetch('/api/saas/master/orders'),
+          fetch('/api/saas/affiliates/list')
+        ]);
+
+        const finData = await finRes.json();
+        const ordersData = await ordersRes.json();
+        const affData = await affRes.json();
+
+        if (finData.success) {
+          rawFinancials = finData;
+          renderFinancials(finData);
+        }
+
+        if (ordersData.success) {
+          renderOrders(ordersData.orders || []);
+        }
+
+        if (affData.success) {
+          renderAffiliates(affData.affiliates || []);
+        }
+
+        // Carrega inquilinos
+        const tenantsRes = await fetch('/api/saas/tenants?limit=200');
+        const tenantsData = await tenantsRes.json();
+        rawTenants = tenantsData.tenants || [];
+        renderTenants(rawTenants);
+
+      } catch (err) {
+        console.error('Erro ao carregar dados do master SaaS:', err);
+      }
+    }
+
+    function renderFinancials(data) {
+      document.getElementById('kpiMrr').textContent = `R$ ${data.mrr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+      document.getElementById('kpiArr').textContent = `R$ ${data.arr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+      document.getElementById('kpiActiveSubs').textContent = data.active_subscribers;
+      document.getElementById('kpiAtRisk').textContent = `${data.at_risk_subscribers} em risco`;
+      document.getElementById('kpiTotalRevenue').textContent = `R$ ${data.total_revenue_all_time.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+      document.getElementById('kpiGrossMargin').textContent = `${data.gross_margin_percent}%`;
+
+      // Renderiza preview dos planos
+      const plansContainer = document.getElementById('plansPreviewGrid');
+      plansContainer.innerHTML = '';
+      for (const [key, p] of Object.entries(data.plans_reference || {})) {
+        plansContainer.innerHTML += `
+          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--card-border); border-radius:12px; padding:18px;">
+            <div style="font-weight:800; font-size:16px; margin-bottom:4px;">${p.name}</div>
+            <div style="font-size:22px; font-weight:900; color:var(--accent); margin-bottom:12px;">R$ ${p.price_monthly},00 <span style="font-size:12px; color:var(--text-muted); font-weight:600;">/mês</span></div>
+            <div style="font-size:12px; color:var(--text-muted);">
+              <div>• Máx Bots: <strong>${p.max_bots}</strong></div>
+              <div>• Quota IA: <strong>${p.ai_msg_quota.toLocaleString('pt-BR')} msgs</strong></div>
+              <div>• Anual: <strong>R$ ${p.price_yearly},00</strong></div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    function renderTenants(tenants) {
+      const tbody = document.getElementById('tenantsTableBody');
+      if (!tenants || tenants.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">Nenhum inquilino cadastrado ainda.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = tenants.map(t => {
+        let statusBadge = '<span class="status-badge status-active"><i class="fa-solid fa-circle-check"></i> Ativo</span>';
+        if (t.effective_status === 'EXPIRED') {
+          statusBadge = '<span class="status-badge status-danger"><i class="fa-solid fa-circle-xmark"></i> Vencido</span>';
+        } else if (t.days_left <= 3) {
+          statusBadge = '<span class="status-badge status-warning"><i class="fa-solid fa-triangle-exclamation"></i> Risco (Expira)</span>';
+        }
+
+        return `
+          <tr>
+            <td>
+              <div style="font-weight:700;">${t.name}</div>
+              <div style="font-size:11px; color:var(--text-muted);">slug: ${t.slug} • licença: <span style="font-family:monospace;">${t.license_key}</span></div>
+            </td>
+            <td>${t.owner_phone || '-'}</td>
+            <td><strong style="text-transform:uppercase;">${t.plan}</strong></td>
+            <td>${statusBadge}</td>
+            <td><strong>${t.days_left} dias</strong></td>
+            <td>${t.total_bots || 0} bots / ${t.active_products || 0} prods</td>
+            <td>
+              <div style="display:flex; gap:6px;">
+                <button class="btn-action-sm whatsapp" onclick="sendRenewalReminder(${t.id})" title="Enviar Cobrança Pix no WhatsApp">
+                  <i class="fa-brands fa-whatsapp"></i> Cobrar Pix
+                </button>
+                <button class="btn-action-sm" onclick="sendRoiReport(${t.id})" title="Enviar Relatório Semanal de ROI">
+                  <i class="fa-solid fa-chart-pie"></i> ROI WhatsApp
+                </button>
+                <button class="btn-action-sm" onclick="renewTenant(${t.id})" title="Renovar +30 dias">
+                  <i class="fa-solid fa-plus"></i> +30d
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderOrders(orders) {
+      const tbody = document.getElementById('ordersTableBody');
+      if (!orders || orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Nenhum pedido de assinatura registrado ainda.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = orders.map(o => {
+        const isPaid = o.status === 'PAID';
+        const stBadge = isPaid 
+          ? '<span class="status-badge status-active">PAGO</span>'
+          : '<span class="status-badge status-warning">PENDENTE</span>';
+
+        return `
+          <tr>
+            <td><strong style="font-family:monospace;">${o.order_code}</strong></td>
+            <td>${o.customer_name}</td>
+            <td>${o.customer_phone}</td>
+            <td><strong style="text-transform:uppercase;">${o.plan_key}</strong> (${o.billing_cycle})</td>
+            <td><strong>R$ ${o.price_brl.toFixed(2)}</strong></td>
+            <td>${stBadge}</td>
+            <td style="font-size:12px; color:var(--text-muted);">${o.created_at}</td>
+            <td>
+              ${!isPaid ? `
+                <button class="btn-action-sm whatsapp" onclick="simulatePay('${o.order_code}')" title="Aprovar Pagamento Manualmente">
+                  <i class="fa-solid fa-check"></i> Aprovar Pix
+                </button>
+              ` : '<span style="color:var(--accent); font-size:12px;"><i class="fa-solid fa-check-double"></i> Ativo</span>'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderAffiliates(affiliates) {
+      const tbody = document.getElementById('affiliatesTableBody');
+      if (!affiliates || affiliates.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">Nenhum afiliado cadastrado ainda.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = affiliates.map(a => `
+        <tr>
+          <td>
+            <strong style="color:var(--primary);">${a.affiliate_code}</strong>
+            <div style="font-size:11px; color:var(--text-muted);">/planos?ref=${a.affiliate_code}</div>
+          </td>
+          <td><strong>${a.name}</strong></td>
+          <td>${a.phone}</td>
+          <td><strong>${a.total_sales_count || 0}</strong></td>
+          <td><strong>R$ ${(a.total_earned_brl || 0).toFixed(2)}</strong></td>
+          <td><strong style="color:var(--accent);">R$ ${(a.available_balance_brl || 0).toFixed(2)}</strong></td>
+          <td>${a.pix_key || '-'} (${a.pix_key_type})</td>
+        </tr>
+      `).join('');
+    }
+
+    async function sendRenewalReminder(tenantId) {
+      try {
+        const res = await fetch('/api/saas/master/action/send-reminder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenant_id: tenantId })
+        });
+        const data = await res.json();
+        showToast(data.sent ? '✅ Cobrança Pix enviada no WhatsApp do cliente!' : '⚠️ Cobrança gerada, mas WhatsApp principal offline.');
+      } catch (err) {
+        alert('Erro ao enviar cobrança: ' + err.message);
+      }
+    }
+
+    async function sendRoiReport(tenantId) {
+      try {
+        const res = await fetch('/api/saas/master/action/send-roi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenant_id: tenantId })
+        });
+        const data = await res.json();
+        showToast(data.sent ? '📊 Relatório de ROI disparado no WhatsApp do inquilino!' : '⚠️ Relatório gerado, mas WhatsApp offline.');
+      } catch (err) {
+        alert('Erro ao enviar relatório de ROI: ' + err.message);
+      }
+    }
+
+    async function renewTenant(tenantId) {
+      if (!confirm('Deseja renovar este inquilino por mais 30 dias?')) return;
+      try {
+        const res = await fetch(`/api/saas/tenants/${tenantId}/renew`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ duration_days: 30 })
+        });
+        const data = await res.json();
+        showToast('✅ Licença renovada com sucesso por +30 dias!');
+        loadData();
+      } catch (err) {
+        alert('Erro ao renovar: ' + err.message);
+      }
+    }
+
+    async function simulatePay(orderCode) {
+      try {
+        const res = await fetch(`/api/saas/public/confirm-mock-pay/${orderCode}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('✅ Pedido aprovado e Tenant ativado instantaneamente!');
+          loadData();
+        } else {
+          alert('Erro: ' + data.error);
+        }
+      } catch (err) {
+        alert('Erro ao aprovar pedido: ' + err.message);
+      }
+    }
+
+    function filterTenants() {
+      const q = document.getElementById('tenantSearchInput').value.toLowerCase().trim();
+      if (!q) return renderTenants(rawTenants);
+      const filtered = rawTenants.filter(t => 
+        (t.name && t.name.toLowerCase().includes(q)) || 
+        (t.owner_phone && t.owner_phone.includes(q)) ||
+        (t.slug && t.slug.toLowerCase().includes(q))
+      );
+      renderTenants(filtered);
+    }
+
+    function switchTab(tabKey) {
+      document.querySelectorAll('.nav-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.section-card').forEach(s => s.style.display = 'none');
+
+      document.getElementById('tab_' + tabKey).style.display = 'block';
+      event.currentTarget.classList.add('active');
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 4000);
+    }
+
+    function refreshData() {
+      showToast('🔄 Atualizando métricas financeiras...');
+      loadData();
+    }
+
+    // Inicialização
+    loadData();
+  </script>
+</body>
+</html>

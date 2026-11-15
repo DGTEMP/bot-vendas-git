@@ -1024,6 +1024,120 @@ function initDatabase() {
     );
 
     -- =========================================================================
+    -- 44.1 PLATAFORMA SAAS: FATURAMENTO, CHECKOUT AUTOMÁTICO, AFILIADOS & RETENÇÃO
+    -- =========================================================================
+    CREATE TABLE IF NOT EXISTS tenant_module_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL,
+      module_key TEXT NOT NULL,
+      module_name TEXT NOT NULL,
+      billing_type TEXT DEFAULT 'monthly',
+      price REAL DEFAULT 49.90,
+      pix_code TEXT,
+      pix_qr_code TEXT,
+      status TEXT DEFAULT 'PENDING',
+      paid_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_subscription_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_code TEXT UNIQUE NOT NULL,
+      plan_key TEXT NOT NULL, -- starter, pro, enterprise, agency_whitelabel
+      plan_name TEXT NOT NULL,
+      billing_cycle TEXT DEFAULT 'monthly', -- monthly, yearly
+      duration_days INTEGER DEFAULT 30,
+      price_brl REAL NOT NULL,
+      customer_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL,
+      customer_email TEXT,
+      niche TEXT DEFAULT 'vendedores',
+      tenant_id INTEGER,
+      license_key TEXT,
+      pix_copia_cola TEXT,
+      pix_qr_base64 TEXT,
+      txid TEXT,
+      status TEXT DEFAULT 'PENDING', -- PENDING, PAID, EXPIRED, CANCELLED
+      affiliate_code TEXT,
+      commission_brl REAL DEFAULT 0.0,
+      paid_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_credit_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_code TEXT UNIQUE NOT NULL,
+      tenant_id INTEGER NOT NULL,
+      pack_key TEXT NOT NULL, -- pack_2500, pack_10000, pack_25000, extra_bot
+      pack_name TEXT NOT NULL,
+      credits_added INTEGER DEFAULT 0,
+      bots_added INTEGER DEFAULT 0,
+      price_brl REAL NOT NULL,
+      pix_copia_cola TEXT,
+      pix_qr_base64 TEXT,
+      status TEXT DEFAULT 'PENDING', -- PENDING, PAID, CANCELLED
+      paid_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_affiliates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      affiliate_code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      email TEXT,
+      pix_key TEXT,
+      pix_key_type TEXT DEFAULT 'CPF',
+      commission_percent REAL DEFAULT 30.0,
+      total_sales_count INTEGER DEFAULT 0,
+      total_earned_brl REAL DEFAULT 0.0,
+      total_withdrawn_brl REAL DEFAULT 0.0,
+      status TEXT DEFAULT 'ACTIVE', -- ACTIVE, PAUSED
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_affiliate_commissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      affiliate_id INTEGER NOT NULL,
+      order_id INTEGER,
+      tenant_id INTEGER,
+      order_code TEXT,
+      plan_key TEXT,
+      order_amount_brl REAL NOT NULL,
+      commission_percent REAL DEFAULT 30.0,
+      commission_amount_brl REAL NOT NULL,
+      status TEXT DEFAULT 'AVAILABLE', -- AVAILABLE, WITHDRAWN, CANCELLED
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_affiliate_withdrawals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      affiliate_id INTEGER NOT NULL,
+      amount_brl REAL NOT NULL,
+      pix_key TEXT NOT NULL,
+      pix_key_type TEXT NOT NULL,
+      status TEXT DEFAULT 'PENDING', -- PENDING, COMPLETED, REJECTED
+      receipt_info TEXT,
+      processed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS saas_retention_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL,
+      week_year TEXT NOT NULL, -- e.g. 2026-W46
+      leads_attended INTEGER DEFAULT 0,
+      orders_count INTEGER DEFAULT 0,
+      orders_amount_brl REAL DEFAULT 0.0,
+      abandoned_carts_recovered INTEGER DEFAULT 0,
+      hours_saved REAL DEFAULT 0.0,
+      estimated_roi_percent REAL DEFAULT 0.0,
+      whatsapp_notified INTEGER DEFAULT 0,
+      whatsapp_notified_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- =========================================================================
     -- 45. NÚCLEO DE INTELIGÊNCIA COGNITIVA & APRENDIZADO COLETIVO MULTI-NICHO
     -- =========================================================================
     CREATE TABLE IF NOT EXISTS intelligence_core_learnings (
@@ -1271,7 +1385,16 @@ function initDatabase() {
     'ALTER TABLE saas_tenants ADD COLUMN onboarding_data TEXT;',
     'ALTER TABLE vision_inspections_log ADD COLUMN e2e_id TEXT;',
     'ALTER TABLE vision_inspections_log ADD COLUMN amount_brl REAL;',
-    'ALTER TABLE vision_inspections_log ADD COLUMN is_replayed INTEGER DEFAULT 0;'
+    'ALTER TABLE vision_inspections_log ADD COLUMN is_replayed INTEGER DEFAULT 0;',
+    'ALTER TABLE saas_tenants ADD COLUMN whitelabel_brand_name TEXT;',
+    'ALTER TABLE saas_tenants ADD COLUMN whitelabel_logo_url TEXT;',
+    'ALTER TABLE saas_tenants ADD COLUMN whitelabel_theme_colors TEXT;',
+    'ALTER TABLE saas_tenants ADD COLUMN monthly_ai_msg_quota INTEGER DEFAULT 10000;',
+    'ALTER TABLE saas_tenants ADD COLUMN monthly_ai_msg_used INTEGER DEFAULT 0;',
+    'ALTER TABLE saas_tenants ADD COLUMN extra_bot_count INTEGER DEFAULT 0;',
+    'ALTER TABLE saas_tenants ADD COLUMN byok_enabled INTEGER DEFAULT 0;',
+    'ALTER TABLE saas_tenants ADD COLUMN affiliate_ref_code TEXT;',
+    'ALTER TABLE web_cart_sessions ADD COLUMN tenant_id INTEGER;'
   ];
 
   for (const m of migrations) {
@@ -1357,7 +1480,13 @@ function initDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_bandit_arms_cat ON bandit_arms(category, active);',
     'CREATE INDEX IF NOT EXISTS idx_swarm_missions_st ON swarm_missions(status, id DESC);',
     'CREATE INDEX IF NOT EXISTS idx_sleep_runs_date ON sleep_cycle_runs(run_date DESC);',
-    'CREATE INDEX IF NOT EXISTS idx_vision_e2e ON vision_inspections_log(e2e_id);'
+    'CREATE INDEX IF NOT EXISTS idx_vision_e2e ON vision_inspections_log(e2e_id);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_sub_orders_st ON saas_subscription_orders(status, created_at);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_sub_orders_code ON saas_subscription_orders(order_code);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_sub_orders_phone ON saas_subscription_orders(customer_phone);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_affiliates_code ON saas_affiliates(affiliate_code);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_aff_comm_aff ON saas_affiliate_commissions(affiliate_id, status);',
+    'CREATE INDEX IF NOT EXISTS idx_saas_retention_tenant ON saas_retention_metrics(tenant_id, week_year);'
   ];
   for (const idxSql of performanceIndexes) {
     try { db.exec(idxSql); } catch (_) {}
